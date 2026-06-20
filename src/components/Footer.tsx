@@ -21,47 +21,84 @@ export function Footer() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    async function fetchFooterData() {
-      try {
-        const [companyInfoRes, appSettingsRes] = await Promise.all([
-          supabase.from('company_info').select('content').eq('type', 'footer_about').maybeSingle(),
-          supabase
-            .from('app_settings')
-            .select('setting_key, setting_value')
-            .in('setting_key', [
-              'company_address',
-              'company_whatsapp',
-              'company_email',
-              'social_instagram',
-              'social_facebook',
-            ]),
-        ])
+    let companyInfoDone = false
+    let appSettingsDone = false
 
-        if (companyInfoRes.data?.content) {
-          setAboutContent(companyInfoRes.data.content)
+    const checkDone = () => {
+      if (companyInfoDone && appSettingsDone) {
+        setLoading(false)
+      }
+    }
+
+    async function fetchCompanyInfo() {
+      try {
+        const { data, error } = await supabase
+          .from('company_info')
+          .select('content')
+          .eq('type', 'footer_about')
+          .maybeSingle()
+
+        if (error) throw error
+
+        if (data?.content) {
+          setAboutContent(data.content)
         } else {
           setAboutContent(
             'Inteligência em Audiovisual PRO. Elevando o padrão das produções audiovisuais com tecnologia de ponta e suporte especializado.',
           )
         }
-
-        if (appSettingsRes.data) {
-          appSettingsRes.data.forEach((setting) => {
-            if (setting.setting_key === 'company_address') setAddress(setting.setting_value)
-            if (setting.setting_key === 'company_whatsapp') setWhatsapp(setting.setting_value)
-            if (setting.setting_key === 'company_email') setEmail(setting.setting_value)
-            if (setting.setting_key === 'social_instagram') setSocialIg(setting.setting_value)
-            if (setting.setting_key === 'social_facebook') setSocialFb(setting.setting_value)
-          })
-        }
       } catch (error) {
-        console.error('Error fetching footer data:', error)
+        console.error('Error fetching company info:', error)
+        setAboutContent(
+          'Inteligência em Audiovisual PRO. Elevando o padrão das produções audiovisuais com tecnologia de ponta e suporte especializado.',
+        )
       } finally {
-        setLoading(false)
+        companyInfoDone = true
+        checkDone()
       }
     }
 
-    fetchFooterData()
+    async function fetchAppSettings() {
+      try {
+        const { data, error } = await supabase
+          .from('app_settings')
+          .select('setting_key, setting_value')
+          .in('setting_key', [
+            'company_name',
+            'company_address',
+            'company_whatsapp',
+            'company_phone',
+            'company_email',
+            'social_instagram',
+            'social_facebook',
+          ])
+
+        if (error) throw error
+
+        if (data) {
+          data.forEach((setting) => {
+            if (setting.setting_key === 'company_address' && setting.setting_value)
+              setAddress(setting.setting_value)
+            if (setting.setting_key === 'company_whatsapp' && setting.setting_value)
+              setWhatsapp(setting.setting_value)
+            if (setting.setting_key === 'company_email' && setting.setting_value)
+              setEmail(setting.setting_value)
+            if (setting.setting_key === 'social_instagram' && setting.setting_value)
+              setSocialIg(setting.setting_value)
+            if (setting.setting_key === 'social_facebook' && setting.setting_value)
+              setSocialFb(setting.setting_value)
+          })
+        }
+      } catch (error) {
+        console.error('Error fetching app settings:', error)
+      } finally {
+        appSettingsDone = true
+        checkDone()
+      }
+    }
+
+    fetchCompanyInfo()
+    fetchAppSettings()
   }, [])
 
   const igLink = socialIg || 'https://www.instagram.com/mywayvideopro/'

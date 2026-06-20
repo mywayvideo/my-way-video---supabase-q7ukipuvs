@@ -9,6 +9,7 @@ import Search from './pages/Search'
 import SearchResults from './pages/SearchResults'
 import Product from './pages/Product'
 import Admin from './pages/Admin'
+import DashboardAdmin from './pages/DashboardAdmin'
 import AdminAIProviders from './pages/AdminAIProviders'
 import AdminProductCache from './pages/AdminProductCache'
 import AdminAISettings from './pages/admin/ai-settings'
@@ -111,6 +112,14 @@ const App = () => {
                     element={
                       <ProtectedRoute>
                         <Admin />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/dashboard-admin"
+                    element={
+                      <ProtectedRoute>
+                        <DashboardAdmin />
                       </ProtectedRoute>
                     }
                   />

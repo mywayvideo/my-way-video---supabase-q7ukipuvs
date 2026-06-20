@@ -55,7 +55,9 @@ export function AdminLayout({
       {navigation.map((item) => {
         const isActive =
           location.pathname === item.href ||
-          (item.href !== '/admin' && location.pathname.startsWith(item.href))
+          (item.href !== '/admin' && location.pathname.startsWith(item.href)) ||
+          (item.href === '/admin' &&
+            (location.pathname === '/dashboard-admin' || location.pathname === '/admin/dashboard'))
         return (
           <Link
             key={item.name}

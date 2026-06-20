@@ -1713,6 +1713,7 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      sync_current_user_profile: { Args: never; Returns: string }
     }
     Enums: {
       [_ in never]: never

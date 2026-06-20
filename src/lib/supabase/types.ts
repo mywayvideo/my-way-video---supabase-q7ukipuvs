@@ -277,7 +277,15 @@ export type Database = {
           quantity?: number
           user_id?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: 'cart_items_product_id_fkey'
+            columns: ['product_id']
+            isOneToOne: false
+            referencedRelation: 'products'
+            referencedColumns: ['id']
+          },
+        ]
       }
       categories: {
         Row: {
@@ -1609,7 +1617,7 @@ export type Database = {
         Insert: {
           created_at?: string | null
           customer_id: string
-          id: string
+          id?: string
           updated_at?: string | null
         }
         Update: {

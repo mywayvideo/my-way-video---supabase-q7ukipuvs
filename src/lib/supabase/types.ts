@@ -1497,7 +1497,15 @@ export type Database = {
           technical_info?: string | null
           weight?: number | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: 'fk_products_manufacturer'
+            columns: ['manufacturer_id']
+            isOneToOne: false
+            referencedRelation: 'manufacturers'
+            referencedColumns: ['id']
+          },
+        ]
       }
       rate_limits: {
         Row: {

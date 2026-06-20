@@ -1671,6 +1671,48 @@ export type Database = {
     Functions: {
       get_current_customer_id: { Args: never; Returns: string }
       is_admin: { Args: never; Returns: boolean }
+      search_products_v2: {
+        Args: { boost_multiplier?: number; search_term: string }
+        Returns: {
+          ai_related_ids: string[] | null
+          category: string | null
+          category_id: string | null
+          created_at: string
+          date_rebate: string | null
+          description: string | null
+          dimensions: string | null
+          fts_vector: unknown
+          id: string
+          image_url: string | null
+          is_discontinued: boolean
+          is_special: boolean
+          manual_related_ids: string[] | null
+          manufacturer_id: string | null
+          name: string
+          ncm: string | null
+          price_brl: number | null
+          price_cost: number | null
+          price_cost_rebate: number | null
+          price_nationalized_cost: number | null
+          price_nationalized_currency: string
+          price_nationalized_sales: number | null
+          price_usa_rebate: number | null
+          price_usd: number | null
+          rejected_related_ids: string[] | null
+          search_text: string | null
+          search_vector: unknown
+          sku: string | null
+          stock: number | null
+          technical_info: string | null
+          weight: number | null
+        }[]
+        SetofOptions: {
+          from: '*'
+          to: 'products'
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
     }
     Enums: {
       [_ in never]: never

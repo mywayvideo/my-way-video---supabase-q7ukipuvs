@@ -233,24 +233,19 @@ export function Footer() {
                   </div>
                 ) : (
                   <>
-                    {address && (
-                      <div className="group flex items-start gap-4">
-                        <div className="mt-1 flex items-center justify-center w-8 h-8 rounded-full bg-white/5 border border-white/10 group-hover:bg-white group-hover:text-black transition-all duration-300 shrink-0">
-                          <MapPin className="w-4 h-4" />
-                        </div>
-                        <span className="leading-relaxed text-zinc-400 group-hover:text-zinc-200 transition-colors duration-300">
-                          {address}
-                        </span>
-                      </div>
-                    )}
                     {whatsapp && (
                       <div className="group flex items-center gap-4">
                         <div className="flex items-center justify-center w-8 h-8 rounded-full bg-white/5 border border-white/10 group-hover:bg-[#25D366] group-hover:text-white group-hover:border-[#25D366] transition-all duration-300 shrink-0">
                           <WhatsAppIcon className="w-4 h-4" />
                         </div>
-                        <span className="text-zinc-400 group-hover:text-zinc-200 transition-colors duration-300">
-                          {whatsapp}
-                        </span>
+                        <div className="flex flex-col">
+                          <span className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold">
+                            WhatsApp
+                          </span>
+                          <span className="text-zinc-400 group-hover:text-zinc-200 transition-colors duration-300">
+                            {whatsapp}
+                          </span>
+                        </div>
                       </div>
                     )}
                     {email && (
@@ -258,9 +253,29 @@ export function Footer() {
                         <div className="flex items-center justify-center w-8 h-8 rounded-full bg-white/5 border border-white/10 group-hover:bg-white group-hover:text-black transition-all duration-300 shrink-0">
                           <Mail className="w-4 h-4" />
                         </div>
-                        <span className="text-zinc-400 group-hover:text-zinc-200 transition-colors duration-300">
-                          {email}
-                        </span>
+                        <div className="flex flex-col">
+                          <span className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold">
+                            Email
+                          </span>
+                          <span className="text-zinc-400 group-hover:text-zinc-200 transition-colors duration-300">
+                            {email}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                    {address && (
+                      <div className="group flex items-start gap-4">
+                        <div className="mt-1 flex items-center justify-center w-8 h-8 rounded-full bg-white/5 border border-white/10 group-hover:bg-white group-hover:text-black transition-all duration-300 shrink-0">
+                          <MapPin className="w-4 h-4" />
+                        </div>
+                        <div className="flex flex-col">
+                          <span className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold mb-1">
+                            Address
+                          </span>
+                          <span className="leading-relaxed text-zinc-400 group-hover:text-zinc-200 transition-colors duration-300 whitespace-pre-line">
+                            {address}
+                          </span>
+                        </div>
                       </div>
                     )}
                     {!address && !whatsapp && !email && (

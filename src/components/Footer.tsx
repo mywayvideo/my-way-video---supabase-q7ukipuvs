@@ -283,42 +283,6 @@ export function Footer() {
                     )}
                   </>
                 )}
-
-                {/* New Dynamic Contact Section matching Image */}
-                {!loading && (address || whatsapp || email) && (
-                  <div className="flex flex-col gap-6 pt-8 mt-2 border-t border-white/5">
-                    {address && (
-                      <div className="flex items-center gap-5">
-                        <div className="flex items-center justify-center w-11 h-11 rounded-full bg-white/[0.03] border border-white/10 shrink-0">
-                          <MapPin className="w-[18px] h-[18px] text-zinc-400" strokeWidth={1.5} />
-                        </div>
-                        <span className="text-[#90A4B7] text-[15px] whitespace-pre-line leading-[1.6] font-normal tracking-wide">
-                          {address}
-                        </span>
-                      </div>
-                    )}
-                    {whatsapp && (
-                      <div className="flex items-center gap-5">
-                        <div className="flex items-center justify-center w-11 h-11 rounded-full bg-white/[0.03] border border-white/10 shrink-0">
-                          <WhatsAppIcon className="w-[18px] h-[18px] text-zinc-400" />
-                        </div>
-                        <span className="text-[#90A4B7] text-[15px] font-normal tracking-wide">
-                          {whatsapp}
-                        </span>
-                      </div>
-                    )}
-                    {email && (
-                      <div className="flex items-center gap-5">
-                        <div className="flex items-center justify-center w-11 h-11 rounded-full bg-white/[0.03] border border-white/10 shrink-0">
-                          <Mail className="w-[18px] h-[18px] text-zinc-400" strokeWidth={1.5} />
-                        </div>
-                        <span className="text-[#90A4B7] text-[15px] font-normal tracking-wide">
-                          {email}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                )}
               </div>
             </div>
           </div>

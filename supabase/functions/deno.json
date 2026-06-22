@@ -11,6 +11,7 @@
     "create-customer": 13,
     "create-discount-coupon": 13,
     "create-payment-intent": 13,
-    "create-paypal-payment-intent": 13
+    "create-paypal-payment-intent": 13,
+    "ai-search": 1
   }
 }

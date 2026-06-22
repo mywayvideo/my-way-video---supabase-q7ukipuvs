@@ -1,16 +1,16 @@
 {
   "_versions": {
-    "apply-discount-coupon": 2,
-    "calculate-price-brl": 2,
-    "calculate-shipping": 2,
-    "call-ai-agent": 2,
-    "cancel-stripe-charge": 2,
-    "change-admin-password": 2,
-    "change-customer-password": 2,
-    "create-customer-public": 2,
-    "create-customer": 2,
-    "create-discount-coupon": 2,
-    "create-payment-intent": 2,
-    "create-paypal-payment-intent": 2
+    "apply-discount-coupon": 13,
+    "calculate-price-brl": 13,
+    "calculate-shipping": 13,
+    "call-ai-agent": 13,
+    "cancel-stripe-charge": 13,
+    "change-admin-password": 13,
+    "change-customer-password": 13,
+    "create-customer-public": 13,
+    "create-customer": 13,
+    "create-discount-coupon": 13,
+    "create-payment-intent": 13,
+    "create-paypal-payment-intent": 13
   }
 }

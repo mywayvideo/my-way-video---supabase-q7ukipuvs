@@ -171,6 +171,16 @@ function DashboardContent() {
     day: 'numeric',
   })
 
+  const handleLogout = async () => {
+    try {
+      const { supabase } = await import('@/lib/supabase/client')
+      await supabase.auth.signOut()
+      window.location.href = '/'
+    } catch (error) {
+      console.error('Error logging out:', error)
+    }
+  }
+
   const handleProfileSave = async (data: any) => {
     try {
       await customerService.updateCustomerData(user.id, data)
@@ -196,6 +206,32 @@ function DashboardContent() {
               Olá, <span className="font-semibold text-primary">{firstName}</span>!
             </p>
           </div>
+        </div>
+
+        <div className="flex items-center self-end md:self-auto">
+          <Button
+            variant="ghost"
+            onClick={handleLogout}
+            className="text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              className="w-5 h-5 mr-2"
+            >
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+              <polyline points="16 17 21 12 16 7"></polyline>
+              <line x1="21" x2="9" y1="12" y2="12"></line>
+            </svg>
+            Sair
+          </Button>
         </div>
       </div>
 

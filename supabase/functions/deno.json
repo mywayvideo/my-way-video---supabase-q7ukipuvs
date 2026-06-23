@@ -13,6 +13,6 @@
     "create-payment-intent": 13,
     "create-paypal-payment-intent": 13,
     "ai-search": 1,
-    "update-exchange-rate": 1
+    "update-exchange-rate": 2
   }
 }

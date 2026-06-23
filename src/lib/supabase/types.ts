@@ -1677,6 +1677,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      execute_ai_search_v3: { Args: { search_term: string }; Returns: Json }
       get_current_customer_id: { Args: never; Returns: string }
       is_admin: { Args: never; Returns: boolean }
       search_products_v2: {

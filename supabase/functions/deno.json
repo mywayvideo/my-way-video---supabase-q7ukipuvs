@@ -5,13 +5,14 @@
     "calculate-shipping": 13,
     "call-ai-agent": 13,
     "cancel-stripe-charge": 13,
-    "change-admin-password": 13,
+    "change-admin-password": 14,
     "change-customer-password": 13,
     "create-customer-public": 13,
     "create-customer": 13,
     "create-discount-coupon": 13,
     "create-payment-intent": 13,
     "create-paypal-payment-intent": 13,
-    "ai-search": 1
+    "ai-search": 1,
+    "update-exchange-rate": 1
   }
 }

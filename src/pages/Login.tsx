@@ -125,7 +125,11 @@ export default function Login() {
           }
           await supabase.auth.signOut()
         } else if (customer && customer.has_migrated !== false) {
-          nav('/dashboard', { replace: true })
+          if (customer.role === 'admin') {
+            nav('/dashboard', { replace: true })
+          } else {
+            nav('/', { replace: true })
+          }
         }
       }
     }
@@ -154,7 +158,7 @@ export default function Login() {
         setLoading(false)
         if (userRole === 'admin') {
           nav('/dashboard', { replace: true })
-        } else if (['customer', 'vip', 'reseller'].includes(userRole)) {
+        } else {
           nav('/', { replace: true })
         }
       } else {

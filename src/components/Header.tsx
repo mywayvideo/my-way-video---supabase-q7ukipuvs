@@ -79,7 +79,7 @@ export function Header() {
         <div className="flex items-center gap-1 sm:gap-2 shrink-0 order-2 md:order-3">
           {isAdmin && (
             <Button variant="ghost" size="icon" asChild>
-              <Link to="/admin/dashboard">
+              <Link to="/dashboard-admin">
                 <Settings className="w-5 h-5" />
               </Link>
             </Button>
@@ -96,7 +96,7 @@ export function Header() {
           </Button>
           {user ? (
             <Button variant="ghost" size="icon" className="rounded-full overflow-hidden" asChild>
-              <Link to={isAdmin ? '/dashboard-admin' : '/dashboard'}>
+              <Link to="/dashboard">
                 {customerInfo?.profile_photo_url ? (
                   <img
                     src={customerInfo.profile_photo_url}

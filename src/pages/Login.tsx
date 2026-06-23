@@ -126,7 +126,7 @@ export default function Login() {
           await supabase.auth.signOut()
         } else if (customer && customer.has_migrated !== false) {
           if (customer.role === 'admin') {
-            nav('/admin/dashboard', { replace: true })
+            nav('/dashboard-admin', { replace: true })
           } else {
             nav('/dashboard', { replace: true })
           }
@@ -157,7 +157,7 @@ export default function Login() {
         setIsLoadingUserData(false)
         setLoading(false)
         if (userRole === 'admin') {
-          nav('/admin/dashboard', { replace: true })
+          nav('/dashboard-admin', { replace: true })
         } else if (['customer', 'vip', 'reseller'].includes(userRole)) {
           nav('/', { replace: true })
         }
@@ -248,7 +248,7 @@ export default function Login() {
             .maybeSingle()
 
           if (customer) {
-            const targetPath = customer.role === 'admin' ? '/admin/dashboard' : '/dashboard'
+            const targetPath = customer.role === 'admin' ? '/dashboard-admin' : '/dashboard'
             nav(targetPath, { replace: true })
             return
           }
@@ -502,7 +502,7 @@ export default function Login() {
                   </div>
                   <Button
                     type="submit"
-                    disabled={loading || isLoadingUserData}
+                    disabled={loading || isLoadingUserData || !captchaL}
                     className="w-full bg-[#FF6600] hover:bg-[#FF6600]/90 text-white h-11 rounded-xl"
                   >
                     {loading || isLoadingUserData ? (

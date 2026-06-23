@@ -7,7 +7,7 @@
     "cancel-stripe-charge": 14,
     "change-admin-password": 15,
     "change-customer-password": 14,
-    "create-customer-public": 14,
+    "create-customer-public": 15,
     "create-customer": 14,
     "create-discount-coupon": 14,
     "create-payment-intent": 14,

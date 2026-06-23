@@ -24,7 +24,7 @@ Deno.serve(async (req: Request) => {
       )
     }
 
-    const hcaptchaSecret = Deno.env.get('HCAPTCHA_SECRET_KEY')
+    const hcaptchaSecret = Deno.env.get('HCAPTCHA_SECRET') || Deno.env.get('HCAPTCHA_SECRET_KEY')
     if (!hcaptchaSecret) {
       return new Response(JSON.stringify({ error: 'Erro na configuracao do servidor.' }), {
         status: 500,
@@ -37,7 +37,10 @@ Deno.serve(async (req: Request) => {
     params.append('secret', hcaptchaSecret)
     params.append('response', hcaptchaToken)
     if (clientIp) {
-      params.append('remoteip', clientIp)
+      const ip = clientIp.split(',')[0].trim()
+      if (ip) {
+        params.append('remoteip', ip)
+      }
     }
 
     const hcaptchaRes = await fetch('https://api.hcaptcha.com/siteverify', {
@@ -48,8 +51,12 @@ Deno.serve(async (req: Request) => {
 
     const hcaptchaData = await hcaptchaRes.json()
     if (!hcaptchaData.success) {
+      console.error('hCaptcha verification failed:', hcaptchaData['error-codes'] || hcaptchaData)
       return new Response(
-        JSON.stringify({ error: 'Verificacao de humano falhou. Tente novamente.' }),
+        JSON.stringify({
+          error: 'Verificacao de humano falhou. Tente novamente.',
+          details: hcaptchaData['error-codes'],
+        }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
       )
     }
@@ -93,6 +100,7 @@ Deno.serve(async (req: Request) => {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
   } catch (err: any) {
+    console.error('Error creating customer:', err)
     return new Response(JSON.stringify({ error: 'Não foi possível criar conta.' }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

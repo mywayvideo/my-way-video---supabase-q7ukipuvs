@@ -125,11 +125,7 @@ export default function Login() {
           }
           await supabase.auth.signOut()
         } else if (customer && customer.has_migrated !== false) {
-          if (customer.role === 'admin') {
-            nav('/dashboard-admin', { replace: true })
-          } else {
-            nav('/dashboard', { replace: true })
-          }
+          nav('/dashboard', { replace: true })
         }
       }
     }
@@ -157,7 +153,7 @@ export default function Login() {
         setIsLoadingUserData(false)
         setLoading(false)
         if (userRole === 'admin') {
-          nav('/dashboard-admin', { replace: true })
+          nav('/dashboard', { replace: true })
         } else if (['customer', 'vip', 'reseller'].includes(userRole)) {
           nav('/', { replace: true })
         }
@@ -248,8 +244,7 @@ export default function Login() {
             .maybeSingle()
 
           if (customer) {
-            const targetPath = customer.role === 'admin' ? '/dashboard-admin' : '/dashboard'
-            nav(targetPath, { replace: true })
+            nav('/dashboard', { replace: true })
             return
           }
         }

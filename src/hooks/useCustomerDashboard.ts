@@ -58,7 +58,7 @@ export function useCustomerDashboard() {
     } finally {
       setLoading(false)
     }
-  }, [authUser, authLoading, navigate])
+  }, [authUser?.id, authLoading, navigate])
 
   useEffect(() => {
     loadData()

@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button'
 import { AlertCircle, ArrowLeft, Loader2 } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { toast } from 'sonner'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { useUserRole } from '@/hooks/use-user-role'
 import { supabase } from '@/lib/supabase/client'
 
@@ -49,16 +49,7 @@ class DashboardErrorBoundary extends React.Component<
 }
 
 function DashboardContent() {
-  const { role, loading: roleLoading, error: roleError } = useUserRole()
-  const navigate = useNavigate()
-
-  useEffect(() => {
-    if (!roleLoading && role) {
-      if (role === 'admin' || role === 'collaborator') {
-        navigate('/dashboard-admin', { replace: true })
-      }
-    }
-  }, [role, roleLoading, navigate])
+  const { loading: roleLoading, error: roleError } = useUserRole()
 
   const {
     user,
@@ -98,10 +89,6 @@ function DashboardContent() {
         <Button onClick={() => window.location.reload()}>Tentar Novamente</Button>
       </div>
     )
-  }
-
-  if (role === 'admin' || role === 'collaborator') {
-    return null
   }
 
   if (loading && !user) {

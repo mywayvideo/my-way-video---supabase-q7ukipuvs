@@ -279,7 +279,24 @@ export default function Login() {
           hcaptchaToken: captchaR,
         },
       })
-      if (fnErr || data?.error) throw new Error(data?.error || 'Erro ao criar conta.')
+
+      const status = fnErr?.status || (fnErr as any)?.context?.status || data?.status
+      if (status === 409) {
+        throw new Error('Erro ao criar conta - usuário já cadastrado.')
+      }
+
+      if (fnErr || data?.error) {
+        const errorMsg = typeof data?.error === 'string' ? data.error : fnErr?.message
+        if (
+          errorMsg?.toLowerCase().includes('já cadastrado') ||
+          errorMsg?.toLowerCase().includes('already registered') ||
+          errorMsg?.toLowerCase().includes('already exists')
+        ) {
+          throw new Error('Erro ao criar conta - usuário já cadastrado.')
+        }
+        throw new Error(errorMsg || 'Erro ao criar conta.')
+      }
+
       toast({ title: 'Conta criada com sucesso!', description: 'Você pode fazer login agora.' })
       setTab('login')
       setEmail(rEmail)
@@ -287,7 +304,12 @@ export default function Login() {
       setRPwdC('')
       setRTerms(false)
     } catch (err: any) {
-      setError(err.message || 'Erro ao criar conta.')
+      const status = err?.status || err?.context?.status
+      if (status === 409) {
+        setError('Erro ao criar conta - usuário já cadastrado.')
+      } else {
+        setError(err.message || 'Erro ao criar conta.')
+      }
       captchaRefR.current?.resetCaptcha()
       setCaptchaR(null)
     }

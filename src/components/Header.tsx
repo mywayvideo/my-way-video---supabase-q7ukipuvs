@@ -96,7 +96,7 @@ export function Header() {
           </Button>
           {user ? (
             <Button variant="ghost" size="icon" className="rounded-full overflow-hidden" asChild>
-              <Link to="/dashboard">
+              <Link to={isAdmin ? '/dashboard-admin' : '/dashboard'}>
                 {customerInfo?.profile_photo_url ? (
                   <img
                     src={customerInfo.profile_photo_url}

@@ -12,7 +12,7 @@ import HCaptcha from '@hcaptcha/react-hcaptcha'
 import { Mail, Lock, Eye, EyeOff, Loader2, User, Phone, Building2 } from 'lucide-react'
 import logoImg from '../assets/mw_logo_horiz_1200x318_fundo_escuro-037e3.png'
 
-const siteKey = import.meta.env.VITE_HCAPTCHA_SITE_KEY
+const siteKey = import.meta.env.VITE_HCAPTCHA_SITE_KEY || '896c88d8-9782-485a-9d94-2d6eceae30ba'
 
 const Field = ({ id, icon: Icon, right, disabled, ...p }: any) => (
   <div className="relative">
@@ -58,6 +58,18 @@ export default function Login() {
   const authContext = useAuthContext() as any
   const { signIn, userRole, userMetadata } = authContext
   const { toast } = useToast()
+
+  useEffect(() => {
+    const scriptId = 'hcaptcha-api-script'
+    if (!document.getElementById(scriptId)) {
+      const script = document.createElement('script')
+      script.id = scriptId
+      script.src = 'https://js.hcaptcha.com/1/api.js'
+      script.async = true
+      script.defer = true
+      document.head.appendChild(script)
+    }
+  }, [])
 
   useEffect(() => {
     const searchParams = new URLSearchParams(location.search)
@@ -166,7 +178,7 @@ export default function Login() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
-    // if (!captchaL) return setError('Falha na verificacao. Tente novamente.')
+    if (!captchaL) return setError('Falha na verificacao. Tente novamente.')
     setFlowMode('loading')
     setError(null)
     setLoading(true)
@@ -178,6 +190,9 @@ export default function Login() {
       const res = await supabase.auth.signInWithPassword({
         email: normalizedEmail,
         password,
+        options: {
+          captchaToken: captchaL,
+        },
       })
 
       if (res.error) {
@@ -468,7 +483,6 @@ export default function Login() {
                       Esqueci minha senha
                     </Link>
                   </div>
-                  {/* HCaptcha temporariamente desabilitado para testes no Login
                   <div
                     className={`flex justify-center overflow-hidden rounded-lg ${loading || isLoadingUserData ? 'pointer-events-none opacity-50' : ''}`}
                   >
@@ -486,7 +500,6 @@ export default function Login() {
                       />
                     )}
                   </div>
-                  */}
                   <Button
                     type="submit"
                     disabled={loading || isLoadingUserData}

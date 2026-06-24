@@ -686,7 +686,15 @@ export type Database = {
           discount_rule_id?: string
           id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: 'discount_rule_customers_discount_rule_id_fkey'
+            columns: ['discount_rule_id']
+            isOneToOne: false
+            referencedRelation: 'discount_rules'
+            referencedColumns: ['id']
+          },
+        ]
       }
       discount_rule_exclusions: {
         Row: {

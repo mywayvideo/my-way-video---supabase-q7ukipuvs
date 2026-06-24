@@ -102,34 +102,18 @@ export default function Login() {
         await supabase.rpc('sync_current_user_profile')
         const { data: customer } = await supabase
           .from('customers')
-          .select('has_migrated, role, email')
+          .select('role')
           .eq('user_id', session.user.id)
           .maybeSingle()
 
-        if (customer && customer.has_migrated === false) {
-          const emailToCheck = customer.email || session.user.email
-          if (emailToCheck) {
-            const { data: legacyDataResponse } = (await supabase.rpc('check_legacy_user', {
-              email_input: emailToCheck.toLowerCase().trim(),
-            } as any)) as any
-
-            const legacyUser =
-              legacyDataResponse && legacyDataResponse.length > 0 ? legacyDataResponse[0] : null
-
-            if (legacyUser && legacyUser.found && !legacyUser.has_migrated) {
-              setLegacyData(legacyUser)
-              setEmail(emailToCheck)
-              setFlowMode('migrate')
-              return
-            }
-          }
-          await supabase.auth.signOut()
-        } else if (customer && customer.has_migrated !== false) {
+        if (customer) {
           if (customer.role === 'admin') {
             nav('/dashboard', { replace: true })
           } else {
             nav('/', { replace: true })
           }
+        } else {
+          nav('/', { replace: true })
         }
       }
     }
@@ -243,7 +227,7 @@ export default function Login() {
         if (session) {
           const { data: customer } = await supabase
             .from('customers')
-            .select('has_migrated, role')
+            .select('role')
             .eq('user_id', session.user.id)
             .maybeSingle()
 

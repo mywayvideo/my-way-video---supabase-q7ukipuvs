@@ -42,11 +42,20 @@ export function Header() {
     }
 
     fetchUserData()
+
+    const handleProfileUpdated = () => {
+      fetchUserData()
+    }
+
+    window.addEventListener('profile-updated', handleProfileUpdated)
+    return () => window.removeEventListener('profile-updated', handleProfileUpdated)
   }, [user])
 
   const getInitials = (name: string) => {
+    if (!name) return 'U'
     return name
       .split(' ')
+      .filter((n) => n.length > 0)
       .map((n) => n[0])
       .join('')
       .substring(0, 2)

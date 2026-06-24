@@ -174,13 +174,14 @@ export function PersonalInfoTab({
       const { error } = await supabase.from('customers').update(data).eq('user_id', user.id)
       if (error) throw error
       setLocalCustomer((prev: any) => (prev ? { ...prev, ...data } : null))
+      window.dispatchEvent(new Event('profile-updated'))
       toast.success('Perfil atualizado com sucesso!')
     } catch (err) {
       toast.error('Erro ao atualizar perfil.')
     }
   }
 
-  const customer = propCustomer !== undefined ? propCustomer : localCustomer
+  const customer = propCustomer || localCustomer
   const onSave = propOnSave || updateProfile
 
   const [localIsEditing, setLocalIsEditing] = useState(false)

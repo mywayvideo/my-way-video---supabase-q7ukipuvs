@@ -3,6 +3,7 @@ import { Customer } from '@/types/customer'
 import { customerService } from '@/services/customerService'
 import { toast } from 'sonner'
 import { ERROR_MESSAGES } from '@/constants/customer'
+import { supabase } from '@/lib/supabase/client'
 
 type State = 'LOADING' | 'IDLE' | 'ERROR' | 'EDIT' | 'SUCCESS' | 'EMPTY'
 
@@ -14,7 +15,17 @@ export function useCustomerProfile() {
   const fetchProfile = useCallback(async () => {
     setState('LOADING')
     try {
-      const data = await customerService.getProfile()
+      let data = await customerService.getProfile()
+
+      if (!data) {
+        try {
+          await supabase.rpc('sync_current_user_profile')
+          data = await customerService.getProfile()
+        } catch (syncErr) {
+          console.error('Error syncing profile:', syncErr)
+        }
+      }
+
       if (!data) {
         setState('EMPTY')
         setErrorMsg('Nenhum dado encontrado.')
@@ -32,6 +43,17 @@ export function useCustomerProfile() {
       }
 
       if (err.code === 'PGRST116') {
+        try {
+          await supabase.rpc('sync_current_user_profile')
+          const data = await customerService.getProfile()
+          if (data) {
+            setCustomer(data)
+            setState('IDLE')
+            return
+          }
+        } catch (syncErr) {
+          console.error('Error syncing profile after PGRST116:', syncErr)
+        }
         setState('EMPTY')
         setErrorMsg('Nenhum dado encontrado.')
       } else if (err.code === '403') {
@@ -56,6 +78,8 @@ export function useCustomerProfile() {
 
       await customerService.updateProfile(customer.id, updates)
       await fetchProfile()
+
+      window.dispatchEvent(new Event('profile-updated'))
 
       setState('SUCCESS')
       toast.success('Perfil atualizado com sucesso!')

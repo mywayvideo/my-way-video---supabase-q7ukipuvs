@@ -248,7 +248,11 @@ export default function Login() {
             .maybeSingle()
 
           if (customer) {
-            nav('/dashboard', { replace: true })
+            if (customer.role === 'admin') {
+              nav('/dashboard', { replace: true })
+            } else {
+              nav('/', { replace: true })
+            }
             return
           }
         }

@@ -39,8 +39,8 @@ const formSchema = z.object({
 
   // ai_agent_settings
   whatsapp_trigger_low_confidence: z.boolean(),
-  whatsapp_trigger_purchase_keywords: z.boolean(),
-  whatsapp_trigger_project_keywords: z.boolean(),
+  whatsapp_trigger_purchase_keywords: z.string().optional(),
+  whatsapp_trigger_project_keywords: z.string().optional(),
   whatsapp_trigger_expensive_product: z.boolean(),
   whatsapp_trigger_keywords: z.string().optional(),
   system_prompt: z.string().optional(),
@@ -51,17 +51,17 @@ const formSchema = z.object({
   intent_mapping: z
     .array(
       z.object({
-        trigger: z.string().min(1, 'Campo obrigatório'),
-        expansion: z.string().min(1, 'Campo obrigatório'),
+        trigger: z.string().optional(),
+        expansion: z.string().optional(),
       }),
     )
     .default([]),
   technical_bridge: z
     .array(
       z.object({
-        source: z.string().min(1, 'Campo obrigatório'),
-        target: z.string().min(1, 'Campo obrigatório'),
-        bridge: z.string().min(1, 'Campo obrigatório'),
+        source: z.string().optional(),
+        target: z.string().optional(),
+        bridge: z.string().optional(),
       }),
     )
     .default([]),
@@ -96,8 +96,8 @@ export default function AdminAISettings() {
       logistics_rules_prompt: '',
       system_prompt_template: '',
       whatsapp_trigger_low_confidence: true,
-      whatsapp_trigger_purchase_keywords: true,
-      whatsapp_trigger_project_keywords: true,
+      whatsapp_trigger_purchase_keywords: 'comprar, orçamento, preço',
+      whatsapp_trigger_project_keywords: 'projeto, instalação, consultoria',
       whatsapp_trigger_expensive_product: true,
       whatsapp_trigger_keywords: 'comprar, orçamento, quanto custa, disponível, preço',
       system_prompt: '',
@@ -189,9 +189,15 @@ export default function AdminAISettings() {
           whatsapp_trigger_low_confidence:
             aiAgentSettingsData?.whatsapp_trigger_low_confidence ?? true,
           whatsapp_trigger_purchase_keywords:
-            aiAgentSettingsData?.whatsapp_trigger_purchase_keywords ?? true,
+            Array.isArray(aiAgentSettingsData?.whatsapp_trigger_purchase_keywords) &&
+            typeof aiAgentSettingsData?.whatsapp_trigger_purchase_keywords[0] === 'string'
+              ? aiAgentSettingsData.whatsapp_trigger_purchase_keywords.join(', ')
+              : 'comprar, orçamento, preço',
           whatsapp_trigger_project_keywords:
-            aiAgentSettingsData?.whatsapp_trigger_project_keywords ?? true,
+            Array.isArray(aiAgentSettingsData?.whatsapp_trigger_project_keywords) &&
+            typeof aiAgentSettingsData?.whatsapp_trigger_project_keywords[0] === 'string'
+              ? aiAgentSettingsData.whatsapp_trigger_project_keywords.join(', ')
+              : 'projeto, instalação, consultoria',
           whatsapp_trigger_expensive_product:
             aiAgentSettingsData?.whatsapp_trigger_expensive_product ?? true,
           whatsapp_trigger_keywords:
@@ -213,7 +219,9 @@ export default function AdminAISettings() {
           technical_bridge: Array.isArray(aiSettingsData?.technical_bridge)
             ? aiSettingsData.technical_bridge
             : [],
-          custom_stop_words: aiSettingsData?.custom_stop_words || '',
+          custom_stop_words: Array.isArray(aiSettingsData?.custom_stop_words)
+            ? aiSettingsData.custom_stop_words.join(', ')
+            : aiSettingsData?.custom_stop_words || '',
           proactivity_level: aiAgentSettingsData?.proactivity_level ?? 5,
           product_page_prompt: aiSettingsData?.product_page_prompt || '',
           transparency_note: transparencyData?.value || '',
@@ -251,6 +259,35 @@ export default function AdminAISettings() {
             .filter((k) => k)
         : []
 
+      const purchaseKeywordsArray = values.whatsapp_trigger_purchase_keywords
+        ? values.whatsapp_trigger_purchase_keywords
+            .split(',')
+            .map((k) => k.trim())
+            .filter((k) => k)
+        : []
+
+      const projectKeywordsArray = values.whatsapp_trigger_project_keywords
+        ? values.whatsapp_trigger_project_keywords
+            .split(',')
+            .map((k) => k.trim())
+            .filter((k) => k)
+        : []
+
+      const customStopWordsArray = values.custom_stop_words
+        ? values.custom_stop_words
+            .split(',')
+            .map((k) => k.trim())
+            .filter((k) => k)
+        : []
+
+      const cleanedIntentMapping = values.intent_mapping.filter(
+        (item) => item.trigger?.trim() || item.expansion?.trim(),
+      )
+
+      const cleanedTechnicalBridge = values.technical_bridge.filter(
+        (item) => item.source?.trim() || item.target?.trim() || item.bridge?.trim(),
+      )
+
       const aiSettingsPayload: any = {
         cache_expiration_days: values.cache_expiration_days,
         price_threshold_usd: values.price_threshold_usd,
@@ -259,17 +296,17 @@ export default function AdminAISettings() {
         ignore_stock_count: values.ignore_stock_count,
         logistics_rules_prompt: values.logistics_rules_prompt,
         system_prompt_template: values.system_prompt_template,
-        intent_mapping: values.intent_mapping,
-        technical_bridge: values.technical_bridge,
-        custom_stop_words: values.custom_stop_words,
+        intent_mapping: cleanedIntentMapping,
+        technical_bridge: cleanedTechnicalBridge,
+        custom_stop_words: customStopWordsArray,
         product_page_prompt: values.product_page_prompt,
         updated_at: new Date().toISOString(),
       }
 
       const aiAgentSettingsPayload: any = {
         whatsapp_trigger_low_confidence: values.whatsapp_trigger_low_confidence,
-        whatsapp_trigger_purchase_keywords: values.whatsapp_trigger_purchase_keywords,
-        whatsapp_trigger_project_keywords: values.whatsapp_trigger_project_keywords,
+        whatsapp_trigger_purchase_keywords: purchaseKeywordsArray,
+        whatsapp_trigger_project_keywords: projectKeywordsArray,
         whatsapp_trigger_expensive_product: values.whatsapp_trigger_expensive_product,
         whatsapp_trigger_keywords: keywordsArray,
         system_prompt: values.system_prompt || '',
@@ -332,6 +369,15 @@ export default function AdminAISettings() {
     }
   }
 
+  const onError = (errors: any) => {
+    console.error('Erros de validação:', errors)
+    toast({
+      title: 'Erro de validação',
+      description: 'Verifique os campos do formulário e tente novamente.',
+      variant: 'destructive',
+    })
+  }
+
   if (isLoading) {
     return (
       <div className="container mx-auto py-8 max-w-4xl space-y-8">
@@ -360,7 +406,7 @@ export default function AdminAISettings() {
             Secional)
           </p>
         </div>
-        <Button onClick={form.handleSubmit(onSubmit)} disabled={isSaving}>
+        <Button onClick={form.handleSubmit(onSubmit, onError)} disabled={isSaving}>
           {isSaving ? (
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
           ) : (
@@ -371,7 +417,7 @@ export default function AdminAISettings() {
       </div>
 
       <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
+        <form onSubmit={form.handleSubmit(onSubmit, onError)} className="space-y-8">
           {/* Seção A & B */}
           <Card>
             <CardHeader>
@@ -473,40 +519,6 @@ export default function AdminAISettings() {
                 />
                 <FormField
                   control={form.control}
-                  name="whatsapp_trigger_purchase_keywords"
-                  render={({ field }) => (
-                    <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-                      <div className="space-y-0.5">
-                        <FormLabel className="text-base">Intenção de Compra</FormLabel>
-                        <FormDescription>
-                          Acionar especialista em palavras de compra
-                        </FormDescription>
-                      </div>
-                      <FormControl>
-                        <Switch checked={field.value} onCheckedChange={field.onChange} />
-                      </FormControl>
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="whatsapp_trigger_project_keywords"
-                  render={({ field }) => (
-                    <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-                      <div className="space-y-0.5">
-                        <FormLabel className="text-base">Projetos Complexos</FormLabel>
-                        <FormDescription>
-                          Acionar especialista para palavras de projeto
-                        </FormDescription>
-                      </div>
-                      <FormControl>
-                        <Switch checked={field.value} onCheckedChange={field.onChange} />
-                      </FormControl>
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
                   name="whatsapp_trigger_expensive_product"
                   render={({ field }) => (
                     <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
@@ -524,19 +536,52 @@ export default function AdminAISettings() {
                 />
               </div>
 
-              <FormField
-                control={form.control}
-                name="whatsapp_trigger_keywords"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Palavras-chave de Acionamento (separadas por vírgula)</FormLabel>
-                    <FormControl>
-                      <Input {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+                <FormField
+                  control={form.control}
+                  name="whatsapp_trigger_purchase_keywords"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Palavras de Intenção de Compra (separadas por vírgula)</FormLabel>
+                      <FormControl>
+                        <Input {...field} placeholder="Ex: comprar, orçamento" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="whatsapp_trigger_project_keywords"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Palavras de Projetos Complexos (separadas por vírgula)</FormLabel>
+                      <FormControl>
+                        <Input {...field} placeholder="Ex: projeto, instalação" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              <div className="mt-4">
+                <FormField
+                  control={form.control}
+                  name="whatsapp_trigger_keywords"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>
+                        Outras Palavras-chave de Acionamento (separadas por vírgula)
+                      </FormLabel>
+                      <FormControl>
+                        <Input {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <FormField
@@ -752,7 +797,11 @@ export default function AdminAISettings() {
                           <FormItem className="flex-1">
                             <FormLabel className="sr-only">Termo Gatilho</FormLabel>
                             <FormControl>
-                              <Input {...field} placeholder="Termo Gatilho (ex: Produção)" />
+                              <Input
+                                {...field}
+                                value={field.value || ''}
+                                placeholder="Termo Gatilho (ex: Produção)"
+                              />
                             </FormControl>
                             <FormMessage />
                           </FormItem>
@@ -767,6 +816,7 @@ export default function AdminAISettings() {
                             <FormControl>
                               <Input
                                 {...field}
+                                value={field.value || ''}
                                 placeholder="Palavras de Expansão (ex: Câmera, Lente, Tripé)"
                               />
                             </FormControl>
@@ -832,7 +882,11 @@ export default function AdminAISettings() {
                           <FormItem className="flex-1">
                             <FormLabel className="sr-only">Protocolo Origem</FormLabel>
                             <FormControl>
-                              <Input {...field} placeholder="Origem (ex: HDMI)" />
+                              <Input
+                                {...field}
+                                value={field.value || ''}
+                                placeholder="Origem (ex: HDMI)"
+                              />
                             </FormControl>
                             <FormMessage />
                           </FormItem>
@@ -845,7 +899,11 @@ export default function AdminAISettings() {
                           <FormItem className="flex-1">
                             <FormLabel className="sr-only">Protocolo Destino</FormLabel>
                             <FormControl>
-                              <Input {...field} placeholder="Destino (ex: SDI)" />
+                              <Input
+                                {...field}
+                                value={field.value || ''}
+                                placeholder="Destino (ex: SDI)"
+                              />
                             </FormControl>
                             <FormMessage />
                           </FormItem>
@@ -860,6 +918,7 @@ export default function AdminAISettings() {
                             <FormControl>
                               <Input
                                 {...field}
+                                value={field.value || ''}
                                 placeholder="Ponte (ex: Micro Converter BiDirectional)"
                               />
                             </FormControl>
@@ -1012,7 +1071,7 @@ export default function AdminAISettings() {
           </Card>
 
           <div className="flex justify-end">
-            <Button size="lg" onClick={form.handleSubmit(onSubmit)} disabled={isSaving}>
+            <Button size="lg" onClick={form.handleSubmit(onSubmit, onError)} disabled={isSaving}>
               {isSaving ? (
                 <Loader2 className="mr-2 h-5 w-5 animate-spin" />
               ) : (

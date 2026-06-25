@@ -12,6 +12,7 @@ import {
   Tag,
   Settings,
   Sparkles,
+  Search,
 } from 'lucide-react'
 
 export default function Admin() {
@@ -75,6 +76,12 @@ export default function Admin() {
       description: 'Alimente a IA com atualizações e novidades de mercado',
       icon: Sparkles,
       href: '/admin/nab-hub',
+    },
+    {
+      title: 'Testador de Busca',
+      description: 'Teste o algoritmo de busca do banco de dados',
+      icon: Search,
+      href: '/admin/search-test',
     },
   ]
 

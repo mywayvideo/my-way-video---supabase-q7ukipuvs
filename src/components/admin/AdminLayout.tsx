@@ -17,6 +17,7 @@ import {
   Sparkles,
   Database,
   BookOpen,
+  Search,
 } from 'lucide-react'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { useAuthContext } from '@/contexts/AuthContext'
@@ -29,6 +30,7 @@ const navigation = [
   { name: 'Gerenciar Clientes', href: '/admin/customers', icon: Users },
   { name: 'Métricas e Relatórios', href: '/admin/metrics', icon: BarChart3 },
   { name: 'IA & Inteligência Artificial', href: '/admin/ai', icon: Brain },
+  { name: 'Testador de Busca', href: '/admin/search-test', icon: Search },
   { name: 'Catálogo & Produtos', href: '/admin/catalog', icon: Package },
   { name: 'Cache de Produtos', href: '/admin/product-cache', icon: Database },
   { name: 'Dicionário AVPRO', href: '/admin/avpro-keywords', icon: BookOpen },

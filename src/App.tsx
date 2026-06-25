@@ -21,6 +21,7 @@ import AdminPricingPage from './pages/admin/AdminPricingPage'
 import NewProductPage from './pages/admin/NewProductPage'
 import SettingsPage from './pages/admin/SettingsPage'
 import ShippingConfigPage from './pages/admin/ShippingConfigPage'
+import AdminSearchTestPage from './pages/admin/AdminSearchTestPage'
 import Dashboard from './pages/Dashboard'
 import AdminDiscountsPage from './pages/admin/AdminDiscountsPage'
 import AdminCustomersPage from './pages/admin/AdminCustomersPage'
@@ -112,6 +113,14 @@ const App = () => {
                     element={
                       <ProtectedRoute>
                         <Admin />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/admin/search-test"
+                    element={
+                      <ProtectedRoute>
+                        <AdminSearchTestPage />
                       </ProtectedRoute>
                     }
                   />

@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react'
-import { ResponseFormatter as BaseResponseFormatter } from '@/components/AI/ResponseFormatter'
+import { AIResponse } from './AIResponse'
 
 interface ResponseFormatterProps {
   message?: string
@@ -44,13 +44,18 @@ export function ResponseFormatter(props: ResponseFormatterProps) {
   }, [referenced_internal_products, stock, textContent])
 
   return (
-    <BaseResponseFormatter
-      {...rest}
-      message={textContent}
-      content={textContent}
-      stock={visibleProducts}
-      referenced_internal_products={referenced_internal_products}
-      products={visibleProducts}
+    <AIResponse
+      message={{
+        text: textContent,
+        content: textContent,
+        referenced_internal_products,
+        ...rest,
+      }}
+      search_results={{
+        stock: visibleProducts,
+        referenced_internal_products,
+        ...rest,
+      }}
     />
   )
 }

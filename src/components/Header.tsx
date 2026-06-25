@@ -14,6 +14,7 @@ export function Header() {
     full_name: string | null
     profile_photo_url: string | null
   } | null>(null)
+  const [imageHash, setImageHash] = useState(Date.now())
 
   useEffect(() => {
     async function fetchUserData() {
@@ -45,6 +46,7 @@ export function Header() {
 
     const handleProfileUpdated = () => {
       fetchUserData()
+      setImageHash(Date.now())
     }
 
     window.addEventListener('profile-updated', handleProfileUpdated)
@@ -108,7 +110,7 @@ export function Header() {
               <Link to="/dashboard">
                 {customerInfo?.profile_photo_url ? (
                   <img
-                    src={customerInfo.profile_photo_url}
+                    src={`${customerInfo.profile_photo_url}?t=${imageHash}`}
                     alt="Profile"
                     className="w-full h-full object-cover"
                   />

@@ -94,6 +94,15 @@ export function PersonalInfoTab({
   const [profileLoading, setProfileLoading] = useState(true)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [retried, setRetried] = useState(false)
+  const [imageHash, setImageHash] = useState(Date.now())
+
+  useEffect(() => {
+    const handleProfileUpdated = () => {
+      setImageHash(Date.now())
+    }
+    window.addEventListener('profile-updated', handleProfileUpdated)
+    return () => window.removeEventListener('profile-updated', handleProfileUpdated)
+  }, [])
 
   const fetchProfile = async () => {
     if (!user) return
@@ -372,7 +381,7 @@ export function PersonalInfoTab({
           <div className="w-20 h-20 rounded-full bg-secondary flex items-center justify-center overflow-hidden border shrink-0">
             {customer.profile_photo_url ? (
               <img
-                src={customer.profile_photo_url}
+                src={`${customer.profile_photo_url}?t=${imageHash}`}
                 alt="Profile"
                 className="w-full h-full object-cover"
               />
@@ -459,7 +468,7 @@ export function PersonalInfoTab({
         <div className="flex flex-col items-center justify-center gap-2">
           {customer.profile_photo_url ? (
             <img
-              src={customer.profile_photo_url}
+              src={`${customer.profile_photo_url}?t=${imageHash}`}
               alt="Profile"
               className="rounded-lg max-w-xs mt-4 object-cover"
             />

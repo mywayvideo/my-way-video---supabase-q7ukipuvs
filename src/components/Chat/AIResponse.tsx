@@ -39,8 +39,15 @@ export function getMentionedProducts(text: string, stock: Product[], referencedI
 
   const uniqueStock = Array.from(new Map(stock.map((p) => [p.id, p])).values())
   const validRefs = (referencedIds || []).filter((ref) => typeof ref === 'string')
+  const lowerText = (text || '').toLowerCase()
 
-  return uniqueStock.filter((product) => validRefs.includes(product.id))
+  return uniqueStock.filter((product) => {
+    const isReferenced = validRefs.includes(product.id)
+    const nameMatch = product.name && lowerText.includes(product.name.toLowerCase())
+    const skuMatch = product.sku && lowerText.includes(product.sku.toLowerCase())
+    const modelMatch = product.model && lowerText.includes(product.model.toLowerCase())
+    return isReferenced || nameMatch || skuMatch || modelMatch
+  })
 }
 
 export function AIResponse({ message, search_results }: AIResponseProps) {
@@ -59,7 +66,16 @@ export function AIResponse({ message, search_results }: AIResponseProps) {
     <div className="flex flex-col space-y-4">
       <div className="max-h-96 overflow-y-auto overflow-x-auto px-10 py-8 border rounded-xl bg-muted/5 mb-6 custom-scrollbar">
         <div className="max-w-4xl mx-auto">
-          <ReactMarkdown className="prose prose-base dark:prose-invert max-w-none whitespace-normal prose-table:w-full prose-table:table-fixed prose-table:border-collapse prose-table:my-6 prose-th:border prose-th:bg-muted/50 prose-th:p-4 prose-th:text-left prose-th:font-bold prose-td:border prose-td:p-4 prose-td:align-top prose-tr:even:bg-muted/10 prose-p:leading-relaxed prose-li:my-2">
+          <ReactMarkdown
+            className="prose prose-base dark:prose-invert max-w-none whitespace-normal prose-table:w-full prose-table:table-fixed prose-table:border-collapse prose-table:my-6 prose-th:border prose-th:bg-muted/50 prose-th:p-4 prose-th:text-left prose-th:font-bold prose-td:border prose-td:p-4 prose-td:align-top prose-tr:even:bg-muted/10 prose-p:leading-relaxed prose-li:my-2"
+            components={{
+              img: ({ node, ...props }) => (
+                <span className="flex justify-center w-full my-6">
+                  <img {...props} className="max-w-[50%] h-auto rounded-lg object-contain" />
+                </span>
+              ),
+            }}
+          >
             {text}
           </ReactMarkdown>
         </div>

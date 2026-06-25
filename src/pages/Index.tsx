@@ -11,7 +11,54 @@ import { SEO } from '@/components/SEO'
 export default function Index() {
   const [query, setQuery] = useState('')
   const [featuredProducts, setFeaturedProducts] = useState<any[]>([])
+  const [aiProducts, setAiProducts] = useState<any[]>([])
   const { search, isLoading, results, error, clearResults } = useAiSearch()
+
+  useEffect(() => {
+    const fetchReferencedProducts = async () => {
+      if (!results) {
+        setAiProducts([])
+        return
+      }
+
+      const refIds: string[] = Array.from(
+        new Set(
+          [
+            ...(results.referenced_internal_products || []),
+            ...(results.related_product_ids || []),
+            ...(results.search_results?.referenced_internal_products || []),
+            ...(results.search_results?.related_product_ids || []),
+          ].filter((id) => typeof id === 'string'),
+        ),
+      )
+
+      if (refIds.length > 0) {
+        const { data } = await supabase
+          .from('products')
+          .select('*, manufacturers(*)')
+          .in('id', refIds)
+
+        if (data) {
+          setAiProducts(data)
+        }
+      } else {
+        setAiProducts([])
+      }
+    }
+
+    fetchReferencedProducts()
+  }, [results])
+
+  const enrichedResults = results
+    ? {
+        ...results,
+        stock: results.stock?.length ? results.stock : aiProducts,
+        search_results: {
+          ...(results.search_results || {}),
+          stock: results.search_results?.stock?.length ? results.search_results.stock : aiProducts,
+        },
+      }
+    : null
 
   useEffect(() => {
     supabase
@@ -127,16 +174,16 @@ export default function Index() {
         </div>
         {/* AI Results — DENTRO da Hero Section, sobre o brilho */}
         <div className="relative z-10 w-full max-w-4xl mt-2 md:mt-4">
-          {(isLoading || results || error) && (
+          {(isLoading || enrichedResults || error) && (
             <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-              <AISearchResults isLoading={isLoading} result={results} error={error} />
+              <AISearchResults isLoading={isLoading} result={enrichedResults} error={error} />
             </div>
           )}
         </div>
       </section>
 
       {/* Featured Products */}
-      {featuredProducts.length > 0 && !results && !isLoading && (
+      {featuredProducts.length > 0 && !enrichedResults && !isLoading && (
         <section className="container mx-auto px-4 pb-16 mt-10 md:mt-10">
           <h2 className="text-2xl font-semibold mb-8 flex items-center gap-2">
             <Sparkles className="w-5 h-5 text-accent" /> Novidades e Destaques

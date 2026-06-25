@@ -21,8 +21,8 @@ export type Database = {
           whatsapp_trigger_expensive_product: boolean | null
           whatsapp_trigger_keywords: string[] | null
           whatsapp_trigger_low_confidence: boolean | null
-          whatsapp_trigger_project_keywords: boolean[] | null
-          whatsapp_trigger_purchase_keywords: boolean[] | null
+          whatsapp_trigger_project_keywords: string[] | null
+          whatsapp_trigger_purchase_keywords: string[] | null
         }
         Insert: {
           confidence_threshold_for_whatsapp?: string | null
@@ -35,8 +35,8 @@ export type Database = {
           whatsapp_trigger_expensive_product?: boolean | null
           whatsapp_trigger_keywords?: string[] | null
           whatsapp_trigger_low_confidence?: boolean | null
-          whatsapp_trigger_project_keywords?: boolean[] | null
-          whatsapp_trigger_purchase_keywords?: boolean[] | null
+          whatsapp_trigger_project_keywords?: string[] | null
+          whatsapp_trigger_purchase_keywords?: string[] | null
         }
         Update: {
           confidence_threshold_for_whatsapp?: string | null
@@ -49,8 +49,8 @@ export type Database = {
           whatsapp_trigger_expensive_product?: boolean | null
           whatsapp_trigger_keywords?: string[] | null
           whatsapp_trigger_low_confidence?: boolean | null
-          whatsapp_trigger_project_keywords?: boolean[] | null
-          whatsapp_trigger_purchase_keywords?: boolean[] | null
+          whatsapp_trigger_project_keywords?: string[] | null
+          whatsapp_trigger_purchase_keywords?: string[] | null
         }
         Relationships: []
       }

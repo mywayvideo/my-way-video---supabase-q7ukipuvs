@@ -339,20 +339,22 @@ export default function AdminAISettings() {
             { key: 'transparency_note', value: values.transparency_note || '' },
             { onConflict: 'key' },
           ),
-        supabase.functions.invoke('update-cache-settings', {
-          body: {
+        supabase.from('cache_settings').upsert(
+          {
             id: cacheSettingsId || '00000000-0000-0000-0000-000000000001',
             mi_expiration_days: values.mi_expiration_days,
             product_search_cache_expiration_days: values.product_search_cache_expiration_days,
+            updated_at: new Date().toISOString(),
           },
-        }),
+          { onConflict: 'id' },
+        ),
       ])
 
       if (res1.error) throw res1.error
       if (res2.error) throw res2.error
       if (res3.error) throw res3.error
       if (res4.error)
-        throw new Error(res4.error.message || 'Erro ao atualizar cache_settings via service_role')
+        throw new Error(res4.error.message || 'Erro ao atualizar configurações de cache')
 
       toast({
         title: 'Sucesso',

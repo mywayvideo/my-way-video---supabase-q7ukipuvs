@@ -36,19 +36,26 @@ export const customerService = {
   },
 
   async updateProfile(id: string, updates: Partial<Customer>): Promise<void> {
-    if (updates.email) {
-      const { error } = await supabase.auth.updateUser({ email: updates.email })
+    const sanitizedUpdates = { ...updates }
+
+    if (sanitizedUpdates.date_of_birth === '') sanitizedUpdates.date_of_birth = null
+    if (sanitizedUpdates.gender === '') sanitizedUpdates.gender = null
+    if (sanitizedUpdates.company_name === '') sanitizedUpdates.company_name = null
+    if (sanitizedUpdates.cpf === '') sanitizedUpdates.cpf = null
+
+    if (sanitizedUpdates.email) {
+      const { error } = await supabase.auth.updateUser({ email: sanitizedUpdates.email })
       if (error) {
         if (error.message.includes('already registered')) {
           throw new Error('email_in_use')
         }
         throw new Error('network_error')
       }
-      delete updates.email
+      delete sanitizedUpdates.email
     }
 
-    if (Object.keys(updates).length > 0) {
-      const { error } = await supabase.from('customers').update(updates).eq('id', id)
+    if (Object.keys(sanitizedUpdates).length > 0) {
+      const { error } = await supabase.from('customers').update(sanitizedUpdates).eq('id', id)
 
       if (error) throw new Error('network_error')
     }
@@ -218,7 +225,14 @@ export const customerService = {
   },
 
   async updateCustomerData(customerId: string, data: Partial<Customer>): Promise<void> {
-    await this.updateProfile(customerId, data)
+    const sanitizedData = { ...data }
+
+    if (sanitizedData.date_of_birth === '') sanitizedData.date_of_birth = null
+    if (sanitizedData.gender === '') sanitizedData.gender = null
+    if (sanitizedData.company_name === '') sanitizedData.company_name = null
+    if (sanitizedData.cpf === '') sanitizedData.cpf = null
+
+    await this.updateProfile(customerId, sanitizedData)
   },
 
   async removeFavorite(customerId: string, productId: string): Promise<void> {

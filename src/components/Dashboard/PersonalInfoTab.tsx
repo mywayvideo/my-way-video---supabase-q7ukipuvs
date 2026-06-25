@@ -241,7 +241,14 @@ export function PersonalInfoTab({
   const onSubmit = async (data: z.infer<typeof profileSchema>) => {
     if (onSave) {
       try {
-        await onSave(data)
+        const sanitizedData = {
+          ...data,
+          date_of_birth: data.date_of_birth === '' ? null : data.date_of_birth,
+          gender: data.gender === '' ? null : data.gender,
+          company_name: data.company_name === '' ? null : data.company_name,
+          cpf: data.cpf === '' ? null : data.cpf,
+        }
+        await onSave(sanitizedData)
         setEditing(false)
       } catch (error) {
         console.error(error)

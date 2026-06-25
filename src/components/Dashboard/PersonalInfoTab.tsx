@@ -178,15 +178,28 @@ export function PersonalInfoTab({
       toast.success('Perfil atualizado com sucesso!')
     } catch (err) {
       toast.error('Erro ao atualizar perfil.')
+      throw err
     }
   }
 
   const customer = propCustomer || localCustomer
   const onSave = propOnSave || updateProfile
 
-  const [localIsEditing, setLocalIsEditing] = useState(false)
-  const isEditing = propIsEditing !== undefined ? propIsEditing : localIsEditing
-  const setEditing = propSetEditing || setLocalIsEditing
+  const [localIsEditing, setLocalIsEditing] = useState(propIsEditing || false)
+
+  useEffect(() => {
+    if (propIsEditing !== undefined) {
+      setLocalIsEditing(propIsEditing)
+    }
+  }, [propIsEditing])
+
+  const isEditing = localIsEditing
+  const setEditing = (val: boolean) => {
+    setLocalIsEditing(val)
+    if (propSetEditing) {
+      propSetEditing(val)
+    }
+  }
 
   const form = useForm<z.infer<typeof profileSchema>>({
     resolver: zodResolver(profileSchema),
@@ -227,8 +240,12 @@ export function PersonalInfoTab({
 
   const onSubmit = async (data: z.infer<typeof profileSchema>) => {
     if (onSave) {
-      await onSave(data)
-      setEditing(false)
+      try {
+        await onSave(data)
+        setEditing(false)
+      } catch (error) {
+        console.error(error)
+      }
     }
   }
 

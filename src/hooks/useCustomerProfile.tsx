@@ -96,6 +96,7 @@ export function useCustomerProfile() {
       setErrorMsg(msg)
       toast.error(msg)
       setTimeout(() => setState('IDLE'), 2000)
+      throw err
     }
   }
 

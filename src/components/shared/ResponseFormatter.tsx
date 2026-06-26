@@ -52,18 +52,8 @@ export function ResponseFormatter({
         v?.id && typeof v === 'object' && a.findIndex((t) => String(t?.id) === String(v.id)) === i,
     )
 
-    // Remove o produto atual da lista APENAS se estivermos na rota de produto
-    if (
-      isProductRoute &&
-      activeProductId &&
-      activeProductId !== '' &&
-      activeProductId !== 'undefined'
-    ) {
-      filtered = filtered.filter((p: any) => String(p.id) !== activeProductId)
-    }
-
     return filtered
-  }, [products, stock, referenced_internal_products, activeProductId, isProductRoute])
+  }, [products, stock, referenced_internal_products])
 
   // Extract inline WhatsApp triggers to ensure they only appear at the bottom
   const cleanContent = content

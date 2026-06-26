@@ -98,14 +98,9 @@ export function useAiSearch() {
               : p.manufacturer),
         }))
 
-        const finalReferencedIds = refIds.filter(
-          (id: string) => !currentProductId || id !== currentProductId,
-        )
-
         setResults({
           ...data,
-          referenced_internal_products:
-            enrichedProducts.length > 0 ? enrichedProducts : finalReferencedIds,
+          referenced_internal_products: enrichedProducts.length > 0 ? enrichedProducts : refIds,
           products: enrichedProducts,
         })
       } catch (err: any) {

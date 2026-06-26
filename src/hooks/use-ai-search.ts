@@ -77,15 +77,23 @@ export function useAiSearch() {
         }
 
         // Ensure manufacturer mapping matches what frontend expects
-        enrichedProducts = enrichedProducts.map((p: any) => ({
-          ...p,
-          manufacturer: p.manufacturers?.name || p.manufacturer,
-        }))
+        enrichedProducts = enrichedProducts
+          .filter((p: any) => !currentProductId || p.id !== currentProductId)
+          .map((p: any) => ({
+            ...p,
+            manufacturer: p.manufacturers?.name || p.manufacturer,
+          }))
+
+        const finalReferencedIds = Array.isArray(data.referenced_internal_products)
+          ? data.referenced_internal_products.filter(
+              (id: string) => !currentProductId || id !== currentProductId,
+            )
+          : []
 
         setResults({
           ...data,
           referenced_internal_products:
-            enrichedProducts.length > 0 ? enrichedProducts : data.referenced_internal_products,
+            enrichedProducts.length > 0 ? enrichedProducts : finalReferencedIds,
           products: enrichedProducts,
         })
       } catch (err: any) {

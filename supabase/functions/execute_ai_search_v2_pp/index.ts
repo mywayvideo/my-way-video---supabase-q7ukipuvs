@@ -471,11 +471,12 @@ function buildDynamicSystemPrompt(
           : '',
         '',
         'REGRAS ABSOLUTAS:',
-        '1. Sua funcao e sugerir APENAS produtos COMPLEMENTARES (acessorios, lentes, baterias, grips, tripes, monitores, cabos, adaptadores, cases, etc.) que sejam compativeis com o produto atual.',
-        '2. PROIBIDO sugerir produtos substitutos da mesma categoria principal. Se o produto atual e uma camera, NUNCA sugira outras cameras.',
-        '3. PROIBIDO confundir cameras com lentes ou acessorios. Um produto com "Camera" ou "Camera" no nome e uma camera, nao uma lente.',
-        '4. Se nao encontrar acessorios compativeis, seja honesto: "Nao localizei acessorios compativeis especificos para este produto em nosso catalogo."',
-        '5. Sempre que mencionar precos, use a moeda correta: precos Miami sao em USD (US$), precos Brasil podem ser em BRL (R$) ou em USD (US$), dependendo de price_nationalized_currency.',
+        '1. Regra Geral: Sua funcao e sugerir APENAS produtos COMPLEMENTARES (acessorios, lentes, baterias, grips, tripes, monitores, cabos, adaptadores, cases, etc.) que sejam compativeis com o produto atual.',
+        '2. EXCECAO PARA COMPARACAO: Se o usuario PEDIR EXPLICITAMENTE uma comparacao (ex: "compare com", "qual a diferenca", "outras opcoes de camera"), VOCE PODE sugerir e referenciar produtos da mesma categoria.',
+        '3. Caso contrario (sem pedido explicito): PROIBIDO sugerir produtos substitutos da mesma categoria principal. Se o produto atual e uma camera, NUNCA sugira outras cameras.',
+        '4. PROIBIDO confundir cameras com lentes ou acessorios. Um produto com "Camera" ou "Camera" no nome e uma camera, nao uma lente.',
+        '5. Se nao encontrar acessorios compativeis, seja honesto: "Nao localizei acessorios compativeis especificos para este produto em nosso catalogo."',
+        '6. Sempre que mencionar precos, use a moeda correta: precos Miami sao em USD (US$), precos Brasil podem ser em BRL (R$) ou em USD (US$), dependendo de price_nationalized_currency.',
       ].join('\n'),
     )
   }
@@ -1198,8 +1199,8 @@ serve(async (req: Request) => {
       `[DEBUG_T3] IDs sugeridos count: ${result.referenced_internal_products?.length || 0} | allowedIds size: ${allowedIds.size} | interceptação esperada: ${result.referenced_internal_products?.filter((id: string) => allowedIds.has(id)).length || 0} de ${result.referenced_internal_products?.length || 0}`,
     )
 
-    result.referenced_internal_products = result.referenced_internal_products.filter((id: string) =>
-      allowedIds.has(id),
+    result.referenced_internal_products = result.referenced_internal_products.filter(
+      (id: string) => allowedIds.has(id) && (!currentProductId || id !== currentProductId),
     )
     console.log(`[LOG] IDs validados: ${result.referenced_internal_products.join(',')}`)
 
@@ -1251,7 +1252,7 @@ serve(async (req: Request) => {
       const { data: prodData, error: prodErr } = await supabase
         .from('products')
         .select(
-          'id, name, sku, description, price_usd, price_brl, price_nationalized_sales, price_nationalized_currency, image_url, category',
+          'id, name, sku, description, price_usd, price_brl, price_nationalized_sales, price_nationalized_currency, image_url, category, manufacturer_id, manufacturers(name)',
         )
         .in('id', result.referenced_internal_products)
 
@@ -1263,15 +1264,20 @@ serve(async (req: Request) => {
       }
 
       if (!prodErr && prodData) {
-        enrichedProducts = prodData.filter((p: any) => {
-          const pid = String(p?.id || '')
-            .toLowerCase()
-            .trim()
-          const currentId = String(currentProductId || '')
-            .toLowerCase()
-            .trim()
-          return pid !== currentId
-        })
+        enrichedProducts = prodData
+          .filter((p: any) => {
+            const pid = String(p?.id || '')
+              .toLowerCase()
+              .trim()
+            const currentId = String(currentProductId || '')
+              .toLowerCase()
+              .trim()
+            return pid !== currentId
+          })
+          .map((p: any) => ({
+            ...p,
+            manufacturer: p.manufacturers?.name || p.manufacturer,
+          }))
         console.log(`[DEBUG_ENRICH] Após filtro: ${enrichedProducts.length}`)
       }
 

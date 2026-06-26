@@ -76,6 +76,12 @@ export function useAiSearch() {
           enrichedProducts = await fetchProductDetails(data.referenced_internal_products)
         }
 
+        // Ensure manufacturer mapping matches what frontend expects
+        enrichedProducts = enrichedProducts.map((p: any) => ({
+          ...p,
+          manufacturer: p.manufacturers?.name || p.manufacturer,
+        }))
+
         setResults({
           ...data,
           referenced_internal_products:

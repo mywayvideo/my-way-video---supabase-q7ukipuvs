@@ -1,61 +1,108 @@
 import React, { useMemo } from 'react'
-import { AIResponse } from './AIResponse'
+import { useParams } from 'react-router-dom'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import { ProductCard } from '@/components/ProductCard'
 
 interface ResponseFormatterProps {
-  message?: string
-  content?: string
+  content: string
+  products?: any[]
   stock?: any[]
   referenced_internal_products?: string[]
-  products?: any[]
-  [key: string]: any
+  nabData?: any[]
+  intel?: any[]
+  currentProductId?: string
 }
 
-export function ResponseFormatter(props: ResponseFormatterProps) {
-  const {
-    referenced_internal_products,
-    stock,
-    message,
-    content,
-    products: _propsProducts,
-    ...rest
-  } = props
+export function ResponseFormatter({
+  content,
+  products,
+  stock,
+  referenced_internal_products,
+  currentProductId,
+}: ResponseFormatterProps) {
+  const { id: routeId } = useParams()
+  const activeProductId = currentProductId || routeId
 
-  const textContent = message || content || ''
+  // SOBERANIA DE DADOS: Só exibimos o que a IA validou explicitamente por ID
+  const finalProducts = useMemo(() => {
+    let prods: any[] = products || []
 
-  const visibleProducts = useMemo(() => {
-    const stockItems = Array.isArray(stock) ? stock : []
-    const refIds = Array.isArray(referenced_internal_products) ? referenced_internal_products : []
+    if (prods.length === 0 && stock && stock.length > 0 && referenced_internal_products) {
+      const refs = referenced_internal_products
+      prods = stock.filter((p: any) => refs.includes(p.id))
+    }
 
-    if (stockItems.length === 0) return []
+    // Remove duplicatas por ID
+    let filtered = prods.filter(
+      (v: any, i: number, a: any[]) => a.findIndex((t) => t.id === v.id) === i,
+    )
 
-    const lowerText = textContent.toLowerCase()
+    // Remove o produto atual (evita redundância)
+    if (activeProductId) {
+      filtered = filtered.filter((p: any) => p.id !== activeProductId)
+    }
 
-    const matches = stockItems.filter((p) => {
-      const isReferenced = refIds.includes(p.id)
-      const nameMatch = p.name && lowerText.includes(p.name.toLowerCase())
-      const skuMatch = p.sku && lowerText.includes(p.sku.toLowerCase())
-      const modelMatch = p.model && lowerText.includes(p.model.toLowerCase())
-
-      return isReferenced || nameMatch || skuMatch || modelMatch
-    })
-
-    // Remove duplicates
-    return matches.filter((v, i, a) => a.findIndex((t) => t.id === v.id) === i)
-  }, [referenced_internal_products, stock, textContent])
+    return filtered
+  }, [products, stock, referenced_internal_products, activeProductId])
 
   return (
-    <AIResponse
-      message={{
-        text: textContent,
-        content: textContent,
-        referenced_internal_products,
-        ...rest,
-      }}
-      search_results={{
-        stock: visibleProducts,
-        referenced_internal_products,
-        ...rest,
-      }}
-    />
+    <div className="space-y-8 w-full max-w-full overflow-hidden">
+      {/* RENDERIZAÇÃO SHOW: Estilo unificado com o Modal */}
+      {content && (
+        <div className="prose prose-invert max-w-none text-lg leading-relaxed">
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            components={{
+              table: ({ children }) => (
+                <div className="overflow-x-auto w-full my-6">
+                  <table className="border border-gray-700 border-collapse min-w-max text-sm">
+                    {children}
+                  </table>
+                </div>
+              ),
+              thead: ({ children }) => <thead className="[&>tr]:bg-gray-800">{children}</thead>,
+              th: ({ children }) => (
+                <th className="border border-gray-700 px-3 py-2 whitespace-nowrap">{children}</th>
+              ),
+              td: ({ children }) => (
+                <td className="border border-gray-700 px-3 py-2 whitespace-nowrap">{children}</td>
+              ),
+              tr: ({ children }) => <tr className="even:bg-gray-900">{children}</tr>,
+              h2: ({ children }) => (
+                <h2 className="text-xl font-bold mt-8 mb-4 text-zinc-200 tracking-tight border-b border-white/5 pb-2">
+                  {children}
+                </h2>
+              ),
+              p: ({ children }) => (
+                <p className="mb-4 last:mb-0 text-zinc-300 leading-relaxed">{children}</p>
+              ),
+              li: ({ children }) => (
+                <li className="mb-1 leading-normal text-zinc-300">{children}</li>
+              ),
+              ul: ({ children }) => (
+                <ul className="list-disc ml-6 space-y-2 my-4 text-zinc-300">{children}</ul>
+              ),
+            }}
+          >
+            {content}
+          </ReactMarkdown>
+        </div>
+      )}
+
+      {/* GRID DE PRODUTOS: Apenas produtos de elite validados */}
+      {finalProducts && finalProducts.length > 0 && (
+        <div className="mt-12 animate-fade-in-up border-t border-white/5 pt-8">
+          <h3 className="text-sm font-bold tracking-widest text-zinc-500 uppercase mb-6">
+            Produtos Relacionados MY WAY
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {finalProducts.map((product: any) => (
+              <ProductCard key={product.id} product={product} />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
   )
 }

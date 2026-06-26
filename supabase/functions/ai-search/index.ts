@@ -1,12 +1,6 @@
-import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { loadCacheSettings } from '../_shared/cacheSettings.ts'
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-}
+import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
+import { createClient } from 'jsr:@supabase/supabase-js@2'
+import { corsHeaders } from '../_shared/cors.ts'
 
 function safeJSONParse(str: string, fallback: any = null): any {
   try {
@@ -14,11 +8,9 @@ function safeJSONParse(str: string, fallback: any = null): any {
   } catch (e) {}
 
   let cleaned = str.trim()
-
   cleaned = cleaned
-    .replaceAll('``' + '`json', '')
-    .replaceAll('``' + '`', '')
-    .replaceAll('`', '')
+    .replace(/```json/gi, '')
+    .replace(/```/g, '')
     .trim()
 
   try {
@@ -27,24 +19,12 @@ function safeJSONParse(str: string, fallback: any = null): any {
 
   const first = cleaned.indexOf('{')
   const last = cleaned.lastIndexOf('}')
-
   if (first !== -1 && last !== -1 && last > first) {
     try {
       return JSON.parse(cleaned.slice(first, last + 1))
     } catch (e) {}
   }
-
-  let repaired = cleaned
-    .replace(/,\s*}/g, '}')
-    .replace(/,\s*]/g, ']')
-    .replace(/\u201C|\u201D/g, '"')
-    .replace(/[\u0000-\u001F\u007F]/g, '')
-
-  try {
-    return JSON.parse(repaired)
-  } catch (e) {
-    return fallback
-  }
+  return fallback
 }
 
 function sanitizeInput(text: any): string {
@@ -55,7 +35,7 @@ function sanitizeInput(text: any): string {
   }
 }
 
-serve(async (req: Request) => {
+Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
@@ -72,15 +52,13 @@ serve(async (req: Request) => {
       })
     }
 
-    const { miExpirationDays, productSearchCacheExpirationDays, productCacheExpirationDays } =
-      await loadCacheSettings()
-
     const query = sanitizeInput(body?.query || '')
     const userName = sanitizeInput(body?.userName || 'Cliente')
     const session_id = typeof body?.session_id === 'string' ? body.session_id : null
+    const lastReferencedProductId = body?.currentProductId || null
 
     console.log(
-      `[DEBUG] Entrada Processada: Usuário="${userName}", Query="${query}", Session="${session_id}"`,
+      `[DEBUG] Entrada: User="${userName}", Query="${query}", Session="${session_id}", ProductID="${lastReferencedProductId}"`,
     )
 
     const supabase = createClient(
@@ -89,16 +67,14 @@ serve(async (req: Request) => {
     )
 
     let history: any[] = []
-
     if (session_id) {
-      const { data: histRows, error: histError } = await supabase
+      const { data: histRows } = await supabase
         .from('chat_messages')
         .select('role, content')
         .eq('session_id', session_id)
         .order('created_at', { ascending: false })
-        .limit(30)
-
-      if (!histError && Array.isArray(histRows)) {
+        .limit(10)
+      if (Array.isArray(histRows)) {
         history = histRows.reverse().map((row) => ({
           role: row.role,
           content: row.content,
@@ -106,9 +82,6 @@ serve(async (req: Request) => {
       }
     }
 
-    const lastReferencedProductId = body?.currentProductId || null
-
-    console.log('[DEBUG] Buscando configurações e catálogo...')
     const [
       { data: agentSettings },
       { data: aiSettings },
@@ -133,17 +106,81 @@ serve(async (req: Request) => {
 
     let contextualProductData = null
     if (lastReferencedProductId) {
-      const { data: product } = await supabase
+      const { data: product, error: productError } = await supabase
         .from('products')
         .select(
-          'id, name, category, compatibility, connectors, mount, media_type, interfaces, manufacturer, description',
+          'id, name, sku, category, description, technical_info, image_url, manufacturer_id, manufacturers(name)',
         )
         .eq('id', lastReferencedProductId)
         .maybeSingle()
 
-      contextualProductData = product || null
-      console.log(`[DEBUG] Contexto do produto carregado: ${contextualProductData?.name}`)
+      if (productError) {
+        console.error('[ERRO] Falha ao buscar produto contextual:', productError)
+      } else if (product) {
+        let techInfo = product.technical_info
+        try {
+          if (techInfo) {
+            techInfo = JSON.parse(techInfo)
+          }
+        } catch (e) {
+          // Mantém como string caso não seja JSON válido
+        }
+
+        contextualProductData = {
+          id: product.id,
+          name: product.name,
+          sku: product.sku,
+          category: product.category,
+          description: product.description,
+          technical_info: techInfo,
+          image_url: product.image_url,
+          manufacturer: (product.manufacturers as any)?.name || 'N/A',
+        }
+      }
     }
+
+    let searchResults: any[] = []
+    if (query.length > 2) {
+      try {
+        const { data: rpcResult } = await supabase.rpc('execute_ai_search_v3', {
+          search_term: query,
+        })
+        searchResults = Array.isArray((rpcResult as any)?.stock) ? (rpcResult as any).stock : []
+      } catch (e) {
+        console.error('[ERRO] Falha pre-fetch search:', e)
+      }
+    }
+
+    const allowedProductIds = new Set<string>()
+    searchResults.forEach((p: any) => allowedProductIds.add(p.id))
+    if (contextualProductData) allowedProductIds.add(contextualProductData.id)
+
+    const baseInjectedProducts = searchResults.slice(0, 15).map((p: any) => {
+      let techInfo = p.technical_info
+      try {
+        if (techInfo) techInfo = JSON.parse(techInfo)
+      } catch (e) {}
+
+      return {
+        id: p.id,
+        name: p.name,
+        brand: p.manufacturers?.name || p.manufacturer_name || p.manufacturer || 'N/A',
+        price_usd: p.price_usd,
+        image_url: p.image_url,
+        description: p.description,
+        technical_info: techInfo,
+      }
+    })
+
+    if (
+      contextualProductData &&
+      !baseInjectedProducts.some((p) => p.id === contextualProductData.id)
+    ) {
+      baseInjectedProducts.unshift(contextualProductData)
+    }
+
+    const injectedProductsText =
+      baseInjectedProducts.length > 0 ? JSON.stringify(baseInjectedProducts, null, 2) : ''
 
     const systemPrompt = `
     ### IDENTIDADE DO AGENTE
@@ -155,11 +192,8 @@ serve(async (req: Request) => {
     ### CONTEXTO DA PÁGINA DE PRODUTO (ATIVAÇÃO)
     ${lastReferencedProductId ? 'Esta conversa ocorre na Página de Produto. O usuário está consultando especificamente este produto e suas alternativas. Todas as respostas devem usar este produto como ponto de referência primário.' : ''}
 
-    ### SUPRESSÃO DE PADRÕES ANTERIORES
-    ${lastReferencedProductId ? 'Ignore padrões de resposta e estilos herdados do histórico. Siga exclusivamente o system_prompt, o product_page_prompt e o system_prompt_template.' : ''}
-
-    ### TEMPLATE OPERACIONAL (RESTRITO À PÁGINA DE PRODUTO)
-    ${lastReferencedProductId ? aiSettings?.system_prompt_template || '' : ''}
+    ### TEMPLATE OPERACIONAL
+    ${aiSettings?.system_prompt_template || ''}
 
     ### REGRAS DE LOGÍSTICA
     ${aiSettings?.logistics_rules_prompt || ''}
@@ -167,23 +201,13 @@ serve(async (req: Request) => {
     ### CONTEXTO DA EMPRESA
     ${companyInfo?.content || ''}
 
-    ### FABRICANTES DISPONÍVEIS (CATÁLOGO OFICIAL)
-    Você só pode sugerir produtos cujos fabricantes estejam nesta lista oficial da My Way:
+    ### FABRICANTES DISPONÍVEIS
     ${manufacturerList}
-    Nunca sugira, invente ou recombine produtos de fabricantes fora desta lista.
-    Se o usuário mencionar um fabricante inexistente, corrija gentilmente e redirecione para um dos fabricantes válidos acima.
 
-    ### REGRAS DE VALIDAÇÃO DE MARCA E MODELO
-    Sempre valide qualquer modelo mencionado pelo usuário contra a lista de fabricantes acima.  
-    Se o usuário mencionar apenas o modelo (ex: “fx3”, “r5”, “pyxis 6k”), identifique automaticamente a marca correspondente usando o catálogo real.
+    ### PRODUTOS ENCONTRADOS NO CATÁLOGO PARA A BUSCA DO USUÁRIO
+    ${injectedProductsText ? injectedProductsText : 'Nenhum produto específico encontrado para esta busca. Tente buscar termos ou modelos mais gerais se necessário.'}
 
-    ### RESTRIÇÃO DE NOMES DE PRODUTO
-    Use apenas nomes exatos de produtos presentes no catálogo.  
-    Nunca invente variações, kits, bundles, combinações, versões alternativas ou extensões do nome original.  
-    Se o usuário mencionar uma variação inexistente, normalize para o nome real mais próximo ou informe que o modelo exato não existe.
-    Se não existir correspondência válida, comunique isso e sugira apenas modelos existentes dos fabricantes permitidos.
-
-    ### REGRAS DE OURO (FORMATO FINAL DO JSON — PRIORIDADE SOMENTE SOBRE O FORMATO)
+    ### REGRAS DE OURO (FORMATO FINAL DO JSON)
     1. A resposta FINAL deve ser apenas JSON, no formato exato:
     {
       "message": "...",
@@ -192,14 +216,10 @@ serve(async (req: Request) => {
       "should_show_whatsapp_button": boolean
     }
     2. Nunca escrever nada fora do JSON.
-    3. Nunca incluir raciocínio interno, notas ocultas, logs ou comentários.
-    4. A saudação inicial e todo o conteúdo visível devem estar DENTRO de "message".
-    5. "referenced_internal_products" deve conter TODOS os IDs usados na resposta, seguindo estritamente as regras do TEMPLATE OPERACIONAL.
-    6. IDs nunca devem aparecer no texto visível ao usuário.
-    7. Estas regras definem APENAS a forma do JSON final e NÃO anulam o system_prompt_template, nem regras internas de formatação, busca, preços ou referenciação.
-    8. No modo Página de Produto, seguir as regras técnicas do TEMPLATE OPERACIONAL. No modo Home ou Busca Global, o campo "message" pode usar Markdown padrão livre.
+    3. "referenced_internal_products" deve conter APENAS os IDs dos produtos usados na resposta (baseado na lista fornecida e no contexto do produto atual).
+    4. IDs nunca devem aparecer no texto visível ao usuário.
+    5. Formate o texto da message em markdown. É OBRIGATÓRIO inserir as imagens dos produtos sempre que recomendá-los ou detalhá-los, usando o formato ![Nome do Produto](image_url). Use APENAS as URLs fornecidas no JSON estruturado.
     `
-    console.log('[DEBUG] System Prompt montado (trecho):\n', systemPrompt.substring(0, 300) + '...')
 
     const messages: any[] = [{ role: 'system', content: systemPrompt }]
 
@@ -207,47 +227,22 @@ serve(async (req: Request) => {
       messages.push({
         role: 'system',
         content:
-          'CONTEXTUAL PRODUCT DATA (Sanitized):\n' +
-          sanitizeInput(Object.values(contextualProductData).join('; ')),
+          'CONTEXTUAL PRODUCT DATA (Structured JSON):\n' +
+          JSON.stringify(contextualProductData, null, 2),
       })
     }
 
     if (history.length > 0) {
-      for (const h of history.slice(-8)) {
-        messages.push({
-          role: h.role,
-          content: sanitizeInput(h.content),
-        })
-      }
+      messages.push(...history)
     }
 
     messages.push({ role: 'user', content: query })
 
     if (session_id) {
-      console.log(`[DEBUG] Salvando mensagem do usuário na sessão ${session_id}`)
-      await supabase.from('chat_messages').insert({
-        session_id,
-        role: 'user',
-        content: query,
-      })
+      await supabase.from('chat_messages').insert({ session_id, role: 'user', content: query })
     }
 
-    const tools = [
-      {
-        type: 'function',
-        function: {
-          name: 'search_products',
-          description: 'Busca produtos no catálogo My Way.',
-          parameters: {
-            type: 'object',
-            properties: { search_term: { type: 'string' } },
-            required: ['search_term'],
-          },
-        },
-      },
-    ]
-
-    console.log('[DEBUG] 1a Chamada OpenAI (processando intenção)...')
+    console.log('[DEBUG] Chamada Única OpenAI...')
     const aiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -257,186 +252,71 @@ serve(async (req: Request) => {
       body: JSON.stringify({
         model: aiSettings?.model_id || 'gpt-4o-mini',
         messages,
-        tools,
-        tool_choice: 'auto',
+        response_format: { type: 'json_object' },
         temperature: 0.1,
       }),
     })
 
-    let aiData: any = null
+    let finalData = null
     try {
-      aiData = await aiResponse.json()
-    } catch (e) {
-      console.error('[ERRO] JSON inválido da OpenAI (Fase 1):', e)
-      return new Response(JSON.stringify({ error: 'Erro ao decodificar resposta da IA' }), {
+      finalData = await aiResponse.json()
+    } catch {
+      console.error('[ERRO] Resposta da IA é JSON inválido')
+      return new Response(JSON.stringify({ error: 'Erro ao decodificar resposta' }), {
         headers: corsHeaders,
         status: 500,
       })
     }
 
-    if (!aiData?.choices?.length || !aiData.choices[0]?.message) {
-      console.error('[ERRO] OpenAI retornou payload inválido (Fase 1):', aiData)
-      return new Response(JSON.stringify({ error: 'Falha ao obter resposta da IA.' }), {
-        headers: corsHeaders,
-        status: 500,
-      })
-    }
-
-    const aiMessage = aiData.choices[0].message
-    console.log('[DEBUG] IA Resposta Bruta (Fase 1):', JSON.stringify(aiMessage))
-
-    const allowedProductIds = new Set<string>()
-
-    if (Array.isArray(aiMessage?.tool_calls) && aiMessage.tool_calls.length > 0) {
-      console.log(`[DEBUG] IA acionou ${aiMessage.tool_calls.length} tool_call(s)`)
-
-      messages.push({
-        role: 'assistant',
-        content: aiMessage.content ?? '',
-        tool_calls: aiMessage.tool_calls,
-      })
-
-      for (const toolCall of aiMessage.tool_calls) {
-        let stock: any[] = []
-        let args = {}
-        try {
-          const rawArgs =
-            toolCall?.function?.arguments && typeof toolCall.function.arguments === 'string'
-              ? toolCall.function.arguments
-              : '{}'
-
-          args = JSON.parse(rawArgs)
-        } catch (e) {
-          console.error('[ERRO] Argumentos inválidos da tool_call:', toolCall, e)
-        }
-
-        const term = typeof (args as any)?.search_term === 'string' ? (args as any).search_term : ''
-        console.log(`[DEBUG] Executando RPC execute_ai_search_v3 com search_term="${term}"`)
-
-        try {
-          const { data: rpcResult } = await supabase.rpc('execute_ai_search_v3', {
-            search_term: term,
-          })
-          stock = Array.isArray(rpcResult?.stock) ? rpcResult.stock : []
-          console.log(`[DEBUG] RPC retornou ${stock.length} produtos`)
-          stock.forEach((p: any) => allowedProductIds.add(p.id))
-        } catch (e) {
-          console.error('[ERRO] Falha ao executar RPC execute_ai_search_v3:', e)
-        }
-
-        messages.push({
-          role: 'tool',
-          tool_call_id: toolCall.id,
-          content: JSON.stringify(stock || []),
-        })
-      }
-
-      console.log('[DEBUG] 2a Chamada OpenAI (resolvendo tools)...')
-      const finalAiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${Deno.env.get('OPENAI_API_KEY')}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: aiSettings?.model_id || 'gpt-4o-mini',
-          messages,
-          response_format: { type: 'json_object' },
-        }),
-      })
-
-      let finalData = null
-      try {
-        finalData = await finalAiResponse.json()
-      } catch {
-        console.error('[ERRO] Resposta final da IA é JSON inválido')
-        return new Response(JSON.stringify({ error: 'Erro ao decodificar resposta final' }), {
-          headers: corsHeaders,
-          status: 500,
-        })
-      }
-
-      if (!finalData?.choices?.length || !finalData.choices[0]?.message?.content) {
-        console.error('[ERRO] OpenAI retornou payload final inválido (Fase 2):', finalData)
-        return new Response(JSON.stringify({ error: 'Falha ao obter resposta final da IA.' }), {
-          headers: corsHeaders,
-          status: 500,
-        })
-      }
-
-      aiMessage.content = finalData.choices[0].message.content
-      console.log('[DEBUG] IA Resposta Final:', aiMessage.content)
-    } else {
-      console.log('[DEBUG] Nenhuma tool acionada. Finalizando fluxo.')
-    }
-
-    aiMessage.role = 'assistant'
-    aiMessage.tool_calls = null
-    delete aiMessage.refusal
-    delete aiMessage.reasoning
+    const content = finalData?.choices?.[0]?.message?.content || '{}'
 
     if (session_id) {
-      console.log(`[DEBUG] Salvando mensagem do assistente na sessão ${session_id}`)
-      await supabase.from('chat_messages').insert({
-        session_id,
-        role: 'assistant',
-        content: aiMessage.content,
-      })
+      await supabase.from('chat_messages').insert({ session_id, role: 'assistant', content })
     }
 
-    const result = safeJSONParse(aiMessage.content, {
+    const result = safeJSONParse(content, {
       message:
-        globalSettingsMap['transparency_note'] ||
-        'Desculpe, não consegui processar a resposta adequadamente.',
+        globalSettingsMap['transparency_note'] || 'Desculpe, não consegui processar a resposta.',
       confidence_level: 'low',
       referenced_internal_products: [],
       should_show_whatsapp_button: true,
     })
 
-    if (!result.message || typeof result.message !== 'string') {
-      result.message = globalSettingsMap['transparency_note'] || 'OK'
-    }
-
     if (!Array.isArray(result.referenced_internal_products)) {
       result.referenced_internal_products = []
     }
 
-    if (Array.isArray(result.referenced_internal_products)) {
-      const originalCount = result.referenced_internal_products.length
-
-      result.referenced_internal_products = result.referenced_internal_products.filter(
-        (id: string) => {
-          const ok = allowedProductIds.has(id)
-          if (!ok) console.log(`[DEBUG] Removendo ID intruso ou não retornado na tool_call: ${id}`)
-          return ok
-        },
-      )
-
-      const validatedCount = result.referenced_internal_products.length
-
-      if (validatedCount === 0 && originalCount > 0) {
-        console.log('[DEBUG] Todos os IDs sugeridos foram rejeitados. Fallback de segurança.')
-        result.referenced_internal_products = []
-      }
-
-      console.log(`[DEBUG] IDs validados na resposta final: ${validatedCount} de ${originalCount}`)
-    }
+    result.referenced_internal_products = result.referenced_internal_products.filter((id: string) =>
+      allowedProductIds.has(id),
+    )
 
     if (typeof result.message === 'string') {
       result.message = result.message.trim()
       if (lastReferencedProductId && globalSettingsMap['transparency_note']) {
         result.message += '\n\n' + globalSettingsMap['transparency_note']
       }
-    } else {
-      result.message = String(result.message || '').trim()
-      if (lastReferencedProductId && globalSettingsMap['transparency_note']) {
-        result.message += '\n\n' + globalSettingsMap['transparency_note']
+    }
+
+    if (result.referenced_internal_products.length > 0) {
+      const { data: groundedProducts } = await supabase
+        .from('products')
+        .select(
+          'id, name, price_usd, price_brl, price_nationalized_sales, price_nationalized_currency, image_url, category, description, technical_info, sku, weight, is_discontinued, price_usa_rebate, date_rebate, manufacturer_id, manufacturers(name)',
+        )
+        .in('id', result.referenced_internal_products)
+
+      if (groundedProducts) {
+        result.products = groundedProducts.map((p) => ({
+          ...p,
+          manufacturer: p.manufacturers?.name || p.manufacturer,
+        }))
       }
     }
 
     console.log(
-      '[DEBUG] JSON Retornado ao Cliente:',
-      JSON.stringify(result).substring(0, 300) + '...',
+      '[DEBUG] Retornando JSON final com ' +
+        result.referenced_internal_products.length +
+        ' produtos referenciados.',
     )
 
     return new Response(JSON.stringify(result), {

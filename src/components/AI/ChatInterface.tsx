@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { useParams } from 'react-router-dom'
 import { Search, Loader2, Bot, MessageSquare, Phone } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -17,7 +18,9 @@ import { cn } from '@/lib/utils'
 import { ResponseFormatter } from '@/components/ResponseFormatter'
 import { AILoader } from '@/components/AI/AILoader'
 
-export function ChatInterface() {
+export function ChatInterface({ productId: propProductId }: { productId?: string } = {}) {
+  const params = useParams()
+  const productId = propProductId || params.id
   const { search, isLoading, results } = useAiSearch()
   // Extrai o WhatsApp dinâmico das configurações globais enviadas pelo index.ts
   const whatsappNumber = results?.settings?.company_whatsapp?.replace(/\D/g, '') || '17867161170'
@@ -66,7 +69,7 @@ export function ChatInterface() {
       },
     ])
 
-    const res = await search(userQuery, messages)
+    const res = await search(userQuery, productId)
     if (res) {
       const productsToRender = res.products || []
 
@@ -196,26 +199,29 @@ export function ChatInterface() {
                           <AILoader size="small" />
                         </div>
                       ) : msg.role === 'assistant' ? (
-                        <ResponseFormatter content={msg.content} products={msg.products} />
+                        <ResponseFormatter
+                          content={msg.content}
+                          products={msg.products}
+                          currentProductId={productId}
+                        />
                       ) : (
                         msg.content.replace(/my way/gi, 'MY WAY')
                       )}
                     </div>
+                    {msg.role === 'assistant' &&
+                      !msg.is_intermediate &&
+                      (msg.showWhatsapp || msg.confidence === 'low') && (
+                        <div className="mt-4 pt-4 border-t border-border/20">
+                          <Button
+                            onClick={() => window.open(`https://wa.me/${whatsappNumber}`, '_blank')}
+                            className="w-full sm:w-auto bg-[#25D366] hover:bg-[#20bd5a] text-white shadow-sm border border-green-600/20 group transition-all duration-300"
+                          >
+                            <Phone className="w-4 h-4 mr-2 group-hover:rotate-12 transition-transform" />
+                            Falar com Especialista no WhatsApp
+                          </Button>
+                        </div>
+                      )}
                   </div>
-
-                  {msg.role === 'assistant' &&
-                    !msg.is_intermediate &&
-                    (msg.showWhatsapp || msg.confidence === 'low') && (
-                      <div className="mt-4 max-w-[85%]">
-                        <Button
-                          onClick={() => window.open(`https://wa.me/${whatsappNumber}`, '_blank')}
-                          className="bg-[#25D366] hover:bg-[#20bd5a] text-white shadow-md border border-green-600/20 group transition-all duration-300"
-                        >
-                          <Phone className="w-4 h-4 mr-2 group-hover:rotate-12 transition-transform" />
-                          Falar com Especialista no WhatsApp
-                        </Button>
-                      </div>
-                    )}
                 </div>
               ))
             )}

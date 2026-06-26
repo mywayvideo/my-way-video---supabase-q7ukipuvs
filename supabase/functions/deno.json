@@ -3,7 +3,7 @@
     "apply-discount-coupon": 15,
     "calculate-price-brl": 15,
     "calculate-shipping": 15,
-    "call-ai-agent": 15,
+    "call-ai-agent": 16,
     "cancel-stripe-charge": 15,
     "change-admin-password": 16,
     "change-customer-password": 15,
@@ -12,7 +12,7 @@
     "create-discount-coupon": 15,
     "create-payment-intent": 15,
     "create-paypal-payment-intent": 15,
-    "ai-search": 3,
+    "ai-search": 7,
     "update-exchange-rate": 4
   }
 }

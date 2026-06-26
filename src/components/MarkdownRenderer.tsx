@@ -33,7 +33,7 @@ export function MarkdownRenderer({ content, className = '' }: Props) {
         const src = urlMatch ? urlMatch[1] : ''
         return (
           <span key={i} className="flex justify-center w-full my-6">
-            <img src={src} alt={alt} className="max-w-[50%] h-auto rounded-lg object-contain" />
+            <img src={src} alt={alt} className="w-48 h-48 aspect-square object-cover rounded-lg" />
           </span>
         )
       }

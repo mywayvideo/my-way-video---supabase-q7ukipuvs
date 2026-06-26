@@ -63,6 +63,12 @@ const parseMarkdownToHtml = (text: string | null | undefined): string => {
   }
   html = out.join('\n')
 
+  // Imagens Markdown
+  html = html.replace(
+    /!\[(.*?)\]\((.*?)\)/g,
+    '<div class="flex justify-center my-4"><img src="$2" alt="$1" class="w-48 h-48 aspect-square object-cover rounded-lg" /></div>',
+  )
+
   // Bullets
   html = html.replace(/^•\s+(.*)$/gm, '<li class="ml-4 text-white/90">$1</li>')
   html = html.replace(/^-\s+(.*)$/gm, '<li class="ml-4 text-white/90">$1</li>')
@@ -221,8 +227,7 @@ export function AIConsultantModal({
     const timeoutId = setTimeout(() => controller.abort(), 60000)
 
     try {
-      const endpoint = activeProductId ? 'execute_ai_search_v2_pp' : 'execute_ai_search_v2'
-      const functionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${endpoint}`
+      const functionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-search`
 
       const response = await fetch(functionUrl, {
         method: 'POST',
@@ -274,6 +279,12 @@ export function AIConsultantModal({
           .in('id', data.referenced_internal_products)
         finalProducts = groundedProducts || []
       }
+
+      // Ensure manufacturers are mapped correctly
+      finalProducts = finalProducts.map((p: any) => ({
+        ...p,
+        manufacturer: p.manufacturers?.name || p.manufacturer,
+      }))
 
       // Cálculo de preço final por cliente
       if (user && finalProducts.length > 0) {

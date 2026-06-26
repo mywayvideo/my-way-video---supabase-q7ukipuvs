@@ -1,99 +1,108 @@
-import React from 'react'
-import { cn } from '@/lib/utils'
+import React, { useMemo } from 'react'
+import { useParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { ReferencedProducts } from '@/components/ReferencedProducts'
 import { ProductCard } from '@/components/ProductCard'
-import { Product } from '@/types'
 
 interface ResponseFormatterProps {
   content: string
-  products?: Product[]
-  stock?: Product[]
+  products?: any[]
+  stock?: any[]
   referenced_internal_products?: string[]
-  className?: string
+  nabData?: any[]
+  intel?: any[]
+  currentProductId?: string
 }
 
 export function ResponseFormatter({
   content,
   products,
   stock,
-  className,
   referenced_internal_products,
+  currentProductId,
 }: ResponseFormatterProps) {
-  if (!content) return null
+  const { id: routeId } = useParams()
+  const activeProductId = currentProductId || routeId
 
-  const formattedContent = content.replace(/my way/gi, 'MY WAY')
+  // SOBERANIA DE DADOS: Só exibimos o que a IA validou explicitamente por ID
+  const finalProducts = useMemo(() => {
+    let prods: any[] = products || []
 
-  const itemsToRender = stock && stock.length > 0 ? stock : products
-  const productIds =
-    referenced_internal_products && referenced_internal_products.length > 0
-      ? referenced_internal_products
-      : itemsToRender?.map((p: any) => p.id)
+    if (prods.length === 0 && stock && stock.length > 0 && referenced_internal_products) {
+      const refs = referenced_internal_products
+      prods = stock.filter((p: any) => refs.includes(p.id))
+    }
+
+    // Remove duplicatas por ID
+    let filtered = prods.filter(
+      (v: any, i: number, a: any[]) => a.findIndex((t) => t.id === v.id) === i,
+    )
+
+    // Remove o produto atual (evita redundância)
+    if (activeProductId) {
+      filtered = filtered.filter((p: any) => p.id !== activeProductId)
+    }
+
+    return filtered
+  }, [products, stock, referenced_internal_products, activeProductId])
 
   return (
-    <div className={cn('flex flex-col w-full space-y-8', className)}>
-      <div className="prose prose-invert max-w-none">
-        <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-          {formattedContent}
-        </ReactMarkdown>
-      </div>
+    <div className="space-y-8 w-full max-w-full overflow-hidden">
+      {/* RENDERIZAÇÃO SHOW: Estilo unificado com o Modal */}
+      {content && (
+        <div className="prose prose-invert max-w-none text-lg leading-relaxed">
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            components={{
+              table: ({ children }) => (
+                <div className="overflow-x-auto w-full my-6">
+                  <table className="border border-gray-700 border-collapse min-w-max text-sm">
+                    {children}
+                  </table>
+                </div>
+              ),
+              thead: ({ children }) => <thead className="[&>tr]:bg-gray-800">{children}</thead>,
+              th: ({ children }) => (
+                <th className="border border-gray-700 px-3 py-2 whitespace-nowrap">{children}</th>
+              ),
+              td: ({ children }) => (
+                <td className="border border-gray-700 px-3 py-2 whitespace-nowrap">{children}</td>
+              ),
+              tr: ({ children }) => <tr className="even:bg-gray-900">{children}</tr>,
+              h2: ({ children }) => (
+                <h2 className="text-xl font-bold mt-8 mb-4 text-zinc-200 tracking-tight border-b border-white/5 pb-2">
+                  {children}
+                </h2>
+              ),
+              p: ({ children }) => (
+                <p className="mb-4 last:mb-0 text-zinc-300 leading-relaxed">{children}</p>
+              ),
+              li: ({ children }) => (
+                <li className="mb-1 leading-normal text-zinc-300">{children}</li>
+              ),
+              ul: ({ children }) => (
+                <ul className="list-disc ml-6 space-y-2 my-4 text-zinc-300">{children}</ul>
+              ),
+            }}
+          >
+            {content}
+          </ReactMarkdown>
+        </div>
+      )}
 
-      {itemsToRender && itemsToRender.length > 0 && typeof itemsToRender[0] === 'object' ? (
-        <div className="mt-8 animate-fade-in-up not-prose">
-          <h3 className="text-sm font-bold tracking-widest text-zinc-500 uppercase mb-6 pl-3 border-l-4 border-primary">
-            Equipamentos Localizados
+      {/* GRID DE PRODUTOS: Apenas produtos de elite validados */}
+      {finalProducts && finalProducts.length > 0 && (
+        <div className="mt-12 animate-fade-in-up border-t border-white/5 pt-8">
+          <h3 className="text-sm font-bold tracking-widest text-zinc-500 uppercase mb-6">
+            Produtos Relacionados MY WAY
           </h3>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6">
-            {itemsToRender.map((p: any) => (
-              <ProductCard key={p.id} product={p} />
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {finalProducts.map((product: any) => (
+              <ProductCard key={product.id} product={product} />
             ))}
           </div>
         </div>
-      ) : productIds && productIds.length > 0 ? (
-        <div className="mt-8 animate-fade-in-up not-prose">
-          <h3 className="text-sm font-bold tracking-widest text-zinc-500 uppercase mb-6 pl-3 border-l-4 border-primary">
-            Equipamentos Localizados
-          </h3>
-          <ReferencedProducts ids={productIds as string[]} />
-        </div>
-      ) : null}
+      )}
     </div>
   )
-}
-
-const markdownComponents = {
-  table: ({ children }: any) => (
-    <div className="overflow-x-auto w-full my-6">
-      <table className="border border-gray-700 border-collapse min-w-max text-sm">{children}</table>
-    </div>
-  ),
-  thead: ({ children }: any) => <thead className="[&>tr]:bg-gray-800">{children}</thead>,
-  th: ({ children }: any) => (
-    <th className="border border-gray-700 px-3 py-2 whitespace-nowrap">{children}</th>
-  ),
-  td: ({ children }: any) => (
-    <td className="border border-gray-700 px-3 py-2 whitespace-nowrap">{children}</td>
-  ),
-  tr: ({ children }: any) => <tr className="even:bg-gray-900">{children}</tr>,
-  h2: ({ node, ...props }: any) => (
-    <h2
-      className="text-xl font-bold mt-8 mb-4 text-zinc-200 border-b border-white/5 pb-2"
-      {...props}
-    />
-  ),
-  h3: ({ node, ...props }: any) => (
-    <h3 className="text-lg font-semibold mt-6 mb-3 text-zinc-300" {...props} />
-  ),
-  strong: ({ node, ...props }: any) => <strong className="font-bold text-primary" {...props} />,
-  ul: ({ node, ...props }: any) => (
-    <ul className="ml-6 mt-4 mb-4 list-disc marker:text-primary/70 space-y-2" {...props} />
-  ),
-  li: ({ node, ...props }: any) => <li className="text-zinc-300 leading-relaxed" {...props} />,
-  p: ({ node, ...props }: any) => (
-    <p className="mb-4 last:mb-0 text-zinc-300 leading-relaxed" {...props} />
-  ),
-  a: ({ node, ...props }: any) => (
-    <a className="text-primary underline underline-offset-4" {...props} />
-  ),
 }

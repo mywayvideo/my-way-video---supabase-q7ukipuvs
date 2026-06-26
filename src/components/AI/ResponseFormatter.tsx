@@ -1,4 +1,5 @@
 import React, { useMemo } from 'react'
+import { useParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { ProductCard } from '@/components/ProductCard'
@@ -11,6 +12,7 @@ interface ResponseFormatterProps {
   referenced_internal_products?: string[]
   nabData?: any[]
   intel?: any[]
+  currentProductId?: string
 }
 
 export function ResponseFormatter({
@@ -18,7 +20,11 @@ export function ResponseFormatter({
   products,
   stock,
   referenced_internal_products,
+  currentProductId,
 }: ResponseFormatterProps) {
+  const { id: routeId } = useParams()
+  const activeProductId = currentProductId || routeId
+
   // SOBERANIA DE DADOS: Só exibimos o que a IA validou explicitamente por ID
   const finalProducts = useMemo(() => {
     let prods: any[] = products || []
@@ -29,8 +35,17 @@ export function ResponseFormatter({
     }
 
     // Remove duplicatas por ID
-    return prods.filter((v: any, i: number, a: any[]) => a.findIndex((t) => t.id === v.id) === i)
-  }, [products, stock, referenced_internal_products])
+    let filtered = prods.filter(
+      (v: any, i: number, a: any[]) => a.findIndex((t) => t.id === v.id) === i,
+    )
+
+    // Remove o produto atual da lista (evita redundância)
+    if (activeProductId) {
+      filtered = filtered.filter((p: any) => p.id !== activeProductId)
+    }
+
+    return filtered
+  }, [products, stock, referenced_internal_products, activeProductId])
 
   return (
     <div className="space-y-8 w-full max-w-full overflow-hidden">

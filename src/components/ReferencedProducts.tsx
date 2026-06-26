@@ -54,11 +54,17 @@ export function ReferencedProducts({
 
       supabase
         .from('products')
-        .select('*, manufacturer:manufacturers(*)')
+        .select(
+          'id, name, price_usd, price_brl, price_nationalized_sales, price_nationalized_currency, image_url, category, description, sku, weight, is_discontinued, price_usa_rebate, date_rebate, manufacturer_id, manufacturer:manufacturers(name)',
+        )
         .in('id', validStrings)
         .then(({ data }) => {
           if (isMounted && data) {
-            setProducts(data.filter((p) => p.id !== currentProductId))
+            const mapped = data.map((p: any) => ({
+              ...p,
+              manufacturer: p.manufacturer?.name || p.manufacturer,
+            }))
+            setProducts(mapped.filter((p) => p.id !== currentProductId))
           }
         })
     }

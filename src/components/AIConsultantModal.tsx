@@ -225,6 +225,12 @@ export function AIConsultantModal({
         manufacturer: p.manufacturer?.name || p.manufacturers?.name || p.manufacturer,
       }))
 
+      // Filter out the current product from being suggested
+      const excludeId = activeProductId || productId
+      if (excludeId) {
+        finalProducts = finalProducts.filter((p: any) => p.id !== excludeId)
+      }
+
       // Cálculo de preço final por cliente
       if (user && finalProducts.length > 0) {
         try {

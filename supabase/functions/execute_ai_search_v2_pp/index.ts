@@ -1199,8 +1199,8 @@ serve(async (req: Request) => {
       `[DEBUG_T3] IDs sugeridos count: ${result.referenced_internal_products?.length || 0} | allowedIds size: ${allowedIds.size} | interceptação esperada: ${result.referenced_internal_products?.filter((id: string) => allowedIds.has(id)).length || 0} de ${result.referenced_internal_products?.length || 0}`,
     )
 
-    result.referenced_internal_products = result.referenced_internal_products.filter(
-      (id: string) => allowedIds.has(id) && (!currentProductId || id !== currentProductId),
+    result.referenced_internal_products = result.referenced_internal_products.filter((id: string) =>
+      allowedIds.has(id) && (!currentProductId || id !== currentProductId)
     )
     console.log(`[LOG] IDs validados: ${result.referenced_internal_products.join(',')}`)
 
@@ -1264,20 +1264,18 @@ serve(async (req: Request) => {
       }
 
       if (!prodErr && prodData) {
-        enrichedProducts = prodData
-          .filter((p: any) => {
-            const pid = String(p?.id || '')
-              .toLowerCase()
-              .trim()
-            const currentId = String(currentProductId || '')
-              .toLowerCase()
-              .trim()
-            return pid !== currentId
-          })
-          .map((p: any) => ({
-            ...p,
-            manufacturer: p.manufacturers?.name || p.manufacturer,
-          }))
+        enrichedProducts = prodData.filter((p: any) => {
+          const pid = String(p?.id || '')
+            .toLowerCase()
+            .trim()
+          const currentId = String(currentProductId || '')
+            .toLowerCase()
+            .trim()
+          return pid !== currentId
+        }).map((p: any) => ({
+          ...p,
+          manufacturer: p.manufacturers?.name || p.manufacturer
+        }))
         console.log(`[DEBUG_ENRICH] Após filtro: ${enrichedProducts.length}`)
       }
 

@@ -151,7 +151,7 @@ export function ResponseFormatter({
                   <img
                     src={src || ''}
                     alt={alt || ''}
-                    className="w-48 h-48 aspect-square object-cover rounded-lg"
+                    className="w-full max-w-sm rounded-lg object-contain bg-zinc-900 border border-zinc-800/60 p-2"
                   />
                 </span>
               ),

@@ -744,11 +744,26 @@ serve(async (req: Request) => {
     // ============================================
 
     // Busca contexto do produto SE houver currentProductId
-    let productContext: { id: string; name: string; technicalInfo?: string } | null = null
-    if (lastReferencedProductId) {
+    let productContext: {
+      id: string
+      name: string
+      technicalInfo?: string
+      image_url?: string
+    } | null = null
+
+    if (body?.currentProductContext) {
+      const pData = body.currentProductContext
+      const rawSpecs = pData.technical_info || pData.description || ''
+      productContext = {
+        id: pData.id,
+        name: pData.name,
+        technicalInfo: typeof rawSpecs === 'string' ? rawSpecs : JSON.stringify(rawSpecs),
+        image_url: pData.image_url || '',
+      }
+    } else if (lastReferencedProductId) {
       const { data: prodData } = await supabase
         .from('products')
-        .select('id, name, technical_info, description')
+        .select('id, name, technical_info, description, image_url')
         .eq('id', lastReferencedProductId)
         .single()
 
@@ -758,6 +773,7 @@ serve(async (req: Request) => {
           id: prodData.id,
           name: prodData.name,
           technicalInfo: typeof rawSpecs === 'string' ? rawSpecs : JSON.stringify(rawSpecs),
+          image_url: prodData.image_url || '',
         }
       }
     }
@@ -951,6 +967,7 @@ serve(async (req: Request) => {
           price_miami_usd: p.price_usd,
           price_nationalized: p.price_nationalized_sales,
           price_nationalized_currency: p.price_nationalized_currency,
+          image_url: p.image_url,
         }))
 
         messages.push({
@@ -1110,6 +1127,7 @@ serve(async (req: Request) => {
               `PRODUTO ${index + 1}:`,
               `- ID: ${p.id}`,
               `- Nome: ${p.name}`,
+              `- Imagem: ${p.image_url || ''}`,
               `- Descrição: ${desc}`,
               `- Ficha Técnica: ${techInfoStr}`,
               priceLines.join('\n'),
@@ -1194,13 +1212,24 @@ serve(async (req: Request) => {
     }
 
     console.log(`[LOG] IDs sugeridos pela IA: ${result.referenced_internal_products.join(',')}`)
-    // ✅ LOG DIAGNÓSTICO PP/HP #3 — Antes do filtro allowedIds
+
+    // FETCH REAL IDS FROM DB TO ENSURE SYNC
+    let validIds = new Set<string>()
+    if (result.referenced_internal_products.length > 0) {
+      const { data: validProducts } = await supabase
+        .from('products')
+        .select('id')
+        .in('id', result.referenced_internal_products)
+      validIds = new Set(validProducts?.map((p: any) => p.id) || [])
+    }
+
+    // ✅ LOG DIAGNÓSTICO PP/HP #3 — Antes do filtro validIds
     console.log(
-      `[DEBUG_T3] IDs sugeridos count: ${result.referenced_internal_products?.length || 0} | allowedIds size: ${allowedIds.size} | interceptação esperada: ${result.referenced_internal_products?.filter((id: string) => allowedIds.has(id)).length || 0} de ${result.referenced_internal_products?.length || 0}`,
+      `[DEBUG_T3] IDs sugeridos count: ${result.referenced_internal_products?.length || 0} | validIds size: ${validIds.size} | interceptação esperada: ${result.referenced_internal_products?.filter((id: string) => validIds.has(id)).length || 0} de ${result.referenced_internal_products?.length || 0}`,
     )
 
-    result.referenced_internal_products = result.referenced_internal_products.filter((id: string) =>
-      allowedIds.has(id) && (!currentProductId || id !== currentProductId)
+    result.referenced_internal_products = result.referenced_internal_products.filter(
+      (id: string) => validIds.has(id) && (!currentProductId || id !== currentProductId),
     )
     console.log(`[LOG] IDs validados: ${result.referenced_internal_products.join(',')}`)
 
@@ -1264,18 +1293,20 @@ serve(async (req: Request) => {
       }
 
       if (!prodErr && prodData) {
-        enrichedProducts = prodData.filter((p: any) => {
-          const pid = String(p?.id || '')
-            .toLowerCase()
-            .trim()
-          const currentId = String(currentProductId || '')
-            .toLowerCase()
-            .trim()
-          return pid !== currentId
-        }).map((p: any) => ({
-          ...p,
-          manufacturer: p.manufacturers?.name || p.manufacturer
-        }))
+        enrichedProducts = prodData
+          .filter((p: any) => {
+            const pid = String(p?.id || '')
+              .toLowerCase()
+              .trim()
+            const currentId = String(currentProductId || '')
+              .toLowerCase()
+              .trim()
+            return pid !== currentId
+          })
+          .map((p: any) => ({
+            ...p,
+            manufacturer: p.manufacturers?.name || p.manufacturer,
+          }))
         console.log(`[DEBUG_ENRICH] Após filtro: ${enrichedProducts.length}`)
       }
 

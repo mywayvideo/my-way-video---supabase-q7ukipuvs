@@ -108,12 +108,6 @@ Deno.serve(async (req) => {
       )
     }
 
-    const defaultSystemPrompt = 'Consultor My Way Business. Responda de forma técnica e objetiva.'
-    let dbSystemPrompt = aiAgentSettings?.system_prompt
-    if (!dbSystemPrompt || dbSystemPrompt.trim() === '') {
-      dbSystemPrompt = defaultSystemPrompt
-    }
-
     let aiSettingsData: any = null
     try {
       const { data: setts } = await supabaseAdmin
@@ -123,6 +117,20 @@ Deno.serve(async (req) => {
         .maybeSingle()
       if (setts) aiSettingsData = setts
     } catch (e) {}
+
+    const defaultSystemPrompt = 'Consultor My Way Business. Responda de forma técnica e objetiva.'
+    let dbSystemPrompt = aiAgentSettings?.system_prompt
+    if (!dbSystemPrompt || dbSystemPrompt.trim() === '') {
+      dbSystemPrompt = defaultSystemPrompt
+    }
+
+    const currentProductContext = body.currentProductContext || null
+    if (currentProductContext && aiSettingsData?.product_page_prompt) {
+      dbSystemPrompt = aiSettingsData.product_page_prompt
+      dbSystemPrompt += `\n\nContexto do Produto Atual:\nNome: ${currentProductContext.name}\nSKU: ${currentProductContext.sku}\nDescrição: ${currentProductContext.description || ''}\nEspecificações: ${currentProductContext.technical_info || ''}`
+    } else if (aiSettingsData?.system_prompt_template) {
+      dbSystemPrompt = aiSettingsData.system_prompt_template
+    }
 
     // KNOWLEDGE: Inject 'technical_bridge'
     let technicalBridgeRules = ''

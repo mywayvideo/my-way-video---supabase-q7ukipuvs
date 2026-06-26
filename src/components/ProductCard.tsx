@@ -29,12 +29,15 @@ export function ProductCard({
   const { secondaryPrice, isLoading: pricingLoading } = usePricing(product)
   const productDiscount = useProductDiscount(product)
 
+  if (!product) return null
+
   const originalPrice = product.originalPrice ?? productDiscount.originalPrice
   const discountedPrice = product.discountedPrice ?? productDiscount.discountedPrice
   const originalPriceNat = product.originalPriceNat ?? productDiscount.originalPriceNat
   const discountedPriceNat = product.discountedPriceNat ?? productDiscount.discountedPriceNat
   const discountPercentage = product.discountPercentage ?? productDiscount.discountPercentage
   const isRebateActive = product.isRebateActive ?? productDiscount.isRebateActive
+  const productName = product.name || 'Produto não encontrado'
 
   const triggerFavoriteEffects = (e: React.MouseEvent) => {
     try {
@@ -120,8 +123,8 @@ export function ProductCard({
       .replace('R$', 'R$ ')
   }
 
-  const isNationalized = Number(product.price_nationalized_sales) > 0
-  const weight = Number(product.weight) || 0
+  const isNationalized = Number(product.price_nationalized_sales || 0) > 0
+  const weight = Number(product.weight || 0)
   const hasUsaPrice = calculateFinalPrice(product) > 0
   const hasAnyPrice = isNationalized || hasUsaPrice
 
@@ -225,8 +228,8 @@ export function ProductCard({
           className="w-full h-[220px] overflow-hidden flex items-center justify-center relative p-4"
         >
           <ImageWithFallback
-            src={product.image_url}
-            alt={product.name}
+            src={product.image_url || ''}
+            alt={productName}
             productId={product.id}
             className="w-full h-full object-contain transition-transform duration-500 group-hover:scale-105"
           />
@@ -235,13 +238,13 @@ export function ProductCard({
 
       <CardContent className="flex-1 p-4 flex flex-col gap-3">
         <Link to={linkTo} onClick={handleLinkClick} className="flex flex-col gap-1">
-          {product.manufacturers?.name && (
+          {(product.manufacturers?.name || product.manufacturer) && (
             <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-1 block">
-              {product.manufacturers.name}
+              {product.manufacturers?.name || product.manufacturer}
             </span>
           )}
           <h3 className="font-medium text-sm md:text-base line-clamp-2 text-foreground hover:text-primary transition-colors leading-tight">
-            {product.name}
+            {productName}
           </h3>
         </Link>
 
@@ -317,7 +320,7 @@ export function ProductCard({
               e.preventDefault()
               e.stopPropagation()
               const msg = encodeURIComponent(
-                `Olá, gostaria de uma cotação personalizada para o produto: ${product.name}`,
+                `Olá, gostaria de uma cotação personalizada para o produto: ${productName}`,
               )
               window.open(`https://wa.me/5561981815050?text=${msg}`, '_blank')
             }}

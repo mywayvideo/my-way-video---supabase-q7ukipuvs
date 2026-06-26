@@ -77,6 +77,7 @@ export function AIConsultantModal({
   const [priceThreshold, setPriceThreshold] = useState(5000)
   const [currentProductPrice, setCurrentProductPrice] = useState(0)
   const [currentProductName, setCurrentProductName] = useState('')
+  const [fullProductData, setFullProductData] = useState<any>(null)
 
   const { id: urlProductId } = useParams<{ id: string }>()
   const activeProductId = productId || urlProductId
@@ -107,13 +108,14 @@ export function AIConsultantModal({
         if (activeProductId) {
           const { data: productData } = await supabase
             .from('products')
-            .select('price_usd, name')
+            .select('id, name, sku, description, technical_info, price_usd, image_url')
             .eq('id', activeProductId)
             .maybeSingle()
 
           if (productData) {
             setCurrentProductPrice(productData.price_usd || 0)
             setCurrentProductName(productData.name || '')
+            setFullProductData(productData)
           }
         }
       }
@@ -179,6 +181,7 @@ export function AIConsultantModal({
           query: userMsg.content,
           session_id: sessionId,
           currentProductId: activeProductId,
+          currentProductContext: fullProductData,
           userName: user?.user_metadata?.name || 'Cliente',
           messages: messages.map((m) => ({ role: m.role, content: m.content })),
         }),

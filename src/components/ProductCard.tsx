@@ -228,12 +228,9 @@ export function ProductCard({
           className="w-full h-[220px] overflow-hidden flex items-center justify-center relative p-4"
         >
           <ImageWithFallback
-            src={
-              product.image_url ||
-              'https://img.usecurling.com/p/400/400?q=professional%20camera&color=gray'
-            }
+            src={product?.image_url}
             alt={productName}
-            productId={product.id}
+            productId={product?.id || ''}
             className="w-full h-full object-contain transition-transform duration-500 group-hover:scale-105"
           />
         </Link>
@@ -243,11 +240,12 @@ export function ProductCard({
         <Link to={linkTo} onClick={handleLinkClick} className="flex flex-col gap-1">
           {(() => {
             const mfgName =
-              product.manufacturers?.name ||
-              (typeof product.manufacturer === 'string'
+              product?.manufacturers?.name ||
+              (Array.isArray(product?.manufacturers) ? product.manufacturers[0]?.name : null) ||
+              (typeof product?.manufacturer === 'string'
                 ? product.manufacturer
-                : typeof product.manufacturer === 'object' && product.manufacturer !== null
-                  ? product.manufacturer.name
+                : typeof product?.manufacturer === 'object' && product?.manufacturer !== null
+                  ? (product.manufacturer as any)?.name
                   : null)
             if (!mfgName) return null
             return (

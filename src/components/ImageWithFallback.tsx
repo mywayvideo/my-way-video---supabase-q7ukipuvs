@@ -30,7 +30,7 @@ export function ImageWithFallback({
   if (hasError || !displayUrl) {
     return (
       <img
-        src="https://img.usecurling.com/p/400/400?q=camera&color=gray"
+        src="https://img.usecurling.com/p/400/400?q=professional%20camera&color=gray"
         alt={alt || 'Imagem indisponível'}
         loading="lazy"
         width={width}

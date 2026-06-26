@@ -30,15 +30,17 @@ export function useImageFallback(imageUrl: string | null | undefined, productId:
 
       try {
         // 1. Try Supabase Storage first
-        const supabaseUrl = `${SUPABASE_URL}/storage/v1/object/public/products/${productId}`
-        const isSupabaseValid = await testImage(supabaseUrl, signal)
+        if (productId) {
+          const supabaseUrl = `${SUPABASE_URL}/storage/v1/object/public/products/${productId}`
+          const isSupabaseValid = await testImage(supabaseUrl, signal)
 
-        if (isSupabaseValid) {
-          if (isActive) {
-            setDisplayUrl(supabaseUrl)
-            setIsLoading(false)
+          if (isSupabaseValid) {
+            if (isActive) {
+              setDisplayUrl(supabaseUrl)
+              setIsLoading(false)
+            }
+            return
           }
-          return
         }
 
         // 2. If fails, try original imageUrl

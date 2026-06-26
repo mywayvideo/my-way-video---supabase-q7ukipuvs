@@ -27,35 +27,18 @@ export function ImageWithFallback({
     return <Skeleton className={cn('w-full h-full rounded', className)} style={{ width, height }} />
   }
 
-  if (hasError) {
+  if (hasError || !displayUrl) {
     return (
-      <div
-        className={cn(
-          'w-full h-full bg-gray-200 flex flex-col items-center justify-center p-4 text-center rounded',
-          className,
-        )}
-        style={{ width, height }}
-      >
-        <Camera className="w-12 h-12 text-gray-400 mb-2" />
-        <span className="text-sm font-medium text-gray-600 mb-3">Imagem indisponível</span>
-        {retryCount < 3 && (
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={(e) => {
-              e.preventDefault()
-              retry()
-            }}
-            className="h-8 text-xs gap-1"
-          >
-            <RefreshCw className="w-3 h-3" /> Tentar novamente
-          </Button>
-        )}
-      </div>
+      <img
+        src="https://img.usecurling.com/p/400/400?q=camera&color=gray"
+        alt={alt || 'Imagem indisponível'}
+        loading="lazy"
+        width={width}
+        height={height}
+        className={cn('rounded', className)}
+      />
     )
   }
-
-  if (!displayUrl) return null
 
   return (
     <img

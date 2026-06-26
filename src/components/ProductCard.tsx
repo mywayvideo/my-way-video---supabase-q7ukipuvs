@@ -238,11 +238,21 @@ export function ProductCard({
 
       <CardContent className="flex-1 p-4 flex flex-col gap-3">
         <Link to={linkTo} onClick={handleLinkClick} className="flex flex-col gap-1">
-          {(product.manufacturers?.name || product.manufacturer) && (
-            <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-1 block">
-              {product.manufacturers?.name || product.manufacturer}
-            </span>
-          )}
+          {(() => {
+            const mfgName =
+              product.manufacturers?.name ||
+              (typeof product.manufacturer === 'string'
+                ? product.manufacturer
+                : typeof product.manufacturer === 'object' && product.manufacturer !== null
+                  ? product.manufacturer.name
+                  : null)
+            if (!mfgName) return null
+            return (
+              <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-1 block">
+                {mfgName}
+              </span>
+            )
+          })()}
           <h3 className="font-medium text-sm md:text-base line-clamp-2 text-foreground hover:text-primary transition-colors leading-tight">
             {productName}
           </h3>

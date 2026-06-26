@@ -40,13 +40,16 @@ export function ResponseFormatter({
     let prods: any[] = products || []
 
     if (prods.length === 0 && stock && stock.length > 0 && referenced_internal_products) {
-      const refs = referenced_internal_products
+      const refs = referenced_internal_products.map((item: any) =>
+        typeof item === 'object' && item !== null ? item.id : item,
+      )
       prods = stock.filter((p: any) => refs.includes(p.id))
     }
 
-    // Remove duplicatas por ID
+    // Remove duplicatas por ID e apenas mantém objetos válidos com ID
     let filtered = prods.filter(
-      (v: any, i: number, a: any[]) => a.findIndex((t) => String(t.id) === String(v.id)) === i,
+      (v: any, i: number, a: any[]) =>
+        v?.id && typeof v === 'object' && a.findIndex((t) => String(t?.id) === String(v.id)) === i,
     )
 
     // Remove o produto atual da lista APENAS se estivermos na rota de produto
@@ -147,13 +150,11 @@ export function ResponseFormatter({
                 </a>
               ),
               img: ({ src, alt }) => (
-                <span className="flex justify-center w-full my-6">
-                  <img
-                    src={src || ''}
-                    alt={alt || ''}
-                    className="w-full max-w-sm rounded-lg object-contain bg-zinc-900 border border-zinc-800/60 p-2"
-                  />
-                </span>
+                <img
+                  src={src || ''}
+                  alt={alt || ''}
+                  className="mx-auto block w-full max-w-sm rounded-lg object-contain bg-zinc-900 border border-zinc-800/60 p-2 my-6"
+                />
               ),
               whatsappbutton: () => null,
             }}

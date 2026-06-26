@@ -72,12 +72,20 @@ export function AIConsultantModal({
   const [isLoading, setIsLoading] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const { user } = useAuth()
-  const [sessionId] = useState(() => crypto.randomUUID())
+  const [sessionId] = useState(() => {
+    let id = sessionStorage.getItem('mw_ai_session_id')
+    if (!id) {
+      id = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString()
+      sessionStorage.setItem('mw_ai_session_id', id)
+    }
+    return id
+  })
   const [whatsappNumber, setWhatsappNumber] = useState('17867161170')
   const [priceThreshold, setPriceThreshold] = useState(5000)
   const [currentProductPrice, setCurrentProductPrice] = useState(0)
   const [currentProductName, setCurrentProductName] = useState('')
   const [fullProductData, setFullProductData] = useState<any>(null)
+  const [productPagePrompt, setProductPagePrompt] = useState<string>('')
 
   const { id: urlProductId } = useParams<{ id: string }>()
   const activeProductId = productId || urlProductId
@@ -103,6 +111,10 @@ export function AIConsultantModal({
 
         if (aiSettings?.price_threshold_usd) {
           setPriceThreshold(aiSettings.price_threshold_usd)
+        }
+
+        if (aiSettings?.product_page_prompt) {
+          setProductPagePrompt(aiSettings.product_page_prompt)
         }
 
         if (activeProductId) {
@@ -182,6 +194,7 @@ export function AIConsultantModal({
           session_id: sessionId,
           currentProductId: activeProductId,
           currentProductContext: fullProductData,
+          productPagePrompt: productPagePrompt,
           userName: user?.user_metadata?.name || 'Cliente',
           messages: messages.map((m) => ({ role: m.role, content: m.content })),
         }),
@@ -207,25 +220,31 @@ export function AIConsultantModal({
       let finalProducts = data.products || data.response?.products || data.payload?.products || []
 
       // Fallback: se tem IDs mas não tem produtos enriquecidos, fazer grounding
-      if (
-        finalProducts.length === 0 &&
-        Array.isArray(data.referenced_internal_products) &&
-        data.referenced_internal_products.length > 0
-      ) {
+      const rawRefs = data.referenced_internal_products || []
+      const refIds = Array.isArray(rawRefs)
+        ? rawRefs
+            .map((item: any) => (typeof item === 'object' && item !== null ? item.id : item))
+            .filter(Boolean)
+        : []
+
+      if (finalProducts.length === 0 && refIds.length > 0) {
         // Ignoring price_usa, slug, discount_percentage and manufacturer to avoid PostgREST error as they don't exist in products table
         const { data: groundedProducts } = await supabase
           .from('products')
           .select(
             'id, name, price_usd, price_brl, price_nationalized_sales, price_nationalized_currency, image_url, category, description, sku, weight, is_discontinued, price_usa_rebate, date_rebate, manufacturer_id, manufacturer:manufacturers(name)',
           )
-          .in('id', data.referenced_internal_products)
+          .in('id', refIds)
         finalProducts = groundedProducts || []
       }
 
       // Ensure manufacturers are mapped correctly
       finalProducts = finalProducts.map((p: any) => ({
         ...p,
-        manufacturer: p.manufacturer?.name || p.manufacturers?.name || p.manufacturer,
+        manufacturer:
+          p.manufacturer?.name ||
+          p.manufacturers?.name ||
+          (typeof p.manufacturer === 'string' ? p.manufacturer : null),
       }))
 
       // Filter out the current product from being suggested

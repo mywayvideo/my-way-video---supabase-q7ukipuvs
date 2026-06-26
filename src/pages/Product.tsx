@@ -483,7 +483,9 @@ export default function Product() {
                 {[
                   ...(product.manufacturer?.name && product.manufacturer.name.trim() !== ''
                     ? [{ l: 'Marca', v: product.manufacturer.name }]
-                    : []),
+                    : typeof product.manufacturer === 'string' && product.manufacturer.trim() !== ''
+                      ? [{ l: 'Marca', v: product.manufacturer }]
+                      : []),
                   ...(product.sku && product.sku.trim() !== ''
                     ? [{ l: 'Código (SKU)', v: product.sku }]
                     : []),
@@ -517,7 +519,10 @@ export default function Product() {
           <div className="contents lg:flex lg:flex-col">
             <div className="order-2 lg:order-none flex flex-col w-full">
               <span className="text-primary font-mono uppercase tracking-widest text-xs font-bold mb-2">
-                {product.manufacturer?.name || product.category || 'Equipamento Profissional'}
+                {product.manufacturer?.name ||
+                  (typeof product.manufacturer === 'string' ? product.manufacturer : null) ||
+                  product.category ||
+                  'Equipamento Profissional'}
               </span>
               <h1 className="text-3xl md:text-4xl font-bold tracking-tight mb-6 leading-tight flex items-center gap-3 flex-wrap">
                 {product.name}

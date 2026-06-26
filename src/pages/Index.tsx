@@ -28,7 +28,9 @@ export default function Index() {
             ...(results.related_product_ids || []),
             ...(results.search_results?.referenced_internal_products || []),
             ...(results.search_results?.related_product_ids || []),
-          ].filter((id) => typeof id === 'string'),
+          ]
+            .map((item: any) => (typeof item === 'object' && item !== null ? item.id : item))
+            .filter((id) => typeof id === 'string' && id.trim() !== ''),
         ),
       )
 

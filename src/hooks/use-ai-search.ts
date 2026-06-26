@@ -31,7 +31,14 @@ export function useAiSearch() {
   const [results, setResults] = useState<AIResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const sessionIdRef = useRef<string>(
-    crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(),
+    (() => {
+      let id = sessionStorage.getItem('mw_ai_session_id')
+      if (!id) {
+        id = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString()
+        sessionStorage.setItem('mw_ai_session_id', id)
+      }
+      return id
+    })(),
   )
   const { toast } = useToast()
 
@@ -67,13 +74,16 @@ export function useAiSearch() {
 
         const data = await response.json()
 
+        const rawRefs = Array.isArray(data.referenced_internal_products)
+          ? data.referenced_internal_products
+          : []
+        const refIds = rawRefs
+          .map((item: any) => (typeof item === 'object' && item !== null ? item.id : item))
+          .filter(Boolean)
+
         let enrichedProducts = data.products || []
-        if (
-          enrichedProducts.length === 0 &&
-          Array.isArray(data.referenced_internal_products) &&
-          data.referenced_internal_products.length > 0
-        ) {
-          enrichedProducts = await fetchProductDetails(data.referenced_internal_products)
+        if (enrichedProducts.length === 0 && refIds.length > 0) {
+          enrichedProducts = await fetchProductDetails(refIds)
         }
 
         // Ensure manufacturer mapping matches what frontend expects
@@ -81,14 +91,16 @@ export function useAiSearch() {
           .filter((p: any) => !currentProductId || p.id !== currentProductId)
           .map((p: any) => ({
             ...p,
-            manufacturer: p.manufacturers?.name || p.manufacturer,
+            manufacturer:
+              p.manufacturers?.name ||
+              (typeof p.manufacturer === 'object' && p.manufacturer !== null
+                ? p.manufacturer.name
+                : p.manufacturer),
           }))
 
-        const finalReferencedIds = Array.isArray(data.referenced_internal_products)
-          ? data.referenced_internal_products.filter(
-              (id: string) => !currentProductId || id !== currentProductId,
-            )
-          : []
+        const finalReferencedIds = refIds.filter(
+          (id: string) => !currentProductId || id !== currentProductId,
+        )
 
         setResults({
           ...data,

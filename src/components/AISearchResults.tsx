@@ -3,7 +3,7 @@ import { Sparkles, CheckCircle2, AlertTriangle, AlertCircle, ShoppingCart } from
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { useCart } from '@/hooks/useCart'
-import { ResponseFormatter } from '@/components/ResponseFormatter'
+import { ResponseFormatter } from '@/components/shared/ResponseFormatter'
 import { AILoader } from '@/components/AI/AILoader'
 
 interface Product {

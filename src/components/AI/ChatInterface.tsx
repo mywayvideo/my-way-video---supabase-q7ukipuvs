@@ -15,7 +15,7 @@ import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useAiSearch } from '@/hooks/use-ai-search'
 import { cn } from '@/lib/utils'
-import { ResponseFormatter } from '@/components/ResponseFormatter'
+import { ResponseFormatter } from '@/components/shared/ResponseFormatter'
 import { AILoader } from '@/components/AI/AILoader'
 
 export function ChatInterface({ productId: propProductId }: { productId?: string } = {}) {
@@ -203,24 +203,15 @@ export function ChatInterface({ productId: propProductId }: { productId?: string
                           content={msg.content}
                           products={msg.products}
                           currentProductId={productId}
+                          showWhatsApp={msg.showWhatsapp || msg.confidence === 'low'}
+                          onWhatsAppClick={() =>
+                            window.open(`https://wa.me/${whatsappNumber}`, '_blank')
+                          }
                         />
                       ) : (
                         msg.content.replace(/my way/gi, 'MY WAY')
                       )}
                     </div>
-                    {msg.role === 'assistant' &&
-                      !msg.is_intermediate &&
-                      (msg.showWhatsapp || msg.confidence === 'low') && (
-                        <div className="mt-4 pt-4 border-t border-border/20">
-                          <Button
-                            onClick={() => window.open(`https://wa.me/${whatsappNumber}`, '_blank')}
-                            className="w-full sm:w-auto bg-[#25D366] hover:bg-[#20bd5a] text-white shadow-sm border border-green-600/20 group transition-all duration-300"
-                          >
-                            <Phone className="w-4 h-4 mr-2 group-hover:rotate-12 transition-transform" />
-                            Falar com Especialista no WhatsApp
-                          </Button>
-                        </div>
-                      )}
                   </div>
                 </div>
               ))

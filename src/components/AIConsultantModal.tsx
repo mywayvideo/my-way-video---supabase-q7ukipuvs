@@ -15,68 +15,7 @@ import { useAuth } from '@/hooks/use-auth'
 import { Link, useParams } from 'react-router-dom'
 import { ProductCard } from '@/components/ProductCard'
 
-const parseMarkdownToHtml = (text: string | null | undefined): string => {
-  if (!text) return ''
-  let html = text.replace(/</g, '&lt;').replace(/>/g, '&gt;')
-
-  // Headers
-  html = html.replace(
-    /^###\s+(.*)$/gm,
-    '<h3 class="text-green-400 text-lg font-bold mt-4 mb-2">$1</h3>',
-  )
-  html = html.replace(
-    /^##\s+(.*)$/gm,
-    '<h2 class="text-green-400 text-xl font-bold mt-6 mb-3">$1</h2>',
-  )
-  html = html.replace(
-    /^#\s+(.*)$/gm,
-    '<h1 class="text-green-400 text-2xl font-bold mt-8 mb-4">$1</h1>',
-  )
-
-  // Negrito
-  html = html.replace(/\*\*(.*?)\*\*/g, '<strong class="text-white font-bold">$1</strong>')
-
-  // Itálico
-  html = html.replace(/\*(?!\s)(.*?)(?<!\s)\*/g, '<em class="text-green-100/80">$1</em>')
-
-  // Tabelas markdown → grid CSS
-  const lines = html.split('\n')
-  const out: string[] = []
-  for (const line of lines) {
-    const t = line.trim()
-    if (t.startsWith('|') && t.endsWith('|')) {
-      const cells = t
-        .split('|')
-        .map((c) => c.trim())
-        .filter((_, i, a) => i > 0 && i < a.length - 1)
-      if (cells.every((c) => /^[-:]+$/.test(c))) continue // pula linha separadora
-      const cols = cells.length
-      let row = `<div class="grid gap-2 my-2" style="grid-template-columns: repeat(${cols}, minmax(0, 1fr))">`
-      cells.forEach((c) => {
-        row += `<div class="border border-green-800/40 p-2 text-sm text-white/90">${c}</div>`
-      })
-      row += '</div>'
-      out.push(row)
-    } else {
-      out.push(line)
-    }
-  }
-  html = out.join('\n')
-
-  // Imagens Markdown
-  html = html.replace(
-    /!\[(.*?)\]\((.*?)\)/g,
-    '<div class="flex justify-center my-4"><img src="$2" alt="$1" class="w-48 h-48 aspect-square object-cover rounded-lg" /></div>',
-  )
-
-  // Bullets
-  html = html.replace(/^•\s+(.*)$/gm, '<li class="ml-4 text-white/90">$1</li>')
-  html = html.replace(/^-\s+(.*)$/gm, '<li class="ml-4 text-white/90">$1</li>')
-
-  // Quebras de linha
-  html = html.replace(/\n/g, '<br />')
-  return html
-}
+import { ResponseFormatter } from '@/components/shared/ResponseFormatter'
 
 interface Product {
   id: string
@@ -274,7 +213,7 @@ export function AIConsultantModal({
         const { data: groundedProducts } = await supabase
           .from('products')
           .select(
-            'id, name, price_usd, price_brl, price_nationalized_sales, price_nationalized_currency, image_url, category, description, sku, weight, is_discontinued, price_usa_rebate, date_rebate, manufacturer_id, manufacturers(name)',
+            'id, name, price_usd, price_brl, price_nationalized_sales, price_nationalized_currency, image_url, category, description, sku, weight, is_discontinued, price_usa_rebate, date_rebate, manufacturer_id, manufacturer:manufacturers(name)',
           )
           .in('id', data.referenced_internal_products)
         finalProducts = groundedProducts || []
@@ -283,7 +222,7 @@ export function AIConsultantModal({
       // Ensure manufacturers are mapped correctly
       finalProducts = finalProducts.map((p: any) => ({
         ...p,
-        manufacturer: p.manufacturers?.name || p.manufacturer,
+        manufacturer: p.manufacturer?.name || p.manufacturers?.name || p.manufacturer,
       }))
 
       // Cálculo de preço final por cliente
@@ -400,53 +339,27 @@ export function AIConsultantModal({
                 className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}
               >
                 <div
-                  className={`max-w-[90%] rounded-lg p-4 ${msg.role === 'user' ? 'bg-green-600/20 text-green-100' : 'bg-zinc-900 border border-green-900/30'}`}
+                  className={`max-w-[90%] w-full break-words rounded-lg p-4 ${msg.role === 'user' ? 'bg-green-600/20 text-green-100 whitespace-pre-wrap' : 'bg-zinc-900 border border-green-900/30 overflow-hidden'}`}
                 >
                   {msg.role === 'user' ? (
-                    <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                    <p className="text-sm">{msg.content}</p>
                   ) : (
-                    <div className="space-y-4">
-                      {msg.role === 'assistant' &&
-                        msg.id !== '1' && // ← ignora a mensagem de boas-vindas
-                        (msg.should_show_whatsapp_button ||
+                    <ResponseFormatter
+                      content={msg.content}
+                      products={msg.products}
+                      currentProductId={activeProductId}
+                      showWhatsApp={
+                        msg.id !== '1' &&
+                        !!(
+                          msg.should_show_whatsapp_button ||
                           shouldShowWhatsappGlobal ||
                           (msg.products &&
-                            msg.products.some((p) => (p.price_usd || 0) > priceThreshold))) && (
-                          <div className="mb-4 pb-4 border-b border-green-900/30">
-                            <Button
-                              variant="default"
-                              className="bg-[#25D366] hover:bg-[#20bd5a] text-white w-full sm:w-auto"
-                              onClick={handleWhatsappClick}
-                            >
-                              <MessageCircle className="w-4 h-4 mr-2" /> Falar com Especialista
-                            </Button>
-                          </div>
-                        )}
-
-                      <div
-                        className="text-white/90 text-base leading-normal overflow-x-auto space-y-4"
-                        dangerouslySetInnerHTML={{
-                          __html: parseMarkdownToHtml(
-                            (msg.content || '')
-                              .replace(/realizando busca profunda my way/gi, '')
-                              .trim(),
-                          ),
-                        }}
-                      />
-
-                      {msg.products &&
-                        msg.products.filter((p) => p.id !== activeProductId).length > 0 && (
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
-                            {msg.products
-                              .filter((p) => p.id !== activeProductId)
-                              .map((product) => (
-                                <div key={product.id} onClick={onClose} className="cursor-pointer">
-                                  <ProductCard product={product as any} />
-                                </div>
-                              ))}
-                          </div>
-                        )}
-                    </div>
+                            msg.products.some((p) => (p.price_usd || 0) > priceThreshold))
+                        )
+                      }
+                      onWhatsAppClick={handleWhatsappClick}
+                      onProductClick={onClose}
+                    />
                   )}
                 </div>
               </div>

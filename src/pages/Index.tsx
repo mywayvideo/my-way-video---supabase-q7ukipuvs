@@ -37,7 +37,7 @@ export default function Index() {
       if (refIds.length > 0) {
         const { data } = await supabase
           .from('products')
-          .select('*, manufacturers(*)')
+          .select('*, manufacturer:manufacturers(*)')
           .in('id', refIds)
 
         if (data) {
@@ -65,7 +65,7 @@ export default function Index() {
   useEffect(() => {
     supabase
       .from('products')
-      .select('*, manufacturers(*)')
+      .select('*, manufacturer:manufacturers(*)')
       .eq('is_discontinued', false)
       .eq('is_special', true)
       .order('created_at', { ascending: false })

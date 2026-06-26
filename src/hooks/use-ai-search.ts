@@ -17,7 +17,7 @@ const fetchProductDetails = async (ids: string[]): Promise<any[]> => {
   try {
     const { data, error } = await supabase
       .from('products')
-      .select('*, manufacturers(*)')
+      .select('*, manufacturer:manufacturers(*)')
       .in('id', ids)
     if (error) throw error
     return data || []
@@ -87,16 +87,16 @@ export function useAiSearch() {
         }
 
         // Ensure manufacturer mapping matches what frontend expects
-        enrichedProducts = enrichedProducts
-          .filter((p: any) => !currentProductId || p.id !== currentProductId)
-          .map((p: any) => ({
-            ...p,
-            manufacturer:
-              p.manufacturers?.name ||
-              (typeof p.manufacturer === 'object' && p.manufacturer !== null
-                ? p.manufacturer.name
-                : p.manufacturer),
-          }))
+        enrichedProducts = enrichedProducts.map((p: any) => ({
+          ...p,
+          image_url: p.image_url || p.imageUrl,
+          manufacturer:
+            p.manufacturer?.name ||
+            p.manufacturers?.name ||
+            (typeof p.manufacturer === 'object' && p.manufacturer !== null
+              ? p.manufacturer.name
+              : p.manufacturer),
+        }))
 
         const finalReferencedIds = refIds.filter(
           (id: string) => !currentProductId || id !== currentProductId,

@@ -307,7 +307,9 @@ export default function Product() {
           }
         }
 
-        const allIds = Array.from(new Set([...manualIds, ...aiIds]))
+        const allIds = Array.from(new Set([...manualIds, ...aiIds])).filter(
+          (id) => id !== product.id,
+        )
 
         if (allIds.length === 0) {
           if (isMounted) {
@@ -406,7 +408,10 @@ export default function Product() {
       <SEO
         title={product.name}
         description={metaDescription}
-        image={product.image_url || undefined}
+        image={
+          product.image_url ||
+          'https://img.usecurling.com/p/800/800?q=professional%20video%20equipment&color=gray'
+        }
         article={true}
       />
       <div className="container mx-auto px-4 py-8 animate-fade-in pb-24">
@@ -422,7 +427,10 @@ export default function Product() {
             <div className="order-1 lg:order-none mb-8 lg:mb-0">
               <div className="aspect-square bg-white rounded-xl overflow-hidden border border-border/50 p-8 flex items-center justify-center relative group shadow-sm">
                 <ImageWithFallback
-                  src={product.image_url}
+                  src={
+                    product.image_url ||
+                    'https://img.usecurling.com/p/800/800?q=professional%20video%20equipment&color=gray'
+                  }
                   alt={product.name}
                   productId={product.id}
                   className="w-full h-full object-contain rounded group-hover:scale-105 transition-transform duration-700 ease-out drop-shadow-2xl"

@@ -228,7 +228,10 @@ export function ProductCard({
           className="w-full h-[220px] overflow-hidden flex items-center justify-center relative p-4"
         >
           <ImageWithFallback
-            src={product.image_url || ''}
+            src={
+              product.image_url ||
+              'https://img.usecurling.com/p/400/400?q=professional%20camera&color=gray'
+            }
             alt={productName}
             productId={product.id}
             className="w-full h-full object-contain transition-transform duration-500 group-hover:scale-105"

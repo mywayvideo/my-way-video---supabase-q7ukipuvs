@@ -6,9 +6,17 @@ import mwLogo from '../assets/mwlogohorizv03smalldarkback-c68bc.png'
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase/client'
 import { useAuthContext } from '@/contexts/AuthContext'
+import { useCart } from '@/hooks/useCart'
+import { useFavorites } from '@/hooks/useFavorites'
 
 export function Header() {
   const { user } = useAuthContext()
+  const cartContext = useCart()
+  const { favorites } = useFavorites()
+
+  const cartItems = cartContext?.cart || cartContext?.items || cartContext?.cartItems || []
+  const cartCount = cartItems.reduce((acc: number, item: any) => acc + (item.quantity || 1), 0)
+  const favoritesCount = favorites?.length || 0
   const [isAdmin, setIsAdmin] = useState(false)
   const [customerInfo, setCustomerInfo] = useState<{
     full_name: string | null
@@ -95,14 +103,29 @@ export function Header() {
               </Link>
             </Button>
           )}
-          <Button variant="ghost" size="icon" asChild className="hidden sm:flex">
+          <Button
+            variant="ghost"
+            size="icon"
+            asChild
+            className="hidden sm:flex relative overflow-visible"
+          >
             <Link to="/favorites">
               <Heart className="w-5 h-5" />
+              {favoritesCount > 0 && (
+                <span className="absolute -top-1 -right-1 flex h-[18px] w-[18px] items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white shadow-sm border-2 border-background">
+                  {favoritesCount > 99 ? '99+' : favoritesCount}
+                </span>
+              )}
             </Link>
           </Button>
-          <Button variant="ghost" size="icon" asChild>
+          <Button variant="ghost" size="icon" asChild className="relative overflow-visible">
             <Link to="/cart">
               <ShoppingCart className="w-5 h-5" />
+              {cartCount > 0 && (
+                <span className="absolute -top-1 -right-1 flex h-[18px] w-[18px] items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground shadow-sm border-2 border-background">
+                  {cartCount > 99 ? '99+' : cartCount}
+                </span>
+              )}
             </Link>
           </Button>
           {user ? (

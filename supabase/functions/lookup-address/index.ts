@@ -12,19 +12,27 @@ Deno.serve(async (req: Request) => {
     const country: string | undefined = body?.country
 
     if (!cep_or_zip) {
-      return new Response(
-        JSON.stringify({ error: 'CEP ou ZIP não fornecido' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-      )
+      return new Response(JSON.stringify({ success: false, error: 'CEP ou ZIP não fornecido' }), {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
     }
 
     const cleanZip = cep_or_zip.replace(/\D/g, '')
-    const isBrazil = country?.toLowerCase().includes('brasil') ||
+    const isBrazil =
+      country?.toLowerCase().includes('brasil') ||
       country?.toLowerCase() === 'br' ||
       country?.toLowerCase() === 'brazil' ||
       cleanZip.length === 8
 
+    const notFoundResponse = (message: string) =>
+      new Response(JSON.stringify({ success: false, error: message }), {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+
     let result: Record<string, unknown> = {
+      success: true,
       street: '',
       neighborhood: '',
       city: '',
@@ -37,21 +45,16 @@ Deno.serve(async (req: Request) => {
     if (isBrazil) {
       const response = await fetch(`https://viacep.com.br/ws/${cleanZip}/json/`)
       if (!response.ok) {
-        return new Response(
-          JSON.stringify({ error: 'Erro ao consultar ViaCEP' }),
-          { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-        )
+        return notFoundResponse('Erro ao consultar ViaCEP')
       }
 
       const data = await response.json()
       if (data.erro) {
-        return new Response(
-          JSON.stringify({ error: 'CEP não encontrado' }),
-          { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-        )
+        return notFoundResponse('CEP não encontrado')
       }
 
       result = {
+        success: true,
         street: data.logradouro || '',
         neighborhood: data.bairro || '',
         city: data.localidade || '',
@@ -67,6 +70,7 @@ Deno.serve(async (req: Request) => {
         const place = data.places && data.places[0]
         if (place) {
           result = {
+            success: true,
             street: '',
             neighborhood: '',
             city: place['place name'] || '',
@@ -75,20 +79,18 @@ Deno.serve(async (req: Request) => {
             latitude: place['latitude'] ? parseFloat(place['latitude']) : null,
             longitude: place['longitude'] ? parseFloat(place['longitude']) : null,
           }
+        } else {
+          return notFoundResponse('ZIP code não encontrado')
         }
       } else if (response.status === 404) {
-        return new Response(
-          JSON.stringify({ error: 'ZIP code não encontrado' }),
-          { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-        )
+        return notFoundResponse('ZIP code não encontrado')
+      } else {
+        return notFoundResponse('Erro ao consultar ZIP code')
       }
     }
 
     if (!result.city && !result.state) {
-      return new Response(
-        JSON.stringify({ error: 'Local não encontrado para o código informado' }),
-        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-      )
+      return notFoundResponse('Local não encontrado para o código informado')
     }
 
     return new Response(JSON.stringify(result), {
@@ -97,9 +99,10 @@ Deno.serve(async (req: Request) => {
   } catch (error) {
     return new Response(
       JSON.stringify({
+        success: false,
         error: error instanceof Error ? error.message : 'Erro interno do servidor',
       }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
     )
   }
 })

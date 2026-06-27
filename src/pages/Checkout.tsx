@@ -858,7 +858,25 @@ export default function Checkout() {
         body: { cep_or_zip: zip, country: deliveryMethod === 'brasil' ? 'Brasil' : 'USA' },
       })
 
-      if (data && !error && !data.error) {
+      if (error || !data) {
+        toast({
+          description: 'Não foi possível validar o endereço. Preencha manualmente.',
+          variant: 'destructive',
+        })
+        return
+      }
+
+      if (data.success === false) {
+        toast({
+          description: data.error
+            ? `${data.error}. Preencha o endereço manualmente.`
+            : 'Endereço não encontrado. Preencha manualmente.',
+          variant: 'destructive',
+        })
+        return
+      }
+
+      if (data.street || data.city || data.state) {
         setAddress((prev) => ({
           ...prev,
           street: data.street || prev.street,
@@ -866,35 +884,15 @@ export default function Checkout() {
           state: data.state || prev.state,
         }))
         toast({ description: 'Endereço encontrado com sucesso.' })
-      } else if (deliveryMethod === 'brasil' && zip.length === 8) {
-        const res = await fetch(`https://viacep.com.br/ws/${zip}/json/`)
-        const viacepData = await res.json()
-        if (!viacepData.erro) {
-          setAddress((prev) => ({
-            ...prev,
-            street: viacepData.logradouro || prev.street,
-            city: viacepData.localidade || prev.city,
-            state: viacepData.uf || prev.state,
-          }))
-          toast({ description: 'Endereço encontrado com sucesso.' })
-        } else {
-          toast({
-            description:
-              'Não foi possível validar o endereço. Tente novamente ou preencha manualmente.',
-            variant: 'destructive',
-          })
-        }
       } else {
         toast({
-          description:
-            'Não foi possível preencher o endereço automaticamente. Preencha manualmente.',
+          description: 'Endereço não encontrado para este CEP/ZIP. Preencha manualmente.',
           variant: 'destructive',
         })
       }
     } catch (err) {
       toast({
-        description:
-          'Não foi possível validar o endereço. Tente novamente ou preencha manualmente.',
+        description: 'Não foi possível validar o endereço. Preencha manualmente.',
         variant: 'destructive',
       })
     }

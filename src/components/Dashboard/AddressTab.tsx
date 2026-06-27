@@ -190,8 +190,13 @@ export function AddressTab({
         body: { cep_or_zip: value, country },
       })
 
-      if (error || !data || data.error) {
+      if (error || !data) {
         toast.error('CEP/ZIP não encontrado. Verifique o número e tente novamente.')
+        return
+      }
+
+      if (data.success === false) {
+        toast.error(data.error || 'CEP/ZIP não encontrado. Preencha manualmente.')
         return
       }
 
@@ -202,7 +207,7 @@ export function AddressTab({
 
       toast.success('Busca de endereço concluída!')
     } catch (err) {
-      toast.error('Não foi possível validar o endereço. Tente novamente.')
+      toast.error('Não foi possível validar o endereço. Preencha manualmente.')
     }
   }
 

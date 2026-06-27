@@ -12,15 +12,14 @@ Deno.serve(async (req: Request) => {
     const country: string | undefined = body?.country
 
     if (!cep_or_zip) {
-      return new Response(JSON.stringify({ error: 'CEP ou ZIP não fornecido' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+      return new Response(
+        JSON.stringify({ error: 'CEP ou ZIP não fornecido' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      )
     }
 
     const cleanZip = cep_or_zip.replace(/\D/g, '')
-    const isBrazil =
-      country?.toLowerCase().includes('brasil') ||
+    const isBrazil = country?.toLowerCase().includes('brasil') ||
       country?.toLowerCase() === 'br' ||
       country?.toLowerCase() === 'brazil' ||
       cleanZip.length === 8
@@ -38,18 +37,18 @@ Deno.serve(async (req: Request) => {
     if (isBrazil) {
       const response = await fetch(`https://viacep.com.br/ws/${cleanZip}/json/`)
       if (!response.ok) {
-        return new Response(JSON.stringify({ error: 'Erro ao consultar ViaCEP' }), {
-          status: 502,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        })
+        return new Response(
+          JSON.stringify({ error: 'Erro ao consultar ViaCEP' }),
+          { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        )
       }
 
       const data = await response.json()
       if (data.erro) {
-        return new Response(JSON.stringify({ error: 'CEP não encontrado' }), {
-          status: 404,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        })
+        return new Response(
+          JSON.stringify({ error: 'CEP não encontrado' }),
+          { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        )
       }
 
       result = {
@@ -78,10 +77,10 @@ Deno.serve(async (req: Request) => {
           }
         }
       } else if (response.status === 404) {
-        return new Response(JSON.stringify({ error: 'ZIP code não encontrado' }), {
-          status: 404,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        })
+        return new Response(
+          JSON.stringify({ error: 'ZIP code não encontrado' }),
+          { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        )
       }
     }
 

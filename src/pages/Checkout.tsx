@@ -970,6 +970,7 @@ export default function Checkout() {
           const { data: newAddrData, error: addrErr } = await supabase
             .from('customer_addresses')
             .insert({
+              id: crypto.randomUUID(),
               customer_id: customer.id,
               address_type: 'shipping',
               street: address.street || 'N/A',
@@ -1156,6 +1157,7 @@ export default function Checkout() {
       const { data: addrData, error } = await supabase
         .from('customer_addresses')
         .insert({
+          id: crypto.randomUUID(),
           customer_id: customerId,
           address_type: 'shipping',
           street: 'COLETA NA MY WAY',
@@ -1180,6 +1182,7 @@ export default function Checkout() {
     const { data: addrData, error } = await supabase
       .from('customer_addresses')
       .insert({
+        id: crypto.randomUUID(),
         customer_id: customerId,
         address_type: 'shipping',
         street: address.street || 'N/A',

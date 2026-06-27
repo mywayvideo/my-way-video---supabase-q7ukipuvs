@@ -8,6 +8,23 @@ const corsHeaders = {
     'authorization, x-client-info, x-supabase-client-platform, apikey, content-type',
 }
 
+const FALLBACK_WAREHOUSE = { latitude: 25.8067, longitude: -80.2789, zip_code: '33126' }
+const FALLBACK_MIAMI_RANGES = [
+  { min_km: 0, max_km: 15, cost_usd: 25 },
+  { min_km: 15, max_km: 30, cost_usd: 35 },
+  { min_km: 30, max_km: 50, cost_usd: 50 },
+]
+const FALLBACK_SAO_PAULO = {
+  price_per_kg: 120,
+  percentage_value: 10,
+  additional_weight_kg: 0.5,
+}
+const FALLBACK_USA = {
+  fixed_rate: 25,
+  price_per_lb: 1.5,
+  formula: { base_cost: 25.0, weight_price_per_kg: 3.0, value_percentage: 1.5 },
+}
+
 function calculateHaversineDistance(
   lat1: number,
   lon1: number,
@@ -15,7 +32,7 @@ function calculateHaversineDistance(
   lon2: number,
 ): number {
   const toRad = (value: number) => (value * Math.PI) / 180
-  const R = 6371 // Earth radius in km
+  const R = 6371
   const dLat = toRad(lat2 - lat1)
   const dLon = toRad(lon2 - lon1)
   const a =
@@ -23,6 +40,30 @@ function calculateHaversineDistance(
     Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) * Math.sin(dLon / 2)
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
   return R * c
+}
+
+async function getSettingValues(
+  supabase: any,
+  keys: string[],
+): Promise<Record<string, { value: string | null; numeric: number | null }>> {
+  const result: Record<string, { value: string | null; numeric: number | null }> = {}
+  try {
+    const { data, error } = await supabase
+      .from('app_settings')
+      .select('setting_key, setting_value, setting_value_numeric')
+      .in('setting_key', keys)
+    if (!error && data) {
+      for (const row of data) {
+        result[row.setting_key] = {
+          value: row.setting_value,
+          numeric: row.setting_value_numeric,
+        }
+      }
+    }
+  } catch (e) {
+    console.error('Error fetching settings:', e)
+  }
+  return result
 }
 
 Deno.serve(async (req: Request) => {
@@ -92,24 +133,31 @@ Deno.serve(async (req: Request) => {
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
       )
     } else if (delivery_type === 'miami') {
-      const { data: settingsData } = await supabase
-        .from('app_settings')
-        .select('setting_key, setting_value')
-        .in('setting_key', ['warehouse_location', 'shipping_miami_ranges'])
+      const settings = await getSettingValues(supabase, [
+        'warehouse_location',
+        'shipping_miami_ranges',
+      ])
 
-      const warehouseStr = settingsData?.find(
-        (s) => s.setting_key === 'warehouse_location',
-      )?.setting_value
-      const rangesStr = settingsData?.find(
-        (s) => s.setting_key === 'shipping_miami_ranges',
-      )?.setting_value
+      let warehouse = FALLBACK_WAREHOUSE
+      let ranges = FALLBACK_MIAMI_RANGES
 
-      if (!warehouseStr || !rangesStr) {
-        throw new Error('Configurações de frete não encontradas.')
+      const warehouseStr = settings['warehouse_location']?.value
+      if (warehouseStr) {
+        try {
+          warehouse = JSON.parse(warehouseStr)
+        } catch (e) {
+          console.error('Error parsing warehouse_location, using fallback:', e)
+        }
       }
 
-      const warehouse = JSON.parse(warehouseStr)
-      const ranges = JSON.parse(rangesStr)
+      const rangesStr = settings['shipping_miami_ranges']?.value
+      if (rangesStr) {
+        try {
+          ranges = JSON.parse(rangesStr)
+        } catch (e) {
+          console.error('Error parsing shipping_miami_ranges, using fallback:', e)
+        }
+      }
 
       let destLat = 0
       let destLng = 0
@@ -219,13 +267,7 @@ Deno.serve(async (req: Request) => {
         const baseCost = matchedRange.cost_usd
         cost = Math.ceil(baseCost * 10) / 10
       } catch (e) {
-        return new Response(
-          JSON.stringify({ error: 'Erro ao processar frete. Tente novamente.' }),
-          {
-            status: 400,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          },
-        )
+        cost = FALLBACK_MIAMI_RANGES[0].cost_usd
       }
 
       return new Response(
@@ -237,68 +279,39 @@ Deno.serve(async (req: Request) => {
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
       )
     } else if (delivery_type === 'sao_paulo') {
-      let price_per_kg: number | null = null
-      let percentage_value: number | null = null
-      let additional_weight_kg = 0.5
+      const settings = await getSettingValues(supabase, [
+        'shipping_sao_paulo_price_per_kg',
+        'shipping_sao_paulo_percentage_value',
+        'shipping_sao_paulo_additional_weight_kg',
+      ])
 
-      try {
-        const { data: settingsData } = await supabase
-          .from('app_settings')
-          .select('setting_key, setting_value, setting_value_numeric')
-          .in('setting_key', [
-            'shipping_sao_paulo_price_per_kg',
-            'shipping_sao_paulo_percentage_value',
-            'shipping_sao_paulo_additional_weight_kg',
-          ])
+      let price_per_kg = FALLBACK_SAO_PAULO.price_per_kg
+      let percentage_value = FALLBACK_SAO_PAULO.percentage_value
+      let additional_weight_kg = FALLBACK_SAO_PAULO.additional_weight_kg
 
-        const priceData = settingsData?.find(
-          (s) => s.setting_key === 'shipping_sao_paulo_price_per_kg',
-        )
-        if (priceData)
-          price_per_kg = priceData.setting_value_numeric ?? Number(priceData.setting_value)
-
-        const percData = settingsData?.find(
-          (s) => s.setting_key === 'shipping_sao_paulo_percentage_value',
-        )
-        if (percData)
-          percentage_value = percData.setting_value_numeric ?? Number(percData.setting_value)
-
-        const addWeightData = settingsData?.find(
-          (s) => s.setting_key === 'shipping_sao_paulo_additional_weight_kg',
-        )
-        if (addWeightData) {
-          const val = addWeightData.setting_value_numeric ?? Number(addWeightData.setting_value)
-          if (!isNaN(val)) additional_weight_kg = val
-        }
-
-        if (
-          price_per_kg === null ||
-          percentage_value === null ||
-          isNaN(price_per_kg) ||
-          isNaN(percentage_value)
-        ) {
-          return new Response(
-            JSON.stringify({
-              error:
-                'Configuracao de frete incompleta. Verifique as configuracoes no painel admin.',
-            }),
-            {
-              status: 400,
-              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            },
-          )
-        }
-      } catch (e: any) {
-        return new Response(
-          JSON.stringify({
-            error: 'Configuracao de frete incompleta. Verifique as configuracoes no painel admin.',
-          }),
-          {
-            status: 400,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          },
-        )
+      const priceData = settings['shipping_sao_paulo_price_per_kg']
+      if (priceData) {
+        const val = priceData.numeric ?? Number(priceData.value)
+        if (!isNaN(val)) price_per_kg = val
       }
+
+      const percData = settings['shipping_sao_paulo_percentage_value']
+      if (percData) {
+        const val = percData.numeric ?? Number(percData.value)
+        if (!isNaN(val)) percentage_value = val
+      }
+
+      const addWeightData = settings['shipping_sao_paulo_additional_weight_kg']
+      if (addWeightData) {
+        const val = addWeightData.numeric ?? Number(addWeightData.value)
+        if (!isNaN(val)) additional_weight_kg = val
+      }
+
+      console.log('Sao Paulo shipping settings:', {
+        price_per_kg,
+        percentage_value,
+        additional_weight_kg,
+      })
 
       let total_weight_kg = 0
       let total_order_value_usd = 0
@@ -380,7 +393,7 @@ Deno.serve(async (req: Request) => {
         )
 
         if (isNaN(lb) || lb <= 0) {
-          lb = 2 // Fallback de 2 lbs
+          lb = 2
           using_fallbacks = true
         }
 
@@ -399,17 +412,16 @@ Deno.serve(async (req: Request) => {
       let upsSuccess = false
 
       try {
-        // Obter configurações de zipcode origem
-        const { data: settingsData } = await supabase
-          .from('app_settings')
-          .select('setting_value')
-          .eq('setting_key', 'warehouse_location')
-          .maybeSingle()
-
-        let originZip = '33122' // Default Miami zip
-        if (settingsData?.setting_value) {
-          const wh = JSON.parse(settingsData.setting_value)
-          if (wh.zip_code) originZip = wh.zip_code
+        const whSettings = await getSettingValues(supabase, ['warehouse_location'])
+        let originZip = FALLBACK_WAREHOUSE.zip_code || '33122'
+        const warehouseStr = whSettings['warehouse_location']?.value
+        if (warehouseStr) {
+          try {
+            const wh = JSON.parse(warehouseStr)
+            if (wh.zip_code) originZip = wh.zip_code
+          } catch (e) {
+            console.error('Error parsing warehouse_location for origin zip:', e)
+          }
         }
 
         const destZip = (address.zip_code || '').replace(/\D/g, '')
@@ -423,7 +435,7 @@ Deno.serve(async (req: Request) => {
           length_in: 10,
           width_in: 10,
           height_in: 5,
-          service_type: '03', // UPS Ground default
+          service_type: '03',
         }
         console.log(
           '[calculate-shipping] Invoking ups-calculate-rate with payload:',
@@ -457,42 +469,68 @@ Deno.serve(async (req: Request) => {
 
       if (!upsSuccess) {
         console.log(
-          '[calculate-shipping] UPS calculation failed or returned no services. Using fallback formula.',
+          '[calculate-shipping] UPS calculation failed or returned no services. Using fallback.',
         )
-        // Fallback para fórmula manual
-        try {
-          const { data: formulaData } = await supabase
-            .from('app_settings')
-            .select('setting_value')
-            .eq('setting_key', 'shipping_usa_formula')
-            .single()
 
-          if (formulaData?.setting_value) {
-            const formula = JSON.parse(formulaData.setting_value)
-            const totalWeightKg = totalWeightLbs * 0.453592
-            const baseCost =
-              (totalValue * (Number(formula.value_percentage) || 0)) / 100 +
-              totalWeightKg * (Number(formula.weight_price_per_kg) || 0) +
-              (Number(formula.base_cost) || 0)
-            cost = Math.ceil(baseCost * 10) / 10
-          } else {
-            console.error(
-              '[calculate-shipping] Fallback formula not configured in app_settings (shipping_usa_formula)',
+        try {
+          const usaSettings = await getSettingValues(supabase, [
+            'shipping_usa_formula',
+            'shipping_usa_fixed_rate',
+            'shipping_usa_price_per_lb',
+          ])
+
+          let formulaParsed = false
+
+          const formulaStr = usaSettings['shipping_usa_formula']?.value
+          if (formulaStr) {
+            try {
+              const formula = JSON.parse(formulaStr)
+              const totalWeightKg = totalWeightLbs * 0.453592
+              const baseCost =
+                (totalValue * (Number(formula.value_percentage) || 0)) / 100 +
+                totalWeightKg * (Number(formula.weight_price_per_kg) || 0) +
+                (Number(formula.base_cost) || 0)
+              cost = Math.ceil(baseCost * 10) / 10
+              formulaParsed = true
+            } catch (e) {
+              console.error('[calculate-shipping] Error parsing shipping_usa_formula:', e)
+            }
+          }
+
+          if (!formulaParsed) {
+            const fixedRateData = usaSettings['shipping_usa_fixed_rate']
+            const pricePerLbData = usaSettings['shipping_usa_price_per_lb']
+
+            let fixedRate = FALLBACK_USA.fixed_rate
+            let pricePerLb = FALLBACK_USA.price_per_lb
+
+            if (fixedRateData) {
+              const val = fixedRateData.numeric ?? Number(fixedRateData.value)
+              if (!isNaN(val)) fixedRate = val
+            }
+            if (pricePerLbData) {
+              const val = pricePerLbData.numeric ?? Number(pricePerLbData.value)
+              if (!isNaN(val)) pricePerLb = val
+            }
+
+            const fallbackCost = fixedRate + totalWeightLbs * pricePerLb
+            cost = Math.ceil(fallbackCost * 10) / 10
+            console.log(
+              '[calculate-shipping] Using simple fallback: fixed_rate=',
+              fixedRate,
+              'price_per_lb=',
+              pricePerLb,
+              'totalWeightLbs=',
+              totalWeightLbs,
+              'cost=',
+              cost,
             )
-            throw new Error('Sem formula configurada')
           }
         } catch (e: any) {
-          console.error('[calculate-shipping] Error using fallback formula:', e.message)
-          return new Response(
-            JSON.stringify({
-              error:
-                'Não foi possível calcular frete (UPS e fallback falharam). Verifique as configurações de frete.',
-            }),
-            {
-              status: 400,
-              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            },
-          )
+          console.error('[calculate-shipping] Error using fallback:', e.message)
+          const fallbackCost = FALLBACK_USA.fixed_rate + totalWeightLbs * FALLBACK_USA.price_per_lb
+          cost = Math.ceil(fallbackCost * 10) / 10
+          console.log('[calculate-shipping] Using hardcoded fallback cost:', cost)
         }
       }
 

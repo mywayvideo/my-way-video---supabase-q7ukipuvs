@@ -2,7 +2,7 @@
   "_versions": {
     "apply-discount-coupon": 15,
     "calculate-price-brl": 15,
-    "calculate-shipping": 15,
+    "calculate-shipping": 16,
     "call-ai-agent": 17,
     "cancel-stripe-charge": 15,
     "change-admin-password": 16,

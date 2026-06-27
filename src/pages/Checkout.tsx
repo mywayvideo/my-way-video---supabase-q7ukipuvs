@@ -169,9 +169,11 @@ export default function Checkout() {
     street: '',
     number: '',
     complement: '',
+    neighborhood: '',
     city: '',
     state: '',
     zip_code: '',
+    country: '',
   })
   const [addressErrors, setAddressErrors] = useState<Record<string, string>>({})
 
@@ -808,14 +810,25 @@ export default function Checkout() {
         street: filtered[0].street,
         number: filtered[0].number,
         complement: filtered[0].complement || '',
+        neighborhood: filtered[0].neighborhood || '',
         city: filtered[0].city,
         state: filtered[0].state,
         zip_code: filtered[0].zip_code,
+        country: filtered[0].country || (val === 'brasil' ? 'Brasil' : 'USA'),
       })
     } else {
       setSelectedAddressId(null)
       setIsAddingNewAddress(true)
-      setAddress({ street: '', number: '', complement: '', city: '', state: '', zip_code: '' })
+      setAddress({
+        street: '',
+        number: '',
+        complement: '',
+        neighborhood: '',
+        city: '',
+        state: '',
+        zip_code: '',
+        country: val === 'brasil' ? 'Brasil' : 'USA',
+      })
       if (val === 'miami') setAddress((a) => ({ ...a, city: 'Coral Gables', state: 'FL' }))
       if (val === 'brasil') setAddress((a) => ({ ...a, city: 'Sao Paulo', state: 'SP' }))
     }
@@ -879,10 +892,11 @@ export default function Checkout() {
         return
       }
 
-      if (data.street || data.city || data.state) {
+      if (data.street || data.city || data.state || data.neighborhood) {
         setAddress((prev) => ({
           ...prev,
           street: data.street || prev.street,
+          neighborhood: data.neighborhood || prev.neighborhood,
           city: data.city || prev.city,
           state: data.state || prev.state,
         }))
@@ -981,14 +995,12 @@ export default function Checkout() {
               street: address.street || 'N/A',
               number: address.number || 'S/N',
               complement: address.complement || null,
-              neighborhood: 'N/A',
+              neighborhood: address.neighborhood || 'N/A',
               city: address.city || (deliveryMethod === 'miami' ? 'Coral Gables' : 'N/A'),
               state: address.state || (deliveryMethod === 'miami' ? 'FL' : 'N/A'),
               zip_code: address.zip_code || '00000',
-              country: deliveryMethod === 'brasil' ? 'Brasil' : 'USA',
+              country: address.country || (deliveryMethod === 'brasil' ? 'Brasil' : 'USA'),
               is_default: saveNewAddress,
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
             })
             .select('id')
             .single()
@@ -1004,11 +1016,11 @@ export default function Checkout() {
                 street: address.street || 'N/A',
                 number: address.number || 'S/N',
                 complement: address.complement || null,
-                neighborhood: 'N/A',
+                neighborhood: address.neighborhood || 'N/A',
                 city: address.city || (deliveryMethod === 'miami' ? 'Coral Gables' : 'N/A'),
                 state: address.state || (deliveryMethod === 'miami' ? 'FL' : 'N/A'),
                 zip_code: address.zip_code || '00000',
-                country: deliveryMethod === 'brasil' ? 'Brasil' : 'USA',
+                country: address.country || (deliveryMethod === 'brasil' ? 'Brasil' : 'USA'),
                 is_default: saveNewAddress,
               },
               ...prev,
@@ -1176,8 +1188,6 @@ export default function Checkout() {
           zip_code: '00000',
           country: 'USA',
           is_default: false,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
         })
         .select('id')
         .single()
@@ -1197,14 +1207,12 @@ export default function Checkout() {
         street: address.street || 'N/A',
         number: address.number || 'S/N',
         complement: address.complement || null,
-        neighborhood: 'N/A',
+        neighborhood: address.neighborhood || 'N/A',
         city: address.city || (deliveryMethod === 'miami' ? 'Coral Gables' : 'N/A'),
         state: address.state || (deliveryMethod === 'miami' ? 'FL' : 'N/A'),
         zip_code: address.zip_code || '00000',
-        country: deliveryMethod === 'brasil' ? 'Brasil' : 'USA',
+        country: address.country || (deliveryMethod === 'brasil' ? 'Brasil' : 'USA'),
         is_default: saveNewAddress,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
       })
       .select('id')
       .single()
@@ -1638,9 +1646,11 @@ export default function Checkout() {
                     street: a.street,
                     number: a.number,
                     complement: a.complement || '',
+                    neighborhood: a.neighborhood || '',
                     city: a.city,
                     state: a.state,
                     zip_code: a.zip_code,
+                    country: a.country || '',
                   })
                 }
               }}
@@ -1722,6 +1732,16 @@ export default function Checkout() {
               />
             </div>
 
+            <div className="space-y-2 sm:col-span-2">
+              <Label className="font-semibold text-[hsl(215,25%,15%)]">Bairro</Label>
+              <Input
+                value={address.neighborhood}
+                onChange={(e) => setAddress({ ...address, neighborhood: e.target.value })}
+                className={inputClass}
+                placeholder="Bairro"
+              />
+            </div>
+
             <div className="space-y-2">
               <Label className="font-semibold text-[hsl(215,25%,15%)]">Cidade</Label>
               <Input
@@ -1792,9 +1812,11 @@ export default function Checkout() {
                   street: addr.street,
                   number: addr.number,
                   complement: addr.complement || '',
+                  neighborhood: addr.neighborhood || '',
                   city: addr.city,
                   state: addr.state,
                   zip_code: addr.zip_code,
+                  country: addr.country || '',
                 })
               }}
             >
@@ -1855,9 +1877,11 @@ export default function Checkout() {
               street: '',
               number: '',
               complement: '',
+              neighborhood: '',
               city: '',
               state: '',
               zip_code: '',
+              country: deliveryMethod === 'brasil' ? 'Brasil' : 'USA',
             })
             if (deliveryMethod === 'miami')
               setAddress((a) => ({ ...a, city: 'Coral Gables', state: 'FL' }))
@@ -2491,7 +2515,13 @@ Valor: ${formatCurrency(total)}
                   (deliveryMethod !== 'coleta' && !selectedAddressId && !isAddingNewAddress) ||
                   (deliveryMethod !== 'coleta' &&
                     isAddingNewAddress &&
-                    (!address.street || !address.city || !address.state || !address.zip_code))
+                    (!address.street ||
+                      !address.number ||
+                      !address.neighborhood ||
+                      !address.city ||
+                      !address.state ||
+                      !address.zip_code ||
+                      !address.country))
                 }
               >
                 {' '}
@@ -2596,7 +2626,13 @@ Valor: ${formatCurrency(total)}
                       (deliveryMethod !== 'coleta' && !selectedAddressId && !isAddingNewAddress) ||
                       (deliveryMethod !== 'coleta' &&
                         isAddingNewAddress &&
-                        (!address.street || !address.city || !address.state || !address.zip_code))
+                        (!address.street ||
+                          !address.number ||
+                          !address.neighborhood ||
+                          !address.city ||
+                          !address.state ||
+                          !address.zip_code ||
+                          !address.country))
                     }
                   >
                     Calcular Frete

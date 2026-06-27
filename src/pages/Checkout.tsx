@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthContext } from '@/contexts/AuthContext'
 import { supabase } from '@/lib/supabase/client'
@@ -289,6 +289,20 @@ export default function Checkout() {
   })
 
   const isGlobalLoading = isLoading || altIsLoading
+
+  const isAddressFormValid = useMemo(() => {
+    if (deliveryMethod === 'coleta') return true
+    if (!isAddingNewAddress && selectedAddressId) return true
+    return !!(
+      address.street?.trim() &&
+      address.number?.trim() &&
+      address.neighborhood?.trim() &&
+      address.city?.trim() &&
+      address.state?.trim() &&
+      address.zip_code?.trim() &&
+      address.country?.trim()
+    )
+  }, [deliveryMethod, isAddingNewAddress, selectedAddressId, address])
 
   useEffect(() => {
     if (paymentMethod !== 'stripe' && unmountCardElement) {
@@ -2512,16 +2526,7 @@ Valor: ${formatCurrency(total)}
                   isLoading ||
                   isLookingUpZip ||
                   hasIneligibleItems ||
-                  (deliveryMethod !== 'coleta' && !selectedAddressId && !isAddingNewAddress) ||
-                  (deliveryMethod !== 'coleta' &&
-                    isAddingNewAddress &&
-                    (!address.street ||
-                      !address.number ||
-                      !address.neighborhood ||
-                      !address.city ||
-                      !address.state ||
-                      !address.zip_code ||
-                      !address.country))
+                  !isAddressFormValid
                 }
               >
                 {' '}
@@ -2623,16 +2628,7 @@ Valor: ${formatCurrency(total)}
                       isCalculatingShipping ||
                       isLookingUpZip ||
                       !deliveryMethod ||
-                      (deliveryMethod !== 'coleta' && !selectedAddressId && !isAddingNewAddress) ||
-                      (deliveryMethod !== 'coleta' &&
-                        isAddingNewAddress &&
-                        (!address.street ||
-                          !address.number ||
-                          !address.neighborhood ||
-                          !address.city ||
-                          !address.state ||
-                          !address.zip_code ||
-                          !address.country))
+                      !isAddressFormValid
                     }
                   >
                     Calcular Frete

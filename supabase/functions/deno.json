@@ -11,7 +11,7 @@
     "create-customer": 15,
     "create-discount-coupon": 15,
     "create-payment-intent": 15,
-    "create-paypal-payment-intent": 15,
+    "create-paypal-payment-intent": 16,
     "ai-search": 11,
     "update-exchange-rate": 4,
     "execute_ai_search_v2_pp": 2,

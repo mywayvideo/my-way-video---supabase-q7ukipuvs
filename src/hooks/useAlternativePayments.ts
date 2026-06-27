@@ -22,6 +22,8 @@ export function useAlternativePayments() {
     const data = await initiatePayPalPayment(amount, email, orderId)
     if (data?.approval_url) {
       window.location.href = data.approval_url
+    } else if (data?.paypal_approval_url) {
+      window.location.href = data.paypal_approval_url
     } else if (data?.redirect_url) {
       window.location.href = data.redirect_url
     } else {

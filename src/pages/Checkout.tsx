@@ -1950,9 +1950,11 @@ export default function Checkout() {
         </div>
       )}
       {destType === 'brasil' && (
-        <div className="flex justify-between py-3 border-b border-slate-200 items-center">
-          <span className="text-sm font-medium text-[hsl(215,15%,45%)]">Frete e Impostos</span>
-          <span className="text-base font-semibold text-[hsl(152,68%,40%)] font-mono">
+        <div className="flex justify-between py-3 border-b border-slate-200 items-start gap-6">
+          <span className="text-sm font-medium text-[hsl(215,15%,45%)] max-w-[55%] leading-snug">
+            Frete e demais taxas de entrega no Brasil
+          </span>
+          <span className="text-base font-semibold text-[hsl(152,68%,40%)] font-mono whitespace-nowrap">
             {freight !== null ? formatCurrency(freight * exchangeRate) : '—'}
           </span>
         </div>
@@ -2291,7 +2293,7 @@ Valor: ${formatCurrency(total)}
   }
 
   return (
-    <div className="max-w-[1200px] mx-auto p-4 md:p-8 font-sans pb-32 lg:pb-8 overflow-hidden">
+    <div className="max-w-[1200px] mx-auto p-4 md:p-8 font-sans pb-32 lg:pb-8">
       <h1 className="text-4xl font-bold tracking-tight text-emerald-600 mb-8 lg:mb-10">
         Checkout Automatizado
       </h1>
@@ -2632,6 +2634,12 @@ Valor: ${formatCurrency(total)}
                 </div>
               ) : null}
 
+              {destType === 'brasil' && (
+                <div className="bg-blue-50 border-l-4 border-blue-500 p-4 rounded-xl text-sm text-blue-800 font-medium animate-in fade-in slide-in-from-top-2 duration-300">
+                  O valor do frete já está incluso no preço final.
+                </div>
+              )}
+
               <div className="flex flex-col-reverse sm:flex-row justify-between gap-4 pt-4">
                 <button
                   className={btnSecondary}
@@ -2870,7 +2878,7 @@ Valor: ${formatCurrency(total)}
 
         {/* Right Column Summary */}
         <div className="block w-full lg:col-span-1 min-w-0">
-          <div className="bg-slate-50 rounded-2xl p-8 sticky top-24 border border-slate-200 shadow-[0_8px_30px_rgba(0,0,0,0.04)]">
+          <div className="bg-slate-50 rounded-2xl p-8 sticky top-24 max-h-[calc(100vh-7rem)] overflow-y-auto border border-slate-200 shadow-[0_8px_30px_rgba(0,0,0,0.04)]">
             <h3 className="text-2xl font-bold text-slate-900 mb-6">Resumo do Pedido</h3>
             {renderOrderSummary()}
           </div>

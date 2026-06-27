@@ -10,13 +10,25 @@ const corsHeaders = {
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
   try {
-    const { order_id, amount } = await req.json()
+    const { order_id, amount, return_url, cancel_url } = await req.json()
+
+    if (!order_id || typeof amount !== 'number' || amount <= 0) {
+      return new Response(
+        JSON.stringify({ error: 'order_id e amount (positivo) sao obrigatorios.' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      )
+    }
 
     const clientId = Deno.env.get('PAYPAL_CLIENT_ID')
     const secret = Deno.env.get('PAYPAL_SECRET')
 
-    // Default fallback to success redirect if credentials are not fully set
-    let paypal_approval_url = `https://my-way-beta-ia.goskip.app/checkout/success?order_id=${order_id}&payment_method=paypal`
+    const origin = req.headers.get('origin') || 'https://my-way-video.goskip.app'
+    const finalReturnUrl = return_url
+      ? `${return_url}${return_url.includes('?') ? '&' : '?'}order_id=${order_id}&payment_method=paypal`
+      : `${origin}/checkout/success?order_id=${order_id}&payment_method=paypal`
+    const finalCancelUrl = cancel_url || `${origin}/checkout?cancel=paypal`
+
+    let approval_url = finalReturnUrl
 
     if (clientId && secret) {
       const auth = btoa(`${clientId}:${secret}`)
@@ -44,13 +56,13 @@ Deno.serve(async (req: Request) => {
                 reference_id: order_id,
                 amount: {
                   currency_code: 'USD',
-                  value: (amount / 100).toFixed(2),
+                  value: amount.toFixed(2),
                 },
               },
             ],
             application_context: {
-              return_url: `https://my-way-beta-ia.goskip.app/checkout/success?order_id=${order_id}&payment_method=paypal`,
-              cancel_url: `https://my-way-beta-ia.goskip.app/checkout?cancel=paypal`,
+              return_url: finalReturnUrl,
+              cancel_url: finalCancelUrl,
             },
           }),
         })
@@ -59,7 +71,7 @@ Deno.serve(async (req: Request) => {
           const orderData = await orderRes.json()
           const approveLink = orderData.links?.find((l: any) => l.rel === 'approve')
           if (approveLink) {
-            paypal_approval_url = approveLink.href
+            approval_url = approveLink.href
           }
         } else {
           const errText = await orderRes.text()
@@ -71,7 +83,7 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    return new Response(JSON.stringify({ paypal_approval_url }), {
+    return new Response(JSON.stringify({ approval_url, paypal_approval_url: approval_url }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
   } catch (error: any) {

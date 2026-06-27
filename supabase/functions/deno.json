@@ -14,6 +14,7 @@
     "create-paypal-payment-intent": 15,
     "ai-search": 11,
     "update-exchange-rate": 4,
-    "execute_ai_search_v2_pp": 2
+    "execute_ai_search_v2_pp": 2,
+    "lookup-address": 1
   }
 }

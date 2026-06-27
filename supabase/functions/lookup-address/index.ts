@@ -7,7 +7,9 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const { cep_or_zip, country } = await req.json()
+    const body = await req.json()
+    const cep_or_zip: string | undefined = body?.cep_or_zip
+    const country: string | undefined = body?.country
 
     if (!cep_or_zip) {
       return new Response(JSON.stringify({ error: 'CEP ou ZIP não fornecido' }), {
@@ -17,22 +19,27 @@ Deno.serve(async (req: Request) => {
     }
 
     const cleanZip = cep_or_zip.replace(/\D/g, '')
+    const isBrazil =
+      country?.toLowerCase().includes('brasil') ||
+      country?.toLowerCase() === 'br' ||
+      country?.toLowerCase() === 'brazil' ||
+      cleanZip.length === 8
 
-    let result: any = {
+    let result: Record<string, unknown> = {
       street: '',
       neighborhood: '',
       city: '',
       state: '',
-      country: country || 'USA',
+      country: country || (isBrazil ? 'Brasil' : 'USA'),
       latitude: null,
       longitude: null,
     }
 
-    if (country?.toLowerCase() === 'brasil' || country?.toLowerCase() === 'brazil') {
+    if (isBrazil) {
       const response = await fetch(`https://viacep.com.br/ws/${cleanZip}/json/`)
       if (!response.ok) {
         return new Response(JSON.stringify({ error: 'Erro ao consultar ViaCEP' }), {
-          status: 400,
+          status: 502,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         })
       }
@@ -55,65 +62,45 @@ Deno.serve(async (req: Request) => {
         longitude: null,
       }
     } else {
-      // US Zipcode lookup
       const response = await fetch(`https://api.zippopotam.us/us/${cleanZip}`)
       if (response.ok) {
         const data = await response.json()
         const place = data.places && data.places[0]
         if (place) {
-          result.city = place['place name'] || ''
-          result.state = place['state abbreviation'] || ''
-          result.latitude = parseFloat(place['latitude'])
-          result.longitude = parseFloat(place['longitude'])
-        }
-      }
-    }
-
-    // Try to get precise lat/lng using Google Geocoding API if not found or if we want exact
-    const apiKey = Deno.env.get('GOOGLE_GEOCODING_API_KEY')
-    if (apiKey) {
-      try {
-        const addrStr = `${result.street}, ${result.city}, ${result.state} ${cleanZip} ${result.country}`
-        const geoRes = await fetch(
-          `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(addrStr)}&key=${apiKey}`,
-        )
-        if (geoRes.ok) {
-          const geoData = await geoRes.json()
-          if (geoData.status === 'OK' && geoData.results?.[0]?.geometry?.location) {
-            result.latitude = geoData.results[0].geometry.location.lat
-            result.longitude = geoData.results[0].geometry.location.lng
-
-            // Also refine street/city if empty
-            if (!result.street || !result.city) {
-              const components = geoData.results[0].address_components
-              for (const comp of components) {
-                if (comp.types.includes('route') && !result.street) result.street = comp.long_name
-                if (comp.types.includes('locality') && !result.city) result.city = comp.long_name
-                if (comp.types.includes('administrative_area_level_1') && !result.state)
-                  result.state = comp.short_name
-              }
-            }
+          result = {
+            street: '',
+            neighborhood: '',
+            city: place['place name'] || '',
+            state: place['state abbreviation'] || '',
+            country: 'USA',
+            latitude: place['latitude'] ? parseFloat(place['latitude']) : null,
+            longitude: place['longitude'] ? parseFloat(place['longitude']) : null,
           }
         }
-      } catch (e) {
-        console.error('Geocoding fallback failed', e)
+      } else if (response.status === 404) {
+        return new Response(JSON.stringify({ error: 'ZIP code não encontrado' }), {
+          status: 404,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
       }
     }
 
     if (!result.city && !result.state) {
-      return new Response(JSON.stringify({ error: 'Local não encontrado' }), {
-        status: 404,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+      return new Response(
+        JSON.stringify({ error: 'Local não encontrado para o código informado' }),
+        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      )
     }
 
     return new Response(JSON.stringify(result), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
-  } catch (error: any) {
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
+  } catch (error) {
+    return new Response(
+      JSON.stringify({
+        error: error instanceof Error ? error.message : 'Erro interno do servidor',
+      }),
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+    )
   }
 })

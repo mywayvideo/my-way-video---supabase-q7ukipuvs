@@ -33,7 +33,7 @@ export default function ForgotPassword() {
       }
 
       const { error } = await supabase.auth.resetPasswordForEmail(emailTrimmed, {
-        redirectTo: window.location.origin + '/reset-password',
+        redirectTo: 'https://mywayvideo.com/reset-password',
       })
 
       if (error) throw error

@@ -47,21 +47,24 @@ async function getSettingValues(
   keys: string[],
 ): Promise<Record<string, { value: string | null; numeric: number | null }>> {
   const result: Record<string, { value: string | null; numeric: number | null }> = {}
-  try {
-    const { data, error } = await supabase
-      .from('app_settings')
-      .select('setting_key, setting_value, setting_value_numeric')
-      .in('setting_key', keys)
-    if (!error && data) {
-      for (const row of data) {
-        result[row.setting_key] = {
-          value: row.setting_value,
-          numeric: row.setting_value_numeric,
+  for (const key of keys) {
+    try {
+      const { data, error } = await supabase
+        .from('app_settings')
+        .select('setting_key, setting_value, setting_value_numeric')
+        .eq('setting_key', key)
+        .maybeSingle()
+      if (!error && data) {
+        result[key] = {
+          value: data.setting_value,
+          numeric: data.setting_value_numeric,
         }
+      } else if (error) {
+        console.error(`Error fetching setting "${key}":`, error.message)
       }
+    } catch (e) {
+      console.error(`Error fetching setting ${key}:`, e)
     }
-  } catch (e) {
-    console.error('Error fetching settings:', e)
   }
   return result
 }
@@ -307,7 +310,11 @@ Deno.serve(async (req: Request) => {
         if (!isNaN(val)) additional_weight_kg = val
       }
 
-      console.log('Sao Paulo shipping settings:', { price_per_kg, percentage_value, additional_weight_kg })
+      console.log('Sao Paulo shipping settings:', {
+        price_per_kg,
+        percentage_value,
+        additional_weight_kg,
+      })
 
       let total_weight_kg = 0
       let total_order_value_usd = 0
@@ -524,8 +531,7 @@ Deno.serve(async (req: Request) => {
           }
         } catch (e: any) {
           console.error('[calculate-shipping] Error using fallback:', e.message)
-          const fallbackCost =
-            FALLBACK_USA.fixed_rate + totalWeightLbs * FALLBACK_USA.price_per_lb
+          const fallbackCost = FALLBACK_USA.fixed_rate + totalWeightLbs * FALLBACK_USA.price_per_lb
           cost = Math.ceil(fallbackCost * 10) / 10
           console.log('[calculate-shipping] Using hardcoded fallback cost:', cost)
         }

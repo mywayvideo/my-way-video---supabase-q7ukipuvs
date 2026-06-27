@@ -179,6 +179,7 @@ export default function Checkout() {
   const [shippingMessage, setShippingMessage] = useState<string>('')
   const [shippingError, setShippingError] = useState<string | null>(null)
   const [isCalculatingShipping, setIsCalculatingShipping] = useState(false)
+  const [isLookingUpZip, setIsLookingUpZip] = useState(false)
 
   const [couponCode, setCouponCode] = useState('')
   const [appliedCoupon, setAppliedCoupon] = useState<string | null>(null)
@@ -853,6 +854,7 @@ export default function Checkout() {
       }
     }
 
+    setIsLookingUpZip(true)
     try {
       const { data, error } = await supabase.functions.invoke('lookup-address', {
         body: { cep_or_zip: zip, country: deliveryMethod === 'brasil' ? 'Brasil' : 'USA' },
@@ -895,6 +897,8 @@ export default function Checkout() {
         description: 'Não foi possível validar o endereço. Preencha manualmente.',
         variant: 'destructive',
       })
+    } finally {
+      setIsLookingUpZip(false)
     }
   }
 
@@ -1643,17 +1647,25 @@ export default function Checkout() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
             <div className="space-y-2 sm:col-span-2">
               <Label className="font-semibold text-[hsl(215,25%,15%)]">ZIP Code / CEP</Label>
-              <Input
-                value={address.zip_code}
-                onChange={(e) => setAddress({ ...address, zip_code: e.target.value })}
-                onBlur={handleZipBlur}
-                className={cn(
-                  inputClass,
-                  addressErrors.zip_code &&
-                    'border-red-500 focus-visible:shadow-[0_0_0_3px_rgba(239,68,68,0.2)]',
+              <div className="relative">
+                <Input
+                  value={address.zip_code}
+                  onChange={(e) => setAddress({ ...address, zip_code: e.target.value })}
+                  onBlur={handleZipBlur}
+                  className={cn(
+                    inputClass,
+                    addressErrors.zip_code &&
+                      'border-red-500 focus-visible:shadow-[0_0_0_3px_rgba(239,68,68,0.2)]',
+                    isLookingUpZip && 'pr-12',
+                  )}
+                  placeholder={deliveryMethod === 'brasil' ? 'Ex: 01000-000' : 'Apenas números'}
+                />
+                {isLookingUpZip && (
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
+                    <Loader2 className="w-5 h-5 text-[hsl(152,68%,40%)] animate-spin" />
+                  </div>
                 )}
-                placeholder={deliveryMethod === 'brasil' ? 'Ex: 01000-000' : 'Apenas números'}
-              />
+              </div>
               {addressErrors.zip_code && (
                 <p className="text-red-500 text-sm">{addressErrors.zip_code}</p>
               )}
@@ -2467,10 +2479,15 @@ Valor: ${formatCurrency(total)}
                 disabled={
                   !deliveryMethod ||
                   isLoading ||
+                  isLookingUpZip ||
                   hasIneligibleItems ||
-                  (deliveryMethod !== 'coleta' && !selectedAddressId && !isAddingNewAddress)
+                  (deliveryMethod !== 'coleta' && !selectedAddressId && !isAddingNewAddress) ||
+                  (deliveryMethod !== 'coleta' &&
+                    isAddingNewAddress &&
+                    (!address.street || !address.city || !address.state || !address.zip_code))
                 }
               >
+                {' '}
                 {isLoading ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : null}
                 Calcular Frete
               </button>
@@ -2567,8 +2584,12 @@ Valor: ${formatCurrency(total)}
                     onClick={handleCalculateShippingAction}
                     disabled={
                       isCalculatingShipping ||
+                      isLookingUpZip ||
                       !deliveryMethod ||
-                      (deliveryMethod !== 'coleta' && !selectedAddressId && !isAddingNewAddress)
+                      (deliveryMethod !== 'coleta' && !selectedAddressId && !isAddingNewAddress) ||
+                      (deliveryMethod !== 'coleta' &&
+                        isAddingNewAddress &&
+                        (!address.street || !address.city || !address.state || !address.zip_code))
                     }
                   >
                     Calcular Frete

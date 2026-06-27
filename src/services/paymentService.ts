@@ -1,110 +1,70 @@
 import { supabase } from '@/lib/supabase/client'
-import { PaymentMethod, BankDetails, PIXData, ZelleData, CustomerData } from '@/types/payment'
+import { PaymentMethod, CustomerData } from '@/types/payment'
+import { createOrderRecord } from '@/services/orderCreation'
 
-export const getAvailablePaymentMethods = (shippingMethod: string): PaymentMethod[] => {
-  const baseOptions: PaymentMethod[] = ['stripe', 'transferencia_miami', 'zelle', 'paypal']
+export function getAvailablePaymentMethods(shippingMethod: string): PaymentMethod[] {
   if (shippingMethod === 'brazil_delivery') {
-    return [...baseOptions, 'pix', 'transferencia_brasil']
+    return ['pix', 'transferencia_brasil', 'paypal', 'stripe']
   }
-  return baseOptions
+  return ['stripe', 'transferencia_miami', 'zelle', 'paypal']
 }
 
-export const initiatePayPalPayment = async (amount: number, email: string, orderId: string) => {
+export async function initiatePayPalPayment(
+  amount: number,
+  email: string,
+  orderId: string,
+): Promise<any> {
   const { data, error } = await supabase.functions.invoke('create-paypal-payment-intent', {
-    body: { order_id: orderId, amount: Math.round(amount * 100) },
+    body: {
+      amount,
+      email,
+      order_id: orderId,
+      return_url: `${window.location.origin}/checkout/success`,
+      cancel_url: `${window.location.origin}/checkout?cancel=paypal`,
+    },
   })
-  if (error || !data?.paypal_approval_url) {
-    throw new Error('Erro ao conectar com PayPal. Tente novamente.')
-  }
-  return data.paypal_approval_url
+  if (error) throw error
+  return data
 }
 
-export const generateBankDepositDetailsUSA = (orderId: string, amount: number): BankDetails => {
-  return {
-    bankName: 'Miami International Bank',
-    accountNumber: '987654321',
-    routingNumber: '123456789',
-    accountHolder: 'My Way Business LLC',
-    swiftCode: 'MIBKUS3M',
-  }
+export async function generateBankDepositDetailsUSA(): Promise<any> {
+  const { data, error } = await supabase
+    .from('app_settings')
+    .select('setting_value')
+    .eq('setting_key', 'transfer_usa_bank_details')
+    .maybeSingle()
+  if (error) throw error
+  return data?.setting_value ? JSON.parse(data.setting_value) : null
 }
 
-export const generateZelleDetails = (orderId: string, amount: number): ZelleData => {
-  return {
-    email: 'payments@mywayvideo.com',
-  }
+export async function generateZelleDetails(): Promise<string | null> {
+  const { data, error } = await supabase
+    .from('app_settings')
+    .select('setting_value')
+    .eq('setting_key', 'zelle_email')
+    .maybeSingle()
+  if (error) throw error
+  return data?.setting_value || null
 }
 
-export const createPendingOrder = async (
+export async function createPendingOrder(
   customerId: string,
-  items: any[],
+  cartItems: any[],
   paymentMethod: PaymentMethod,
   paymentData: any,
   shippingMethod: string,
   total: number,
   subtotal: number,
   discountAmount: number,
-  freight: number | null,
+  freight: number,
   shippingAddressId: string | null,
   orderNumber: string,
-) => {
-  let paymentMethodType = 'transfer'
-  if (paymentMethod === 'stripe') paymentMethodType = 'card'
-  if (paymentMethod === 'pix') paymentMethodType = 'pix'
-  if (paymentMethod === 'paypal') paymentMethodType = 'paypal'
-  if (paymentMethod === 'zelle') paymentMethodType = 'zelle'
-
-  const { data: order, error: orderErr } = await supabase
-    .from('orders')
-    .insert({
-      customer_id: customerId,
-      order_number: orderNumber,
-      status: 'pending_payment',
-      shipping_address_id: shippingAddressId,
-      payment_method_type: paymentMethodType,
-      subtotal,
-      discount_amount: discountAmount,
-      shipping_cost: freight,
-      total,
-      shipping_method: shippingMethod,
-      payment_data: paymentData,
-    } as any)
-    .select('id, order_number')
-    .single()
-
-  if (orderErr) throw orderErr
-
-  const itemsToInsert = items.map((item) => ({
-    order_id: order.id,
-    product_id: item.product_id,
-    quantity: item.quantity,
-    unit_price: item.unit_price,
-    total_price: item.unit_price * item.quantity,
-  }))
-
-  const { error: itemsErr } = await supabase.from('order_items').insert(itemsToInsert)
-  if (itemsErr) throw itemsErr
-
-  return { order_id: order.id, order_number: order.order_number }
-}
-
-export const createTransferenciaBrasilOrder = async (
-  customerId: string,
-  items: any[],
-  customerData: CustomerData,
-  shippingMethod: string,
-  total: number,
-  subtotal: number,
-  discountAmount: number,
-  freight: number | null,
-  shippingAddressId: string | null,
-  orderNumber: string,
-) => {
-  return createPendingOrder(
+): Promise<{ order_id: string }> {
+  return createOrderRecord({
     customerId,
-    items,
-    'transferencia_brasil',
-    customerData,
+    cartItems,
+    paymentMethodType: paymentMethod,
+    paymentData,
     shippingMethod,
     total,
     subtotal,
@@ -112,26 +72,27 @@ export const createTransferenciaBrasilOrder = async (
     freight,
     shippingAddressId,
     orderNumber,
-  )
+    status: 'pending',
+  })
 }
 
-export const createPIXOrder = async (
+export async function createTransferenciaBrasilOrder(
   customerId: string,
-  items: any[],
+  cartItems: any[],
   customerData: CustomerData,
   shippingMethod: string,
   total: number,
   subtotal: number,
   discountAmount: number,
-  freight: number | null,
+  freight: number,
   shippingAddressId: string | null,
   orderNumber: string,
-) => {
-  return createPendingOrder(
+): Promise<{ order_id: string }> {
+  return createOrderRecord({
     customerId,
-    items,
-    'pix',
-    customerData,
+    cartItems,
+    paymentMethodType: 'transferencia_brasil',
+    paymentData: { customer: customerData },
     shippingMethod,
     total,
     subtotal,
@@ -139,5 +100,34 @@ export const createPIXOrder = async (
     freight,
     shippingAddressId,
     orderNumber,
-  )
+    status: 'pending',
+  })
+}
+
+export async function createPIXOrder(
+  customerId: string,
+  cartItems: any[],
+  customerData: CustomerData,
+  shippingMethod: string,
+  total: number,
+  subtotal: number,
+  discountAmount: number,
+  freight: number,
+  shippingAddressId: string | null,
+  orderNumber: string,
+): Promise<{ order_id: string }> {
+  return createOrderRecord({
+    customerId,
+    cartItems,
+    paymentMethodType: 'pix',
+    paymentData: { customer: customerData },
+    shippingMethod,
+    total,
+    subtotal,
+    discountAmount,
+    freight,
+    shippingAddressId,
+    orderNumber,
+    status: 'pending',
+  })
 }

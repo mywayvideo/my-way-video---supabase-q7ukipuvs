@@ -1,39 +1,33 @@
-import { useState } from 'react'
-import { useToast } from '@/hooks/use-toast'
+import { useState, useCallback } from 'react'
+import { supabase } from '@/lib/supabase/client'
+import { PaymentMethod, CustomerData } from '@/types/payment'
 import {
+  getAvailablePaymentMethods,
   initiatePayPalPayment,
+  generateBankDepositDetailsUSA,
+  generateZelleDetails,
   createPendingOrder,
   createTransferenciaBrasilOrder,
   createPIXOrder,
-  generateBankDepositDetailsUSA,
-  generateZelleDetails,
-  getAvailablePaymentMethods,
 } from '@/services/paymentService'
 
-export const useAlternativePayments = () => {
-  const { toast } = useToast()
+export function useAlternativePayments() {
   const [isLoading, setIsLoading] = useState(false)
 
-  const validateShippingMethod = (shippingMethod: string) => {
-    const valid = ['brazil_delivery', 'usa_cargo', 'miami_pickup']
-    if (!valid.includes(shippingMethod)) {
-      toast({ description: 'Método de entrega inválido.', variant: 'destructive' })
-      return false
-    }
-    return true
-  }
+  const validateShippingMethod = useCallback((method: string): boolean => {
+    return ['miami_pickup', 'usa_cargo', 'brazil_delivery'].includes(method)
+  }, [])
 
-  const handlePayPalFlow = async (amount: number, email: string, orderId: string) => {
-    setIsLoading(true)
-    try {
-      const url = await initiatePayPalPayment(amount, email, orderId)
-      window.location.href = url
-    } catch (err: any) {
-      toast({ description: 'Pagamento PayPal falhou. Tente novamente.', variant: 'destructive' })
-    } finally {
-      setIsLoading(false)
+  const handlePayPalFlow = useCallback(async (amount: number, email: string, orderId: string) => {
+    const data = await initiatePayPalPayment(amount, email, orderId)
+    if (data?.approval_url) {
+      window.location.href = data.approval_url
+    } else if (data?.redirect_url) {
+      window.location.href = data.redirect_url
+    } else {
+      throw new Error('Não foi possível iniciar o pagamento PayPal.')
     }
-  }
+  }, [])
 
   return {
     isLoading,

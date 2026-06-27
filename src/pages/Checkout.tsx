@@ -1953,7 +1953,7 @@ export default function Checkout() {
         <div className="flex justify-between py-3 border-b border-slate-200 items-center">
           <span className="text-sm font-medium text-[hsl(215,15%,45%)]">Frete e Impostos</span>
           <span className="text-base font-semibold text-[hsl(152,68%,40%)] font-mono">
-            Incluído nos itens
+            {freight !== null ? formatCurrency(freight * exchangeRate) : '—'}
           </span>
         </div>
       )}
@@ -2296,7 +2296,7 @@ Valor: ${formatCurrency(total)}
         Checkout Automatizado
       </h1>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 min-w-0">
         <div className="lg:col-span-2 space-y-6 min-w-0">
           {/* STEP 1 */}
           <StepWrapper
@@ -2617,11 +2617,17 @@ Valor: ${formatCurrency(total)}
                   <div>
                     <p className="text-lg font-medium text-[hsl(215,25%,15%)]">Custo de frete:</p>
                     {shippingMessage && (
-                      <p className="text-sm text-[hsl(152,68%,40%)] mt-1">{shippingMessage}</p>
+                      <p className="text-sm text-[hsl(152,68%,40%)] mt-1">
+                        {destType === 'brasil' && freight !== null
+                          ? `Frete para São Paulo: ${formatCurrency(freight * exchangeRate)}`
+                          : shippingMessage}
+                      </p>
                     )}
                   </div>
                   <p className="text-2xl font-bold font-mono text-[hsl(152,68%,40%)] shrink-0">
-                    {destType === 'brasil' ? 'Incluído nos itens' : formatCurrency(freight)}
+                    {destType === 'brasil'
+                      ? formatCurrency(freight * exchangeRate)
+                      : formatCurrency(freight)}
                   </p>
                 </div>
               ) : null}

@@ -450,7 +450,8 @@ export default function Checkout() {
   const hasIneligibleItems = evaluatedItems.some((i) => !i.eligible)
   const dynamicSubtotal = evaluatedItems.reduce((acc, item) => acc + (item.itemTotal || 0), 0)
 
-  const total = dynamicSubtotal - discountAmount + (destType === 'brasil' ? 0 : freight || 0)
+  const convertedDiscount = destType === 'brasil' ? discountAmount * exchangeRate : discountAmount
+  const total = dynamicSubtotal - convertedDiscount + (destType === 'brasil' ? 0 : freight || 0)
 
   const formatCurrency = (value: number, currencyParam?: string) => {
     const curr = currencyParam || (destType === 'brasil' ? 'BRL' : 'USD')
@@ -986,6 +987,8 @@ export default function Checkout() {
               zip_code: address.zip_code || '00000',
               country: deliveryMethod === 'brasil' ? 'Brasil' : 'USA',
               is_default: saveNewAddress,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
             })
             .select('id')
             .single()
@@ -1118,7 +1121,7 @@ export default function Checkout() {
         setDiscountAmount(data.discount_amount)
         setAppliedCoupon(data.code)
         toast({
-          description: `Cupom aplicado com sucesso. Desconto: USD ${data.discount_amount.toFixed(2)}`,
+          description: `Cupom aplicado com sucesso. Desconto: ${formatCurrency(data.discount_amount)}`,
         })
       }
     } catch (err: any) {
@@ -1173,6 +1176,8 @@ export default function Checkout() {
           zip_code: '00000',
           country: 'USA',
           is_default: false,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
         })
         .select('id')
         .single()
@@ -1198,6 +1203,8 @@ export default function Checkout() {
         zip_code: address.zip_code || '00000',
         country: deliveryMethod === 'brasil' ? 'Brasil' : 'USA',
         is_default: saveNewAddress,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
       })
       .select('id')
       .single()
@@ -1246,7 +1253,7 @@ export default function Checkout() {
           dbShippingMethod,
           total,
           subtotal,
-          discountAmount,
+          convertedDiscount,
           destType === 'brasil' ? 0 : freight,
           shippingAddressId,
           tempOrderNumber,
@@ -1265,7 +1272,7 @@ export default function Checkout() {
           dbShippingMethod,
           total,
           subtotal,
-          discountAmount,
+          convertedDiscount,
           destType === 'brasil' ? 0 : freight,
           shippingAddressId,
           tempOrderNumber,
@@ -1279,7 +1286,7 @@ export default function Checkout() {
           dbShippingMethod,
           total,
           subtotal,
-          discountAmount,
+          convertedDiscount,
           destType === 'brasil' ? 0 : freight,
           shippingAddressId,
           tempOrderNumber,
@@ -1305,7 +1312,7 @@ export default function Checkout() {
           dbShippingMethod,
           total,
           subtotal,
-          discountAmount,
+          convertedDiscount,
           destType === 'brasil' ? 0 : freight,
           shippingAddressId,
           tempOrderNumber,
@@ -1389,7 +1396,7 @@ export default function Checkout() {
           shippingAddressId,
           dbShippingMethod,
           destType === 'brasil' ? 0 : freight || null,
-          discountAmount,
+          convertedDiscount,
         )
 
         clearCartFromLocalStorage()
@@ -1452,7 +1459,7 @@ export default function Checkout() {
         dbShippingMethod,
         total,
         subtotal,
-        discountAmount,
+        convertedDiscount,
         destType === 'brasil' ? 0 : freight,
         shippingAddressId,
         tempOrderNumber,
@@ -1519,7 +1526,7 @@ export default function Checkout() {
             shippingAddressId,
             dbShippingMethod,
             destType === 'brasil' ? 0 : freight || null,
-            discountAmount,
+            convertedDiscount,
           )
 
           clearCartFromLocalStorage()
@@ -1874,11 +1881,11 @@ export default function Checkout() {
         </span>
       </div>
 
-      {discountAmount > 0 && (
+      {convertedDiscount > 0 && (
         <div className="flex justify-between py-3 border-b border-slate-200 items-center">
           <span className="text-sm font-medium text-[hsl(215,15%,45%)]">Desconto</span>
           <span className="text-base font-semibold text-[hsl(152,68%,40%)] font-mono">
-            -{formatCurrency(discountAmount)}
+            -{formatCurrency(convertedDiscount)}
           </span>
         </div>
       )}
@@ -1910,7 +1917,7 @@ export default function Checkout() {
       {appliedCoupon && (
         <div className="bg-emerald-600 text-white py-3 px-4 rounded-xl text-sm mt-6 flex justify-between items-center shadow-md shadow-emerald-600/20">
           <span className="font-medium">Cupom: {appliedCoupon}</span>
-          <span className="font-bold">-{formatCurrency(discountAmount)}</span>
+          <span className="font-bold">-{formatCurrency(convertedDiscount)}</span>
         </div>
       )}
 
@@ -2516,7 +2523,7 @@ Valor: ${formatCurrency(total)}
                 <p className="mt-2">
                   <strong>Resumo do Carrinho:</strong>{' '}
                   {cartItems.reduce((acc, item) => acc + item.quantity, 0)} item(s) -{' '}
-                  {formatCurrency(subtotal)}
+                  {formatCurrency(dynamicSubtotal)}
                 </p>
               </div>
 

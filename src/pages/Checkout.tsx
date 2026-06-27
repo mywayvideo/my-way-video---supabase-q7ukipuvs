@@ -369,6 +369,7 @@ export default function Checkout() {
   })
 
   useEffect(() => {
+    if (cartItems.length === 0) return
     if (deliveryMethod === 'brasil' && !canDeliverToBrasil) setDeliveryMethod('')
     if (deliveryMethod === 'usa' && !canDeliverToUSA) setDeliveryMethod('')
     if ((deliveryMethod === 'miami' || deliveryMethod === 'coleta') && !canDeliverLocally)
@@ -1648,7 +1649,7 @@ export default function Checkout() {
 
     if (isAddingNewAddress || filtered.length === 0) {
       return (
-        <div className="bg-[hsl(215,20%,96%)] p-6 rounded-2xl border border-[hsl(215,20%,90%)] space-y-5 relative mt-6 animate-in fade-in slide-in-from-top-4 duration-300">
+        <div className="bg-[hsl(215,20%,96%)] p-6 rounded-2xl border border-[hsl(215,20%,90%)] space-y-5 relative mt-6 animate-in fade-in slide-in-from-top-4 duration-300 overflow-hidden max-w-full">
           {filtered.length > 0 && (
             <button
               onClick={() => {
@@ -1675,8 +1676,8 @@ export default function Checkout() {
           )}
           <h4 className="font-bold text-[hsl(215,25%,15%)] mb-2">Adicionar Novo Endereço</h4>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-            <div className="space-y-2 sm:col-span-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 min-w-0">
+            <div className="space-y-2 sm:col-span-2 min-w-0">
               <Label className="font-semibold text-[hsl(215,25%,15%)]">ZIP Code / CEP</Label>
               <div className="relative">
                 <Input
@@ -1702,7 +1703,7 @@ export default function Checkout() {
               )}
             </div>
 
-            <div className="space-y-2 sm:col-span-2">
+            <div className="space-y-2 sm:col-span-2 min-w-0">
               <Label className="font-semibold text-[hsl(215,25%,15%)]">Logradouro</Label>
               <Input
                 value={address.street}
@@ -1746,7 +1747,7 @@ export default function Checkout() {
               />
             </div>
 
-            <div className="space-y-2 sm:col-span-2">
+            <div className="space-y-2 sm:col-span-2 min-w-0">
               <Label className="font-semibold text-[hsl(215,25%,15%)]">Bairro</Label>
               <Input
                 value={address.neighborhood}
@@ -1809,8 +1810,8 @@ export default function Checkout() {
     }
 
     return (
-      <div className="mt-6 animate-in fade-in slide-in-from-top-4 duration-300">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+      <div className="mt-6 animate-in fade-in slide-in-from-top-4 duration-300 overflow-hidden max-w-full">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6 min-w-0">
           {filtered.map((addr) => (
             <div
               key={addr.id}
@@ -2425,7 +2426,7 @@ Valor: ${formatCurrency(total)}
             <RadioGroup
               value={deliveryMethod}
               onValueChange={handleDeliveryChange}
-              className="grid grid-cols-1 sm:grid-cols-2 gap-4"
+              className="grid grid-cols-1 sm:grid-cols-2 gap-4 overflow-hidden max-w-full"
             >
               {[
                 {
@@ -2506,7 +2507,8 @@ Valor: ${formatCurrency(total)}
             </RadioGroup>
 
             {deliveryMethod && deliveryMethod !== 'coleta' && (
-              <div className="mt-8 animate-in fade-in slide-in-from-top-4 duration-300">
+              <div className="mt-8 animate-in fade-in slide-in-from-top-4 duration-300 overflow-hidden max-w-full">
+                {' '}
                 <h3 className="text-lg font-bold text-[hsl(215,25%,15%)] mb-4">
                   Endereço de Entrega
                 </h3>
@@ -2525,7 +2527,7 @@ Valor: ${formatCurrency(total)}
                   !deliveryMethod ||
                   isLoading ||
                   isLookingUpZip ||
-                  hasIneligibleItems ||
+                  (hasIneligibleItems && cartItems.length > 0) ||
                   !isAddressFormValid
                 }
               >
@@ -2713,7 +2715,7 @@ Valor: ${formatCurrency(total)}
             <RadioGroup
               value={paymentMethod}
               onValueChange={(val) => setPaymentMethod(val as PaymentMethod)}
-              className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6"
+              className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6 overflow-hidden max-w-full"
             >
               {getPaymentOptions().map((opt) => (
                 <div

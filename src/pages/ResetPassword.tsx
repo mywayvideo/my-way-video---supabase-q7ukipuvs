@@ -4,12 +4,14 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useToast } from '@/hooks/use-toast'
-import { Lock, Loader2 } from 'lucide-react'
+import { Lock, Loader2, Eye, EyeOff } from 'lucide-react'
 import logoImg from '../assets/mw_logo_horiz_1200x318_fundo_escuro-037e3.png'
 
 export default function ResetPassword() {
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const { toast } = useToast()
 
@@ -69,13 +71,21 @@ export default function ResetPassword() {
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500" />
                 <Input
-                  type="password"
+                  type={showPassword ? 'text' : 'password'}
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   disabled={loading}
-                  className="bg-zinc-900 border-zinc-800 text-white h-11 rounded-xl text-sm pl-9 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="bg-zinc-900 border-zinc-800 text-white h-11 rounded-xl text-sm pl-9 pr-10 disabled:opacity-50 disabled:cursor-not-allowed"
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 transition-colors"
+                  tabIndex={-1}
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
               </div>
             </div>
 
@@ -84,13 +94,25 @@ export default function ResetPassword() {
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500" />
                 <Input
-                  type="password"
+                  type={showConfirmPassword ? 'text' : 'password'}
                   required
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   disabled={loading}
-                  className="bg-zinc-900 border-zinc-800 text-white h-11 rounded-xl text-sm pl-9 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="bg-zinc-900 border-zinc-800 text-white h-11 rounded-xl text-sm pl-9 pr-10 disabled:opacity-50 disabled:cursor-not-allowed"
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 transition-colors"
+                  tabIndex={-1}
+                >
+                  {showConfirmPassword ? (
+                    <EyeOff className="h-4 w-4" />
+                  ) : (
+                    <Eye className="h-4 w-4" />
+                  )}
+                </button>
               </div>
             </div>
 

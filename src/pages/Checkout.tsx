@@ -68,7 +68,7 @@ function StepWrapper({
   return (
     <div
       className={cn(
-        'border rounded-xl p-6 transition-all duration-300 ease-out',
+        'border rounded-xl p-6 transition-all duration-300 ease-out overflow-hidden max-w-full',
         isActive
           ? 'border-[hsl(152,68%,40%)] bg-[hsl(152,68%,98%)] shadow-[0_4px_12px_rgba(5,150,105,0.1)]'
           : isCompleted
@@ -103,7 +103,7 @@ function StepWrapper({
       </div>
 
       {isActive && (
-        <div className="animate-in fade-in slide-in-from-bottom-3 duration-300 ease-out pt-6 mt-6 border-t border-slate-200">
+        <div className="animate-in fade-in slide-in-from-bottom-3 duration-300 ease-out pt-6 mt-6 border-t border-slate-200 overflow-hidden max-w-full">
           {children}
         </div>
       )}
@@ -370,11 +370,23 @@ export default function Checkout() {
 
   useEffect(() => {
     if (cartItems.length === 0) return
+    if (Object.keys(productDetails).length === 0) return
+    const allDetailsLoaded = cartItems.every(
+      (item) => productDetails[item.product_id] || productDetails[item.id],
+    )
+    if (!allDetailsLoaded) return
     if (deliveryMethod === 'brasil' && !canDeliverToBrasil) setDeliveryMethod('')
     if (deliveryMethod === 'usa' && !canDeliverToUSA) setDeliveryMethod('')
     if ((deliveryMethod === 'miami' || deliveryMethod === 'coleta') && !canDeliverLocally)
       setDeliveryMethod('')
-  }, [cartItems, canDeliverToBrasil, canDeliverToUSA, canDeliverLocally, deliveryMethod])
+  }, [
+    cartItems,
+    canDeliverToBrasil,
+    canDeliverToUSA,
+    canDeliverLocally,
+    deliveryMethod,
+    productDetails,
+  ])
 
   let totalUsaWeightKg = 0
   cartItems.forEach((item) => {
@@ -2279,13 +2291,13 @@ Valor: ${formatCurrency(total)}
   }
 
   return (
-    <div className="max-w-[1200px] mx-auto p-4 md:p-8 font-sans pb-32 lg:pb-8">
+    <div className="max-w-[1200px] mx-auto p-4 md:p-8 font-sans pb-32 lg:pb-8 overflow-hidden">
       <h1 className="text-4xl font-bold tracking-tight text-emerald-600 mb-8 lg:mb-10">
         Checkout Automatizado
       </h1>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2 space-y-6">
+        <div className="lg:col-span-2 space-y-6 min-w-0">
           {/* STEP 1 */}
           <StepWrapper
             step={1}
@@ -2851,7 +2863,7 @@ Valor: ${formatCurrency(total)}
         </div>
 
         {/* Right Column Summary */}
-        <div className="block w-full lg:col-span-1">
+        <div className="block w-full lg:col-span-1 min-w-0">
           <div className="bg-slate-50 rounded-2xl p-8 sticky top-24 border border-slate-200 shadow-[0_8px_30px_rgba(0,0,0,0.04)]">
             <h3 className="text-2xl font-bold text-slate-900 mb-6">Resumo do Pedido</h3>
             {renderOrderSummary()}

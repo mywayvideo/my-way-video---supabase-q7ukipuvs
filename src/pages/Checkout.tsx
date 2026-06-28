@@ -68,7 +68,7 @@ function StepWrapper({
   return (
     <div
       className={cn(
-        'border rounded-xl p-6 transition-all duration-300 ease-out overflow-hidden max-w-full',
+        'w-full min-w-0 border rounded-xl p-6 transition-all duration-300 ease-out overflow-hidden max-w-full',
         isActive
           ? 'border-[hsl(152,68%,40%)] bg-[hsl(152,68%,98%)] shadow-[0_4px_12px_rgba(5,150,105,0.1)]'
           : isCompleted
@@ -1661,7 +1661,7 @@ export default function Checkout() {
 
     if (isAddingNewAddress || filtered.length === 0) {
       return (
-        <div className="bg-[hsl(215,20%,96%)] p-6 rounded-2xl border border-[hsl(215,20%,90%)] space-y-5 relative mt-6 animate-in fade-in slide-in-from-top-4 duration-300 overflow-hidden max-w-full">
+        <div className="w-full min-w-0 bg-[hsl(215,20%,96%)] p-6 rounded-2xl border border-[hsl(215,20%,90%)] space-y-5 relative mt-6 animate-in fade-in slide-in-from-top-4 duration-300 overflow-hidden max-w-full">
           {filtered.length > 0 && (
             <button
               onClick={() => {
@@ -1822,7 +1822,7 @@ export default function Checkout() {
     }
 
     return (
-      <div className="mt-6 animate-in fade-in slide-in-from-top-4 duration-300 overflow-hidden max-w-full">
+      <div className="mt-6 animate-in fade-in slide-in-from-top-4 duration-300 overflow-hidden max-w-full w-full min-w-0">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6 min-w-0">
           {filtered.map((addr) => (
             <div
@@ -2293,7 +2293,7 @@ Valor: ${formatCurrency(total)}
   }
 
   return (
-    <div className="max-w-[1200px] mx-auto p-4 md:p-8 font-sans pb-32 lg:pb-8">
+    <div className="w-full max-w-[1200px] mx-auto p-4 md:p-8 font-sans pb-32 lg:pb-8">
       <h1 className="text-4xl font-bold tracking-tight text-emerald-600 mb-8 lg:mb-10">
         Checkout Automatizado
       </h1>
@@ -2440,7 +2440,7 @@ Valor: ${formatCurrency(total)}
             <RadioGroup
               value={deliveryMethod}
               onValueChange={handleDeliveryChange}
-              className="grid grid-cols-1 sm:grid-cols-2 gap-4 overflow-hidden max-w-full"
+              className="grid grid-cols-1 sm:grid-cols-2 gap-4 overflow-hidden max-w-full w-full"
             >
               {[
                 {
@@ -2472,7 +2472,7 @@ Valor: ${formatCurrency(total)}
                   key={opt.id}
                   onClick={() => !opt.disabled && handleDeliveryChange(opt.id)}
                   className={cn(
-                    'group border-2 rounded-xl p-4 transition-all duration-200 ease-out relative',
+                    'group border-2 rounded-xl p-4 transition-all duration-200 ease-out relative min-w-0 overflow-hidden w-full',
                     opt.disabled
                       ? 'opacity-50 cursor-not-allowed bg-slate-50 border-slate-200'
                       : 'cursor-pointer',
@@ -2521,7 +2521,7 @@ Valor: ${formatCurrency(total)}
             </RadioGroup>
 
             {deliveryMethod && deliveryMethod !== 'coleta' && (
-              <div className="mt-8 animate-in fade-in slide-in-from-top-4 duration-300 overflow-hidden max-w-full">
+              <div className="mt-8 animate-in fade-in slide-in-from-top-4 duration-300 overflow-hidden max-w-full w-full min-w-0">
                 {' '}
                 <h3 className="text-lg font-bold text-[hsl(215,25%,15%)] mb-4">
                   Endereço de Entrega
@@ -2741,14 +2741,14 @@ Valor: ${formatCurrency(total)}
             <RadioGroup
               value={paymentMethod}
               onValueChange={(val) => setPaymentMethod(val as PaymentMethod)}
-              className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6 overflow-hidden max-w-full"
+              className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6 overflow-hidden max-w-full w-full"
             >
               {getPaymentOptions().map((opt) => (
                 <div
                   key={opt.id}
                   onClick={() => setPaymentMethod(opt.id as PaymentMethod)}
                   className={cn(
-                    'group border-2 rounded-2xl p-6 cursor-pointer transition-all duration-200 ease-out flex flex-col items-center text-center',
+                    'group border-2 rounded-2xl p-6 cursor-pointer transition-all duration-200 ease-out flex flex-col items-center text-center min-w-0 overflow-hidden w-full',
                     paymentMethod === opt.id
                       ? 'border-[hsl(152,68%,40%)] bg-[hsl(152,68%,95%)] shadow-[0_4px_12px_hsl(152,68%,10%)]'
                       : 'bg-[hsl(215,20%,96%)] border-[hsl(215,20%,90%)] hover:border-[hsl(152,68%,40%)]',

@@ -15,6 +15,7 @@ import { orderService } from '@/services/orderService'
 import { supabase } from '@/lib/supabase/client'
 import { Link } from 'react-router-dom'
 import { formatCurrency, formatOrderDateTime } from '@/utils/formatters'
+import { formatCurrencyByCountry, formatUSDCurrency } from '@/utils/orderCurrency'
 
 interface Props {
   orderId: string | null
@@ -77,16 +78,7 @@ export function OrderDetailsModal({
     }
   }, [orderId, open])
 
-  const safeFormatCurrency = (value: any) => {
-    try {
-      return `US$ ${Number(value || 0).toLocaleString('en-US', {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      })}`
-    } catch {
-      return `US$ ${value}`
-    }
-  }
+  const safeFormatCurrency = (value: any) => formatUSDCurrency(value)
 
   const formatDate = (dateStr: string | null | undefined) => {
     return formatOrderDateTime(dateStr)
@@ -130,6 +122,8 @@ export function OrderDetailsModal({
   }
 
   const deliveryAddress = order ? getDeliveryAddress(order, extraAddresses.shipping) : null
+  const deliveryCountry = deliveryAddress?.country ?? null
+  const formatSummaryCurrency = (value: any) => formatCurrencyByCountry(value, deliveryCountry)
 
   const getStatusBadge = (status: string) => {
     const s = status?.toLowerCase() || ''
@@ -205,15 +199,15 @@ export function OrderDetailsModal({
                     </p>
                     <p>
                       <span className="font-medium">Subtotal:</span>{' '}
-                      {safeFormatCurrency(order.subtotal)}
+                      {formatSummaryCurrency(order.subtotal)}
                     </p>
                     <p>
                       <span className="font-medium">Frete:</span>{' '}
-                      {safeFormatCurrency(order.shipping_cost ?? 0)}
+                      {formatSummaryCurrency(order.shipping_cost ?? 0)}
                     </p>
                     <p>
                       <span className="font-medium">Total:</span>{' '}
-                      {safeFormatCurrency(order.total_amount ?? order.total)}
+                      {formatSummaryCurrency(order.total_amount ?? order.total)}
                     </p>
                     <div className="flex items-center gap-2">
                       <span className="font-medium">Status:</span>

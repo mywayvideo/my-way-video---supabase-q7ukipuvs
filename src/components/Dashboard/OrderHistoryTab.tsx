@@ -18,6 +18,7 @@ import { OrderDetailsModal } from './OrderDetailsModal'
 import { OrderCancelModal } from './OrderCancelModal'
 import { Card, CardContent } from '@/components/ui/card'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { getDeliveryCountry, formatCurrencyByCountry } from '@/utils/orderCurrency'
 
 export function OrderHistoryTab({
   orders,
@@ -57,10 +58,8 @@ export function OrderHistoryTab({
   }
 
   const formatOrderCurrency = (order: Order) => {
-    return `US$ ${Number(order.total || 0).toLocaleString('en-US', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    })}`
+    const country = getDeliveryCountry(order)
+    return formatCurrencyByCountry(order.total, country)
   }
 
   if (orders.length === 0) {

@@ -1491,11 +1491,14 @@ export default function Checkout() {
         })
       }
     } catch (err: any) {
+      const errMessage =
+        err?.message ||
+        'Pagamento recusado. Verifique os dados do cartão ou tente outro método de pagamento.'
+
       toast({
-        description:
-          err.message ||
-          'Pagamento recusado. Verifique os dados do cartão ou tente outro método de pagamento.',
+        description: errMessage,
         variant: 'destructive',
+        duration: 6000,
       })
     } finally {
       setIsLoading(false)

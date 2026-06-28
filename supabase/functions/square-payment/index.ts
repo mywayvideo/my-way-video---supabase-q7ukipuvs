@@ -17,7 +17,7 @@ async function getSquareConfig() {
   const { data, error } = await supabase
     .from('app_settings')
     .select('setting_key, setting_value')
-    .in('setting_key', ['square_access_token', 'square_location_id'])
+    .in('setting_key', ['square_access_token', 'square_location_id', 'square_application_id'])
 
   if (error) throw new Error('Failed to fetch Square configuration from database')
 
@@ -28,9 +28,19 @@ async function getSquareConfig() {
 
   const accessToken = settings['square_access_token']
   const locationId = settings['square_location_id']
+  const applicationId = settings['square_application_id']
 
   if (!accessToken || !locationId) {
     throw new Error('Square configuration missing in database')
+  }
+
+  const isSandboxToken = accessToken.startsWith('EAAAl')
+  const isSandboxAppId = applicationId ? applicationId.startsWith('sandbox-') : false
+
+  if (applicationId && isSandboxToken !== isSandboxAppId) {
+    throw new Error(
+      'Square environment mismatch: application_id and access_token must be from the same environment (both Sandbox or both Production). Please verify app_settings.',
+    )
   }
 
   return { accessToken, locationId }
@@ -79,15 +89,22 @@ Deno.serve(async (req: Request) => {
     const squareData = await squareRes.json()
 
     if (!squareRes.ok) {
-      console.error('Square API Error:', squareData)
+      console.error('Square API Error:', JSON.stringify(squareData))
       let errorMessage = 'Pagamento recusado pelo provedor.'
 
       if (squareData?.errors && Array.isArray(squareData.errors) && squareData.errors.length > 0) {
         const firstError = squareData.errors[0]
-        if (firstError.detail) {
-          errorMessage = firstError.detail
-        } else if (firstError.code) {
-          errorMessage = firstError.code
+        const parts: string[] = []
+        if (firstError.code) parts.push(firstError.code)
+        if (firstError.detail) parts.push(firstError.detail)
+        if (firstError.field) parts.push(`Field: ${firstError.field}`)
+
+        if (parts.length > 0) {
+          errorMessage = parts.join(' — ')
+        }
+
+        if (firstError.code === 'PAN_FAILURE') {
+          errorMessage = `Authorization error: 'PAN_FAILURE' — ${firstError.detail || 'O número do cartão é inválido ou não foi aceito.'}`
         }
       }
 
@@ -103,10 +120,18 @@ Deno.serve(async (req: Request) => {
     })
   } catch (error: any) {
     console.error('Square Payment Exception:', error)
+
+    const isConfigError =
+      error.message?.includes('Square configuration') ||
+      error.message?.includes('Square environment mismatch')
+
     return new Response(
-      JSON.stringify({ error: error.message || 'Erro interno ao processar pagamento.' }),
+      JSON.stringify({
+        error: error.message || 'Erro interno ao processar pagamento. Tente novamente.',
+        is_config_error: isConfigError,
+      }),
       {
-        status: 500,
+        status: isConfigError ? 500 : 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       },
     )

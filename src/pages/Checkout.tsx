@@ -275,13 +275,26 @@ export default function Checkout() {
         return
       }
 
-      const appId = import.meta.env.VITE_SQUARE_APPLICATION_ID
-      const locId = import.meta.env.VITE_SQUARE_LOCATION_ID
+      const { data: squareSettings, error: squareSettingsError } = await supabase
+        .from('app_settings')
+        .select('setting_key, setting_value')
+        .in('setting_key', ['square_application_id', 'square_location_id'])
+
+      if (squareSettingsError || !squareSettings) {
+        console.error('Square: Failed to fetch configuration from database', squareSettingsError)
+        return
+      }
+
+      const settingsMap: Record<string, string> = {}
+      squareSettings.forEach((s) => {
+        if (s.setting_value) settingsMap[s.setting_key] = s.setting_value
+      })
+
+      const appId = settingsMap['square_application_id']
+      const locId = settingsMap['square_location_id']
 
       if (!appId || !locId) {
-        console.error(
-          'Square: Missing VITE_SQUARE_APPLICATION_ID or VITE_SQUARE_LOCATION_ID environment variables',
-        )
+        console.error('Square: Missing square_application_id or square_location_id in app_settings')
         return
       }
 

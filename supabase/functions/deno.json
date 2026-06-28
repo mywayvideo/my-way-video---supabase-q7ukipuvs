@@ -15,6 +15,7 @@
     "ai-search": 18,
     "update-exchange-rate": 11,
     "execute_ai_search_v2_pp": 9,
-    "lookup-address": 9
+    "lookup-address": 9,
+    "square-payment": 1
   }
 }

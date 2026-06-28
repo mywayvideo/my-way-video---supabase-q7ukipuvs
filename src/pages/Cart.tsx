@@ -381,7 +381,7 @@ export default function Cart() {
 
       <Card className="mb-6 bg-primary/5 border-primary/20 shadow-sm">
         <CardContent className="p-4 sm:p-5">
-          <div className="flex items-center gap-2 mb-3">
+          <div className="flex items-center justify-center gap-2 mb-3">
             <MapPin className="w-5 h-5 text-primary" />
             <span className="font-semibold text-base">Destino de Entrega</span>
           </div>
@@ -391,22 +391,23 @@ export default function Cart() {
               onClick={() => setDestination('brasil')}
               size="lg"
               className={cn(
-                'flex-1 rounded-xl transition-all duration-200',
+                'flex-1 rounded-xl transition-all duration-200 items-center gap-2 justify-center',
                 destination === 'brasil' ? 'shadow-md scale-105' : 'opacity-50 hover:opacity-80',
               )}
             >
-              🇧🇷 Brasil
+              Brasil{' '}
+              <img src="https://flagcdn.com/w20/br.png" alt="Brasil" className="w-5 h-auto" />
             </Button>
             <Button
               variant={destination === 'usa' ? 'default' : 'outline'}
               onClick={() => setDestination('usa')}
               size="lg"
               className={cn(
-                'flex-1 rounded-xl transition-all duration-200',
+                'flex-1 rounded-xl transition-all duration-200 items-center gap-2 justify-center',
                 destination === 'usa' ? 'shadow-md scale-105' : 'opacity-50 hover:opacity-80',
               )}
             >
-              🇺🇸 EUA
+              EUA <img src="https://flagcdn.com/w20/us.png" alt="USA" className="w-5 h-auto" />
             </Button>
           </div>
         </CardContent>

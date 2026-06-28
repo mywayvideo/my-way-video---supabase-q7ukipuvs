@@ -77,30 +77,14 @@ export function OrderDetailsModal({
     }
   }, [orderId, open])
 
-  const safeFormatCurrency = (value: any, currentOrder: any = order) => {
-    const paymentDataCurrency = (currentOrder?.payment_data as any)?.currency
-    let isBRL = false
-
-    if (paymentDataCurrency) {
-      isBRL = paymentDataCurrency.toUpperCase() === 'BRL'
-    } else {
-      isBRL =
-        currentOrder?.shipping_method === 'brazil_delivery' ||
-        currentOrder?.payment_method_type === 'pix' ||
-        currentOrder?.payment_method_type === 'transferencia_brasil' ||
-        currentOrder?.payment_method_type === 'boleto'
-    }
-
-    const currencySymbol = isBRL ? 'R$' : 'US$'
-    const locale = isBRL ? 'pt-BR' : 'en-US'
-
+  const safeFormatCurrency = (value: any) => {
     try {
-      return `${currencySymbol} ${Number(value).toLocaleString(locale, {
+      return `US$ ${Number(value || 0).toLocaleString('en-US', {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       })}`
     } catch {
-      return `${currencySymbol} ${value}`
+      return `US$ ${value}`
     }
   }
 
@@ -220,8 +204,16 @@ export function OrderDetailsModal({
                       <span className="font-medium">Data:</span> {formatDate(order.created_at)}
                     </p>
                     <p>
+                      <span className="font-medium">Subtotal:</span>{' '}
+                      {safeFormatCurrency(order.subtotal)}
+                    </p>
+                    <p>
+                      <span className="font-medium">Frete:</span>{' '}
+                      {safeFormatCurrency(order.shipping_cost ?? 0)}
+                    </p>
+                    <p>
                       <span className="font-medium">Total:</span>{' '}
-                      {safeFormatCurrency(order.total_amount ?? order.total, order)}
+                      {safeFormatCurrency(order.total_amount ?? order.total)}
                     </p>
                     <div className="flex items-center gap-2">
                       <span className="font-medium">Status:</span>
@@ -274,14 +266,13 @@ export function OrderDetailsModal({
                               </td>
                               <td className="text-center py-2 px-1">{item.quantity}</td>
                               <td className="text-right py-2 px-1 whitespace-nowrap">
-                                {safeFormatCurrency(item.unit_price, order)}
+                                {safeFormatCurrency(item.unit_price)}
                               </td>
                               <td className="text-right py-2 pl-2 whitespace-nowrap font-medium">
                                 {safeFormatCurrency(
                                   item.subtotal ??
                                     item.total_price ??
                                     item.unit_price * item.quantity,
-                                  order,
                                 )}
                               </td>
                             </tr>

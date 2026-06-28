@@ -9,7 +9,7 @@ export async function createPaymentIntent(
   orderNumber: string,
 ): Promise<{ client_secret: string }> {
   const { data, error } = await supabase.functions.invoke('create-payment-intent', {
-    body: { amount, currency, email, name, order_number: orderNumber },
+    body: { amount, currency, customer_email: email, customer_name: name, order_id: orderNumber },
   })
   if (error) throw error
   return { client_secret: data.client_secret }

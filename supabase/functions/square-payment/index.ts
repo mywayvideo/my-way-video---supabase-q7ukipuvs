@@ -28,15 +28,17 @@ async function getSquareConfig() {
 
   const accessToken = settings['square_access_token']
   const locationId = settings['square_location_id']
+  const applicationId = settings['square_application_id']
 
   if (!accessToken || !locationId) {
     throw new Error('Square configuration missing in database')
   }
 
-  const isSandboxToken = accessToken.startsWith('EAAAl')
-  const baseUrl = isSandboxToken
-    ? 'https://connect.squareupsandbox.com'
-    : 'https://connect.squareup.com'
+  // Detect environment based on application_id prefix (not access_token prefix)
+  // Production app IDs start with 'sq0idp-'
+  // Sandbox app IDs start with 'sandbox-sq0idb-'
+  const isSandbox = applicationId ? applicationId.startsWith('sandbox-sq0idb-') : false
+  const baseUrl = isSandbox ? 'https://connect.squareupsandbox.com' : 'https://connect.squareup.com'
 
   return { accessToken, locationId, baseUrl }
 }
@@ -50,13 +52,10 @@ Deno.serve(async (req: Request) => {
     const { sourceId, amount, orderId } = await req.json()
 
     if (!sourceId || !amount) {
-      return new Response(
-        JSON.stringify({ error: 'Dados de pagamento incompletos.' }),
-        {
-          status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        },
-      )
+      return new Response(JSON.stringify({ error: 'Dados de pagamento incompletos.' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
     }
 
     const { accessToken, locationId, baseUrl } = await getSquareConfig()
@@ -102,7 +101,13 @@ Deno.serve(async (req: Request) => {
         }
 
         if (firstError.code === 'PAN_FAILURE') {
-          errorMessage = `Authorization error: 'PAN_FAILURE' — ${firstError.detail || 'O número do cartão é inválido ou não foi aceito.'}`
+          errorMessage = `Authorization error: 'PAN_FAILURE' — ${firstError.detail || 'O número do cartão é inválido ou não foi aceito pelo banco emissor.'}`
+        }
+        if (firstError.code === 'CARD_DECLINED') {
+          errorMessage = `Cartão recusado: ${firstError.detail || 'O banco emissor recusou a transação. Verifique os dados ou tente outro cartão.'}`
+        }
+        if (firstError.code === 'INVALID_CARD_ERROR') {
+          errorMessage = `Cartão inválido: ${firstError.detail || 'Os dados do cartão fornecido são inválidos.'}`
         }
       }
 
@@ -112,13 +117,10 @@ Deno.serve(async (req: Request) => {
       })
     }
 
-    return new Response(
-      JSON.stringify({ success: true, transactionId: squareData.payment.id }),
-      {
-        status: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      },
-    )
+    return new Response(JSON.stringify({ success: true, transactionId: squareData.payment.id }), {
+      status: 200,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
   } catch (error: any) {
     console.error('Square Payment Exception:', error)
 
@@ -128,8 +130,7 @@ Deno.serve(async (req: Request) => {
 
     return new Response(
       JSON.stringify({
-        error:
-          error.message || 'Erro interno ao processar pagamento. Tente novamente.',
+        error: error.message || 'Erro interno ao processar pagamento. Tente novamente.',
         is_config_error: isConfigError,
       }),
       {

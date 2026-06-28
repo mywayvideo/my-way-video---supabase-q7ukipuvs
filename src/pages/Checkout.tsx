@@ -249,33 +249,97 @@ export default function Checkout() {
     useStripePayment()
 
   const [squarePaymentForm, setSquarePaymentForm] = useState<any>(null)
+  const squareContainerRef = useRef<HTMLDivElement>(null)
+  const squarePaymentsRef = useRef<any>(null)
+  const squareCardRef = useRef<any>(null)
 
   useEffect(() => {
+    if (paymentMethod !== 'square') {
+      if (squareCardRef.current) {
+        try {
+          squareCardRef.current.destroy()
+        } catch (e) {
+          console.error('Square cleanup error:', e)
+        }
+        squareCardRef.current = null
+        setSquarePaymentForm(null)
+      }
+      return
+    }
+
+    const initSquare = async () => {
+      const container = squareContainerRef.current
+      if (!container) {
+        console.error('Square: Card container element not found in DOM')
+        return
+      }
+
+      const appId = import.meta.env.VITE_SQUARE_APPLICATION_ID
+      const locId = import.meta.env.VITE_SQUARE_LOCATION_ID
+
+      if (!appId || !locId) {
+        console.error(
+          'Square: Missing VITE_SQUARE_APPLICATION_ID or VITE_SQUARE_LOCATION_ID environment variables',
+        )
+        return
+      }
+
+      if (!window.Square) {
+        console.error('Square: Web Payments SDK not loaded')
+        return
+      }
+
+      try {
+        if (!squarePaymentsRef.current) {
+          squarePaymentsRef.current = window.Square.payments(appId, locId)
+        }
+
+        if (squareCardRef.current) {
+          try {
+            squareCardRef.current.destroy()
+          } catch {
+            // ignore
+          }
+          squareCardRef.current = null
+        }
+
+        const card = await squarePaymentsRef.current.card()
+        await card.attach(container)
+        squareCardRef.current = card
+        setSquarePaymentForm(card)
+      } catch (e) {
+        console.error('Square initialization error:', e)
+      }
+    }
+
     if (!document.getElementById('square-sdk')) {
       const script = document.createElement('script')
       script.id = 'square-sdk'
       script.src = 'https://web.squarecdn.com/v1/square.js'
-      script.onload = initializeSquare
+      script.async = true
+      script.onload = initSquare
       document.body.appendChild(script)
+    } else if (window.Square) {
+      initSquare()
     } else {
-      initializeSquare()
-    }
-
-    async function initializeSquare() {
-      if (!window.Square) return
-      try {
-        const appId = import.meta.env.VITE_SQUARE_APPLICATION_ID
-        const locId = import.meta.env.VITE_SQUARE_LOCATION_ID
-        if (!appId || !locId) return
-        const payments = window.Square.payments(appId, locId)
-        const card = await payments.card()
-        await card.attach('#square-card-container')
-        setSquarePaymentForm(card)
-      } catch (e) {
-        console.error('Square init error', e)
+      const existingScript = document.getElementById('square-sdk')
+      if (existingScript) {
+        existingScript.addEventListener('load', initSquare, { once: true })
       }
     }
-  }, [])
+
+    return () => {
+      if (squareCardRef.current) {
+        try {
+          squareCardRef.current.destroy()
+        } catch (e) {
+          console.error('Square cleanup error:', e)
+        }
+        squareCardRef.current = null
+        setSquarePaymentForm(null)
+      }
+    }
+  }, [paymentMethod])
 
   const [stripeName, setStripeName] = useState('')
   const [stripeEmail, setStripeEmail] = useState('')
@@ -2793,6 +2857,7 @@ Valor: ${formatCurrency(total)}
                 <div>
                   <Label className="text-[hsl(215,25%,15%)] font-semibold">Dados do Cartão</Label>
                   <div
+                    ref={squareContainerRef}
                     id="square-card-container"
                     className="bg-white border-2 border-[hsl(215,20%,90%)] rounded-lg p-4 mt-1 min-h-[56px]"
                   />

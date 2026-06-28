@@ -66,6 +66,7 @@ export const customerService = {
       .from('customer_addresses')
       .select('*')
       .eq('customer_id', customerId)
+      .neq('street', 'COLETA NA MY WAY')
       .order('is_default', { ascending: false })
       .order('created_at', { ascending: false })
 
@@ -75,24 +76,28 @@ export const customerService = {
 
   async addAddress(
     address: Omit<CustomerAddress, 'id' | 'created_at' | 'updated_at'>,
-  ): Promise<void> {
+  ): Promise<string | null> {
     if (address.is_default) {
       await supabase
         .from('customer_addresses')
         .update({ is_default: false })
         .eq('customer_id', address.customer_id)
-        .eq('address_type', address.address_type)
     }
 
-    const { error } = await supabase.from('customer_addresses').insert([address])
+    const { data, error } = await supabase
+      .from('customer_addresses')
+      .insert([address])
+      .select('id')
+      .single()
     if (error) throw new Error('network_error')
+    return data?.id || null
   },
 
   async updateAddress(id: string, updates: Partial<CustomerAddress>): Promise<void> {
     if (updates.is_default) {
       const { data } = await supabase
         .from('customer_addresses')
-        .select('customer_id, address_type')
+        .select('customer_id')
         .eq('id', id)
         .single()
       if (data) {
@@ -100,7 +105,6 @@ export const customerService = {
           .from('customer_addresses')
           .update({ is_default: false })
           .eq('customer_id', data.customer_id)
-          .eq('address_type', data.address_type)
       }
     }
 

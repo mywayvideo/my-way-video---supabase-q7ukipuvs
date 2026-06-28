@@ -1,31 +1,60 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-
-const STRIPE_PK =
-  'pk_test_51TJNpuCdgoPTpkApWlzlJzlPeqsTHmrbITutsHkVq8zI9yeux7hVXYGN1ygGKTu9vFZUguDO3muKjI2E7ezvI8vw00APSiHyYh'
+import { supabase } from '@/lib/supabase/client'
 
 export const useStripePayment = () => {
   const [stripe, setStripe] = useState<any>(null)
   const [elements, setElements] = useState<any>(null)
   const [cardElement, setCardElement] = useState<any>(null)
   const [isCardReady, setIsCardReady] = useState(false)
+  const [stripeLoading, setStripeLoading] = useState(true)
 
   useEffect(() => {
-    if (!window.Stripe) {
-      const script = document.createElement('script')
-      script.src = 'https://js.stripe.com/v3/'
-      script.async = true
-      script.onload = () => {
-        const stripeInstance = window.Stripe(STRIPE_PK)
-        setStripe(stripeInstance)
-        const elementsInstance = stripeInstance.elements()
-        setElements(elementsInstance)
+    let mounted = true
+
+    const initStripe = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('app_settings')
+          .select('setting_value')
+          .eq('setting_key', 'stripe_publishable_key')
+          .single()
+
+        if (error || !data || !data.setting_value) {
+          if (mounted) setStripeLoading(false)
+          return
+        }
+
+        const publishableKey = data.setting_value
+
+        const initInstance = (pk: string) => {
+          if (!mounted) return
+          const stripeInstance = window.Stripe(pk)
+          setStripe(stripeInstance)
+          const elementsInstance = stripeInstance.elements()
+          setElements(elementsInstance)
+          setStripeLoading(false)
+        }
+
+        if (!window.Stripe) {
+          const script = document.createElement('script')
+          script.src = 'https://js.stripe.com/v3/'
+          script.async = true
+          script.onload = () => {
+            if (mounted) initInstance(publishableKey)
+          }
+          document.head.appendChild(script)
+        } else {
+          initInstance(publishableKey)
+        }
+      } catch {
+        if (mounted) setStripeLoading(false)
       }
-      document.head.appendChild(script)
-    } else {
-      const stripeInstance = window.Stripe(STRIPE_PK)
-      setStripe(stripeInstance)
-      const elementsInstance = stripeInstance.elements()
-      setElements(elementsInstance)
+    }
+
+    initStripe()
+
+    return () => {
+      mounted = false
     }
   }, [])
 
@@ -89,6 +118,7 @@ export const useStripePayment = () => {
     elements,
     cardElement,
     isCardReady,
+    stripeLoading,
     mountCardElement,
     unmountCardElement,
   }

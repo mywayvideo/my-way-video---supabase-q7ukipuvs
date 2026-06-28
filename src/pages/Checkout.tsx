@@ -18,6 +18,7 @@ import {
 } from '@/services/stripeService'
 import { getEligibilityAndPrice, Destination } from '@/utils/pricingLogic'
 import { processSquarePayment } from '@/services/square'
+import { customerService } from '@/services/customerService'
 
 declare global {
   interface Window {
@@ -627,6 +628,7 @@ export default function Checkout() {
           .select('*')
           .eq('customer_id', custRes.data.id)
           .eq('address_type', 'shipping')
+          .neq('street', 'COLETA NA MY WAY')
         if (addresses) setSavedAddresses(addresses)
       }
 
@@ -1077,31 +1079,26 @@ export default function Checkout() {
           .single()
 
         if (customer) {
-          const { data: newAddrData, error: addrErr } = await supabase
-            .from('customer_addresses')
-            .insert({
-              id: crypto.randomUUID(),
-              customer_id: customer.id,
-              address_type: 'shipping',
-              street: address.street || 'N/A',
-              number: address.number || 'S/N',
-              complement: address.complement || null,
-              neighborhood: address.neighborhood || 'N/A',
-              city: address.city || (deliveryMethod === 'miami' ? 'Coral Gables' : 'N/A'),
-              state: address.state || (deliveryMethod === 'miami' ? 'FL' : 'N/A'),
-              zip_code: address.zip_code || '00000',
-              country: address.country || (deliveryMethod === 'brasil' ? 'Brasil' : 'USA'),
-              is_default: saveNewAddress,
-            })
-            .select('id')
-            .single()
+          const newAddrId = await customerService.addAddress({
+            customer_id: customer.id,
+            address_type: 'shipping',
+            street: address.street || 'N/A',
+            number: address.number || 'S/N',
+            complement: address.complement || null,
+            neighborhood: address.neighborhood || 'N/A',
+            city: address.city || (deliveryMethod === 'miami' ? 'Coral Gables' : 'N/A'),
+            state: address.state || (deliveryMethod === 'miami' ? 'FL' : 'N/A'),
+            zip_code: address.zip_code || '00000',
+            country: address.country || (deliveryMethod === 'brasil' ? 'Brasil' : 'USA'),
+            is_default: saveNewAddress,
+          })
 
-          if (!addrErr && newAddrData) {
-            setSelectedAddressId(newAddrData.id)
+          if (newAddrId) {
+            setSelectedAddressId(newAddrId)
             setIsAddingNewAddress(false)
             setSavedAddresses((prev) => [
               {
-                id: newAddrData.id,
+                id: newAddrId,
                 customer_id: customer.id,
                 address_type: 'shipping',
                 street: address.street || 'N/A',
@@ -1254,62 +1251,26 @@ export default function Checkout() {
 
   const ensureShippingAddress = async (customerId: string) => {
     if (deliveryMethod === 'coleta') {
-      const { data: existingAddr } = await supabase
-        .from('customer_addresses')
-        .select('id')
-        .eq('customer_id', customerId)
-        .eq('street', 'COLETA NA MY WAY')
-        .eq('address_type', 'shipping')
-        .maybeSingle()
-
-      if (existingAddr) return existingAddr.id
-
-      const { data: addrData, error } = await supabase
-        .from('customer_addresses')
-        .insert({
-          id: crypto.randomUUID(),
-          customer_id: customerId,
-          address_type: 'shipping',
-          street: 'COLETA NA MY WAY',
-          number: 'S/N',
-          complement: null,
-          neighborhood: 'Miami',
-          city: 'Miami',
-          state: 'FL',
-          zip_code: '00000',
-          country: 'USA',
-          is_default: false,
-        })
-        .select('id')
-        .single()
-
-      if (error) throw error
-      return addrData?.id || null
+      return null
     }
 
     if (selectedAddressId && !isAddingNewAddress) return selectedAddressId
 
-    const { data: addrData, error } = await supabase
-      .from('customer_addresses')
-      .insert({
-        id: crypto.randomUUID(),
-        customer_id: customerId,
-        address_type: 'shipping',
-        street: address.street || 'N/A',
-        number: address.number || 'S/N',
-        complement: address.complement || null,
-        neighborhood: address.neighborhood || 'N/A',
-        city: address.city || (deliveryMethod === 'miami' ? 'Coral Gables' : 'N/A'),
-        state: address.state || (deliveryMethod === 'miami' ? 'FL' : 'N/A'),
-        zip_code: address.zip_code || '00000',
-        country: address.country || (deliveryMethod === 'brasil' ? 'Brasil' : 'USA'),
-        is_default: saveNewAddress,
-      })
-      .select('id')
-      .single()
+    const newAddrId = await customerService.addAddress({
+      customer_id: customerId,
+      address_type: 'shipping',
+      street: address.street || 'N/A',
+      number: address.number || 'S/N',
+      complement: address.complement || null,
+      neighborhood: address.neighborhood || 'N/A',
+      city: address.city || (deliveryMethod === 'miami' ? 'Coral Gables' : 'N/A'),
+      state: address.state || (deliveryMethod === 'miami' ? 'FL' : 'N/A'),
+      zip_code: address.zip_code || '00000',
+      country: address.country || (deliveryMethod === 'brasil' ? 'Brasil' : 'USA'),
+      is_default: saveNewAddress,
+    })
 
-    if (error) throw error
-    return addrData?.id || null
+    return newAddrId
   }
 
   const handleConfirmManualPayment = async () => {

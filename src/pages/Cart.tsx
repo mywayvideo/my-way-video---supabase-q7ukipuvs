@@ -12,6 +12,7 @@ import {
   Zap,
   MessageCircle,
   Loader2,
+  MapPin,
 } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { toast } from 'sonner'
@@ -378,27 +379,38 @@ export default function Cart() {
     <div className="container mx-auto py-8 px-4 max-w-5xl animate-fade-in">
       <h1 className="text-3xl font-bold mb-8">Meu Carrinho</h1>
 
-      <div className="flex flex-wrap items-center gap-4 mb-6 p-4 bg-muted/20 rounded-xl border border-border">
-        <span className="font-semibold">Destino de Entrega:</span>
-        <div className="flex gap-2">
-          <Button
-            variant={destination === 'brasil' ? 'default' : 'outline'}
-            onClick={() => setDestination('brasil')}
-            size="sm"
-            className="rounded-full px-6"
-          >
-            Brasil
-          </Button>
-          <Button
-            variant={destination === 'usa' ? 'default' : 'outline'}
-            onClick={() => setDestination('usa')}
-            size="sm"
-            className="rounded-full px-6"
-          >
-            EUA
-          </Button>
-        </div>
-      </div>
+      <Card className="mb-6 bg-primary/5 border-primary/20 shadow-sm">
+        <CardContent className="p-4 sm:p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <MapPin className="w-5 h-5 text-primary" />
+            <span className="font-semibold text-base">Destino de Entrega</span>
+          </div>
+          <div className="flex gap-3">
+            <Button
+              variant={destination === 'brasil' ? 'default' : 'outline'}
+              onClick={() => setDestination('brasil')}
+              size="lg"
+              className={cn(
+                'flex-1 rounded-xl transition-all duration-200',
+                destination === 'brasil' ? 'shadow-md scale-105' : 'opacity-50 hover:opacity-80',
+              )}
+            >
+              🇧🇷 Brasil
+            </Button>
+            <Button
+              variant={destination === 'usa' ? 'default' : 'outline'}
+              onClick={() => setDestination('usa')}
+              size="lg"
+              className={cn(
+                'flex-1 rounded-xl transition-all duration-200',
+                destination === 'usa' ? 'shadow-md scale-105' : 'opacity-50 hover:opacity-80',
+              )}
+            >
+              🇺🇸 EUA
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       {hasIneligibleItems && (
         <div className="bg-red-50 border border-red-200 p-4 mb-6 rounded-xl text-red-800 flex items-start gap-3 shadow-sm animate-in fade-in slide-in-from-top-2">

@@ -12,8 +12,8 @@ VALUES
   ('square_location_id', 'L18BWSS4TTJ6X')
 ON CONFLICT (setting_key) DO UPDATE
 SET setting_value = CASE
-  WHEN setting_key = 'square_application_id' AND EXCLUDED.setting_value LIKE 'sq0idp-%' THEN EXCLUDED.setting_value
-  WHEN setting_key = 'square_application_id' AND app_settings.setting_value LIKE 'sandbox-%' THEN 'sq0idp-OHYfHUECJ_anf5-s5ZuttQ'
+  WHEN EXCLUDED.setting_key = 'square_application_id' AND EXCLUDED.setting_value LIKE 'sq0idp-%' THEN EXCLUDED.setting_value
+  WHEN EXCLUDED.setting_key = 'square_application_id' AND app_settings.setting_value LIKE 'sandbox-%' THEN 'sq0idp-OHYfHUECJ_anf5-s5ZuttQ'
   ELSE app_settings.setting_value
 END;
 

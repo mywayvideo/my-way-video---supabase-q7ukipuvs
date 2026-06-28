@@ -14,7 +14,7 @@ import { Order } from '@/types/order'
 import { orderService } from '@/services/orderService'
 import { supabase } from '@/lib/supabase/client'
 import { Link } from 'react-router-dom'
-import { formatCurrency } from '@/utils/formatters'
+import { formatCurrency, formatOrderDateTime } from '@/utils/formatters'
 
 interface Props {
   orderId: string | null
@@ -104,14 +104,8 @@ export function OrderDetailsModal({
     }
   }
 
-  const formatDate = (dateStr: string) => {
-    try {
-      const date = new Date(dateStr)
-      const pad = (n: number) => n.toString().padStart(2, '0')
-      return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()}, ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
-    } catch {
-      return dateStr
-    }
+  const formatDate = (dateStr: string | null | undefined) => {
+    return formatOrderDateTime(dateStr)
   }
 
   const customerName = order?.customers?.full_name || order?.customer?.full_name || 'N/A'

@@ -1,4 +1,5 @@
 import { Order } from '@/types/order'
+import { formatOrderDate } from '@/utils/formatters'
 import { Button } from '@/components/ui/button'
 import {
   Table,
@@ -185,7 +186,7 @@ export function OrderHistoryTab({
           <TableBody>
             {orders.map((order) => (
               <TableRow key={order.id}>
-                <TableCell>{new Date(order.created_at).toLocaleDateString('pt-BR')}</TableCell>
+                <TableCell>{formatOrderDate(order.created_at)}</TableCell>
                 <TableCell className="font-semibold">{order.order_number}</TableCell>
                 <TableCell className="text-right font-bold">{formatOrderCurrency(order)}</TableCell>
                 <TableCell className="text-center">
@@ -207,7 +208,7 @@ export function OrderHistoryTab({
               <div className="flex justify-between items-start">
                 <div>
                   <p className="text-sm text-muted-foreground">
-                    {new Date(order.created_at).toLocaleDateString('pt-BR')}
+                    {formatOrderDate(order.created_at)}
                   </p>
                   <p className="font-bold text-lg">{order.order_number}</p>
                 </div>

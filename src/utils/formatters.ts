@@ -1,3 +1,25 @@
+function normalizeSupabaseDate(dateStr: string): string {
+  if (dateStr.includes('Z') || /[+-]\d{2}:\d{2}$/.test(dateStr)) {
+    return dateStr
+  }
+  return dateStr.replace(' ', 'T') + 'Z'
+}
+
+export function formatOrderDate(dateStr: string | null | undefined): string {
+  if (!dateStr) return '--'
+  const date = new Date(normalizeSupabaseDate(dateStr))
+  if (isNaN(date.getTime())) return '--'
+  return date.toLocaleDateString('pt-BR')
+}
+
+export function formatOrderDateTime(dateStr: string | null | undefined): string {
+  if (!dateStr) return '--'
+  const date = new Date(normalizeSupabaseDate(dateStr))
+  if (isNaN(date.getTime())) return '--'
+  const pad = (n: number) => n.toString().padStart(2, '0')
+  return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()}, ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+}
+
 export function formatCurrency(value: number | null | undefined, currency: string = 'USD'): string {
   try {
     if (value === null || value === undefined) return '—'

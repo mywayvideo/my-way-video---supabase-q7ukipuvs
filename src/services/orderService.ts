@@ -11,7 +11,7 @@ export const orderService = {
       .eq('id', orderId)
       .single()
     if (error) throw error
-    return data
+    return data as any
   },
 
   generateInvoicePDF: async (order: Order, logoUrl: string) => {

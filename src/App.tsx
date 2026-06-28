@@ -27,6 +27,7 @@ import AdminDiscountsPage from './pages/admin/AdminDiscountsPage'
 import AdminCustomersPage from './pages/admin/AdminCustomersPage'
 import AdminMetricsPage from './pages/admin/AdminMetricsPage'
 import AdminProfilePage from './pages/admin/AdminProfilePage'
+import AdminPaymentConfigPage from './pages/admin/AdminPaymentConfigPage'
 import AdminOrdersPage from './pages/admin/AdminOrdersPage'
 import AssistedCheckoutPage from './pages/admin/AssistedCheckoutPage'
 import NABHub from './pages/admin/NABHub'
@@ -281,6 +282,14 @@ const App = () => {
                     element={
                       <ProtectedRoute>
                         <AdminProfilePage />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/admin/payment-config"
+                    element={
+                      <ProtectedRoute>
+                        <AdminPaymentConfigPage />
                       </ProtectedRoute>
                     }
                   />

@@ -18,6 +18,7 @@ import {
   Database,
   BookOpen,
   Search,
+  CreditCard,
 } from 'lucide-react'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { useAuthContext } from '@/contexts/AuthContext'
@@ -38,6 +39,7 @@ const navigation = [
   { name: 'Preços & Câmbio', href: '/admin/pricing', icon: DollarSign },
   { name: 'Fretes & Shipping', href: '/admin/shipping-config', icon: Truck },
   { name: 'Descontos & Promoções', href: '/admin/discounts', icon: Tag },
+  { name: 'Configurar Pagamentos', href: '/admin/payment-config', icon: CreditCard },
   { name: 'Configurações Globais', href: '/admin/settings', icon: Settings },
 ]
 

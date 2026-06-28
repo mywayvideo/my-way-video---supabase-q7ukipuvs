@@ -189,6 +189,7 @@ export default function Checkout() {
   const [discountAmount, setDiscountAmount] = useState(0)
 
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | ''>('')
+  const [paymentMethodsConfig, setPaymentMethodsConfig] = useState<Record<string, boolean>>({})
   const [tempOrderNumber] = useState(`ORD-${Math.floor(100000 + Math.random() * 900000)}`)
 
   useEffect(() => {
@@ -253,6 +254,7 @@ export default function Checkout() {
   const squareContainerRef = useRef<HTMLDivElement>(null)
   const squarePaymentsRef = useRef<any>(null)
   const squareCardRef = useRef<any>(null)
+  const squareAppIdRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (paymentMethod !== 'square') {
@@ -304,6 +306,20 @@ export default function Checkout() {
       }
 
       try {
+        if (squareAppIdRef.current !== appId) {
+          if (squareCardRef.current) {
+            try {
+              squareCardRef.current.destroy()
+            } catch {
+              // ignore
+            }
+            squareCardRef.current = null
+            setSquarePaymentForm(null)
+          }
+          squarePaymentsRef.current = null
+        }
+        squareAppIdRef.current = appId
+
         if (!squarePaymentsRef.current) {
           squarePaymentsRef.current = window.Square.payments(appId, locId)
         }
@@ -587,6 +603,7 @@ export default function Checkout() {
             'shipping_sao_paulo_price_per_kg',
             'shipping_sao_paulo_percentage_value',
             'shipping_sao_paulo_additional_weight_kg',
+            'payment_methods_config',
           ]),
         supabase.from('price_settings').select('exchange_rate, exchange_spread').single(),
       ])
@@ -629,6 +646,17 @@ export default function Checkout() {
       }
 
       if (discRes.data) setActiveDiscounts(discRes.data)
+
+      const payConfigSetting = settingsRes.data?.find(
+        (s) => s.setting_key === 'payment_methods_config',
+      )?.setting_value
+      if (payConfigSetting) {
+        try {
+          setPaymentMethodsConfig(JSON.parse(payConfigSetting))
+        } catch (e) {
+          console.error('Error parsing payment methods config', e)
+        }
+      }
 
       if (custRes.data) {
         setCustomerData((prev) => ({
@@ -1694,9 +1722,13 @@ export default function Checkout() {
       },
     ]
 
-    return allOptions.filter(
-      (opt) => opt.id === 'square' || availableIds.includes(opt.id as PaymentMethod),
-    )
+    return allOptions.filter((opt) => {
+      const isMethodAvailable =
+        opt.id === 'square' || availableIds.includes(opt.id as PaymentMethod)
+      if (!isMethodAvailable) return false
+      if (paymentMethodsConfig[opt.id] === false) return false
+      return true
+    })
   }
 
   const renderAddresses = () => {

@@ -6,6 +6,10 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
+function getStripeKey(): string | null {
+  return Deno.env.get('STRIPE_RESTRICTED_KEY') || Deno.env.get('STRIPE_SECRET_KEY') || null
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -22,18 +26,42 @@ Deno.serve(async (req: Request) => {
       typeof customer_name !== 'string' ||
       typeof order_id !== 'string'
     ) {
-      return new Response(JSON.stringify({ error: 'Dados invalidos para pagamento.' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+      return new Response(
+        JSON.stringify({
+          error: 'Dados invalidos para pagamento.',
+          details:
+            'Campos obrigatorios: amount (number), currency (string), customer_email (string), customer_name (string), order_id (string).',
+        }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        },
+      )
     }
 
-    const stripeKey = Deno.env.get('STRIPE_RESTRICTED_KEY')
+    if (amount <= 0) {
+      return new Response(
+        JSON.stringify({ error: 'O valor do pagamento deve ser maior que zero.' }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        },
+      )
+    }
+
+    const stripeKey = getStripeKey()
     if (!stripeKey) {
-      return new Response(JSON.stringify({ error: 'Chave Stripe nao configurada.' }), {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+      console.error('Stripe key not found. Checked: STRIPE_RESTRICTED_KEY, STRIPE_SECRET_KEY')
+      return new Response(
+        JSON.stringify({
+          error:
+            'Chave Stripe nao configurada no servidor. Contate o suporte. (Missing: STRIPE_RESTRICTED_KEY or STRIPE_SECRET_KEY)',
+        }),
+        {
+          status: 503,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        },
+      )
     }
 
     const params = new URLSearchParams()
@@ -51,14 +79,28 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    const stripeRes = await fetch('https://api.stripe.com/v1/payment_intents', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${stripeKey}`,
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: params.toString(),
-    })
+    let stripeRes: Response
+    try {
+      stripeRes = await fetch('https://api.stripe.com/v1/payment_intents', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${stripeKey}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: params.toString(),
+      })
+    } catch (fetchError: any) {
+      console.error('Network error contacting Stripe:', fetchError.message)
+      return new Response(
+        JSON.stringify({
+          error: 'Erro de conexao com o provedor de pagamento. Tente novamente.',
+        }),
+        {
+          status: 502,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        },
+      )
+    }
 
     if (!stripeRes.ok) {
       const errorData = await stripeRes.json().catch(() => ({}))
@@ -66,7 +108,9 @@ Deno.serve(async (req: Request) => {
 
       if (stripeRes.status === 429) {
         return new Response(
-          JSON.stringify({ error: 'Limite de requisicoes. Tente novamente em alguns minutos.' }),
+          JSON.stringify({
+            error: 'Limite de requisicoes. Tente novamente em alguns minutos.',
+          }),
           {
             status: 429,
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -76,18 +120,32 @@ Deno.serve(async (req: Request) => {
 
       if (stripeRes.status === 401) {
         return new Response(
-          JSON.stringify({ error: 'Autenticacao Stripe falhou. Contate suporte.' }),
+          JSON.stringify({
+            error: 'Autenticacao Stripe falhou. Contate suporte.',
+          }),
           {
-            status: 500,
+            status: 502,
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           },
         )
       }
 
+      if (stripeRes.status === 400) {
+        const stripeMsg =
+          errorData?.error?.message || 'Dados do pagamento rejeitados pelo provedor.'
+        return new Response(JSON.stringify({ error: stripeMsg }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
+      }
+
       return new Response(
-        JSON.stringify({ error: 'Erro ao processar pagamento com o provedor.' }),
+        JSON.stringify({
+          error: 'Erro ao processar pagamento com o provedor.',
+          status: stripeRes.status,
+        }),
         {
-          status: 500,
+          status: 502,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         },
       )
@@ -109,7 +167,9 @@ Deno.serve(async (req: Request) => {
   } catch (error: any) {
     console.error('Server error processing payment intent:', error.message)
     return new Response(
-      JSON.stringify({ error: 'Erro interno no servidor ao processar pagamento.' }),
+      JSON.stringify({
+        error: 'Erro interno no servidor ao processar pagamento.',
+      }),
       {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },

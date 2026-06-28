@@ -7,12 +7,29 @@ export async function createPaymentIntent(
   email: string,
   name: string,
   orderNumber: string,
-): Promise<{ client_secret: string }> {
+): Promise<{ client_secret: string; payment_intent_id: string; status: string }> {
   const { data, error } = await supabase.functions.invoke('create-payment-intent', {
     body: { amount, currency, customer_email: email, customer_name: name, order_id: orderNumber },
   })
-  if (error) throw error
-  return { client_secret: data.client_secret }
+
+  if (error) {
+    throw new Error(
+      typeof error === 'object' && error !== null && 'message' in error
+        ? String(error.message)
+        : 'Erro ao conectar com o servico de pagamento.',
+    )
+  }
+
+  if (!data || !data.client_secret) {
+    const errMsg = data?.error || 'Resposta invalida do servico de pagamento.'
+    throw new Error(errMsg)
+  }
+
+  return {
+    client_secret: data.client_secret,
+    payment_intent_id: data.payment_intent_id,
+    status: data.status,
+  }
 }
 
 export async function confirmCardPayment(

@@ -35,7 +35,9 @@ async function getSquareConfig() {
   }
 
   const isSandboxToken = accessToken.startsWith('EAAAl')
-  const isSandboxAppId = applicationId ? applicationId.startsWith('sandbox-') : false
+  const isSandboxAppId = applicationId
+    ? applicationId.startsWith('sandbox-')
+    : false
 
   if (applicationId && isSandboxToken !== isSandboxAppId) {
     throw new Error(
@@ -55,10 +57,13 @@ Deno.serve(async (req: Request) => {
     const { sourceId, amount, orderId } = await req.json()
 
     if (!sourceId || !amount) {
-      return new Response(JSON.stringify({ error: 'Dados de pagamento incompletos.' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+      return new Response(
+        JSON.stringify({ error: 'Dados de pagamento incompletos.' }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        },
+      )
     }
 
     const { accessToken, locationId } = await getSquareConfig()
@@ -114,10 +119,13 @@ Deno.serve(async (req: Request) => {
       })
     }
 
-    return new Response(JSON.stringify({ success: true, transactionId: squareData.payment.id }), {
-      status: 200,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
+    return new Response(
+      JSON.stringify({ success: true, transactionId: squareData.payment.id }),
+      {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      },
+    )
   } catch (error: any) {
     console.error('Square Payment Exception:', error)
 
@@ -127,7 +135,8 @@ Deno.serve(async (req: Request) => {
 
     return new Response(
       JSON.stringify({
-        error: error.message || 'Erro interno ao processar pagamento. Tente novamente.',
+        error:
+          error.message || 'Erro interno ao processar pagamento. Tente novamente.',
         is_config_error: isConfigError,
       }),
       {

@@ -25,6 +25,9 @@ const FALLBACK_USA = {
   formula: { base_cost: 25.0, weight_price_per_kg: 3.0, value_percentage: 1.5 },
 }
 
+const MIAMI_DADE_ZIP_MIN = 33101
+const MIAMI_DADE_ZIP_MAX = 33199
+
 function calculateHaversineDistance(
   lat1: number,
   lon1: number,
@@ -162,10 +165,10 @@ Deno.serve(async (req: Request) => {
         }
       }
 
+      const country = address.country?.toLowerCase() || ''
       let destLat = 0
       let destLng = 0
 
-      const country = address.country?.toLowerCase() || ''
       try {
         if (country === 'brasil' || country === 'brazil') {
           const cleanZip = (address.zip_code || '').replace(/\D/g, '')
@@ -177,34 +180,47 @@ Deno.serve(async (req: Request) => {
             throw new Error('ViaCEP not found')
           }
 
-          if (viaCepData.lat && viaCepData.lon) {
-            destLat = parseFloat(viaCepData.lat)
-            destLng = parseFloat(viaCepData.lon)
+          destLat = viaCepData.lat ? parseFloat(viaCepData.lat) : 0
+          destLng = viaCepData.lon ? parseFloat(viaCepData.lon) : 0
+
+          if (isNaN(destLat) || isNaN(destLng)) {
+            destLat = 0
+            destLng = 0
           }
-        }
+        } else {
+          const cleanZip = (address.zip_code || '').replace(/\D/g, '')
+          const zipNum = parseInt(cleanZip, 10)
 
-        if (destLat === 0 && destLng === 0) {
-          const apiKey = Deno.env.get('GOOGLE_GEOCODING_API_KEY')
-          if (!apiKey) throw new Error('Chave de geocodificação ausente.')
-
-          const numberPart =
-            address.number && address.number !== '0' && address.number.toLowerCase() !== 's/n'
-              ? ` ${address.number}`
-              : ''
-          const addrStr = `${address.street}${numberPart}, ${address.city}, ${address.state} ${address.zip_code} ${address.country}`
-          const geoRes = await fetch(
-            `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(addrStr)}&key=${apiKey}`,
-          )
-
-          if (!geoRes.ok) throw new Error('Google Geocoding API error')
-          const geoData = await geoRes.json()
-
-          if (geoData.status !== 'OK' || !geoData.results?.[0]?.geometry?.location) {
-            throw new Error('Google Geocoding returned not OK')
+          if (isNaN(zipNum) || zipNum < MIAMI_DADE_ZIP_MIN || zipNum > MIAMI_DADE_ZIP_MAX) {
+            return new Response(
+              JSON.stringify({
+                error:
+                  'ZIP code fora da area de entrega de Miami-Dade (33101-33199). Selecione "Entrega EUA" para outras regioes.',
+              }),
+              {
+                status: 400,
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+              },
+            )
           }
 
-          destLat = geoData.results[0].geometry.location.lat
-          destLng = geoData.results[0].geometry.location.lng
+          const zippoRes = await fetch(`https://api.zippopotam.us/us/${cleanZip}`)
+          if (!zippoRes.ok) {
+            throw new Error('Zippopotam.us API error')
+          }
+          const zippoData = await zippoRes.json()
+
+          if (!zippoData.places || !zippoData.places[0]) {
+            throw new Error('Zippopotam.us returned no places')
+          }
+
+          const place = zippoData.places[0]
+          destLat = parseFloat(place.latitude)
+          destLng = parseFloat(place.longitude)
+
+          if (isNaN(destLat) || isNaN(destLng)) {
+            throw new Error('Zippopotam.us returned invalid coordinates')
+          }
         }
       } catch (err: any) {
         console.error('Geocoding Error:', err.stack || err.message)
@@ -310,7 +326,11 @@ Deno.serve(async (req: Request) => {
         if (!isNaN(val)) additional_weight_kg = val
       }
 
-      console.log('Sao Paulo shipping settings:', { price_per_kg, percentage_value, additional_weight_kg })
+      console.log('Sao Paulo shipping settings:', {
+        price_per_kg,
+        percentage_value,
+        additional_weight_kg,
+      })
 
       let total_weight_kg = 0
       let total_order_value_usd = 0
@@ -527,8 +547,7 @@ Deno.serve(async (req: Request) => {
           }
         } catch (e: any) {
           console.error('[calculate-shipping] Error using fallback:', e.message)
-          const fallbackCost =
-            FALLBACK_USA.fixed_rate + totalWeightLbs * FALLBACK_USA.price_per_lb
+          const fallbackCost = FALLBACK_USA.fixed_rate + totalWeightLbs * FALLBACK_USA.price_per_lb
           cost = Math.ceil(fallbackCost * 10) / 10
           console.log('[calculate-shipping] Using hardcoded fallback cost:', cost)
         }

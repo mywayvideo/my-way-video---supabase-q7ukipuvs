@@ -28,24 +28,17 @@ async function getSquareConfig() {
 
   const accessToken = settings['square_access_token']
   const locationId = settings['square_location_id']
-  const applicationId = settings['square_application_id']
 
   if (!accessToken || !locationId) {
     throw new Error('Square configuration missing in database')
   }
 
   const isSandboxToken = accessToken.startsWith('EAAAl')
-  const isSandboxAppId = applicationId
-    ? applicationId.startsWith('sandbox-')
-    : false
+  const baseUrl = isSandboxToken
+    ? 'https://connect.squareupsandbox.com'
+    : 'https://connect.squareup.com'
 
-  if (applicationId && isSandboxToken !== isSandboxAppId) {
-    throw new Error(
-      'Square environment mismatch: application_id and access_token must be from the same environment (both Sandbox or both Production). Please verify app_settings.',
-    )
-  }
-
-  return { accessToken, locationId }
+  return { accessToken, locationId, baseUrl }
 }
 
 Deno.serve(async (req: Request) => {
@@ -57,20 +50,17 @@ Deno.serve(async (req: Request) => {
     const { sourceId, amount, orderId } = await req.json()
 
     if (!sourceId || !amount) {
-      return new Response(
-        JSON.stringify({ error: 'Dados de pagamento incompletos.' }),
-        {
-          status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        },
-      )
+      return new Response(JSON.stringify({ error: 'Dados de pagamento incompletos.' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
     }
 
-    const { accessToken, locationId } = await getSquareConfig()
+    const { accessToken, locationId, baseUrl } = await getSquareConfig()
 
     const idempotencyKey = crypto.randomUUID()
 
-    const endpoint = 'https://connect.squareup.com/v2/payments'
+    const endpoint = `${baseUrl}/v2/payments`
 
     const squareRes = await fetch(endpoint, {
       method: 'POST',
@@ -119,13 +109,10 @@ Deno.serve(async (req: Request) => {
       })
     }
 
-    return new Response(
-      JSON.stringify({ success: true, transactionId: squareData.payment.id }),
-      {
-        status: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      },
-    )
+    return new Response(JSON.stringify({ success: true, transactionId: squareData.payment.id }), {
+      status: 200,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
   } catch (error: any) {
     console.error('Square Payment Exception:', error)
 
@@ -135,8 +122,7 @@ Deno.serve(async (req: Request) => {
 
     return new Response(
       JSON.stringify({
-        error:
-          error.message || 'Erro interno ao processar pagamento. Tente novamente.',
+        error: error.message || 'Erro interno ao processar pagamento. Tente novamente.',
         is_config_error: isConfigError,
       }),
       {

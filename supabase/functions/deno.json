@@ -2,7 +2,7 @@
   "_versions": {
     "apply-discount-coupon": 24,
     "calculate-price-brl": 24,
-    "calculate-shipping": 26,
+    "calculate-shipping": 27,
     "call-ai-agent": 26,
     "cancel-stripe-charge": 26,
     "change-admin-password": 25,
@@ -15,7 +15,7 @@
     "ai-search": 20,
     "update-exchange-rate": 13,
     "execute_ai_search_v2_pp": 11,
-    "lookup-address": 11,
-    "square-payment": 5
+    "lookup-address": 12,
+    "square-payment": 6
   }
 }

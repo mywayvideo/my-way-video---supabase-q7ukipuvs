@@ -1,9 +1,8 @@
 -- Seed the Stripe publishable key into app_settings
-INSERT INTO public.app_settings (setting_key, setting_value, description)
+INSERT INTO public.app_settings (setting_key, setting_value)
 VALUES (
   'stripe_publishable_key',
-  'pk_test_51TJNpuCdgoPTpkApWlzlJzlPeqsTHmrbITutsHkVq8zI9yeux7hVXYGN1ygGKTu9vFZUguDO3muKjI2E7ezvI8vw00APSiHyYh',
-  'Stripe Publishable Key for frontend payment integration'
+  'pk_test_51TJNpuCdgoPTpkApWlzlJzlPeqsTHmrbITutsHkVq8zI9yeux7hVXYGN1ygGKTu9vFZUguDO3muKjI2E7ezvI8vw00APSiHyYh'
 )
 ON CONFLICT (setting_key) DO NOTHING;
 

@@ -1492,7 +1492,9 @@ export default function Checkout() {
       }
     } catch (err: any) {
       toast({
-        description: err.message || 'Erro ao processar pagamento com Square.',
+        description:
+          err.message ||
+          'Pagamento recusado. Verifique os dados do cartão ou tente outro método de pagamento.',
         variant: 'destructive',
       })
     } finally {

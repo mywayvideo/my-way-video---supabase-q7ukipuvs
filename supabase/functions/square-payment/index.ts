@@ -80,7 +80,18 @@ Deno.serve(async (req: Request) => {
 
     if (!squareRes.ok) {
       console.error('Square API Error:', squareData)
-      return new Response(JSON.stringify({ error: 'Pagamento recusado pelo provedor.' }), {
+      let errorMessage = 'Pagamento recusado pelo provedor.'
+
+      if (squareData?.errors && Array.isArray(squareData.errors) && squareData.errors.length > 0) {
+        const firstError = squareData.errors[0]
+        if (firstError.detail) {
+          errorMessage = firstError.detail
+        } else if (firstError.code) {
+          errorMessage = firstError.code
+        }
+      }
+
+      return new Response(JSON.stringify({ error: errorMessage }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })

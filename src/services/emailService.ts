@@ -1,6 +1,24 @@
 import { supabase } from '@/lib/supabase/client'
+import { getDeliveryCountry, isBrazilDelivery, getShippingCost } from '@/utils/orderCurrency'
 
-const formatCurrency = (amount: number) => `US$ ${amount.toFixed(2)}`
+const LOGO_URL =
+  'https://ymlkyspcznrrmlktudxx.supabase.co/storage/v1/object/public/brand-assets/my-way-video-logo.png'
+const FROM_EMAIL = 'support@noreply.mywayvideo.com'
+const FROM_NAME = 'MY WAY VIDEO'
+const BASE_URL = 'https://my-way-video.goskip.app'
+
+interface EmailResult {
+  success: boolean
+  error?: string
+}
+
+const formatCurrency = (value: number, country: string | null) => {
+  const isBRL = isBrazilDelivery(country)
+  const num = Number(value || 0)
+  return isBRL
+    ? `R$ ${num.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    : `$ ${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+}
 
 const getOrderDetails = async (orderId: string) => {
   const { data: order, error: orderError } = await supabase
@@ -16,13 +34,67 @@ const getOrderDetails = async (orderId: string) => {
     .eq('order_id', orderId)
   if (itemsError) throw itemsError
 
-  return { order, items }
+  let shippingAddress = null
+  if (order.shipping_address_id) {
+    const { data: addr } = await supabase
+      .from('customer_addresses')
+      .select('*')
+      .eq('id', order.shipping_address_id)
+      .maybeSingle()
+    shippingAddress = addr
+  }
+
+  const country = getDeliveryCountry(order, shippingAddress)
+  return { order, items, country }
 }
 
-interface EmailResult {
-  success: boolean
-  error?: string
+const buildItemsTable = (items: any[], country: string | null) => {
+  const rows = items
+    .map(
+      (i: any) => `
+    <tr>
+      <td style="padding: 8px; border-bottom: 1px solid #eee;">${i.products?.name || 'Produto'}</td>
+      <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: center;">${i.quantity}</td>
+      <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: right;">${formatCurrency(i.unit_price, country)}</td>
+      <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: right;">${formatCurrency(i.total_price, country)}</td>
+    </tr>`,
+    )
+    .join('')
+  return `
+    <table style="width: 100%; border-collapse: collapse;">
+      <thead><tr>
+        <th style="text-align: left; padding: 8px; border-bottom: 2px solid #ddd;">Produto</th>
+        <th style="padding: 8px; border-bottom: 2px solid #ddd;">Qtd</th>
+        <th style="text-align: right; padding: 8px; border-bottom: 2px solid #ddd;">Preço Unit.</th>
+        <th style="text-align: right; padding: 8px; border-bottom: 2px solid #ddd;">Subtotal</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`
 }
+
+const buildSummary = (order: any, country: string | null) => {
+  const shipping = getShippingCost(order)
+  return `
+    <div style="background: #f9f9f9; padding: 15px; border-radius: 4px; margin: 20px 0;">
+      <div style="display: flex; justify-content: space-between; margin-bottom: 8px;"><span>Sub-total:</span><span>${formatCurrency(order.subtotal, country)}</span></div>
+      <div style="display: flex; justify-content: space-between; margin-bottom: 8px;"><span>Frete:</span><span>${formatCurrency(shipping, country)}</span></div>
+      ${Number(order.discount_amount) > 0 ? `<div style="display: flex; justify-content: space-between; margin-bottom: 8px;"><span>Desconto:</span><span>- ${formatCurrency(order.discount_amount, country)}</span></div>` : ''}
+      <div style="display: flex; justify-content: space-between; font-weight: bold; border-top: 1px solid #ddd; padding-top: 8px;"><span>Total:</span><span>${formatCurrency(order.total, country)}</span></div>
+    </div>`
+}
+
+const baseTemplate = (content: string) => `
+  <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; color: #333;">
+    <div style="text-align: center; margin-bottom: 20px;">
+      <img src="${LOGO_URL}" alt="MY WAY VIDEO" style="max-height: 60px;" />
+    </div>
+    ${content}
+    <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;" />
+    <div style="text-align: center; font-size: 12px; color: #999;">
+      <p>MY WAY VIDEO</p>
+      <p>contact@mywayvideo.com</p>
+    </div>
+  </div>`
 
 const sendEmail = async (
   to: string,
@@ -30,52 +102,20 @@ const sendEmail = async (
   htmlContent: string,
 ): Promise<EmailResult> => {
   try {
-    const { data, error } = await supabase.functions.invoke('send-email', {
-      body: {
-        to,
-        subject,
-        htmlContent,
-        fromEmail: 'support@noreply.mywayvideo.com',
-        fromName: 'My Way Video',
-      },
+    const { data, error } = await supabase.functions.invoke('send-order-email', {
+      body: { to, subject, htmlContent, fromEmail: FROM_EMAIL, fromName: FROM_NAME },
     })
-    if (error) {
-      console.error('[emailService] Edge function invocation error:', error)
-      return { success: false, error: error.message || 'Edge function error' }
-    }
-    if (data?.error) {
-      console.error('[emailService] Edge function returned error:', data.error)
-      return { success: false, error: data.error }
-    }
+    if (error) return { success: false, error: error.message || 'Edge function error' }
+    if (data?.error) return { success: false, error: data.error }
     return { success: true }
   } catch (err: any) {
-    console.error('[emailService] Failed to send email (non-blocking):', err?.message || err)
     return { success: false, error: err?.message || 'Unknown error' }
   }
 }
 
-const baseTemplate = (content: string) => `
-  <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; color: #333;">
-    <div style="text-align: center; margin-bottom: 20px;">
-      <img src="https://img.usecurling.com/i?q=camera%20logo&color=black" alt="My Way Video" style="max-height: 60px;" />
-    </div>
-    ${content}
-    <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;" />
-    <div style="text-align: center; font-size: 12px; color: #999;">
-      <p>My Way Video</p>
-      <p>contact@mywayvideo.com</p>
-      <p><a href="#" style="color: #999;">Unsubscribe</a></p>
-    </div>
-  </div>
-`
-
-const handleEmailResult = (result: EmailResult, context: string) => {
-  if (!result.success) {
-    console.warn(
-      `[emailService] ${context} - email was not sent, but execution continues. Error: ${result.error}`,
-    )
-  }
-  return result
+const handleResult = (r: EmailResult, ctx: string) => {
+  if (!r.success) console.warn(`[emailService] ${ctx} - email not sent. Error: ${r.error}`)
+  return r
 }
 
 export const emailService = {
@@ -83,59 +123,27 @@ export const emailService = {
     orderId: string,
     customerName: string,
     customerEmail: string,
-    totalAmount: number,
+    _totalAmount: number,
     adminEmail = 'admin@mywayvideo.com',
   ): Promise<EmailResult> => {
     try {
-      const { order, items } = await getOrderDetails(orderId)
-
-      const itemsHtml = items
-        .map(
-          (i: any) => `
-        <tr>
-          <td style="padding: 8px; border-bottom: 1px solid #eee;">${i.products?.name || 'Produto'}</td>
-          <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: center;">${i.quantity}</td>
-          <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: right;">${formatCurrency(i.unit_price)}</td>
-          <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: right;">${formatCurrency(i.total_price)}</td>
-        </tr>
-      `,
-        )
-        .join('')
-
-      const htmlContent = baseTemplate(`
+      const { order, items, country } = await getOrderDetails(orderId)
+      const html = baseTemplate(`
         <h2 style="color: #000;">Novo Pedido: ${order.order_number}</h2>
         <p><strong>Cliente:</strong> ${customerName} (${customerEmail})</p>
         <p><strong>Data:</strong> ${new Date(order.created_at).toLocaleString('pt-BR')}</p>
-        <p><strong>Total:</strong> ${formatCurrency(totalAmount)}</p>
         <p><strong>Status:</strong> ${order.status}</p>
-        
         <h3 style="margin-top: 20px;">Itens do Pedido:</h3>
-        <table style="width: 100%; border-collapse: collapse;">
-          <thead>
-            <tr>
-              <th style="text-align: left; padding: 8px; border-bottom: 2px solid #ddd;">Produto</th>
-              <th style="padding: 8px; border-bottom: 2px solid #ddd;">Qtd</th>
-              <th style="text-align: right; padding: 8px; border-bottom: 2px solid #ddd;">Preço Unit.</th>
-              <th style="text-align: right; padding: 8px; border-bottom: 2px solid #ddd;">Subtotal</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${itemsHtml}
-          </tbody>
-        </table>
-        
+        ${buildItemsTable(items, country)}
+        ${buildSummary(order, country)}
         <div style="text-align: center; margin-top: 30px;">
-          <a href="https://my-way-beta-ia.goskip.app/admin/orders" style="background: #000; color: #fff; padding: 12px 24px; text-decoration: none; border-radius: 4px; display: inline-block;">Ver Pedido no Painel</a>
-        </div>
-      `)
-
-      const result = await sendEmail(adminEmail, `Novo Pedido: ${order.order_number}`, htmlContent)
-      return handleEmailResult(result, 'sendNewOrderNotificationToAdmin')
-    } catch (err: any) {
-      console.error(
-        '[emailService] sendNewOrderNotificationToAdmin failed (non-blocking):',
-        err?.message || err,
+          <a href="${BASE_URL}/admin/orders" style="background: #000; color: #fff; padding: 12px 24px; text-decoration: none; border-radius: 4px; display: inline-block;">Ver Pedido no Painel</a>
+        </div>`)
+      return handleResult(
+        await sendEmail(adminEmail, `Novo Pedido: ${order.order_number}`, html),
+        'sendNewOrderNotificationToAdmin',
       )
+    } catch (err: any) {
       return { success: false, error: err?.message || 'Unknown error' }
     }
   },
@@ -146,66 +154,24 @@ export const emailService = {
     customerName: string,
   ): Promise<EmailResult> => {
     try {
-      const { order, items } = await getOrderDetails(orderId)
-
-      const itemsHtml = items
-        .map(
-          (i: any) => `
-        <tr>
-          <td style="padding: 8px; border-bottom: 1px solid #eee;">${i.products?.name || 'Produto'}</td>
-          <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: center;">${i.quantity}</td>
-          <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: right;">${formatCurrency(i.unit_price)}</td>
-          <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: right;">${formatCurrency(i.total_price)}</td>
-        </tr>
-      `,
-        )
-        .join('')
-
-      const htmlContent = baseTemplate(`
+      const { order, items, country } = await getOrderDetails(orderId)
+      const html = baseTemplate(`
         <h2 style="color: #000;">Confirmação de Pedido</h2>
         <p>Olá, <strong>${customerName}</strong>!</p>
         <p>Seu pagamento foi confirmado com sucesso e seu pedido já está sendo processado.</p>
-        
-        <div style="background: #f9f9f9; padding: 15px; border-radius: 4px; margin: 20px 0;">
-          <p style="margin: 0 0 10px 0;"><strong>Pedido:</strong> ${order.order_number}</p>
-          <p style="margin: 0 0 10px 0;"><strong>Data:</strong> ${new Date(order.created_at).toLocaleString('pt-BR')}</p>
-          <p style="margin: 0;"><strong>Total:</strong> ${formatCurrency(order.total)}</p>
-        </div>
-        
+        <p style="margin: 10px 0;"><strong>Pedido:</strong> ${order.order_number}<br/><strong>Data:</strong> ${new Date(order.created_at).toLocaleString('pt-BR')}</p>
         <h3 style="margin-top: 20px;">Itens do Pedido:</h3>
-        <table style="width: 100%; border-collapse: collapse;">
-          <thead>
-            <tr>
-              <th style="text-align: left; padding: 8px; border-bottom: 2px solid #ddd;">Produto</th>
-              <th style="padding: 8px; border-bottom: 2px solid #ddd;">Qtd</th>
-              <th style="text-align: right; padding: 8px; border-bottom: 2px solid #ddd;">Preço Unit.</th>
-              <th style="text-align: right; padding: 8px; border-bottom: 2px solid #ddd;">Subtotal</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${itemsHtml}
-          </tbody>
-        </table>
-        
-        <p style="margin-top: 20px;"><strong>Prazo estimado de entrega:</strong> Entre 7 a 15 dias úteis.</p>
-        
+        ${buildItemsTable(items, country)}
+        ${buildSummary(order, country)}
         <div style="text-align: center; margin-top: 30px;">
-          <a href="https://my-way-beta-ia.goskip.app/dashboard" style="background: #000; color: #fff; padding: 12px 24px; text-decoration: none; border-radius: 4px; display: inline-block;">Acompanhar Pedido</a>
+          <a href="${BASE_URL}/dashboard" style="background: #000; color: #fff; padding: 12px 24px; text-decoration: none; border-radius: 4px; display: inline-block;">Acompanhar Pedido</a>
         </div>
-        <p style="text-align: center; margin-top: 20px;"><a href="mailto:suporte@mywayvideo.com" style="color: #000;">Entrar em contato com o suporte</a></p>
-      `)
-
-      const result = await sendEmail(
-        customerEmail,
-        `Confirmação do Pedido ${order.order_number}`,
-        htmlContent,
+        <p style="text-align: center; margin-top: 20px;"><a href="mailto:suporte@mywayvideo.com" style="color: #000;">Entrar em contato com o suporte</a></p>`)
+      return handleResult(
+        await sendEmail(customerEmail, `Confirmação do Pedido ${order.order_number}`, html),
+        'sendOrderConfirmationToCustomer',
       )
-      return handleEmailResult(result, 'sendOrderConfirmationToCustomer')
     } catch (err: any) {
-      console.error(
-        '[emailService] sendOrderConfirmationToCustomer failed (non-blocking):',
-        err?.message || err,
-      )
       return { success: false, error: err?.message || 'Unknown error' }
     }
   },
@@ -217,34 +183,22 @@ export const emailService = {
     rejectionReason = '',
   ): Promise<EmailResult> => {
     try {
-      const { order } = await getOrderDetails(orderId)
-
-      const htmlContent = baseTemplate(`
+      const { order, country } = await getOrderDetails(orderId)
+      const html = baseTemplate(`
         <h2 style="color: #d32f2f;">Pedido Rejeitado</h2>
         <p>Olá, <strong>${customerName}</strong>.</p>
         <p>Infelizmente, seu pedido <strong>${order.order_number}</strong> foi cancelado.</p>
-        
         ${rejectionReason ? `<p style="background: #fff3f3; padding: 15px; border-left: 4px solid #d32f2f; margin: 20px 0;"><strong>Motivo:</strong> ${rejectionReason}</p>` : ''}
-        
         <p>Caso tenha ocorrido algum problema com o pagamento, você pode tentar refazer o pedido no nosso site.</p>
-        
         <div style="text-align: center; margin-top: 30px;">
-          <a href="https://my-way-beta-ia.goskip.app/search" style="background: #000; color: #fff; padding: 12px 24px; text-decoration: none; border-radius: 4px; display: inline-block;">Ver Produtos</a>
+          <a href="${BASE_URL}/search" style="background: #000; color: #fff; padding: 12px 24px; text-decoration: none; border-radius: 4px; display: inline-block;">Ver Produtos</a>
         </div>
-        <p style="text-align: center; margin-top: 20px;"><a href="mailto:suporte@mywayvideo.com" style="color: #000;">Entrar em contato com o suporte</a></p>
-      `)
-
-      const result = await sendEmail(
-        customerEmail,
-        `Atualização do Pedido ${order.order_number}`,
-        htmlContent,
+        <p style="text-align: center; margin-top: 20px;"><a href="mailto:suporte@mywayvideo.com" style="color: #000;">Entrar em contato com o suporte</a></p>`)
+      return handleResult(
+        await sendEmail(customerEmail, `Atualização do Pedido ${order.order_number}`, html),
+        'sendOrderRejectionToCustomer',
       )
-      return handleEmailResult(result, 'sendOrderRejectionToCustomer')
     } catch (err: any) {
-      console.error(
-        '[emailService] sendOrderRejectionToCustomer failed (non-blocking):',
-        err?.message || err,
-      )
       return { success: false, error: err?.message || 'Unknown error' }
     }
   },
@@ -259,36 +213,24 @@ export const emailService = {
     bankName: string,
   ): Promise<EmailResult> => {
     try {
-      const { order } = await getOrderDetails(orderId)
-
-      const htmlContent = baseTemplate(`
+      const { order, country } = await getOrderDetails(orderId)
+      const html = baseTemplate(`
         <h2 style="color: #000;">Reembolso Processado</h2>
         <p>Olá, <strong>${customerName}</strong>.</p>
         <p>O reembolso referente ao pedido <strong>${order.order_number}</strong> foi processado com sucesso.</p>
-        
         <div style="background: #f9f9f9; padding: 15px; border-radius: 4px; margin: 20px 0;">
-          <p style="margin: 0 0 10px 0;"><strong>Valor do Reembolso:</strong> ${formatCurrency(refundAmount)}</p>
+          <p style="margin: 0 0 10px 0;"><strong>Valor do Reembolso:</strong> ${formatCurrency(refundAmount, country)}</p>
           <p style="margin: 0 0 10px 0;"><strong>Motivo:</strong> ${refundReason}</p>
           <p style="margin: 0 0 10px 0;"><strong>Banco:</strong> ${bankName}</p>
           <p style="margin: 0;"><strong>Titular da Conta:</strong> ${bankAccountHolder}</p>
         </div>
-        
         <p>O valor deverá constar na sua conta em até <strong>3 a 5 dias úteis</strong>.</p>
-        
-        <p style="text-align: center; margin-top: 30px;"><a href="mailto:suporte@mywayvideo.com" style="color: #000;">Entrar em contato com o suporte</a></p>
-      `)
-
-      const result = await sendEmail(
-        customerEmail,
-        `Reembolso do Pedido ${order.order_number}`,
-        htmlContent,
+        <p style="text-align: center; margin-top: 30px;"><a href="mailto:suporte@mywayvideo.com" style="color: #000;">Entrar em contato com o suporte</a></p>`)
+      return handleResult(
+        await sendEmail(customerEmail, `Reembolso do Pedido ${order.order_number}`, html),
+        'sendRefundNotificationToCustomer',
       )
-      return handleEmailResult(result, 'sendRefundNotificationToCustomer')
     } catch (err: any) {
-      console.error(
-        '[emailService] sendRefundNotificationToCustomer failed (non-blocking):',
-        err?.message || err,
-      )
       return { success: false, error: err?.message || 'Unknown error' }
     }
   },
@@ -300,7 +242,6 @@ export const emailService = {
     totalAmount: number,
   ): Promise<void> => {
     try {
-      console.log(`[emailService] Dispatching order emails for order ${orderId}`)
       await Promise.allSettled([
         emailService.sendNewOrderNotificationToAdmin(
           orderId,
@@ -310,7 +251,6 @@ export const emailService = {
         ),
         emailService.sendOrderConfirmationToCustomer(orderId, customerEmail, customerName),
       ])
-      console.log(`[emailService] Order emails dispatched for order ${orderId}`)
     } catch (err: any) {
       console.warn('[emailService] sendOrderEmails - non-blocking failure:', err?.message || err)
     }

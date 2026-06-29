@@ -18,7 +18,7 @@
     "lookup-address": 14,
     "square-payment": 9,
     "send-email": 5,
-    "send-order-email": 2,
+    "send-order-email": 3,
     "notify-admin-pix": 1,
     "notify-admin-transferencia-brasil": 1
   }

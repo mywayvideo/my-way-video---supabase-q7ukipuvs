@@ -1,3 +1,20 @@
+-- Ensure customer_addresses has a primary key on id (required for FK references)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = 'public.customer_addresses'::regclass
+      AND contype = 'p'
+  ) THEN
+    -- Remove any duplicate id values before adding PK
+    DELETE FROM public.customer_addresses a
+    USING public.customer_addresses b
+    WHERE a.id = b.id AND a.ctid < b.ctid;
+
+    ALTER TABLE public.customer_addresses ADD PRIMARY KEY (id);
+  END IF;
+END $$;
+
 -- Ensure orders table has shipping_address_id and billing_address_id columns
 DO $$
 BEGIN

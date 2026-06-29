@@ -1,21 +1,21 @@
 {
   "_versions": {
-    "apply-discount-coupon": 25,
-    "calculate-price-brl": 25,
-    "calculate-shipping": 28,
-    "call-ai-agent": 27,
-    "cancel-stripe-charge": 27,
-    "change-admin-password": 26,
-    "change-customer-password": 25,
-    "create-customer-public": 26,
-    "create-customer": 25,
-    "create-discount-coupon": 25,
-    "create-payment-intent": 27,
-    "create-paypal-payment-intent": 26,
-    "ai-search": 21,
-    "update-exchange-rate": 14,
-    "execute_ai_search_v2_pp": 12,
-    "lookup-address": 13,
-    "square-payment": 8
+    "apply-discount-coupon": 26,
+    "calculate-price-brl": 26,
+    "calculate-shipping": 29,
+    "call-ai-agent": 28,
+    "cancel-stripe-charge": 28,
+    "change-admin-password": 27,
+    "change-customer-password": 26,
+    "create-customer-public": 27,
+    "create-customer": 26,
+    "create-discount-coupon": 26,
+    "create-payment-intent": 28,
+    "create-paypal-payment-intent": 27,
+    "ai-search": 22,
+    "update-exchange-rate": 15,
+    "execute_ai_search_v2_pp": 13,
+    "lookup-address": 14,
+    "square-payment": 9
   }
 }

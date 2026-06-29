@@ -12,24 +12,23 @@ Deno.serve(async (req: Request) => {
     const country: string | undefined = body?.country
 
     if (!cep_or_zip) {
-      return new Response(JSON.stringify({ success: false, error: 'CEP ou ZIP não fornecido' }), {
-        status: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+      return new Response(
+        JSON.stringify({ success: false, error: 'CEP ou ZIP não fornecido' }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      )
     }
 
     const cleanZip = cep_or_zip.replace(/\D/g, '')
-    const isBrazil =
-      country?.toLowerCase().includes('brasil') ||
+    const isBrazil = country?.toLowerCase().includes('brasil') ||
       country?.toLowerCase() === 'br' ||
       country?.toLowerCase() === 'brazil' ||
       cleanZip.length === 8
 
     const notFoundResponse = (message: string) =>
-      new Response(JSON.stringify({ success: false, error: message }), {
-        status: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+      new Response(
+        JSON.stringify({ success: false, error: message }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      )
 
     let result: Record<string, unknown> = {
       success: true,

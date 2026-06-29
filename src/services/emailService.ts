@@ -35,7 +35,7 @@ const sendEmail = async (
         to,
         subject,
         htmlContent,
-        fromEmail: 'contact@mywayvideo.com',
+        fromEmail: 'support@noreply.mywayvideo.com',
         fromName: 'My Way Video',
       },
     })

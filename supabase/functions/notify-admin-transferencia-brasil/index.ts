@@ -68,7 +68,7 @@ Deno.serve(async (req: Request) => {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            from: 'noreply@mywayvideo.com',
+            from: 'support@noreply.mywayvideo.com',
             to: [adminEmail],
             subject: subject,
             text: text,

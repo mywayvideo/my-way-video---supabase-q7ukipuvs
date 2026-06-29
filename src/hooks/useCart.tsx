@@ -110,6 +110,17 @@ export function CartProvider({ children }: { children: ReactNode }) {
         window.open(`https://wa.me/5561981815050?text=${msg}`, '_blank')
         return
       }
+
+      const isBrazilOnly =
+        (!p.price_usd || Number(p.price_usd) <= 0) &&
+        p.price_nationalized_sales &&
+        Number(p.price_nationalized_sales) > 0
+      if (isBrazilOnly) {
+        toast({
+          title: 'Atenção',
+          description: 'Este produto está disponível apenas para entrega no Brasil.',
+        })
+      }
     }
 
     setIsLoading(true)

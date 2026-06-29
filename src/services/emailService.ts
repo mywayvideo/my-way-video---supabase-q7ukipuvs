@@ -6,6 +6,7 @@ import {
   formatItemUnitPrice,
   formatItemTotalPrice,
   formatCurrencyByCountry,
+  calculateSummarySubtotal,
 } from '@/utils/orderCurrency'
 
 const LOGO_URL =
@@ -13,7 +14,7 @@ const LOGO_URL =
 const FROM_EMAIL = 'support@noreply.mywayvideo.com'
 const FROM_NAME = 'MY WAY VIDEO'
 const BASE_URL = 'https://my-way-video.goskip.app'
-const ADMIN_EMAIL = 'admin@mywayvideo.com'
+const ADMIN_EMAIL = 'plynchusa@gmail.com'
 
 interface EmailResult {
   success: boolean
@@ -78,7 +79,7 @@ const buildSummary = (order: any, country: string | null) => {
   const shippingDisplay = isShippingIncluded
     ? 'incluso'
     : formatCurrencyByCountry(shippingCost, country)
-  const subtotalValue = isShippingIncluded ? Number(order.total) : Number(order.subtotal ?? 0)
+  const subtotalValue = calculateSummarySubtotal(order, country)
 
   return `
     <div style="background: #f9f9f9; padding: 15px; border-radius: 4px; margin: 20px 0;">

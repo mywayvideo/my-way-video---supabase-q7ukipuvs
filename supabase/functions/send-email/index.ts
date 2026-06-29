@@ -12,10 +12,10 @@ Deno.serve(async (req: Request) => {
     const resendApiKey = Deno.env.get('RESEND_API_KEY')
     if (!resendApiKey) {
       console.error('[send-email] Error: RESEND_API_KEY not configured')
-      return new Response(JSON.stringify({ error: 'Email service not configured.' }), {
-        status: 503,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+      return new Response(
+        JSON.stringify({ error: 'Email service not configured.' }),
+        { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      )
     }
 
     let body: any = {}
@@ -46,10 +46,10 @@ Deno.serve(async (req: Request) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
     if (!emailRegex.test(to)) {
       console.warn(`[send-email] Validation error: Invalid email format (${to})`)
-      return new Response(JSON.stringify({ error: 'Invalid email address.' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+      return new Response(
+        JSON.stringify({ error: 'Invalid email address.' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      )
     }
 
     const payload = {
@@ -124,9 +124,9 @@ Deno.serve(async (req: Request) => {
     )
   } catch (error: any) {
     console.error('[send-email] Unhandled error:', error?.message || error)
-    return new Response(JSON.stringify({ error: 'Internal server error.' }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
+    return new Response(
+      JSON.stringify({ error: 'Internal server error.' }),
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+    )
   }
 })

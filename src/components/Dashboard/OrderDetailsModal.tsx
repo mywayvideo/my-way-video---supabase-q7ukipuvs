@@ -14,17 +14,15 @@ import { Order } from '@/types/order'
 import { orderService } from '@/services/orderService'
 import { supabase } from '@/lib/supabase/client'
 import { Link } from 'react-router-dom'
-import { formatCurrency, formatOrderDateTime } from '@/utils/formatters'
+import { formatOrderDateTime } from '@/utils/formatters'
 import {
   formatCurrencyByCountry,
-  formatUSDCurrency,
-  getShippingCost,
   calculateSummarySubtotal,
-  isBrazilDelivery,
   isBrazilOrder,
   formatShippingDisplay,
   formatItemUnitPrice,
   formatItemTotalPrice,
+  getDeliveryCountry,
 } from '@/utils/orderCurrency'
 
 interface Props {
@@ -88,9 +86,6 @@ export function OrderDetailsModal({
     }
   }, [orderId, open])
 
-  const safeFormatCurrency = (value: any) =>
-    formatCurrencyByCountry(value, isBrazil ? 'Brazil' : deliveryCountry)
-
   const formatDate = (dateStr: string | null | undefined) => {
     return formatOrderDateTime(dateStr)
   }
@@ -133,7 +128,7 @@ export function OrderDetailsModal({
   }
 
   const deliveryAddress = order ? getDeliveryAddress(order, extraAddresses.shipping) : null
-  const deliveryCountry = deliveryAddress?.country ?? null
+  const deliveryCountry = getDeliveryCountry(order, extraAddresses.shipping)
   const isBrazil = isBrazilOrder(order, deliveryCountry)
   const formatSummaryCurrency = (value: any) =>
     formatCurrencyByCountry(value, isBrazil ? 'Brazil' : deliveryCountry)

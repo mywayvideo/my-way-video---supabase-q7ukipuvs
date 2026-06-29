@@ -70,9 +70,9 @@ export const generateOrderPDF = async (orderData: any): Promise<jsPDF | null> =>
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(10)
     doc.setTextColor(80, 80, 80)
-    doc.text(companyName, 195, 15, { align: 'right' })
-    doc.text(companyAddress, 195, 20, { align: 'right' })
-    doc.text(companyEmail, 195, 25, { align: 'right' })
+    doc.text(companyName.toUpperCase(), 195, 15, { align: 'right' })
+    doc.text(companyAddress, 195, 23, { align: 'right' })
+    doc.text(companyEmail, 195, 31, { align: 'right' })
 
     doc.setFont('helvetica', 'bold')
     doc.setFontSize(18)

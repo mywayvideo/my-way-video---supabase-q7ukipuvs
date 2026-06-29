@@ -1,5 +1,13 @@
 import jsPDF from 'jspdf'
 import { supabase } from '@/lib/supabase/client'
+import {
+  getDeliveryCountry,
+  isBrazilOrder,
+  formatCurrencyByCountry,
+  getShippingCost,
+  calculateSummarySubtotal,
+  formatShippingDisplay,
+} from '@/utils/orderCurrency'
 
 export const generateOrderPDF = async (orderData: any): Promise<jsPDF | null> => {
   try {
@@ -22,6 +30,37 @@ export const generateOrderPDF = async (orderData: any): Promise<jsPDF | null> =>
     const companyEmail =
       settings?.find((s: any) => s.setting_key === 'company_email')?.setting_value ||
       'contato@mywayvideo.com'
+
+    let shippingAddress: any = null
+    if (orderData.shipping_address_id) {
+      const { data: sData } = await supabase
+        .from('customer_addresses')
+        .select('*')
+        .eq('id', orderData.shipping_address_id)
+        .maybeSingle()
+      if (sData) shippingAddress = sData
+    }
+    if (!shippingAddress && Array.isArray(orderData.shipping_address)) {
+      shippingAddress = orderData.shipping_address[0]
+    } else if (!shippingAddress && orderData.shipping_address) {
+      shippingAddress = orderData.shipping_address
+    }
+
+    const deliveryCountry = getDeliveryCountry(orderData, shippingAddress)
+    const isBrazil = isBrazilOrder(orderData, deliveryCountry)
+
+    const formatMoney = (val: number) => {
+      const locale = isBrazil ? 'pt-BR' : 'en-US'
+      return Number(val || 0).toLocaleString(locale, {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })
+    }
+
+    const formatItemMoney = (val: number) => {
+      const prefix = isBrazil ? 'R$' : 'US$'
+      return `${prefix} ${formatMoney(val)}`
+    }
 
     try {
       const logoUrl = '/logo.png'
@@ -88,20 +127,6 @@ export const generateOrderPDF = async (orderData: any): Promise<jsPDF | null> =>
       97,
     )
 
-    const isBrl =
-      orderData.paymentMethod === 'transferencia_brasil' ||
-      orderData.paymentMethod === 'pix' ||
-      orderData.payment_method_type === 'transferencia_brasil' ||
-      orderData.payment_method_type === 'pix'
-    const currencySym = isBrl ? 'R$' : 'US$'
-
-    const formatMoney = (val: number) => {
-      return Number(val).toLocaleString('en-US', {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      })
-    }
-
     let yPos = 110
     doc.setFont('helvetica', 'bold')
     doc.setFillColor(240, 240, 240)
@@ -125,8 +150,8 @@ export const generateOrderPDF = async (orderData: any): Promise<jsPDF | null> =>
 
       doc.text(shortName, 17, yPos)
       doc.text(qty.toString(), 125, yPos, { align: 'center' })
-      doc.text(`${currencySym} ${formatMoney(unitPrice)}`, 160, yPos, { align: 'right' })
-      doc.text(`${currencySym} ${formatMoney(total)}`, 190, yPos, { align: 'right' })
+      doc.text(formatItemMoney(unitPrice), 160, yPos, { align: 'right' })
+      doc.text(formatItemMoney(total), 190, yPos, { align: 'right' })
       yPos += 7
     })
 
@@ -134,29 +159,31 @@ export const generateOrderPDF = async (orderData: any): Promise<jsPDF | null> =>
     doc.line(15, yPos, 195, yPos)
     yPos += 8
 
-    const subtotal = orderData.subtotal || 0
-    const shipping = orderData.shipping || orderData.shipping_cost || 0
+    const subtotal = calculateSummarySubtotal(orderData, deliveryCountry)
+    const shipping = getShippingCost(orderData)
     const tax = orderData.tax || orderData.tax_amount || 0
     const discount = orderData.discount_amount || 0
     const total = orderData.total || 0
 
     doc.text(`Subtotal:`, 160, yPos, { align: 'right' })
-    doc.text(`${currencySym} ${formatMoney(subtotal)}`, 190, yPos, { align: 'right' })
+    doc.text(formatCurrencyByCountry(subtotal, deliveryCountry), 190, yPos, { align: 'right' })
     yPos += 7
 
     if (discount > 0) {
       doc.text(`Desconto:`, 160, yPos, { align: 'right' })
-      doc.text(`-${currencySym} ${formatMoney(discount)}`, 190, yPos, { align: 'right' })
+      doc.text(`-${formatCurrencyByCountry(discount, deliveryCountry)}`, 190, yPos, {
+        align: 'right',
+      })
       yPos += 7
     }
 
     doc.text(`Frete:`, 160, yPos, { align: 'right' })
-    doc.text(`${currencySym} ${formatMoney(shipping)}`, 190, yPos, { align: 'right' })
+    doc.text(formatShippingDisplay(orderData, deliveryCountry), 190, yPos, { align: 'right' })
     yPos += 7
 
     if (tax > 0) {
       doc.text(`Impostos:`, 160, yPos, { align: 'right' })
-      doc.text(`${currencySym} ${formatMoney(tax)}`, 190, yPos, { align: 'right' })
+      doc.text(formatCurrencyByCountry(tax, deliveryCountry), 190, yPos, { align: 'right' })
       yPos += 7
     }
 
@@ -164,7 +191,7 @@ export const generateOrderPDF = async (orderData: any): Promise<jsPDF | null> =>
     doc.setFontSize(12)
     doc.setTextColor(16, 185, 129)
     doc.text(`Total:`, 160, yPos, { align: 'right' })
-    doc.text(`${currencySym} ${formatMoney(total)}`, 190, yPos, { align: 'right' })
+    doc.text(formatCurrencyByCountry(total, deliveryCountry), 190, yPos, { align: 'right' })
 
     const pageHeight = doc.internal.pageSize.height
     doc.setFontSize(8)

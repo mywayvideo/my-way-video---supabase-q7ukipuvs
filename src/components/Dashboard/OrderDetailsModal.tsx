@@ -131,8 +131,6 @@ export function OrderDetailsModal({
   const deliveryCountry = deliveryAddress?.country ?? null
   const formatSummaryCurrency = (value: any) => formatCurrencyByCountry(value, deliveryCountry)
   const isBrazil = isBrazilDelivery(deliveryCountry)
-  const displayShippingCost = order ? getOrderShippingCost(order) : 0
-  const displaySubtotal = order ? getDisplaySubtotal(order, deliveryCountry) : 0
   const displayTotal = order ? Number(order.total ?? 0) : 0
 
   const getStatusBadge = (status: string) => {

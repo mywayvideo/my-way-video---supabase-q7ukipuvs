@@ -124,12 +124,12 @@ Deno.serve(async (req) => {
       dbSystemPrompt = defaultSystemPrompt
     }
 
-    const currentProductContext = body.currentProductContext || null
+    const currentProductContext = body.currentProductContext || null;
     if (currentProductContext && aiSettingsData?.product_page_prompt) {
-      dbSystemPrompt = aiSettingsData.product_page_prompt
-      dbSystemPrompt += `\n\nContexto do Produto Atual:\nNome: ${currentProductContext.name}\nSKU: ${currentProductContext.sku}\nDescrição: ${currentProductContext.description || ''}\nEspecificações: ${currentProductContext.technical_info || ''}`
+      dbSystemPrompt = aiSettingsData.product_page_prompt;
+      dbSystemPrompt += `\n\nContexto do Produto Atual:\nNome: ${currentProductContext.name}\nSKU: ${currentProductContext.sku}\nDescrição: ${currentProductContext.description || ''}\nEspecificações: ${currentProductContext.technical_info || ''}`;
     } else if (aiSettingsData?.system_prompt_template) {
-      dbSystemPrompt = aiSettingsData.system_prompt_template
+      dbSystemPrompt = aiSettingsData.system_prompt_template;
     }
 
     // KNOWLEDGE: Inject 'technical_bridge'

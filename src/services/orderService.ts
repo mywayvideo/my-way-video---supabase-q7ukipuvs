@@ -3,8 +3,9 @@ import { Order } from '@/types/order'
 import {
   getDeliveryCountry,
   isBrazilOrder,
-  getShippingCost,
   formatCurrencyByCountry,
+  calculateSummarySubtotal,
+  formatShippingDisplay,
 } from '@/utils/orderCurrency'
 
 export const orderService = {
@@ -26,9 +27,7 @@ export const orderService = {
 
     const country = getDeliveryCountry(order)
     const isBrazil = isBrazilOrder(order, country)
-    const shippingCost = getShippingCost(order)
-    const shippingText =
-      shippingCost === 0 || isBrazil ? 'incluso' : formatCurrencyByCountry(shippingCost, country)
+    const shippingText = formatShippingDisplay(order, country)
     const fmt = (v: number | null | undefined) =>
       formatCurrencyByCountry(v, isBrazil ? 'Brazil' : country)
 
@@ -36,7 +35,7 @@ export const orderService = {
       content += `- ${item.products?.name || 'Produto'} (${item.quantity}x) - ${fmt(item.total_price)}\n`
     })
 
-    content += `\nSubtotal: ${fmt(order.subtotal)}\nFrete: ${shippingText}\nDesconto: ${fmt(order.discount_amount || 0)}\nTotal: ${fmt(order.total)}\n\n`
+    content += `\nSubtotal: ${fmt(calculateSummarySubtotal(order, country))}\nFrete: ${shippingText}\nDesconto: ${fmt(order.discount_amount || 0)}\nTotal: ${fmt(order.total)}\n\n`
 
     if (order.payment_method_type === 'transfer') {
       content += `DADOS BANCÁRIOS PARA DEPÓSITO:\nBanco: Miami International Bank\nConta: 987654321\nRouting: 123456789\nTitular: My Way Video Shop\nSWIFT: MWVUS33\n\nFavor transferir para a conta acima. Pedido será processado após confirmação.\n\n`

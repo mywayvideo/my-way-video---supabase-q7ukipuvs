@@ -49,18 +49,8 @@ export const generateOrderPDF = async (orderData: any): Promise<jsPDF | null> =>
     const deliveryCountry = getDeliveryCountry(orderData, shippingAddress)
     const isBrazil = isBrazilOrder(orderData, deliveryCountry)
 
-    const formatMoney = (val: number) => {
-      const locale = isBrazil ? 'pt-BR' : 'en-US'
-      return Number(val || 0).toLocaleString(locale, {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      })
-    }
-
-    const formatItemMoney = (val: number) => {
-      const prefix = isBrazil ? 'R$' : 'US$'
-      return `${prefix} ${formatMoney(val)}`
-    }
+    const formatSummaryCurrency = (val: number) =>
+      formatCurrencyByCountry(val, isBrazil ? 'Brazil' : deliveryCountry)
 
     try {
       const logoUrl = '/logo.png'
@@ -150,8 +140,8 @@ export const generateOrderPDF = async (orderData: any): Promise<jsPDF | null> =>
 
       doc.text(shortName, 17, yPos)
       doc.text(qty.toString(), 125, yPos, { align: 'center' })
-      doc.text(formatItemMoney(unitPrice), 160, yPos, { align: 'right' })
-      doc.text(formatItemMoney(total), 190, yPos, { align: 'right' })
+      doc.text(formatSummaryCurrency(unitPrice), 160, yPos, { align: 'right' })
+      doc.text(formatSummaryCurrency(total), 190, yPos, { align: 'right' })
       yPos += 7
     })
 
@@ -166,12 +156,12 @@ export const generateOrderPDF = async (orderData: any): Promise<jsPDF | null> =>
     const total = orderData.total || 0
 
     doc.text(`Subtotal:`, 160, yPos, { align: 'right' })
-    doc.text(formatCurrencyByCountry(subtotal, deliveryCountry), 190, yPos, { align: 'right' })
+    doc.text(formatSummaryCurrency(subtotal), 190, yPos, { align: 'right' })
     yPos += 7
 
     if (discount > 0) {
       doc.text(`Desconto:`, 160, yPos, { align: 'right' })
-      doc.text(`-${formatCurrencyByCountry(discount, deliveryCountry)}`, 190, yPos, {
+      doc.text(`-${formatSummaryCurrency(discount)}`, 190, yPos, {
         align: 'right',
       })
       yPos += 7
@@ -183,7 +173,7 @@ export const generateOrderPDF = async (orderData: any): Promise<jsPDF | null> =>
 
     if (tax > 0) {
       doc.text(`Impostos:`, 160, yPos, { align: 'right' })
-      doc.text(formatCurrencyByCountry(tax, deliveryCountry), 190, yPos, { align: 'right' })
+      doc.text(formatSummaryCurrency(tax), 190, yPos, { align: 'right' })
       yPos += 7
     }
 
@@ -191,7 +181,7 @@ export const generateOrderPDF = async (orderData: any): Promise<jsPDF | null> =>
     doc.setFontSize(12)
     doc.setTextColor(16, 185, 129)
     doc.text(`Total:`, 160, yPos, { align: 'right' })
-    doc.text(formatCurrencyByCountry(total, deliveryCountry), 190, yPos, { align: 'right' })
+    doc.text(formatSummaryCurrency(total), 190, yPos, { align: 'right' })
 
     const pageHeight = doc.internal.pageSize.height
     doc.setFontSize(8)

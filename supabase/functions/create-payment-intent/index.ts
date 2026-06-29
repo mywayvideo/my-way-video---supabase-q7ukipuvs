@@ -126,10 +126,13 @@ Deno.serve(async (req: Request) => {
       if (stripeRes.status === 400) {
         const stripeMsg =
           errorData?.error?.message || 'Dados do pagamento rejeitados pelo provedor.'
-        return new Response(JSON.stringify({ error: stripeMsg, code: 'STRIPE_BAD_REQUEST' }), {
-          status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        })
+        return new Response(
+          JSON.stringify({ error: stripeMsg, code: 'STRIPE_BAD_REQUEST' }),
+          {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          },
+        )
       }
 
       return new Response(

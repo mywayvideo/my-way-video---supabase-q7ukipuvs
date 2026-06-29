@@ -23,6 +23,8 @@ import {
   isBrazilDelivery,
   isBrazilOrder,
   formatShippingDisplay,
+  formatItemUnitPrice,
+  formatItemTotalPrice,
 } from '@/utils/orderCurrency'
 
 interface Props {
@@ -272,14 +274,10 @@ export function OrderDetailsModal({
                               </td>
                               <td className="text-center py-2 px-1">{item.quantity}</td>
                               <td className="text-right py-2 px-1 whitespace-nowrap">
-                                {safeFormatCurrency(item.unit_price)}
+                                {formatItemUnitPrice(item, deliveryCountry)}
                               </td>
                               <td className="text-right py-2 pl-2 whitespace-nowrap font-medium">
-                                {safeFormatCurrency(
-                                  item.subtotal ??
-                                    item.total_price ??
-                                    item.unit_price * item.quantity,
-                                )}
+                                {formatItemTotalPrice(item, deliveryCountry)}
                               </td>
                             </tr>
                           )

@@ -7,6 +7,8 @@ import {
   getShippingCost,
   calculateSummarySubtotal,
   formatShippingDisplay,
+  formatItemUnitPrice,
+  formatItemTotalPrice,
 } from '@/utils/orderCurrency'
 
 export const generateOrderPDF = async (orderData: any): Promise<jsPDF | null> => {
@@ -133,15 +135,13 @@ export const generateOrderPDF = async (orderData: any): Promise<jsPDF | null> =>
     items.forEach((item: any) => {
       const name = item.name || item.products?.name || 'Produto'
       const qty = item.quantity || item.qtd || 1
-      const unitPrice = item.unitPrice || item.unit_price || 0
-      const total = item.total || item.total_price || qty * unitPrice
 
       const shortName = name.length > 50 ? name.substring(0, 47) + '...' : name
 
       doc.text(shortName, 17, yPos)
       doc.text(qty.toString(), 125, yPos, { align: 'center' })
-      doc.text(formatSummaryCurrency(unitPrice), 160, yPos, { align: 'right' })
-      doc.text(formatSummaryCurrency(total), 190, yPos, { align: 'right' })
+      doc.text(formatItemUnitPrice(item, deliveryCountry), 160, yPos, { align: 'right' })
+      doc.text(formatItemTotalPrice(item, deliveryCountry), 190, yPos, { align: 'right' })
       yPos += 7
     })
 

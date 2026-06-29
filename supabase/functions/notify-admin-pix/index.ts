@@ -1,5 +1,11 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
-import { corsHeaders } from '../_shared/cors.ts'
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+  'Access-Control-Allow-Headers':
+    'authorization, x-client-info, x-supabase-client-platform, apikey, content-type',
+}
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
@@ -84,7 +90,6 @@ Deno.serve(async (req: Request) => {
               await new Promise((resolve) => setTimeout(resolve, backoffDelays[attempt - 1]))
             }
           } else {
-            // Do not retry on 400/401/404 or other errors
             break
           }
         }

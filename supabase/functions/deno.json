@@ -17,7 +17,9 @@
     "execute_ai_search_v2_pp": 13,
     "lookup-address": 14,
     "square-payment": 9,
-    "send-email": 4,
-    "send-order-email": 1
+    "send-email": 5,
+    "send-order-email": 2,
+    "notify-admin-pix": 1,
+    "notify-admin-transferencia-brasil": 1
   }
 }

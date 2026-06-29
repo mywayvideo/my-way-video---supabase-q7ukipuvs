@@ -134,14 +134,6 @@ export function OrderDetailsModal({
   const displayShippingCost = order ? getOrderShippingCost(order) : 0
   const displaySubtotal = order ? getDisplaySubtotal(order, deliveryCountry) : 0
   const displayTotal = order ? Number(order.total ?? 0) : 0
-  const isBrazil = isBrazilDelivery(deliveryCountry)
-  const displayShippingCost = order ? getOrderShippingCost(order) : 0
-  const displaySubtotal = order ? getDisplaySubtotal(order, deliveryCountry) : 0
-  const displayTotal = order ? Number(order.total ?? 0) : 0
-  const isBrazil = isBrazilDelivery(deliveryCountry)
-  const displayShippingCost = order ? getOrderShippingCost(order) : 0
-  const displaySubtotal = order ? getDisplaySubtotal(order, deliveryCountry) : 0
-  const displayTotal = order ? Number(order.total ?? 0) : 0
 
   const getStatusBadge = (status: string) => {
     const s = status?.toLowerCase() || ''

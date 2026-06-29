@@ -30,8 +30,10 @@ interface Props {
 }
 
 const StatusBadge = ({ status }: { status: string }) => {
+  const normalized = (status || '').toLowerCase()
   const colors: Record<string, string> = {
     pending_payment: 'bg-yellow-500 text-yellow-950 hover:bg-yellow-600',
+    pending: 'bg-yellow-500 text-yellow-950 hover:bg-yellow-600',
     paid: 'bg-green-500 text-white hover:bg-green-600',
     cancelled: 'bg-red-500 text-white hover:bg-red-600',
     rejected: 'bg-red-500 text-white hover:bg-red-600',
@@ -40,6 +42,7 @@ const StatusBadge = ({ status }: { status: string }) => {
   }
   const labels: Record<string, string> = {
     pending_payment: 'PENDENTE',
+    pending: 'PENDENTE',
     paid: 'PAGO',
     cancelled: 'CANCELADO',
     rejected: 'REJEITADO',
@@ -47,8 +50,8 @@ const StatusBadge = ({ status }: { status: string }) => {
     delivered: 'ENTREGUE',
   }
   return (
-    <Badge className={colors[status] || 'bg-gray-500 text-white'}>
-      {labels[status] || status.toUpperCase()}
+    <Badge className={colors[normalized] || 'bg-gray-500 text-white'}>
+      {labels[normalized] || status.toUpperCase()}
     </Badge>
   )
 }
@@ -84,7 +87,7 @@ export default function OrdersTable({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         <DropdownMenuItem onClick={() => onViewDetails(order.id)}>Ver Detalhes</DropdownMenuItem>
-        {order.status === 'pending_payment' && (
+        {(order.status === 'pending_payment' || order.status?.toLowerCase() === 'pending') && (
           <>
             <DropdownMenuItem onClick={() => onApprove(order)}>Aprovar</DropdownMenuItem>
             <DropdownMenuItem onClick={() => onReject(order)} className="text-red-500">

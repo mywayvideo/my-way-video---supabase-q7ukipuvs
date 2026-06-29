@@ -14,7 +14,11 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
 import { useToast } from '@/hooks/use-toast'
 import { adminOrdersService } from '@/services/adminOrdersService'
-import { formatCurrency } from '@/utils/formatters'
+import {
+  formatCurrencyByCountry,
+  calculateSummarySubtotal,
+  formatShippingDisplay,
+} from '@/utils/orderCurrency'
 import { supabase } from '@/lib/supabase/client'
 
 const formatDate = (dateStr: string) => {
@@ -30,16 +34,6 @@ const formatDate = (dateStr: string) => {
     return `${day}/${month}/${year}, ${hours}:${minutes}:${seconds}`
   } catch (e) {
     return 'N/A'
-  }
-}
-
-const safeFormatCurrency = (value: any) => {
-  if (value === null || value === undefined) return '—'
-  if (Number(value) === 0) return 'US$ 0.00'
-  try {
-    return formatCurrency(value, 'USD')
-  } catch (e) {
-    return `US$ ${Number(value).toFixed(2)}`
   }
 }
 
@@ -68,7 +62,7 @@ const getStatusBadge = (status: string) => {
     case 'PENDING_PAYMENT':
       return (
         <Badge variant="outline" className="bg-yellow-100 text-yellow-800">
-          PENDING_PAYMENT
+          PENDENTE
         </Badge>
       )
     case 'PAID':
@@ -110,6 +104,14 @@ export default function OrderDetailsDialog({
   const [loading, setLoading] = useState(true)
   const [addresses, setAddresses] = useState<any>({ shipping: null, billing: null })
   const { toast } = useToast()
+
+  const deliveryCountry =
+    addresses.shipping?.country ||
+    details?.shipping_address?.country ||
+    details?.payment_data?.shipping_address?.country ||
+    null
+
+  const fmtCurrency = (value: any) => formatCurrencyByCountry(value, deliveryCountry)
 
   useEffect(() => {
     if (open && orderId) {
@@ -211,10 +213,6 @@ export default function OrderDetailsDialog({
                   <p>
                     <span className="font-semibold">Data:</span> {formatDate(details.created_at)}
                   </p>
-                  <p>
-                    <span className="font-semibold">Total:</span>{' '}
-                    {safeFormatCurrency(details.total)}
-                  </p>
                   <div className="flex items-center gap-2">
                     <span className="font-semibold">Status:</span> {getStatusBadge(details.status)}
                   </div>
@@ -222,6 +220,32 @@ export default function OrderDetailsDialog({
                     <span className="font-semibold">Método de Pagamento:</span>{' '}
                     {details.payment_method_type?.toUpperCase() || 'N/A'}
                   </p>
+                  <div className="pt-2 border-t border-border/50 space-y-1">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Subtotal:</span>
+                      <span>{fmtCurrency(calculateSummarySubtotal(details, deliveryCountry))}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Frete:</span>
+                      <span>{formatShippingDisplay(details, deliveryCountry)}</span>
+                    </div>
+                    {Number(details.discount_amount) > 0 && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Desconto:</span>
+                        <span>- {fmtCurrency(details.discount_amount)}</span>
+                      </div>
+                    )}
+                    {Number(details.tax_amount) > 0 && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Taxa:</span>
+                        <span>{fmtCurrency(details.tax_amount)}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between font-bold pt-1 border-t border-border/50">
+                      <span>Total:</span>
+                      <span>{fmtCurrency(details.total)}</span>
+                    </div>
+                  </div>
                 </div>
               </section>
 
@@ -270,10 +294,10 @@ export default function OrderDetailsDialog({
                           </TableCell>
                           <TableCell className="text-right">{item.quantity || 0}</TableCell>
                           <TableCell className="text-right">
-                            {safeFormatCurrency(item.unit_price)}
+                            {fmtCurrency(item.unit_price)}
                           </TableCell>
                           <TableCell className="text-right font-bold">
-                            {safeFormatCurrency(item.total_price)}
+                            {fmtCurrency(item.total_price)}
                           </TableCell>
                         </TableRow>
                       ))}

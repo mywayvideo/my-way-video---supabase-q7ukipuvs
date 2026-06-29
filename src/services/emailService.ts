@@ -286,4 +286,27 @@ export const emailService = {
       return { success: false, error: err?.message || 'Unknown error' }
     }
   },
+
+  sendOrderEmails: async (
+    orderId: string,
+    customerName: string,
+    customerEmail: string,
+    totalAmount: number,
+  ): Promise<void> => {
+    try {
+      console.log(`[emailService] Dispatching order emails for order ${orderId}`)
+      await Promise.allSettled([
+        emailService.sendNewOrderNotificationToAdmin(
+          orderId,
+          customerName,
+          customerEmail,
+          totalAmount,
+        ),
+        emailService.sendOrderConfirmationToCustomer(orderId, customerEmail, customerName),
+      ])
+      console.log(`[emailService] Order emails dispatched for order ${orderId}`)
+    } catch (err: any) {
+      console.warn('[emailService] sendOrderEmails - non-blocking failure:', err?.message || err)
+    }
+  },
 }

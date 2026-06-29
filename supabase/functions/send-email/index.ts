@@ -2,9 +2,6 @@ import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
 import { corsHeaders } from '../_shared/cors.ts'
 
 Deno.serve(async (req: Request) => {
-  const timestamp = new Date().toISOString()
-  const functionName = 'send-email'
-
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
@@ -12,14 +9,22 @@ Deno.serve(async (req: Request) => {
   try {
     const resendApiKey = Deno.env.get('RESEND_API_KEY')
     if (!resendApiKey) {
-      console.error(`[${timestamp}] [${functionName}] Error: RESEND_API_KEY not configured`)
-      return new Response(JSON.stringify({ error: 'Erro: Chave de API Resend nao configurada.' }), {
+      console.error('[send-email] Error: RESEND_API_KEY not configured')
+      return new Response(JSON.stringify({ error: 'Email service not configured.' }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }
 
-    const body = await req.json().catch(() => ({}))
+    let body: any = {}
+    try {
+      body = await req.json()
+    } catch {
+      // Body is not valid JSON, use empty object
+    }
+
+    if (!body || typeof body !== 'object') body = {}
+
     const {
       to,
       subject,
@@ -29,19 +34,17 @@ Deno.serve(async (req: Request) => {
     } = body
 
     if (!to || !subject || !htmlContent) {
-      console.warn(`[${timestamp}] [${functionName}] Validation error: Missing required fields`)
+      console.warn('[send-email] Validation error: Missing required fields')
       return new Response(
-        JSON.stringify({ error: 'Erro: Campos obrigatorios ausentes (to, subject, htmlContent).' }),
+        JSON.stringify({ error: 'Missing required fields (to, subject, htmlContent).' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
       )
     }
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
     if (!emailRegex.test(to)) {
-      console.warn(
-        `[${timestamp}] [${functionName}] Validation error: Invalid email format (${to})`,
-      )
-      return new Response(JSON.stringify({ error: 'Erro: Email invalido.' }), {
+      console.warn(`[send-email] Validation error: Invalid email format (${to})`)
+      return new Response(JSON.stringify({ error: 'Invalid email address.' }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
@@ -50,22 +53,16 @@ Deno.serve(async (req: Request) => {
     const payload = {
       from: `${fromName} <${fromEmail}>`,
       to: [to],
-      subject: subject,
+      subject,
       html: htmlContent,
     }
 
-    let attempt = 0
     const maxAttempts = 3
-    const backoffDelays = [2000, 4000, 8000]
-    let success = false
-    let apiResponseData: any = null
+    const backoffDelays = [1000, 2000, 4000]
     let lastError: any = null
 
-    while (attempt <= maxAttempts && !success) {
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
-        const controller = new AbortController()
-        const timeoutId = setTimeout(() => controller.abort(), 30000)
-
         const response = await fetch('https://api.resend.com/emails', {
           method: 'POST',
           headers: {
@@ -73,69 +70,55 @@ Deno.serve(async (req: Request) => {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify(payload),
-          signal: controller.signal,
         })
 
-        clearTimeout(timeoutId)
-
         if (response.ok) {
-          apiResponseData = await response.json()
-          success = true
-        } else {
-          const errorText = await response.text().catch(() => 'No error text')
-          lastError = new Error(`Resend API Error ${response.status}: ${errorText}`)
+          const data = await response.json().catch(() => ({}))
+          console.log(`[send-email] Email sent successfully to ${to}`)
+          return new Response(
+            JSON.stringify({
+              success: true,
+              emailId: data?.id || 'unknown',
+              status: 'sent',
+            }),
+            { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+          )
+        }
 
-          if (response.status === 503 && attempt < maxAttempts) {
-            console.log(
-              `[${timestamp}] [${functionName}] Received 503, retrying in ${backoffDelays[attempt]}ms...`,
-            )
-            await new Promise((resolve) => setTimeout(resolve, backoffDelays[attempt]))
-            attempt++
-          } else {
-            // Do not retry on 400, 401, 404, or if max attempts reached
-            break
-          }
+        const errorText = await response.text().catch(() => 'No error text')
+        lastError = new Error(`Resend API Error ${response.status}: ${errorText}`)
+
+        // Don't retry on client errors (4xx) except 429 (rate limit)
+        if (response.status >= 400 && response.status < 500 && response.status !== 429) {
+          console.error(`[send-email] Non-retryable error: ${lastError.message}`)
+          break
+        }
+
+        if (attempt < maxAttempts - 1) {
+          console.log(
+            `[send-email] Attempt ${attempt + 1} failed (${response.status}), retrying in ${backoffDelays[attempt]}ms...`,
+          )
+          await new Promise((resolve) => setTimeout(resolve, backoffDelays[attempt]))
         }
       } catch (err: any) {
         lastError = err
-        if (err.name === 'AbortError') {
-          lastError = new Error('Request timeout exceeded (30 seconds)')
-        }
-
-        if (attempt < maxAttempts) {
+        if (attempt < maxAttempts - 1) {
           console.log(
-            `[${timestamp}] [${functionName}] Fetch error, retrying in ${backoffDelays[attempt]}ms...`,
+            `[send-email] Fetch error on attempt ${attempt + 1}, retrying in ${backoffDelays[attempt]}ms...`,
           )
           await new Promise((resolve) => setTimeout(resolve, backoffDelays[attempt]))
-          attempt++
-        } else {
-          break
         }
       }
     }
 
-    if (!success) {
-      console.error(
-        `[${timestamp}] [${functionName}] Error sending email:`,
-        lastError?.message || lastError,
-      )
-      return new Response(JSON.stringify({ error: 'Erro ao enviar email. Tente novamente.' }), {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
-    }
-
+    console.error('[send-email] All attempts failed:', lastError?.message || lastError)
     return new Response(
-      JSON.stringify({
-        success: true,
-        emailId: apiResponseData?.id || 'unknown',
-        status: 'sent',
-      }),
-      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      JSON.stringify({ error: 'Failed to send email after multiple attempts.' }),
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
     )
   } catch (error: any) {
-    console.error(`[${timestamp}] [${functionName}] Unhandled error:`, error.message || error)
-    return new Response(JSON.stringify({ error: 'Erro ao enviar email. Tente novamente.' }), {
+    console.error('[send-email] Unhandled error:', error?.message || error)
+    return new Response(JSON.stringify({ error: 'Internal server error.' }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })

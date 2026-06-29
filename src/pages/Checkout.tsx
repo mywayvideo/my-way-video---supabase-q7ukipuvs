@@ -19,6 +19,7 @@ import {
 import { getEligibilityAndPrice, Destination } from '@/utils/pricingLogic'
 import { processSquarePayment } from '@/services/square'
 import { customerService } from '@/services/customerService'
+import { emailService } from '@/services/emailService'
 
 declare global {
   interface Window {
@@ -1437,6 +1438,17 @@ export default function Checkout() {
       localStorage.removeItem('myway_local_cart')
       setCreatedOrderId(order_id)
 
+      if (order_id) {
+        emailService
+          .sendOrderEmails(
+            order_id,
+            customerData.nome || user?.email || 'Cliente',
+            customerData.email || user?.email || '',
+            total,
+          )
+          .catch(() => {})
+      }
+
       toast({
         description: 'Pedido confirmado com sucesso! Redirecionando para seu histórico...',
         className: 'bg-emerald-600 text-white border-emerald-700',
@@ -1499,6 +1511,28 @@ export default function Checkout() {
           destType === 'brasil' ? 0 : freight || null,
           convertedDiscount,
         )
+
+        try {
+          const { data: recentOrder } = await supabase
+            .from('orders')
+            .select('id')
+            .eq('customer_id', customer.id)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .single()
+          if (recentOrder) {
+            emailService
+              .sendOrderEmails(
+                recentOrder.id,
+                customerData.nome || customerData.email || 'Cliente',
+                customerData.email,
+                total,
+              )
+              .catch(() => {})
+          }
+        } catch (emailErr) {
+          console.warn('[Checkout] Email notification failed (non-blocking):', emailErr)
+        }
 
         clearCartFromLocalStorage()
         await clearCartFromSupabase(user!.id)
@@ -1634,6 +1668,23 @@ export default function Checkout() {
             destType === 'brasil' ? 0 : freight || null,
             convertedDiscount,
           )
+
+          try {
+            const { data: recentOrder } = await supabase
+              .from('orders')
+              .select('id')
+              .eq('customer_id', customer.id)
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .single()
+            if (recentOrder) {
+              emailService
+                .sendOrderEmails(recentOrder.id, stripeName, stripeEmail, total)
+                .catch(() => {})
+            }
+          } catch (emailErr) {
+            console.warn('[Checkout] Email notification failed (non-blocking):', emailErr)
+          }
 
           clearCartFromLocalStorage()
           await clearCartFromSupabase(user!.id)

@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase/client'
 import { useToast } from '@/hooks/use-toast'
 import { CheckCircle2, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { emailService } from '@/services/emailService'
 
 export default function CheckoutSuccess() {
   const [searchParams] = useSearchParams()
@@ -34,12 +35,21 @@ export default function CheckoutSuccess() {
 
         const { data: order, error: orderErr } = await supabase
           .from('orders')
-          .select('*, shipping_address:customer_addresses(*)')
+          .select('*, shipping_address:customer_addresses(*), customers(full_name, email)')
           .eq('id', orderId)
           .single()
 
         if (orderErr) throw orderErr
         setOrderDetails(order)
+
+        emailService
+          .sendOrderEmails(
+            orderId,
+            order?.customers?.full_name || 'Cliente',
+            order?.customers?.email || '',
+            order?.total || 0,
+          )
+          .catch(() => {})
       } catch (err) {
         toast({
           description: 'Nao foi possivel verificar pagamento. Contate suporte.',

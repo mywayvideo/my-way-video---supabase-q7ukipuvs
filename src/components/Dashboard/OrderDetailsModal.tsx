@@ -18,8 +18,7 @@ import { formatCurrency, formatOrderDateTime } from '@/utils/formatters'
 import {
   formatCurrencyByCountry,
   formatUSDCurrency,
-  getOrderShippingCost,
-  getDisplaySubtotal,
+  getShippingCost,
   calculateSummarySubtotal,
   isBrazilDelivery,
 } from '@/utils/orderCurrency'

@@ -55,12 +55,9 @@ Deno.serve(async (req: Request) => {
       )
     }
 
-    return new Response(
-      JSON.stringify({ success: true }),
-      {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      },
-    )
+    return new Response(JSON.stringify({ success: true }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
   } catch (error: any) {
     console.error('Server error processing refund:', error?.message)
     return new Response(

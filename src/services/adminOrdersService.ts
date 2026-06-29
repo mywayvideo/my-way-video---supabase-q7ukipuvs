@@ -26,7 +26,10 @@ export const adminOrdersService = {
     } = filters
     let query = supabase
       .from('orders')
-      .select('*, customers!inner(full_name, email), order_items(id)', { count: 'exact' })
+      .select(
+        '*, customers!inner(full_name, email), order_items(id), shipping_address:customer_addresses!orders_shipping_address_id_fkey(country)',
+        { count: 'exact' },
+      )
 
     if (status && status !== 'ALL') {
       query = query.eq('status', status)
@@ -71,6 +74,8 @@ export const adminOrdersService = {
       updated_at: o.updated_at,
       items_count: o.order_items?.length || 0,
       notes: o.notes || '',
+      shipping_country:
+        o.shipping_address?.country || o.payment_data?.shipping_address?.country || null,
     }))
 
     return { orders, count }

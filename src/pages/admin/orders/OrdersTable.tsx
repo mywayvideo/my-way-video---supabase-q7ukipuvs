@@ -18,7 +18,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { MoreHorizontal } from 'lucide-react'
-import { formatCurrency } from '@/utils/formatters'
+import { formatCurrencyByCountry } from '@/utils/orderCurrency'
 
 interface Props {
   orders: AdminOrder[]
@@ -34,6 +34,7 @@ const StatusBadge = ({ status }: { status: string }) => {
     pending_payment: 'bg-yellow-500 text-yellow-950 hover:bg-yellow-600',
     paid: 'bg-green-500 text-white hover:bg-green-600',
     cancelled: 'bg-red-500 text-white hover:bg-red-600',
+    rejected: 'bg-red-500 text-white hover:bg-red-600',
     shipped: 'bg-blue-500 text-white hover:bg-blue-600',
     delivered: 'bg-gray-500 text-white hover:bg-gray-600',
   }
@@ -41,14 +42,19 @@ const StatusBadge = ({ status }: { status: string }) => {
     pending_payment: 'PENDENTE',
     paid: 'PAGO',
     cancelled: 'CANCELADO',
+    rejected: 'REJEITADO',
     shipped: 'ENVIADO',
     delivered: 'ENTREGUE',
   }
   return (
-    <Badge className={colors[status] || 'bg-gray-500'}>
+    <Badge className={colors[status] || 'bg-gray-500 text-white'}>
       {labels[status] || status.toUpperCase()}
     </Badge>
   )
+}
+
+function formatOrderCurrency(value: number, country: string | null): string {
+  return formatCurrencyByCountry(value, country)
 }
 
 export default function OrdersTable({
@@ -86,7 +92,9 @@ export default function OrdersTable({
             </DropdownMenuItem>
           </>
         )}
-        <DropdownMenuItem onClick={() => onRefund(order)}>Processar Devolução</DropdownMenuItem>
+        {order.status === 'paid' && (
+          <DropdownMenuItem onClick={() => onRefund(order)}>Processar Devolução</DropdownMenuItem>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   )
@@ -118,7 +126,9 @@ export default function OrdersTable({
                 <TableCell className="hidden lg:table-cell capitalize">
                   {order.payment_method}
                 </TableCell>
-                <TableCell>{formatCurrency(order.total_amount, 'USD')}</TableCell>
+                <TableCell>
+                  {formatOrderCurrency(order.total_amount, order.shipping_country)}
+                </TableCell>
                 <TableCell>
                   <StatusBadge status={order.status} />
                 </TableCell>
@@ -144,7 +154,9 @@ export default function OrdersTable({
               </div>
               <div className="text-sm">{order.customer_name}</div>
               <div className="flex justify-between items-center mt-2">
-                <div className="font-medium">{formatCurrency(order.total_amount, 'USD')}</div>
+                <div className="font-medium">
+                  {formatOrderCurrency(order.total_amount, order.shipping_country)}
+                </div>
                 {renderActions(order)}
               </div>
             </CardContent>

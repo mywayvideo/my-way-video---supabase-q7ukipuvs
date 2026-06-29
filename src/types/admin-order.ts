@@ -11,4 +11,5 @@ export interface AdminOrder {
   updated_at: string
   items_count: number
   notes: string
+  shipping_country: string | null
 }

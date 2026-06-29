@@ -1,3 +1,4 @@
+import { supabase } from '@/lib/supabase/client'
 import { Order } from '@/types/order'
 import { formatOrderDate } from '@/utils/formatters'
 import { Button } from '@/components/ui/button'

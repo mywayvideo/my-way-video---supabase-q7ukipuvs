@@ -15,7 +15,13 @@ import { orderService } from '@/services/orderService'
 import { supabase } from '@/lib/supabase/client'
 import { Link } from 'react-router-dom'
 import { formatCurrency, formatOrderDateTime } from '@/utils/formatters'
-import { formatCurrencyByCountry, formatUSDCurrency } from '@/utils/orderCurrency'
+import {
+  formatCurrencyByCountry,
+  formatUSDCurrency,
+  getOrderShippingCost,
+  getDisplaySubtotal,
+  isBrazilDelivery,
+} from '@/utils/orderCurrency'
 
 interface Props {
   orderId: string | null
@@ -124,6 +130,18 @@ export function OrderDetailsModal({
   const deliveryAddress = order ? getDeliveryAddress(order, extraAddresses.shipping) : null
   const deliveryCountry = deliveryAddress?.country ?? null
   const formatSummaryCurrency = (value: any) => formatCurrencyByCountry(value, deliveryCountry)
+  const isBrazil = isBrazilDelivery(deliveryCountry)
+  const displayShippingCost = order ? getOrderShippingCost(order) : 0
+  const displaySubtotal = order ? getDisplaySubtotal(order, deliveryCountry) : 0
+  const displayTotal = order ? Number(order.total ?? 0) : 0
+  const isBrazil = isBrazilDelivery(deliveryCountry)
+  const displayShippingCost = order ? getOrderShippingCost(order) : 0
+  const displaySubtotal = order ? getDisplaySubtotal(order, deliveryCountry) : 0
+  const displayTotal = order ? Number(order.total ?? 0) : 0
+  const isBrazil = isBrazilDelivery(deliveryCountry)
+  const displayShippingCost = order ? getOrderShippingCost(order) : 0
+  const displaySubtotal = order ? getDisplaySubtotal(order, deliveryCountry) : 0
+  const displayTotal = order ? Number(order.total ?? 0) : 0
 
   const getStatusBadge = (status: string) => {
     const s = status?.toLowerCase() || ''
@@ -199,16 +217,16 @@ export function OrderDetailsModal({
                     </p>
                     <p>
                       <span className="font-medium">Subtotal:</span>{' '}
-                      {formatSummaryCurrency(order.subtotal)}
+                      {formatSummaryCurrency(calculateSummarySubtotal(order, deliveryCountry))}
                     </p>
                     <p>
                       <span className="font-medium">Frete:</span>{' '}
-                      {formatSummaryCurrency(order.shipping_cost ?? 0)}
-                    </p>
+                      {formatSummaryCurrency(getShippingCost(order))}
+                    </p>{' '}
                     <p>
                       <span className="font-medium">Total:</span>{' '}
-                      {formatSummaryCurrency(order.total_amount ?? order.total)}
-                    </p>
+                      {formatSummaryCurrency(displayTotal)}
+                    </p>{' '}
                     <div className="flex items-center gap-2">
                       <span className="font-medium">Status:</span>
                       {getStatusBadge(order.status)}

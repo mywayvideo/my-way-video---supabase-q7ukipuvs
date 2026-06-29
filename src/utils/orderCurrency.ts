@@ -11,7 +11,7 @@ export function getDeliveryCountry(order: any, fetchedShipping?: any): string | 
 export function isBrazilDelivery(country: string | null): boolean {
   if (!country) return false
   const normalized = country.toLowerCase().trim()
-  return normalized === 'brasil' || normalized === 'brazil'
+  return normalized === 'brasil' || normalized === 'brazil' || normalized === 'br'
 }
 
 export function formatCurrencyByCountry(value: any, country: string | null): string {
@@ -37,4 +37,23 @@ export function formatUSDCurrency(value: any): string {
   } catch {
     return `US$ ${value}`
   }
+}
+
+export function getShippingCost(order: any): number {
+  if (order?.shipping_cost != null) return Number(order.shipping_cost)
+  const pdShipping = order?.payment_data?.shipping_cost
+  if (pdShipping != null) return Number(pdShipping)
+  const pdFreight = order?.payment_data?.freight
+  if (pdFreight != null) return Number(pdFreight)
+  return 0
+}
+
+export function calculateSummarySubtotal(order: any, country: string | null): number {
+  const isBrazil = isBrazilDelivery(country)
+  if (isBrazil) {
+    const total = Number(order?.total ?? 0)
+    const shipping = getShippingCost(order)
+    return total - shipping
+  }
+  return Number(order?.subtotal ?? 0)
 }

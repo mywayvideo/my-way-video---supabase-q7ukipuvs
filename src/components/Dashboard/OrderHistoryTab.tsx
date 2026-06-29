@@ -18,7 +18,11 @@ import { OrderDetailsModal } from './OrderDetailsModal'
 import { OrderCancelModal } from './OrderCancelModal'
 import { Card, CardContent } from '@/components/ui/card'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { getDeliveryCountry, formatCurrencyByCountry } from '@/utils/orderCurrency'
+import {
+  getDeliveryCountry,
+  formatCurrencyByCountry,
+  isBrazilDelivery,
+} from '@/utils/orderCurrency'
 
 export function OrderHistoryTab({
   orders,
@@ -34,6 +38,48 @@ export function OrderHistoryTab({
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
   const [cancelOrder, setCancelOrder] = useState<Order | null>(null)
   const [downloadingId, setDownloadingId] = useState<string | null>(null)
+  const [orderCountries, setOrderCountries] = useState<Record<string, string | null>>({})
+
+  useEffect(() => {
+    const fetchCountries = async () => {
+      const countries: Record<string, string | null> = {}
+      const addressIds: string[] = []
+      const orderToAddress: Record<string, string> = {}
+
+      orders.forEach((order) => {
+        const existingCountry = getDeliveryCountry(order)
+        if (existingCountry) {
+          countries[order.id] = existingCountry
+        } else if (order.shipping_address_id) {
+          addressIds.push(order.shipping_address_id)
+          orderToAddress[order.id] = order.shipping_address_id
+        } else {
+          countries[order.id] = null
+        }
+      })
+
+      if (addressIds.length > 0) {
+        const { data: addresses } = await supabase
+          .from('customer_addresses')
+          .select('id, country')
+          .in('id', addressIds)
+
+        if (addresses) {
+          const addrMap: Record<string, string> = {}
+          addresses.forEach((a) => {
+            addrMap[a.id] = a.country
+          })
+          Object.entries(orderToAddress).forEach(([orderId, addrId]) => {
+            countries[orderId] = addrMap[addrId] || null
+          })
+        }
+      }
+
+      setOrderCountries(countries)
+    }
+
+    fetchCountries()
+  }, [orders])
 
   const onDownloadClick = async (order: Order) => {
     setDownloadingId(order.id)
@@ -58,7 +104,7 @@ export function OrderHistoryTab({
   }
 
   const formatOrderCurrency = (order: Order) => {
-    const country = getDeliveryCountry(order)
+    const country = orderCountries[order.id] ?? getDeliveryCountry(order)
     return formatCurrencyByCountry(order.total, country)
   }
 

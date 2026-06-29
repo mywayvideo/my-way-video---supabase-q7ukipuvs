@@ -118,7 +118,7 @@ export const adminOrdersService = {
       .select(`
         *,
         customers!inner(full_name, email, phone),
-        order_items(id, product_id, quantity, unit_price, total_price, products(name)),
+        order_items(id, product_id, quantity, unit_price, total_price, products(name, price_usd, price_nationalized_sales, price_nationalized_currency)),
         shipping_address:customer_addresses!orders_shipping_address_id_fkey(*),
         billing_address:customer_addresses!orders_billing_address_id_fkey(*)
       `)

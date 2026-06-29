@@ -18,6 +18,8 @@ import {
   formatCurrencyByCountry,
   calculateSummarySubtotal,
   formatShippingDisplay,
+  formatItemUnitPrice,
+  formatItemTotalPrice,
 } from '@/utils/orderCurrency'
 import { supabase } from '@/lib/supabase/client'
 
@@ -294,10 +296,10 @@ export default function OrderDetailsDialog({
                           </TableCell>
                           <TableCell className="text-right">{item.quantity || 0}</TableCell>
                           <TableCell className="text-right">
-                            {fmtCurrency(item.unit_price)}
+                            {formatItemUnitPrice(item, deliveryCountry)}
                           </TableCell>
                           <TableCell className="text-right font-bold">
-                            {fmtCurrency(item.total_price)}
+                            {formatItemTotalPrice(item, deliveryCountry)}
                           </TableCell>
                         </TableRow>
                       ))}

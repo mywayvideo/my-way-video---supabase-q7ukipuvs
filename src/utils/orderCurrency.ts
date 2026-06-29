@@ -72,53 +72,62 @@ export function formatShippingDisplay(order: any, country: string | null): strin
   return formatCurrencyByCountry(shippingCost, country)
 }
 
-export function isItemNationalized(item: any, country: string | null): boolean {
-  if (!isBrazilDelivery(country)) return false
+export interface ItemPriceInfo {
+  price: number
+  currencyCode: string | null
+  isNationalized: boolean
+}
+
+export function resolveItemPriceInfo(item: any, country: string | null): ItemPriceInfo {
   const product = item?.products
-  if (!product) return false
-  const nationalizedSales = Number(product.price_nationalized_sales ?? 0)
-  if (nationalizedSales <= 0) return false
-  const currency = (product.price_nationalized_currency ?? '').toUpperCase().trim()
-  return currency === 'BR' || currency === 'BRL'
+  const isBrazil = isBrazilDelivery(country)
+  const nationalizedSales = Number(product?.price_nationalized_sales ?? 0)
+  const priceUsd = Number(product?.price_usd ?? 0)
+  const nationalizedCurrency = product?.price_nationalized_currency ?? null
+
+  if (isBrazil && nationalizedSales > 0) {
+    return { price: nationalizedSales, currencyCode: nationalizedCurrency, isNationalized: true }
+  }
+
+  if (!isBrazil && priceUsd > 0) {
+    return { price: priceUsd, currencyCode: 'USD', isNationalized: false }
+  }
+
+  if (priceUsd <= 0 && nationalizedSales > 0) {
+    return { price: nationalizedSales, currencyCode: nationalizedCurrency, isNationalized: true }
+  }
+
+  return { price: Number(item?.unit_price ?? 0), currencyCode: null, isNationalized: false }
+}
+
+export function isItemNationalized(item: any, country: string | null): boolean {
+  return resolveItemPriceInfo(item, country).isNationalized
 }
 
 export function formatItemUnitPrice(item: any, country: string | null): string {
-  if (isItemNationalized(item, country)) {
-    const nationalizedSales = Number(item?.products?.price_nationalized_sales ?? 0)
-    return formatCurrencyByCountry(nationalizedSales, 'Brazil')
+  const info = resolveItemPriceInfo(item, country)
+  if (info.isNationalized) {
+    return formatCurrencyByCountry(info.price, 'Brazil')
   }
-  return formatCurrencyByCountry(item?.unit_price ?? 0, null)
+  return formatCurrencyByCountry(info.price, null)
 }
 
 export function getItemUnitPriceValue(item: any, country: string | null): number {
-  if (isItemNationalized(item, country)) {
-    return Number(item?.products?.price_nationalized_sales ?? 0)
-  }
-  return Number(item?.unit_price ?? 0)
+  return resolveItemPriceInfo(item, country).price
 }
 
 export function formatItemTotalPrice(item: any, country: string | null): string {
-  if (isItemNationalized(item, country)) {
-    const nationalizedSales = Number(item?.products?.price_nationalized_sales ?? 0)
-    const qty = Number(item?.quantity ?? 1)
-    return formatCurrencyByCountry(nationalizedSales * qty, 'Brazil')
+  const info = resolveItemPriceInfo(item, country)
+  const qty = Number(item?.quantity ?? 1)
+  const total = info.price * qty
+  if (info.isNationalized) {
+    return formatCurrencyByCountry(total, 'Brazil')
   }
-  const total =
-    item?.subtotal ??
-    item?.total_price ??
-    Number(item?.unit_price ?? 0) * Number(item?.quantity ?? 1)
   return formatCurrencyByCountry(total, null)
 }
 
 export function getItemTotalPriceValue(item: any, country: string | null): number {
-  if (isItemNationalized(item, country)) {
-    const nationalizedSales = Number(item?.products?.price_nationalized_sales ?? 0)
-    const qty = Number(item?.quantity ?? 1)
-    return nationalizedSales * qty
-  }
-  return (
-    item?.subtotal ??
-    item?.total_price ??
-    Number(item?.unit_price ?? 0) * Number(item?.quantity ?? 1)
-  )
+  const info = resolveItemPriceInfo(item, country)
+  const qty = Number(item?.quantity ?? 1)
+  return info.price * qty
 }

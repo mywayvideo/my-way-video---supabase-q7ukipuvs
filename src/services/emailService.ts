@@ -31,7 +31,13 @@ const sendEmail = async (
 ): Promise<EmailResult> => {
   try {
     const { data, error } = await supabase.functions.invoke('send-email', {
-      body: { to, subject, htmlContent },
+      body: {
+        to,
+        subject,
+        htmlContent,
+        fromEmail: 'contact@mywayvideo.com',
+        fromName: 'My Way Video',
+      },
     })
     if (error) {
       console.error('[emailService] Edge function invocation error:', error)

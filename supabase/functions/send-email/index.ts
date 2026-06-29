@@ -1,7 +1,9 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
-import { corsHeaders } from '../_shared/cors.ts'
+import { getCorsHeaders } from '../_shared/cors.ts'
 
 Deno.serve(async (req: Request) => {
+  const corsHeaders = getCorsHeaders(req)
+
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
@@ -10,17 +12,17 @@ Deno.serve(async (req: Request) => {
     const resendApiKey = Deno.env.get('RESEND_API_KEY')
     if (!resendApiKey) {
       console.error('[send-email] Error: RESEND_API_KEY not configured')
-      return new Response(
-        JSON.stringify({ error: 'Email service not configured.' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-      )
+      return new Response(JSON.stringify({ error: 'Email service not configured.' }), {
+        status: 503,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
     }
 
     let body: any = {}
     try {
       body = await req.json()
     } catch {
-      // Body is not valid JSON, use empty object
+      body = {}
     }
 
     if (!body || typeof body !== 'object') body = {}
@@ -29,7 +31,7 @@ Deno.serve(async (req: Request) => {
       to,
       subject,
       htmlContent,
-      fromEmail = 'noreply@mywayvideo.com',
+      fromEmail = 'contact@mywayvideo.com',
       fromName = 'My Way Video',
     } = body
 
@@ -44,10 +46,10 @@ Deno.serve(async (req: Request) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
     if (!emailRegex.test(to)) {
       console.warn(`[send-email] Validation error: Invalid email format (${to})`)
-      return new Response(
-        JSON.stringify({ error: 'Invalid email address.' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-      )
+      return new Response(JSON.stringify({ error: 'Invalid email address.' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
     }
 
     const payload = {
@@ -56,6 +58,8 @@ Deno.serve(async (req: Request) => {
       subject,
       html: htmlContent,
     }
+
+    console.log(`[send-email] Attempting to send email to ${to} from ${fromEmail}`)
 
     const maxAttempts = 3
     const backoffDelays = [1000, 2000, 4000]
@@ -74,7 +78,7 @@ Deno.serve(async (req: Request) => {
 
         if (response.ok) {
           const data = await response.json().catch(() => ({}))
-          console.log(`[send-email] Email sent successfully to ${to}`)
+          console.log(`[send-email] Email sent successfully to ${to}, id: ${data?.id || 'unknown'}`)
           return new Response(
             JSON.stringify({
               success: true,
@@ -88,7 +92,6 @@ Deno.serve(async (req: Request) => {
         const errorText = await response.text().catch(() => 'No error text')
         lastError = new Error(`Resend API Error ${response.status}: ${errorText}`)
 
-        // Don't retry on client errors (4xx) except 429 (rate limit)
         if (response.status >= 400 && response.status < 500 && response.status !== 429) {
           console.error(`[send-email] Non-retryable error: ${lastError.message}`)
           break
@@ -113,14 +116,17 @@ Deno.serve(async (req: Request) => {
 
     console.error('[send-email] All attempts failed:', lastError?.message || lastError)
     return new Response(
-      JSON.stringify({ error: 'Failed to send email after multiple attempts.' }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      JSON.stringify({
+        error: 'Failed to send email after multiple attempts.',
+        details: lastError?.message || 'Unknown error',
+      }),
+      { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
     )
   } catch (error: any) {
     console.error('[send-email] Unhandled error:', error?.message || error)
-    return new Response(
-      JSON.stringify({ error: 'Internal server error.' }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-    )
+    return new Response(JSON.stringify({ error: 'Internal server error.' }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
   }
 })

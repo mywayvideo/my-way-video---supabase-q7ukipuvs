@@ -38,9 +38,7 @@ async function getSquareConfig() {
   // Production app IDs start with 'sq0idp-'
   // Sandbox app IDs start with 'sandbox-sq0idb-'
   const isSandbox = applicationId ? applicationId.startsWith('sandbox-sq0idb-') : false
-  const baseUrl = isSandbox
-    ? 'https://connect.squareupsandbox.com'
-    : 'https://connect.squareup.com'
+  const baseUrl = isSandbox ? 'https://connect.squareupsandbox.com' : 'https://connect.squareup.com'
 
   return { accessToken, locationId, baseUrl }
 }
@@ -54,13 +52,10 @@ Deno.serve(async (req: Request) => {
     const { sourceId, amount, orderId } = await req.json()
 
     if (!sourceId || !amount) {
-      return new Response(
-        JSON.stringify({ error: 'Dados de pagamento incompletos.' }),
-        {
-          status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        },
-      )
+      return new Response(JSON.stringify({ error: 'Dados de pagamento incompletos.' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
     }
 
     const { accessToken, locationId, baseUrl } = await getSquareConfig()
@@ -122,13 +117,10 @@ Deno.serve(async (req: Request) => {
       })
     }
 
-    return new Response(
-      JSON.stringify({ success: true, transactionId: squareData.payment.id }),
-      {
-        status: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      },
-    )
+    return new Response(JSON.stringify({ success: true, transactionId: squareData.payment.id }), {
+      status: 200,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
   } catch (error: any) {
     console.error('Square Payment Exception:', error)
 
@@ -138,8 +130,7 @@ Deno.serve(async (req: Request) => {
 
     return new Response(
       JSON.stringify({
-        error:
-          error.message || 'Erro interno ao processar pagamento. Tente novamente.',
+        error: error.message || 'Erro interno ao processar pagamento. Tente novamente.',
         is_config_error: isConfigError,
       }),
       {

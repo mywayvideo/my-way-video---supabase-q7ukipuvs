@@ -11,7 +11,7 @@ import {
 } from '@/components/ui/table'
 import { Eye, Download, RefreshCw, X, Package } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useOrderActions } from '@/hooks/useOrderActions'
 import { orderService } from '@/services/orderService'
 import { OrderDetailsModal } from './OrderDetailsModal'

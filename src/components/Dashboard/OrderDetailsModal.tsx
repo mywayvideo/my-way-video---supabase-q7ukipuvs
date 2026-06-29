@@ -20,6 +20,7 @@ import {
   formatUSDCurrency,
   getOrderShippingCost,
   getDisplaySubtotal,
+  calculateSummarySubtotal,
   isBrazilDelivery,
 } from '@/utils/orderCurrency'
 

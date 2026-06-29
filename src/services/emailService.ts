@@ -41,7 +41,7 @@ const sendEmail = async (
     })
     if (error) {
       console.error('[emailService] Edge function invocation error:', error)
-      return { success: false, error: error.message }
+      return { success: false, error: error.message || 'Edge function error' }
     }
     if (data?.error) {
       console.error('[emailService] Edge function returned error:', data.error)

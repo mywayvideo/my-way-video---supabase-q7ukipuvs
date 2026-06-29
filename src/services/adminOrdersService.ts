@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase/client'
+import { emailService } from '@/services/emailService'
 import { AdminOrder } from '@/types/admin-order'
 
 export interface GetOrdersFilters {
@@ -84,6 +85,22 @@ export const adminOrdersService = {
   updateOrderStatus: async (orderId: string, newStatus: string) => {
     const { error } = await supabase.from('orders').update({ status: newStatus }).eq('id', orderId)
     if (error) throw error
+
+    if (['confirmed', 'processing', 'completed'].includes(newStatus)) {
+      try {
+        const details = await adminOrdersService.getOrderDetails(orderId)
+        const customerName = details.customers?.full_name || 'Cliente'
+        const customerEmail = details.customers?.email || ''
+        if (customerEmail) {
+          await emailService.sendOrderConfirmationToCustomer(orderId, customerEmail, customerName)
+        }
+      } catch (err: any) {
+        console.warn(
+          '[adminOrdersService] Confirmation email failed (non-blocking):',
+          err?.message || err,
+        )
+      }
+    }
   },
 
   rejectOrder: async (orderId: string) => {
@@ -92,6 +109,20 @@ export const adminOrdersService = {
       .update({ status: 'cancelled' })
       .eq('id', orderId)
     if (error) throw error
+
+    try {
+      const details = await adminOrdersService.getOrderDetails(orderId)
+      const customerName = details.customers?.full_name || 'Cliente'
+      const customerEmail = details.customers?.email || ''
+      if (customerEmail) {
+        await emailService.sendOrderRejectionToCustomer(orderId, customerEmail, customerName)
+      }
+    } catch (err: any) {
+      console.warn(
+        '[adminOrdersService] Rejection email failed (non-blocking):',
+        err?.message || err,
+      )
+    }
   },
 
   processRefund: async (orderId: string, refundData: any) => {
@@ -105,6 +136,25 @@ export const adminOrdersService = {
       bank_name: refundData.bankName,
     })
     if (error) throw error
+
+    try {
+      const details = await adminOrdersService.getOrderDetails(orderId)
+      const customerName = details.customers?.full_name || 'Cliente'
+      const customerEmail = details.customers?.email || ''
+      if (customerEmail) {
+        await emailService.sendRefundNotificationToCustomer(
+          orderId,
+          customerEmail,
+          customerName,
+          refundData.amount,
+          refundData.reason,
+          refundData.bankHolderName,
+          refundData.bankName,
+        )
+      }
+    } catch (err: any) {
+      console.warn('[adminOrdersService] Refund email failed (non-blocking):', err?.message || err)
+    }
   },
 
   updateOrderNotes: async (orderId: string, notes: string) => {

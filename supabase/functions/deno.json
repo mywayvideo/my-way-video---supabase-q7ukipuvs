@@ -17,6 +17,7 @@
     "execute_ai_search_v2_pp": 13,
     "lookup-address": 14,
     "square-payment": 9,
-    "send-email": 3
+    "send-email": 4,
+    "send-order-email": 1
   }
 }

@@ -19,13 +19,33 @@ const getOrderDetails = async (orderId: string) => {
   return { order, items }
 }
 
-const sendEmail = async (to: string, subject: string, htmlContent: string) => {
-  const { data, error } = await supabase.functions.invoke('send-email', {
-    body: { to, subject, htmlContent },
-  })
-  if (error) throw error
-  if (data?.error) throw new Error(data.error)
-  return data
+interface EmailResult {
+  success: boolean
+  error?: string
+}
+
+const sendEmail = async (
+  to: string,
+  subject: string,
+  htmlContent: string,
+): Promise<EmailResult> => {
+  try {
+    const { data, error } = await supabase.functions.invoke('send-email', {
+      body: { to, subject, htmlContent },
+    })
+    if (error) {
+      console.error('[emailService] Edge function invocation error:', error)
+      return { success: false, error: error.message }
+    }
+    if (data?.error) {
+      console.error('[emailService] Edge function returned error:', data.error)
+      return { success: false, error: data.error }
+    }
+    return { success: true }
+  } catch (err: any) {
+    console.error('[emailService] Failed to send email (non-blocking):', err?.message || err)
+    return { success: false, error: err?.message || 'Unknown error' }
+  }
 }
 
 const baseTemplate = (content: string) => `
@@ -43,6 +63,15 @@ const baseTemplate = (content: string) => `
   </div>
 `
 
+const handleEmailResult = (result: EmailResult, context: string) => {
+  if (!result.success) {
+    console.warn(
+      `[emailService] ${context} - email was not sent, but execution continues. Error: ${result.error}`,
+    )
+  }
+  return result
+}
+
 export const emailService = {
   sendNewOrderNotificationToAdmin: async (
     orderId: string,
@@ -50,7 +79,7 @@ export const emailService = {
     customerEmail: string,
     totalAmount: number,
     adminEmail = 'admin@mywayvideo.com',
-  ) => {
+  ): Promise<EmailResult> => {
     try {
       const { order, items } = await getOrderDetails(orderId)
 
@@ -94,10 +123,14 @@ export const emailService = {
         </div>
       `)
 
-      return await sendEmail(adminEmail, `Novo Pedido: ${order.order_number}`, htmlContent)
+      const result = await sendEmail(adminEmail, `Novo Pedido: ${order.order_number}`, htmlContent)
+      return handleEmailResult(result, 'sendNewOrderNotificationToAdmin')
     } catch (err: any) {
-      console.error('Error sending new order notification to admin:', err)
-      throw new Error('Erro ao enviar notificação de novo pedido para admin.')
+      console.error(
+        '[emailService] sendNewOrderNotificationToAdmin failed (non-blocking):',
+        err?.message || err,
+      )
+      return { success: false, error: err?.message || 'Unknown error' }
     }
   },
 
@@ -105,7 +138,7 @@ export const emailService = {
     orderId: string,
     customerEmail: string,
     customerName: string,
-  ) => {
+  ): Promise<EmailResult> => {
     try {
       const { order, items } = await getOrderDetails(orderId)
 
@@ -156,14 +189,18 @@ export const emailService = {
         <p style="text-align: center; margin-top: 20px;"><a href="mailto:suporte@mywayvideo.com" style="color: #000;">Entrar em contato com o suporte</a></p>
       `)
 
-      return await sendEmail(
+      const result = await sendEmail(
         customerEmail,
         `Confirmação do Pedido ${order.order_number}`,
         htmlContent,
       )
+      return handleEmailResult(result, 'sendOrderConfirmationToCustomer')
     } catch (err: any) {
-      console.error('Error sending order confirmation:', err)
-      throw new Error('Erro ao enviar confirmação de pedido.')
+      console.error(
+        '[emailService] sendOrderConfirmationToCustomer failed (non-blocking):',
+        err?.message || err,
+      )
+      return { success: false, error: err?.message || 'Unknown error' }
     }
   },
 
@@ -172,7 +209,7 @@ export const emailService = {
     customerEmail: string,
     customerName: string,
     rejectionReason = '',
-  ) => {
+  ): Promise<EmailResult> => {
     try {
       const { order } = await getOrderDetails(orderId)
 
@@ -191,14 +228,18 @@ export const emailService = {
         <p style="text-align: center; margin-top: 20px;"><a href="mailto:suporte@mywayvideo.com" style="color: #000;">Entrar em contato com o suporte</a></p>
       `)
 
-      return await sendEmail(
+      const result = await sendEmail(
         customerEmail,
         `Atualização do Pedido ${order.order_number}`,
         htmlContent,
       )
+      return handleEmailResult(result, 'sendOrderRejectionToCustomer')
     } catch (err: any) {
-      console.error('Error sending order rejection:', err)
-      throw new Error('Erro ao enviar notificação de rejeição de pedido.')
+      console.error(
+        '[emailService] sendOrderRejectionToCustomer failed (non-blocking):',
+        err?.message || err,
+      )
+      return { success: false, error: err?.message || 'Unknown error' }
     }
   },
 
@@ -210,7 +251,7 @@ export const emailService = {
     refundReason: string,
     bankAccountHolder: string,
     bankName: string,
-  ) => {
+  ): Promise<EmailResult> => {
     try {
       const { order } = await getOrderDetails(orderId)
 
@@ -231,14 +272,18 @@ export const emailService = {
         <p style="text-align: center; margin-top: 30px;"><a href="mailto:suporte@mywayvideo.com" style="color: #000;">Entrar em contato com o suporte</a></p>
       `)
 
-      return await sendEmail(
+      const result = await sendEmail(
         customerEmail,
         `Reembolso do Pedido ${order.order_number}`,
         htmlContent,
       )
+      return handleEmailResult(result, 'sendRefundNotificationToCustomer')
     } catch (err: any) {
-      console.error('Error sending refund notification:', err)
-      throw new Error('Erro ao enviar notificação de reembolso.')
+      console.error(
+        '[emailService] sendRefundNotificationToCustomer failed (non-blocking):',
+        err?.message || err,
+      )
+      return { success: false, error: err?.message || 'Unknown error' }
     }
   },
 }

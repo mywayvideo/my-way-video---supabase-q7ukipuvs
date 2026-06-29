@@ -1,10 +1,24 @@
-import React, { useState, useCallback } from 'react'
+import { useState, useCallback } from 'react'
 import { adminOrdersService, GetOrdersFilters } from '@/services/adminOrdersService'
 import { AdminOrder } from '@/types/admin-order'
 import { useToast } from '@/hooks/use-toast'
-import { ToastAction } from '@/components/ui/toast'
-import { supabase } from '@/lib/supabase/client'
 import { emailService } from '@/services/emailService'
+
+const fireAndForgetEmails = async (
+  emailPromises: Promise<{ success: boolean; error?: string }>[],
+) => {
+  Promise.allSettled(emailPromises).then((results) => {
+    results.forEach((result, index) => {
+      if (result.status === 'rejected') {
+        console.error(`[useAdminOrders] Email promise ${index} rejected:`, result.reason)
+      } else if (result.value && !result.value.success) {
+        console.warn(
+          `[useAdminOrders] Email ${index} not sent (non-blocking): ${result.value.error}`,
+        )
+      }
+    })
+  })
+}
 
 export const useAdminOrders = () => {
   const [orders, setOrders] = useState<AdminOrder[]>([])
@@ -32,35 +46,21 @@ export const useAdminOrders = () => {
   const approveOrder = async (order: AdminOrder) => {
     try {
       await adminOrdersService.updateOrderStatus(order.id, 'paid')
-      toast({ title: 'Pedido aprovado e emails enviados com sucesso!' })
+      toast({ title: 'Pedido aprovado com sucesso!' })
 
-      const sendEmails = () => {
-        Promise.all([
-          emailService.sendNewOrderNotificationToAdmin(
-            order.id,
-            order.customer_name,
-            order.customer_email,
-            order.total_amount,
-          ),
-          emailService.sendOrderConfirmationToCustomer(
-            order.id,
-            order.customer_email,
-            order.customer_name,
-          ),
-        ]).catch((err) => {
-          console.error('Email error:', err)
-          toast({
-            title: 'Pedido atualizado, mas erro ao enviar email. Tente novamente.',
-            variant: 'destructive',
-            action: React.createElement(
-              ToastAction,
-              { altText: 'Tentar novamente', onClick: sendEmails },
-              'Tentar Novamente',
-            ),
-          })
-        })
-      }
-      sendEmails()
+      fireAndForgetEmails([
+        emailService.sendNewOrderNotificationToAdmin(
+          order.id,
+          order.customer_name,
+          order.customer_email,
+          order.total_amount,
+        ),
+        emailService.sendOrderConfirmationToCustomer(
+          order.id,
+          order.customer_email,
+          order.customer_name,
+        ),
+      ])
 
       fetchOrders()
     } catch (err) {
@@ -72,25 +72,15 @@ export const useAdminOrders = () => {
   const rejectOrder = async (order: AdminOrder) => {
     try {
       await adminOrdersService.rejectOrder(order.id)
-      toast({ title: 'Pedido rejeitado e email enviado ao cliente.' })
+      toast({ title: 'Pedido rejeitado.' })
 
-      const sendEmails = () => {
-        emailService
-          .sendOrderRejectionToCustomer(order.id, order.customer_email, order.customer_name)
-          .catch((err) => {
-            console.error('Email error:', err)
-            toast({
-              title: 'Pedido atualizado, mas erro ao enviar email. Tente novamente.',
-              variant: 'destructive',
-              action: React.createElement(
-                ToastAction,
-                { altText: 'Tentar novamente', onClick: sendEmails },
-                'Tentar Novamente',
-              ),
-            })
-          })
-      }
-      sendEmails()
+      fireAndForgetEmails([
+        emailService.sendOrderRejectionToCustomer(
+          order.id,
+          order.customer_email,
+          order.customer_name,
+        ),
+      ])
 
       fetchOrders()
     } catch (err) {
@@ -102,33 +92,19 @@ export const useAdminOrders = () => {
   const processRefund = async (order: AdminOrder, refundData: any) => {
     try {
       await adminOrdersService.processRefund(order.id, refundData)
-      toast({ title: 'Devolucao processada e email enviado ao cliente.' })
+      toast({ title: 'Devolucao processada.' })
 
-      const sendEmails = () => {
-        emailService
-          .sendRefundNotificationToCustomer(
-            order.id,
-            order.customer_email,
-            order.customer_name,
-            Number(refundData.amount),
-            refundData.reason,
-            refundData.bankHolderName,
-            refundData.bankName,
-          )
-          .catch((err) => {
-            console.error('Email error:', err)
-            toast({
-              title: 'Pedido atualizado, mas erro ao enviar email. Tente novamente.',
-              variant: 'destructive',
-              action: React.createElement(
-                ToastAction,
-                { altText: 'Tentar novamente', onClick: sendEmails },
-                'Tentar Novamente',
-              ),
-            })
-          })
-      }
-      sendEmails()
+      fireAndForgetEmails([
+        emailService.sendRefundNotificationToCustomer(
+          order.id,
+          order.customer_email,
+          order.customer_name,
+          Number(refundData.amount),
+          refundData.reason,
+          refundData.bankHolderName,
+          refundData.bankName,
+        ),
+      ])
 
       fetchOrders()
     } catch (err) {

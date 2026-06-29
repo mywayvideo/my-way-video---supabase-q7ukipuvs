@@ -57,3 +57,17 @@ export function calculateSummarySubtotal(order: any, country: string | null): nu
   }
   return Number(order?.subtotal ?? 0)
 }
+
+export function isBrazilOrder(order: any, country: string | null): boolean {
+  if (isBrazilDelivery(country)) return true
+  const shippingMethod = (order?.shipping_method || '').toLowerCase()
+  return shippingMethod.includes('brazil') || shippingMethod.includes('brasil')
+}
+
+export function formatShippingDisplay(order: any, country: string | null): string {
+  const shippingCost = getShippingCost(order)
+  if (shippingCost === 0 || isBrazilOrder(order, country)) {
+    return 'incluso'
+  }
+  return formatCurrencyByCountry(shippingCost, country)
+}

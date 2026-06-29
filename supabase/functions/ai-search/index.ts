@@ -8,7 +8,10 @@ function safeJSONParse(str: string, fallback: any = null): any {
   } catch (e) {}
 
   let cleaned = str.trim()
-  cleaned = cleaned.replace(/```json/gi, '').replace(/```/g, '').trim()
+  cleaned = cleaned
+    .replace(/```json/gi, '')
+    .replace(/```/g, '')
+    .trim()
 
   try {
     return JSON.parse(cleaned)
@@ -54,7 +57,9 @@ Deno.serve(async (req: Request) => {
     const session_id = typeof body?.session_id === 'string' ? body.session_id : null
     const lastReferencedProductId = body?.currentProductId || null
 
-    console.log(`[DEBUG] Entrada: User="${userName}", Query="${query}", Session="${session_id}", ProductID="${lastReferencedProductId}"`)
+    console.log(
+      `[DEBUG] Entrada: User="${userName}", Query="${query}", Session="${session_id}", ProductID="${lastReferencedProductId}"`,
+    )
 
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
@@ -103,7 +108,9 @@ Deno.serve(async (req: Request) => {
     if (lastReferencedProductId) {
       const { data: product, error: productError } = await supabase
         .from('products')
-        .select('id, name, sku, category, description, technical_info, image_url, manufacturer_id, manufacturers(name), price_usd, price_brl, price_cost, price_cost_rebate, price_nationalized_cost, price_nationalized_sales, price_usa_rebate')
+        .select(
+          'id, name, sku, category, description, technical_info, image_url, manufacturer_id, manufacturers(name), price_usd, price_brl, price_cost, price_cost_rebate, price_nationalized_cost, price_nationalized_sales, price_usa_rebate',
+        )
         .eq('id', lastReferencedProductId)
         .maybeSingle()
 
@@ -118,7 +125,7 @@ Deno.serve(async (req: Request) => {
         } catch (e) {
           // Mantém como string caso não seja JSON válido
         }
-        
+
         contextualProductData = {
           id: product.id,
           name: product.name,
@@ -134,7 +141,7 @@ Deno.serve(async (req: Request) => {
           price_cost_rebate: product.price_cost_rebate,
           price_nationalized_cost: product.price_nationalized_cost,
           price_nationalized_sales: product.price_nationalized_sales,
-          price_usa_rebate: product.price_usa_rebate
+          price_usa_rebate: product.price_usa_rebate,
         }
       }
     }
@@ -183,7 +190,9 @@ Deno.serve(async (req: Request) => {
     if (lastReferencedProductId && contextualProductData) {
       messages.push({
         role: 'system',
-        content: 'CONTEXTUAL PRODUCT DATA (Structured JSON):\n' + JSON.stringify(contextualProductData, null, 2),
+        content:
+          'CONTEXTUAL PRODUCT DATA (Structured JSON):\n' +
+          JSON.stringify(contextualProductData, null, 2),
       })
     }
 
@@ -202,7 +211,8 @@ Deno.serve(async (req: Request) => {
         type: 'function',
         function: {
           name: 'search_products',
-          description: 'Search the internal database for products based on keywords, categories, SKUs, or specs.',
+          description:
+            'Search the internal database for products based on keywords, categories, SKUs, or specs.',
           parameters: {
             type: 'object',
             properties: {
@@ -237,7 +247,10 @@ Deno.serve(async (req: Request) => {
 
     if (!firstAiResponse.ok) {
       console.error('[ERRO] OpenAI Error:', await firstAiResponse.text())
-      return new Response(JSON.stringify({ error: 'Erro na API da IA' }), { headers: corsHeaders, status: 500 })
+      return new Response(JSON.stringify({ error: 'Erro na API da IA' }), {
+        headers: corsHeaders,
+        status: 500,
+      })
     }
 
     const firstData = await firstAiResponse.json()
@@ -255,8 +268,10 @@ Deno.serve(async (req: Request) => {
             const { data: rpcResult } = await supabase.rpc('execute_ai_search_v3', {
               search_term: args.search_term,
             })
-            const searchResults = Array.isArray((rpcResult as any)?.stock) ? (rpcResult as any).stock : []
-            
+            const searchResults = Array.isArray((rpcResult as any)?.stock)
+              ? (rpcResult as any).stock
+              : []
+
             const baseInjectedProducts = searchResults.slice(0, 15).map((p: any) => {
               allowedProductIds.add(p.id)
               let techInfo = p.technical_info
@@ -272,7 +287,7 @@ Deno.serve(async (req: Request) => {
                 price_usd: p.price_usd,
                 image_url: p.image_url,
                 description: p.description,
-                technical_info: techInfo
+                technical_info: techInfo,
               }
             })
 
@@ -280,9 +295,10 @@ Deno.serve(async (req: Request) => {
               role: 'tool',
               tool_call_id: toolCall.id,
               name: toolCall.function.name,
-              content: baseInjectedProducts.length > 0 
-                ? JSON.stringify(baseInjectedProducts, null, 2)
-                : 'Nenhum produto encontrado.',
+              content:
+                baseInjectedProducts.length > 0
+                  ? JSON.stringify(baseInjectedProducts, null, 2)
+                  : 'Nenhum produto encontrado.',
             })
           } catch (e) {
             console.error('[ERRO] Tool Call falhou', e)
@@ -310,7 +326,7 @@ Deno.serve(async (req: Request) => {
           temperature: 0.1,
         }),
       })
-      
+
       const secondData = await secondAiResponse.json()
       finalContent = secondData.choices?.[0]?.message?.content || '{}'
     } else {
@@ -318,11 +334,14 @@ Deno.serve(async (req: Request) => {
     }
 
     if (session_id) {
-      await supabase.from('chat_messages').insert({ session_id, role: 'assistant', content: finalContent })
+      await supabase
+        .from('chat_messages')
+        .insert({ session_id, role: 'assistant', content: finalContent })
     }
 
     const result = safeJSONParse(finalContent, {
-      message: globalSettingsMap['transparency_note'] || 'Desculpe, não consegui processar a resposta.',
+      message:
+        globalSettingsMap['transparency_note'] || 'Desculpe, não consegui processar a resposta.',
       confidence_level: 'low',
       referenced_internal_products: [],
       should_show_whatsapp_button: true,
@@ -332,8 +351,8 @@ Deno.serve(async (req: Request) => {
       result.referenced_internal_products = []
     }
 
-    result.referenced_internal_products = result.referenced_internal_products.filter((id: string) => 
-      allowedProductIds.has(id)
+    result.referenced_internal_products = result.referenced_internal_products.filter((id: string) =>
+      allowedProductIds.has(id),
     )
 
     if (typeof result.message === 'string') {
@@ -346,19 +365,24 @@ Deno.serve(async (req: Request) => {
     if (result.referenced_internal_products.length > 0) {
       const { data: groundedProducts } = await supabase
         .from('products')
-        .select('id, name, price_usd, price_brl, price_nationalized_sales, price_nationalized_currency, image_url, category, description, technical_info, sku, weight, is_discontinued, price_usa_rebate, date_rebate, manufacturer_id, manufacturer:manufacturers(name)')
+        .select(
+          'id, name, price_usd, price_brl, price_nationalized_sales, price_nationalized_currency, image_url, category, description, technical_info, sku, weight, is_discontinued, price_usa_rebate, date_rebate, manufacturer_id, manufacturer:manufacturers(name)',
+        )
         .in('id', result.referenced_internal_products)
-      
+
       if (groundedProducts) {
-        result.products = groundedProducts
-          .map(p => ({
-            ...p,
-            manufacturer: (p.manufacturer as any)?.name || (p as any).manufacturer_name || 'N/A'
-          }))
+        result.products = groundedProducts.map((p) => ({
+          ...p,
+          manufacturer: (p.manufacturer as any)?.name || (p as any).manufacturer_name || 'N/A',
+        }))
       }
     }
 
-    console.log('[DEBUG] Retornando JSON final com ' + result.referenced_internal_products.length + ' produtos referenciados.')
+    console.log(
+      '[DEBUG] Retornando JSON final com ' +
+        result.referenced_internal_products.length +
+        ' produtos referenciados.',
+    )
 
     return new Response(JSON.stringify(result), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

@@ -21,6 +21,8 @@ import {
   getShippingCost,
   calculateSummarySubtotal,
   isBrazilDelivery,
+  isBrazilOrder,
+  formatShippingDisplay,
 } from '@/utils/orderCurrency'
 
 interface Props {
@@ -84,7 +86,8 @@ export function OrderDetailsModal({
     }
   }, [orderId, open])
 
-  const safeFormatCurrency = (value: any) => formatUSDCurrency(value)
+  const safeFormatCurrency = (value: any) =>
+    formatCurrencyByCountry(value, isBrazil ? 'Brazil' : deliveryCountry)
 
   const formatDate = (dateStr: string | null | undefined) => {
     return formatOrderDateTime(dateStr)
@@ -129,8 +132,9 @@ export function OrderDetailsModal({
 
   const deliveryAddress = order ? getDeliveryAddress(order, extraAddresses.shipping) : null
   const deliveryCountry = deliveryAddress?.country ?? null
-  const formatSummaryCurrency = (value: any) => formatCurrencyByCountry(value, deliveryCountry)
-  const isBrazil = isBrazilDelivery(deliveryCountry)
+  const isBrazil = isBrazilOrder(order, deliveryCountry)
+  const formatSummaryCurrency = (value: any) =>
+    formatCurrencyByCountry(value, isBrazil ? 'Brazil' : deliveryCountry)
   const displayTotal = order ? Number(order.total ?? 0) : 0
 
   const getStatusBadge = (status: string) => {
@@ -211,7 +215,7 @@ export function OrderDetailsModal({
                     </p>
                     <p>
                       <span className="font-medium">Frete:</span>{' '}
-                      {formatSummaryCurrency(getShippingCost(order))}
+                      {formatShippingDisplay(order, deliveryCountry)}
                     </p>{' '}
                     <p>
                       <span className="font-medium">Total:</span>{' '}

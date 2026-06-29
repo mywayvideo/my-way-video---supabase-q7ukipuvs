@@ -16,9 +16,7 @@ export function getStripeKey(): string | null {
 }
 
 export function buildMissingKeyResponse(): Response {
-  console.error(
-    'Stripe key not found. Checked: STRIPE_RESTRICTED_KEY, STRIPE_SECRET_KEY',
-  )
+  console.error('Stripe key not found. Checked: STRIPE_RESTRICTED_KEY, STRIPE_SECRET_KEY')
   return new Response(
     JSON.stringify({
       error: STRIPE_KEY_ERROR_MESSAGE,

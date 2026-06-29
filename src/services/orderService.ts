@@ -1,5 +1,11 @@
 import { supabase } from '@/lib/supabase/client'
 import { Order } from '@/types/order'
+import {
+  getDeliveryCountry,
+  isBrazilOrder,
+  getShippingCost,
+  formatCurrencyByCountry,
+} from '@/utils/orderCurrency'
 
 export const orderService = {
   fetchOrderDetails: async (orderId: string) => {
@@ -18,11 +24,19 @@ export const orderService = {
     const custEmail = (order as any).customers?.email || (order as any).customer?.email || 'N/A'
     let content = `My Way Video Professional Audiovisual Shop\nPedido: ${order.order_number}\nData: ${new Date(order.created_at).toLocaleDateString('pt-BR')}\nCliente: ${custName}\nEmail: ${custEmail}\n\nItens:\n`
 
+    const country = getDeliveryCountry(order)
+    const isBrazil = isBrazilOrder(order, country)
+    const shippingCost = getShippingCost(order)
+    const shippingText =
+      shippingCost === 0 || isBrazil ? 'incluso' : formatCurrencyByCountry(shippingCost, country)
+    const fmt = (v: number | null | undefined) =>
+      formatCurrencyByCountry(v, isBrazil ? 'Brazil' : country)
+
     order.order_items?.forEach((item) => {
-      content += `- ${item.products?.name || 'Produto'} (${item.quantity}x) - $${Number(item.total_price).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n`
+      content += `- ${item.products?.name || 'Produto'} (${item.quantity}x) - ${fmt(item.total_price)}\n`
     })
 
-    content += `\nSubtotal: $${Number(order.subtotal).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\nFrete: $${Number(order.shipping_cost || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\nDesconto: $${Number(order.discount_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\nTotal: $${Number(order.total).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n\n`
+    content += `\nSubtotal: ${fmt(order.subtotal)}\nFrete: ${shippingText}\nDesconto: ${fmt(order.discount_amount || 0)}\nTotal: ${fmt(order.total)}\n\n`
 
     if (order.payment_method_type === 'transfer') {
       content += `DADOS BANCÁRIOS PARA DEPÓSITO:\nBanco: Miami International Bank\nConta: 987654321\nRouting: 123456789\nTitular: My Way Video Shop\nSWIFT: MWVUS33\n\nFavor transferir para a conta acima. Pedido será processado após confirmação.\n\n`

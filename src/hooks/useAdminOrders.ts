@@ -80,6 +80,11 @@ export const useAdminOrders = () => {
           order.customer_email,
           order.customer_name,
         ),
+        emailService.sendCancellationNotificationToAdmin(
+          order.id,
+          order.customer_name,
+          order.customer_email,
+        ),
       ])
 
       fetchOrders()

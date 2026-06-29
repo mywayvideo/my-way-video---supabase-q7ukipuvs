@@ -1,23 +1,23 @@
 import { supabase } from '@/lib/supabase/client'
-import { getDeliveryCountry, isBrazilDelivery, getShippingCost } from '@/utils/orderCurrency'
+import {
+  getDeliveryCountry,
+  getShippingCost,
+  resolveItemPriceInfo,
+  formatItemUnitPrice,
+  formatItemTotalPrice,
+  formatCurrencyByCountry,
+} from '@/utils/orderCurrency'
 
 const LOGO_URL =
   'https://ymlkyspcznrrmlktudxx.supabase.co/storage/v1/object/public/brand-assets/my-way-video-logo.png'
 const FROM_EMAIL = 'support@noreply.mywayvideo.com'
 const FROM_NAME = 'MY WAY VIDEO'
 const BASE_URL = 'https://my-way-video.goskip.app'
+const ADMIN_EMAIL = 'admin@mywayvideo.com'
 
 interface EmailResult {
   success: boolean
   error?: string
-}
-
-const formatCurrency = (value: number, country: string | null) => {
-  const isBRL = isBrazilDelivery(country)
-  const num = Number(value || 0)
-  return isBRL
-    ? `R$ ${num.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-    : `$ ${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
 const getOrderDetails = async (orderId: string) => {
@@ -30,7 +30,7 @@ const getOrderDetails = async (orderId: string) => {
 
   const { data: items, error: itemsError } = await supabase
     .from('order_items')
-    .select('*, products(name)')
+    .select('*, products(name, price_usd, price_nationalized_sales, price_nationalized_currency)')
     .eq('order_id', orderId)
   if (itemsError) throw itemsError
 
@@ -55,8 +55,8 @@ const buildItemsTable = (items: any[], country: string | null) => {
     <tr>
       <td style="padding: 8px; border-bottom: 1px solid #eee;">${i.products?.name || 'Produto'}</td>
       <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: center;">${i.quantity}</td>
-      <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: right;">${formatCurrency(i.unit_price, country)}</td>
-      <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: right;">${formatCurrency(i.total_price, country)}</td>
+      <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: right;">${formatItemUnitPrice(i, country)}</td>
+      <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: right;">${formatItemTotalPrice(i, country)}</td>
     </tr>`,
     )
     .join('')
@@ -73,13 +73,19 @@ const buildItemsTable = (items: any[], country: string | null) => {
 }
 
 const buildSummary = (order: any, country: string | null) => {
-  const shipping = getShippingCost(order)
+  const shippingCost = getShippingCost(order)
+  const isShippingIncluded = shippingCost === 0
+  const shippingDisplay = isShippingIncluded
+    ? 'incluso'
+    : formatCurrencyByCountry(shippingCost, country)
+  const subtotalValue = isShippingIncluded ? Number(order.total) : Number(order.subtotal ?? 0)
+
   return `
     <div style="background: #f9f9f9; padding: 15px; border-radius: 4px; margin: 20px 0;">
-      <div style="display: flex; justify-content: space-between; margin-bottom: 8px;"><span>Sub-total:</span><span>${formatCurrency(order.subtotal, country)}</span></div>
-      <div style="display: flex; justify-content: space-between; margin-bottom: 8px;"><span>Frete:</span><span>${formatCurrency(shipping, country)}</span></div>
-      ${Number(order.discount_amount) > 0 ? `<div style="display: flex; justify-content: space-between; margin-bottom: 8px;"><span>Desconto:</span><span>- ${formatCurrency(order.discount_amount, country)}</span></div>` : ''}
-      <div style="display: flex; justify-content: space-between; font-weight: bold; border-top: 1px solid #ddd; padding-top: 8px;"><span>Total:</span><span>${formatCurrency(order.total, country)}</span></div>
+      <div style="display: flex; justify-content: space-between; margin-bottom: 8px;"><span>Sub-total:</span><span>${formatCurrencyByCountry(subtotalValue, country)}</span></div>
+      <div style="display: flex; justify-content: space-between; margin-bottom: 8px;"><span>Frete:</span><span>${shippingDisplay}</span></div>
+      ${Number(order.discount_amount) > 0 ? `<div style="display: flex; justify-content: space-between; margin-bottom: 8px;"><span>Desconto:</span><span>- ${formatCurrencyByCountry(order.discount_amount, country)}</span></div>` : ''}
+      <div style="display: flex; justify-content: space-between; font-weight: bold; border-top: 1px solid #ddd; padding-top: 8px;"><span>Total:</span><span>${formatCurrencyByCountry(order.total, country)}</span></div>
     </div>`
 }
 
@@ -96,14 +102,36 @@ const baseTemplate = (content: string) => `
     </div>
   </div>`
 
+const buildEmailContext = (order: any, items: any[], country: string | null) => ({
+  pricingContext: {
+    country,
+    itemCount: items.length,
+    nationalizedItems: items.filter((i: any) => resolveItemPriceInfo(i, country).isNationalized)
+      .length,
+  },
+  shippingContext: {
+    shippingCost: getShippingCost(order),
+    isIncluded: getShippingCost(order) === 0,
+  },
+})
+
 const sendEmail = async (
   to: string,
   subject: string,
   htmlContent: string,
+  context?: { pricingContext?: any; shippingContext?: any },
 ): Promise<EmailResult> => {
   try {
     const { data, error } = await supabase.functions.invoke('send-order-email', {
-      body: { to, subject, htmlContent, fromEmail: FROM_EMAIL, fromName: FROM_NAME },
+      body: {
+        to,
+        subject,
+        htmlContent,
+        fromEmail: FROM_EMAIL,
+        fromName: FROM_NAME,
+        pricingContext: context?.pricingContext,
+        shippingContext: context?.shippingContext,
+      },
     })
     if (error) return { success: false, error: error.message || 'Edge function error' }
     if (data?.error) return { success: false, error: data.error }
@@ -124,7 +152,7 @@ export const emailService = {
     customerName: string,
     customerEmail: string,
     _totalAmount: number,
-    adminEmail = 'admin@mywayvideo.com',
+    adminEmail = ADMIN_EMAIL,
   ): Promise<EmailResult> => {
     try {
       const { order, items, country } = await getOrderDetails(orderId)
@@ -140,7 +168,12 @@ export const emailService = {
           <a href="${BASE_URL}/admin/orders" style="background: #000; color: #fff; padding: 12px 24px; text-decoration: none; border-radius: 4px; display: inline-block;">Ver Pedido no Painel</a>
         </div>`)
       return handleResult(
-        await sendEmail(adminEmail, `Novo Pedido: ${order.order_number}`, html),
+        await sendEmail(
+          adminEmail,
+          `Novo Pedido: ${order.order_number}`,
+          html,
+          buildEmailContext(order, items, country),
+        ),
         'sendNewOrderNotificationToAdmin',
       )
     } catch (err: any) {
@@ -168,7 +201,12 @@ export const emailService = {
         </div>
         <p style="text-align: center; margin-top: 20px;"><a href="mailto:suporte@mywayvideo.com" style="color: #000;">Entrar em contato com o suporte</a></p>`)
       return handleResult(
-        await sendEmail(customerEmail, `Confirmação do Pedido ${order.order_number}`, html),
+        await sendEmail(
+          customerEmail,
+          `Confirmação do Pedido ${order.order_number}`,
+          html,
+          buildEmailContext(order, items, country),
+        ),
         'sendOrderConfirmationToCustomer',
       )
     } catch (err: any) {
@@ -185,9 +223,9 @@ export const emailService = {
     try {
       const { order, country } = await getOrderDetails(orderId)
       const html = baseTemplate(`
-        <h2 style="color: #d32f2f;">Pedido Rejeitado</h2>
+        <h2 style="color: #d32f2f;">Pedido Cancelado</h2>
         <p>Olá, <strong>${customerName}</strong>.</p>
-        <p>Infelizmente, seu pedido <strong>${order.order_number}</strong> foi cancelado.</p>
+        <p>Informamos que seu pedido <strong>${order.order_number}</strong> foi cancelado.</p>
         ${rejectionReason ? `<p style="background: #fff3f3; padding: 15px; border-left: 4px solid #d32f2f; margin: 20px 0;"><strong>Motivo:</strong> ${rejectionReason}</p>` : ''}
         <p>Caso tenha ocorrido algum problema com o pagamento, você pode tentar refazer o pedido no nosso site.</p>
         <div style="text-align: center; margin-top: 30px;">
@@ -197,6 +235,40 @@ export const emailService = {
       return handleResult(
         await sendEmail(customerEmail, `Atualização do Pedido ${order.order_number}`, html),
         'sendOrderRejectionToCustomer',
+      )
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Unknown error' }
+    }
+  },
+
+  sendCancellationNotificationToAdmin: async (
+    orderId: string,
+    customerName: string,
+    customerEmail: string,
+    cancellationReason = '',
+    adminEmail = ADMIN_EMAIL,
+  ): Promise<EmailResult> => {
+    try {
+      const { order, items, country } = await getOrderDetails(orderId)
+      const html = baseTemplate(`
+        <h2 style="color: #d32f2f;">Pedido Cancelado: ${order.order_number}</h2>
+        <p><strong>Cliente:</strong> ${customerName} (${customerEmail})</p>
+        <p><strong>Data do Cancelamento:</strong> ${new Date().toLocaleString('pt-BR')}</p>
+        ${cancellationReason ? `<p style="background: #fff3f3; padding: 15px; border-left: 4px solid #d32f2f; margin: 20px 0;"><strong>Motivo:</strong> ${cancellationReason}</p>` : ''}
+        <h3 style="margin-top: 20px;">Itens do Pedido:</h3>
+        ${buildItemsTable(items, country)}
+        ${buildSummary(order, country)}
+        <div style="text-align: center; margin-top: 30px;">
+          <a href="${BASE_URL}/admin/orders" style="background: #000; color: #fff; padding: 12px 24px; text-decoration: none; border-radius: 4px; display: inline-block;">Ver Pedido no Painel</a>
+        </div>`)
+      return handleResult(
+        await sendEmail(
+          adminEmail,
+          `Pedido Cancelado: ${order.order_number}`,
+          html,
+          buildEmailContext(order, items, country),
+        ),
+        'sendCancellationNotificationToAdmin',
       )
     } catch (err: any) {
       return { success: false, error: err?.message || 'Unknown error' }
@@ -219,7 +291,7 @@ export const emailService = {
         <p>Olá, <strong>${customerName}</strong>.</p>
         <p>O reembolso referente ao pedido <strong>${order.order_number}</strong> foi processado com sucesso.</p>
         <div style="background: #f9f9f9; padding: 15px; border-radius: 4px; margin: 20px 0;">
-          <p style="margin: 0 0 10px 0;"><strong>Valor do Reembolso:</strong> ${formatCurrency(refundAmount, country)}</p>
+          <p style="margin: 0 0 10px 0;"><strong>Valor do Reembolso:</strong> ${formatCurrencyByCountry(refundAmount, country)}</p>
           <p style="margin: 0 0 10px 0;"><strong>Motivo:</strong> ${refundReason}</p>
           <p style="margin: 0 0 10px 0;"><strong>Banco:</strong> ${bankName}</p>
           <p style="margin: 0;"><strong>Titular da Conta:</strong> ${bankAccountHolder}</p>
@@ -253,6 +325,35 @@ export const emailService = {
       ])
     } catch (err: any) {
       console.warn('[emailService] sendOrderEmails - non-blocking failure:', err?.message || err)
+    }
+  },
+
+  sendCancellationEmails: async (
+    orderId: string,
+    customerName: string,
+    customerEmail: string,
+    cancellationReason = '',
+  ): Promise<void> => {
+    try {
+      await Promise.allSettled([
+        emailService.sendOrderRejectionToCustomer(
+          orderId,
+          customerEmail,
+          customerName,
+          cancellationReason,
+        ),
+        emailService.sendCancellationNotificationToAdmin(
+          orderId,
+          customerName,
+          customerEmail,
+          cancellationReason,
+        ),
+      ])
+    } catch (err: any) {
+      console.warn(
+        '[emailService] sendCancellationEmails - non-blocking failure:',
+        err?.message || err,
+      )
     }
   },
 }

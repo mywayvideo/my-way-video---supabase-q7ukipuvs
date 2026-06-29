@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase/client'
 import { Order } from '@/types/order'
+import { emailService } from '@/services/emailService'
 import {
   getDeliveryCountry,
   isBrazilOrder,
@@ -181,5 +182,25 @@ export const orderService = {
       old_status: 'pending',
       new_status: 'cancelled',
     })
+
+    try {
+      const { data: orderWithCustomer } = await supabase
+        .from('orders')
+        .select('*, customers(full_name, email)')
+        .eq('id', orderId)
+        .single()
+
+      const customerName = orderWithCustomer?.customers?.full_name || 'Cliente'
+      const customerEmail = orderWithCustomer?.customers?.email || ''
+
+      if (customerEmail) {
+        await emailService.sendCancellationEmails(orderId, customerName, customerEmail, reason)
+      }
+    } catch (emailErr: any) {
+      console.warn(
+        '[orderService] Cancellation emails failed (non-blocking):',
+        emailErr?.message || emailErr,
+      )
+    }
   },
 }

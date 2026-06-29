@@ -109,20 +109,6 @@ export const adminOrdersService = {
       .update({ status: 'cancelled' })
       .eq('id', orderId)
     if (error) throw error
-
-    try {
-      const details = await adminOrdersService.getOrderDetails(orderId)
-      const customerName = details.customers?.full_name || 'Cliente'
-      const customerEmail = details.customers?.email || ''
-      if (customerEmail) {
-        await emailService.sendOrderRejectionToCustomer(orderId, customerEmail, customerName)
-      }
-    } catch (err: any) {
-      console.warn(
-        '[adminOrdersService] Rejection email failed (non-blocking):',
-        err?.message || err,
-      )
-    }
   },
 
   processRefund: async (orderId: string, refundData: any) => {

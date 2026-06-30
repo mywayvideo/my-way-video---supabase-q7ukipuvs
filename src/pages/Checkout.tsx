@@ -437,29 +437,26 @@ export default function Checkout() {
   const destType: Destination = deliveryMethod === 'brasil' ? 'brasil' : 'usa'
 
   const canDeliverToUSA = cartItems.every((item) => {
-    const details = productDetails[item.product_id] || productDetails[item.id] || item
-    const pUsa = safeNum(
-      details.price_usd || details.price_usa || item.price_usa || item.unit_price,
-    )
-    const weight = safeNum(details.weight || item.weight)
+    const details = productDetails[item.product_id] || productDetails[item.id]
+    if (!details) return false
+    const pUsa = safeNum(details.price_usd)
+    const weight = safeNum(details.weight)
     return pUsa > 0 && weight > 0
   })
 
   const canDeliverToBrasil = cartItems.every((item) => {
-    const details = productDetails[item.product_id] || productDetails[item.id] || item
-    const pUsa = safeNum(
-      details.price_usd || details.price_usa || item.price_usa || item.unit_price,
-    )
-    const pNat = safeNum(details.price_nationalized_sales || item.price_nationalized_sales)
-    const weight = safeNum(details.weight || item.weight)
+    const details = productDetails[item.product_id] || productDetails[item.id]
+    if (!details) return false
+    const pNat = safeNum(details.price_nationalized_sales)
+    const pUsa = safeNum(details.price_usd)
+    const weight = safeNum(details.weight)
     return pNat > 0 || (pUsa > 0 && weight > 0)
   })
 
   const canDeliverLocally = cartItems.every((item) => {
-    const details = productDetails[item.product_id] || productDetails[item.id] || item
-    const pUsa = safeNum(
-      details.price_usd || details.price_usa || item.price_usa || item.unit_price,
-    )
+    const details = productDetails[item.product_id] || productDetails[item.id]
+    if (!details) return false
+    const pUsa = safeNum(details.price_usd)
     return pUsa > 0
   })
 
@@ -2563,6 +2560,16 @@ Valor: ${formatCurrency(total)}
             title="Seleção de Entrega"
             onStepClick={setCurrentStep}
           >
+            {deliveryMethod && hasIneligibleItems && (
+              <div className="bg-red-50 border border-red-200 p-4 mb-4 rounded-xl text-red-800 flex items-start gap-3 shadow-sm animate-in fade-in slide-in-from-top-2">
+                <AlertCircle className="w-5 h-5 mt-0.5 shrink-0" />
+                <p className="text-sm font-medium">
+                  Atenção: Alguns itens do seu carrinho não estão disponíveis para entrega no
+                  destino selecionado. Por favor, remova-os ou divida sua compra em pedidos
+                  separados.
+                </p>
+              </div>
+            )}
             <RadioGroup
               value={deliveryMethod}
               onValueChange={handleDeliveryChange}

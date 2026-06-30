@@ -249,6 +249,37 @@ export default function Cart() {
   const hasIneligibleItems = evaluatedItems.some((i) => !i.eligible)
   const dynamicSubtotal = evaluatedItems.reduce((sum, item) => sum + (item.itemTotal || 0), 0)
 
+  const canDeliverToBrasil = useMemo(() => {
+    if (!items || items.length === 0 || isHydratingDetails) return true
+    return items.every((item) => {
+      const details = productDetails[item.product_id]
+      if (!details) return false
+      const pNat = Number(details.price_nationalized_sales) || 0
+      const pUsa = Number(details.price_usd) || 0
+      const weight = Number(details.weight) || 0
+      return pNat > 0 || (pUsa > 0 && weight > 0)
+    })
+  }, [items, productDetails, isHydratingDetails])
+
+  const canDeliverToUSA = useMemo(() => {
+    if (!items || items.length === 0 || isHydratingDetails) return true
+    return items.every((item) => {
+      const details = productDetails[item.product_id]
+      if (!details) return false
+      const pUsa = Number(details.price_usd) || 0
+      const weight = Number(details.weight) || 0
+      return pUsa > 0 && weight > 0
+    })
+  }, [items, productDetails, isHydratingDetails])
+
+  useEffect(() => {
+    if (destination === 'brasil' && !canDeliverToBrasil && canDeliverToUSA) {
+      setDestination('usa')
+    } else if (destination === 'usa' && !canDeliverToUSA && canDeliverToBrasil) {
+      setDestination('brasil')
+    }
+  }, [canDeliverToBrasil, canDeliverToUSA, destination])
+
   const checkBusinessHours = () => {
     const miamiTime = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }))
     const hours = miamiTime.getHours()
@@ -388,11 +419,16 @@ export default function Cart() {
           <div className="flex gap-3">
             <Button
               variant={destination === 'brasil' ? 'default' : 'outline'}
-              onClick={() => setDestination('brasil')}
+              onClick={() => canDeliverToBrasil && setDestination('brasil')}
               size="lg"
+              disabled={!canDeliverToBrasil}
               className={cn(
                 'flex-1 rounded-xl transition-all duration-200 items-center gap-2 justify-center',
-                destination === 'brasil' ? 'shadow-md scale-105' : 'opacity-50 hover:opacity-80',
+                !canDeliverToBrasil
+                  ? 'opacity-30 cursor-not-allowed grayscale'
+                  : destination === 'brasil'
+                    ? 'shadow-md scale-105'
+                    : 'opacity-50 hover:opacity-80',
               )}
             >
               Brasil{' '}
@@ -400,11 +436,16 @@ export default function Cart() {
             </Button>
             <Button
               variant={destination === 'usa' ? 'default' : 'outline'}
-              onClick={() => setDestination('usa')}
+              onClick={() => canDeliverToUSA && setDestination('usa')}
               size="lg"
+              disabled={!canDeliverToUSA}
               className={cn(
                 'flex-1 rounded-xl transition-all duration-200 items-center gap-2 justify-center',
-                destination === 'usa' ? 'shadow-md scale-105' : 'opacity-50 hover:opacity-80',
+                !canDeliverToUSA
+                  ? 'opacity-30 cursor-not-allowed grayscale'
+                  : destination === 'usa'
+                    ? 'shadow-md scale-105'
+                    : 'opacity-50 hover:opacity-80',
               )}
             >
               EUA <img src="https://flagcdn.com/w20/us.png" alt="USA" className="w-5 h-auto" />

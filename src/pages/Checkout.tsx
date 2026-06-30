@@ -460,6 +460,15 @@ export default function Checkout() {
     return pUsa > 0
   })
 
+  const isFreeBrazilShipping =
+    deliveryMethod === 'brasil' &&
+    cartItems.length > 0 &&
+    cartItems.every((item) => {
+      const details = productDetails[item.product_id] || productDetails[item.id]
+      if (!details) return false
+      return safeNum(details.price_nationalized_sales) > 0
+    })
+
   useEffect(() => {
     if (cartItems.length === 0) return
     if (Object.keys(productDetails).length === 0) return
@@ -1167,12 +1176,25 @@ export default function Checkout() {
     }
 
     setIsLoading(false)
+    if (isFreeBrazilShipping) {
+      setFreight(0)
+      setShippingMessage('Frete grátis para produtos nacionalizados no Brasil.')
+      setShippingError(null)
+      return
+    }
     await handleCalculateShippingAction()
   }
 
   const handleCalculateShippingAction = async () => {
     if (!validateAddress()) {
       setCurrentStep(2)
+      return
+    }
+
+    if (isFreeBrazilShipping) {
+      setFreight(0)
+      setShippingMessage('Frete grátis para produtos nacionalizados no Brasil.')
+      setShippingError(null)
       return
     }
 
@@ -2078,7 +2100,11 @@ export default function Checkout() {
             Frete e demais taxas de entrega no Brasil
           </span>
           <span className="text-base font-semibold text-[hsl(152,68%,40%)] font-mono whitespace-nowrap">
-            {freight !== null ? formatCurrency(freight * exchangeRate) : '—'}
+            {isFreeBrazilShipping || (freight !== null && freight === 0)
+              ? 'Grátis'
+              : freight !== null
+                ? formatCurrency(freight * exchangeRate)
+                : '—'}
           </span>
         </div>
       )}
@@ -2753,23 +2779,29 @@ Valor: ${formatCurrency(total)}
                     <p className="text-lg font-medium text-[hsl(215,25%,15%)]">Custo de frete:</p>
                     {shippingMessage && (
                       <p className="text-sm text-[hsl(152,68%,40%)] mt-1">
-                        {destType === 'brasil' && freight !== null
-                          ? `Frete para São Paulo: ${formatCurrency(freight * exchangeRate)}`
-                          : shippingMessage}
+                        {isFreeBrazilShipping
+                          ? 'Frete grátis para produtos nacionalizados no Brasil.'
+                          : destType === 'brasil' && freight !== null
+                            ? `Frete para São Paulo: ${formatCurrency(freight * exchangeRate)}`
+                            : shippingMessage}
                       </p>
                     )}
                   </div>
                   <p className="text-2xl font-bold font-mono text-[hsl(152,68%,40%)] shrink-0">
-                    {destType === 'brasil'
-                      ? formatCurrency(freight * exchangeRate)
-                      : formatCurrency(freight)}
+                    {isFreeBrazilShipping
+                      ? 'Grátis'
+                      : destType === 'brasil'
+                        ? formatCurrency(freight * exchangeRate)
+                        : formatCurrency(freight)}
                   </p>
                 </div>
               ) : null}
 
               {destType === 'brasil' && (
                 <div className="bg-blue-50 border-l-4 border-blue-500 p-4 rounded-xl text-sm text-blue-800 font-medium animate-in fade-in slide-in-from-top-2 duration-300">
-                  O valor do frete já está incluso no preço final.
+                  {isFreeBrazilShipping
+                    ? 'Frete grátis: produtos nacionalizados já incluem custos de entrega no Brasil.'
+                    : 'O valor do frete já está incluso no preço final.'}
                 </div>
               )}
 

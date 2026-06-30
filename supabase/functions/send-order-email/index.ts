@@ -35,24 +35,14 @@ Deno.serve(async (req: Request) => {
 
     if (pricingContext) {
       const { country, itemCount, nationalizedItems } = pricingContext
-      const resolvedCurrency =
-        country &&
-        (country.toLowerCase() === 'brasil' ||
-          country.toLowerCase() === 'brazil' ||
-          country.toLowerCase() === 'br')
-          ? 'BRL'
-          : 'USD'
-      console.log(
-        `[send-order-email] Pricing context: country=${country}, items=${itemCount}, nationalized=${nationalizedItems}, resolvedCurrency=${resolvedCurrency}`,
-      )
+      const resolvedCurrency = country && (country.toLowerCase() === 'brasil' || country.toLowerCase() === 'brazil' || country.toLowerCase() === 'br') ? 'BRL' : 'USD'
+      console.log(`[send-order-email] Pricing context: country=${country}, items=${itemCount}, nationalized=${nationalizedItems}, resolvedCurrency=${resolvedCurrency}`)
     }
 
     if (shippingContext) {
       const { shippingCost, isIncluded } = shippingContext
       const label = formatShippingLabel(Number(shippingCost || 0), pricingContext?.country || null)
-      console.log(
-        `[send-order-email] Shipping context: cost=${shippingCost}, isIncluded=${isIncluded}, label=${label}`,
-      )
+      console.log(`[send-order-email] Shipping context: cost=${shippingCost}, isIncluded=${isIncluded}, label=${label}`)
     }
 
     if (!to || !subject || !htmlContent) {
@@ -62,7 +52,9 @@ Deno.serve(async (req: Request) => {
       )
     }
 
-    const brandedHtml = htmlContent.includes(BRAND_LOGO_URL) ? htmlContent : htmlContent
+    const brandedHtml = htmlContent.includes(BRAND_LOGO_URL)
+      ? htmlContent
+      : htmlContent
 
     const resendApiKey = Deno.env.get('RESEND_API_KEY')
 
@@ -91,17 +83,16 @@ Deno.serve(async (req: Request) => {
           if (res.ok) {
             const data = await res.json().catch(() => ({}))
             console.log(`[send-order-email] Email sent to ${to}, id: ${data?.id || 'unknown'}`)
-            return new Response(JSON.stringify({ success: true, emailId: data?.id || 'unknown' }), {
-              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            })
+            return new Response(
+              JSON.stringify({ success: true, emailId: data?.id || 'unknown' }),
+              { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+            )
           }
 
           const errorText = await res.text().catch(() => 'No error text')
 
           if (res.status === 403) {
-            console.error(
-              `[send-order-email] 403 Forbidden - Domain verification required for ${fromEmail}. Details: ${errorText}`,
-            )
+            console.error(`[send-order-email] 403 Forbidden - Domain verification required for ${fromEmail}. Details: ${errorText}`)
             return new Response(
               JSON.stringify({ error: `Resend Error 403: Domain not verified for ${fromEmail}` }),
               { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
@@ -112,17 +103,12 @@ Deno.serve(async (req: Request) => {
             console.error(`[send-order-email] Non-retryable error (${res.status}): ${errorText}`)
             return new Response(
               JSON.stringify({ error: `Resend Error ${res.status}: ${errorText}` }),
-              {
-                status: res.status,
-                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-              },
+              { status: res.status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
             )
           }
 
           if (attempt < maxAttempts - 1) {
-            console.log(
-              `[send-order-email] Attempt ${attempt + 1} failed (${res.status}), retrying in ${backoffDelays[attempt]}ms...`,
-            )
+            console.log(`[send-order-email] Attempt ${attempt + 1} failed (${res.status}), retrying in ${backoffDelays[attempt]}ms...`)
             await new Promise((resolve) => setTimeout(resolve, backoffDelays[attempt]))
           } else {
             return new Response(
@@ -146,15 +132,16 @@ Deno.serve(async (req: Request) => {
       )
     } else {
       console.log('[send-order-email] RESEND_API_KEY not configured. Mock email:', to, subject)
-      return new Response(JSON.stringify({ success: true, mock: true }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+      return new Response(
+        JSON.stringify({ success: true, mock: true }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      )
     }
   } catch (error: any) {
     console.error('[send-order-email] Unhandled error:', error?.message || error)
-    return new Response(JSON.stringify({ error: error?.message || 'Internal server error.' }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
+    return new Response(
+      JSON.stringify({ error: error?.message || 'Internal server error.' }),
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+    )
   }
 })

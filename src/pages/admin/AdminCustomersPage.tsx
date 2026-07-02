@@ -9,6 +9,7 @@ import { supabase } from '@/lib/supabase/client'
 import { useToast } from '@/hooks/use-toast'
 import { Button } from '@/components/ui/button'
 import { Upload } from 'lucide-react'
+import { SpamCleanupReport } from '@/components/admin/SpamCleanupReport'
 
 export default function AdminCustomersPage() {
   const customerParams = useCustomerManagement()
@@ -106,6 +107,8 @@ export default function AdminCustomersPage() {
           handleEditCustomer={handleEditCustomer}
           handleCreateCustomer={handleCreateCustomer}
         />
+
+        <SpamCleanupReport />
 
         <EditCustomerModal
           open={isEditModalOpen}

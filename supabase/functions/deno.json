@@ -8,7 +8,7 @@
     "change-admin-password": 27,
     "change-customer-password": 26,
     "create-customer-public": 27,
-    "create-customer": 26,
+    "create-customer": 27,
     "create-discount-coupon": 26,
     "create-payment-intent": 28,
     "create-paypal-payment-intent": 27,
@@ -21,6 +21,7 @@
     "send-order-email": 5,
     "notify-admin-pix": 1,
     "notify-admin-transferencia-brasil": 1,
-    "send-confirmation-email": 1
+    "send-confirmation-email": 1,
+    "cleanup-spam-customers": 1
   }
 }

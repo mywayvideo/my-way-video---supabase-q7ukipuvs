@@ -845,7 +845,7 @@ export default function Product() {
         <TechnicalInfoModal
           isOpen={isTechnicalInfoOpen}
           onClose={() => setIsTechnicalInfoOpen(false)}
-          technicalInfo={normalizeSpecs(product.technical_info)}
+          technicalInfo={product.technical_info}
         />
 
         <Dialog open={isBrlModalOpen} onOpenChange={setIsBrlModalOpen}>

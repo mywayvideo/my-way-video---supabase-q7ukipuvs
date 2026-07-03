@@ -3,7 +3,7 @@
     "apply-discount-coupon": 26,
     "calculate-price-brl": 26,
     "calculate-shipping": 29,
-    "call-ai-agent": 29,
+    "call-ai-agent": 30,
     "cancel-stripe-charge": 28,
     "change-admin-password": 27,
     "change-customer-password": 26,

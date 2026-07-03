@@ -116,8 +116,8 @@ export default function Index() {
               </span>
             </h1>
             <p className="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto font-light">
-              Busca inteligente para profissionais. Informe o que procura e nossa IA encontra as
-              melhores opções no nosso catálogo
+              Pesquise os produtos que precisa. Informe o modelo ou as suas características. Nossa
+              Inteligência Artificial encontrará tudo que você precisa.
             </p>
           </div>
 
@@ -143,7 +143,7 @@ export default function Index() {
                 onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={handleKeyDown}
                 disabled={isLoading}
-                placeholder="Ex. Camera PTZ 4K... (utilize a barra superiora para pesquisar diretamente no nosso banco de dados)"
+                placeholder="Ex.: Câmera PTZ 4K com zoom óptico 20x"
                 className={cn(
                   'flex-1 bg-transparent border-0 focus:ring-0 resize-none h-24 py-3 text-[16px] md:text-[18px] placeholder:text-muted-foreground/60 text-muted-foreground font-light outline-none leading-normal disabled:opacity-50',
                   query ? 'overflow-y-auto' : 'overflow-hidden',

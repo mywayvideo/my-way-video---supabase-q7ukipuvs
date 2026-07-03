@@ -116,8 +116,8 @@ export default function Index() {
               </span>
             </h1>
             <p className="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto font-light">
-              Descreva seu projeto ou busque o equipamento ideal. Nossa inteligência artificial
-              encontrará as melhores soluções para você.
+              Busca inteligente para profissionais. Informe o que procura e nossa IA encontra as
+              melhores opções no nosso catálogo
             </p>
           </div>
 

@@ -10,10 +10,10 @@ Deno.serve(async (req: Request) => {
     const resendApiKey = Deno.env.get('RESEND_API_KEY')
     if (!resendApiKey) {
       console.error('[send-email] Error: RESEND_API_KEY not configured')
-      return new Response(JSON.stringify({ error: 'Email service not configured.' }), {
-        status: 503,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+      return new Response(
+        JSON.stringify({ error: 'Email service not configured.' }),
+        { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      )
     }
 
     let body: any = {}
@@ -44,10 +44,10 @@ Deno.serve(async (req: Request) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
     if (!emailRegex.test(to)) {
       console.warn(`[send-email] Validation error: Invalid email format (${to})`)
-      return new Response(JSON.stringify({ error: 'Invalid email address.' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+      return new Response(
+        JSON.stringify({ error: 'Invalid email address.' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      )
     }
 
     const payload = {
@@ -90,21 +90,15 @@ Deno.serve(async (req: Request) => {
         const errorText = await response.text().catch(() => 'No error text')
 
         if (response.status === 403) {
-          console.error(
-            `[send-email] 403 Forbidden - Domain verification required for ${fromEmail}. The domain "${fromEmail.split('@')[1]}" may not be verified in Resend. Details: ${errorText}`,
-          )
-          lastError = new Error(
-            `Resend API 403: Domain not verified or unauthorized sender "${fromEmail}". Please verify the domain in your Resend dashboard.`,
-          )
+          console.error(`[send-email] 403 Forbidden - Domain verification required for ${fromEmail}. The domain "${fromEmail.split('@')[1]}" may not be verified in Resend. Details: ${errorText}`)
+          lastError = new Error(`Resend API 403: Domain not verified or unauthorized sender "${fromEmail}". Please verify the domain in your Resend dashboard.`)
           break
         }
 
         lastError = new Error(`Resend API Error ${response.status}: ${errorText}`)
 
         if (response.status >= 400 && response.status < 500 && response.status !== 429) {
-          console.error(
-            `[send-email] Non-retryable error (${response.status}): ${lastError.message}`,
-          )
+          console.error(`[send-email] Non-retryable error (${response.status}): ${lastError.message}`)
           break
         }
 
@@ -135,9 +129,9 @@ Deno.serve(async (req: Request) => {
     )
   } catch (error: any) {
     console.error('[send-email] Unhandled error:', error?.message || error)
-    return new Response(JSON.stringify({ error: 'Internal server error.' }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
+    return new Response(
+      JSON.stringify({ error: 'Internal server error.' }),
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+    )
   }
 })

@@ -12,7 +12,7 @@
     "create-discount-coupon": 26,
     "create-payment-intent": 28,
     "create-paypal-payment-intent": 27,
-    "ai-search": 22,
+    "ai-search": 25,
     "update-exchange-rate": 15,
     "execute_ai_search_v2_pp": 13,
     "lookup-address": 14,
@@ -22,6 +22,7 @@
     "notify-admin-pix": 1,
     "notify-admin-transferencia-brasil": 1,
     "send-confirmation-email": 1,
-    "cleanup-spam-customers": 1
+    "cleanup-spam-customers": 1,
+    "execute-ai-search-v3": 1
   }
 }

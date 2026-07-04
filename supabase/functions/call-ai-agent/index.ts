@@ -141,15 +141,15 @@ Deno.serve(async (req) => {
 
     // Always include system_prompt_template as operational guidance (non-destructive append)
     if (aiSettingsData?.system_prompt_template) {
-      dbSystemPrompt += '\n\n' + aiSettingsData.system_prompt_template
+      dbSystemPrompt += '\n\n' + aiSettingsData.system_prompt_template;
     }
 
-    const currentProductContext = body.currentProductContext || null
+    const currentProductContext = body.currentProductContext || null;
     // On Product Page: APPEND product_page_prompt instead of replacing system_prompt
     // This ensures system_prompt from ai_agent_settings is ALWAYS globally applied
     if (currentProductContext && aiSettingsData?.product_page_prompt) {
-      dbSystemPrompt += '\n\n' + aiSettingsData.product_page_prompt
-      dbSystemPrompt += `\n\nContexto do Produto Atual:\nNome: ${currentProductContext.name}\nSKU: ${currentProductContext.sku}\nDescrição: ${currentProductContext.description || ''}\nEspecificações: ${currentProductContext.technical_info || ''}`
+      dbSystemPrompt += '\n\n' + aiSettingsData.product_page_prompt;
+      dbSystemPrompt += `\n\nContexto do Produto Atual:\nNome: ${currentProductContext.name}\nSKU: ${currentProductContext.sku}\nDescrição: ${currentProductContext.description || ''}\nEspecificações: ${currentProductContext.technical_info || ''}`;
     }
 
     // KNOWLEDGE: Inject 'technical_bridge'
@@ -213,8 +213,7 @@ FORMATO OBRIGATÓRIO DE RESPOSTA (JSON):
   "referenced_internal_products": ["id_1", "id_2"]
 }`
 
-    const baseSystemPrompt =
-      dbSystemPrompt + historyContext + institutionalContext + formattingRules
+    const baseSystemPrompt = dbSystemPrompt + historyContext + institutionalContext + formattingRules
 
     let success = false
     let responseText = ''

@@ -23,9 +23,10 @@ Deno.serve(async (req: Request) => {
     const secret = Deno.env.get('PAYPAL_SECRET')
 
     const origin = req.headers.get('origin') || 'https://my-way-video.goskip.app'
-    const finalReturnUrl = return_url
-      ? `${return_url}${return_url.includes('?') ? '&' : '?'}order_id=${order_id}&payment_method=paypal`
-      : `${origin}/checkout/success?order_id=${order_id}&payment_method=paypal`
+    const finalReturnUrl =
+      return_url
+        ? `${return_url}${return_url.includes('?') ? '&' : '?'}order_id=${order_id}&payment_method=paypal`
+        : `${origin}/checkout/success?order_id=${order_id}&payment_method=paypal`
     const finalCancelUrl = cancel_url || `${origin}/checkout?cancel=paypal`
 
     let approval_url = finalReturnUrl
@@ -83,13 +84,14 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    return new Response(JSON.stringify({ approval_url, paypal_approval_url: approval_url }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
+    return new Response(
+      JSON.stringify({ approval_url, paypal_approval_url: approval_url }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+    )
   } catch (error: any) {
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
+    return new Response(
+      JSON.stringify({ error: error.message }),
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+    )
   }
 })

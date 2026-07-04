@@ -4,39 +4,121 @@ import { createClient } from 'jsr:@supabase/supabase-js@2'
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, x-supabase-client-platform, apikey, content-type',
+  'Access-Control-Allow-Headers':
+    'authorization, x-client-info, x-supabase-client-platform, apikey, content-type',
 }
 
 function safeJSONParse(str: string, fallback: any = null): any {
-  try { return JSON.parse(str) } catch {}
-  let cleaned = str.trim().replace(/```json/gi, '').replace(/```/g, '').trim()
-  try { return JSON.parse(cleaned) } catch {}
+  try {
+    return JSON.parse(str)
+  } catch {}
+  let cleaned = str
+    .trim()
+    .replace(/```json/gi, '')
+    .replace(/```/g, '')
+    .trim()
+  try {
+    return JSON.parse(cleaned)
+  } catch {}
   const first = cleaned.indexOf('{')
   const last = cleaned.lastIndexOf('}')
   if (first !== -1 && last !== -1 && last > first) {
-    try { return JSON.parse(cleaned.slice(first, last + 1)) } catch {}
+    try {
+      return JSON.parse(cleaned.slice(first, last + 1))
+    } catch {}
   }
   return fallback
 }
 
 function sanitizeInput(text: any): string {
-  try { return JSON.stringify(String(text)).slice(1, -1) } catch { return '' }
+  try {
+    return JSON.stringify(String(text)).slice(1, -1)
+  } catch {
+    return ''
+  }
 }
 
 const INSTITUTIONAL_KEYWORDS = [
-  'horario', 'horário', 'hora', 'hours', 'abre', 'fecha', 'funcionamento', 'expediente',
-  'open', 'close', 'atendimento', 'sobre', 'about', 'empresa', 'company', 'quem',
-  'história', 'history', 'missão', 'visão', 'valores', 'quem somos',
-  'endereço', 'address', 'localização', 'location', 'onde', 'rua', 'cep',
-  'telefone', 'phone', 'contato', 'contact', 'email', 'e-mail',
-  'whatsapp', 'wpp', 'política', 'policy', 'termos', 'terms',
-  'reembolso', 'refund', 'troca', 'return', 'privacidade', 'privacy',
-  'entrega', 'shipping', 'frete', 'delivery', 'prazo', 'envio',
-  'pagamento', 'payment', 'cartão', 'card', 'pix', 'boleto',
-  'transferência', 'stripe', 'paypal', 'garantia', 'warranty',
-  'ajuda', 'help', 'suporte', 'support', 'dúvida', 'duvida',
-  'cnpj', 'cpf', 'olá', 'ola', 'oi', 'bom dia', 'boa tarde', 'boa noite',
-  'obrigado', 'obrigada'
+  'horario',
+  'horário',
+  'hora',
+  'hours',
+  'abre',
+  'fecha',
+  'funcionamento',
+  'expediente',
+  'open',
+  'close',
+  'atendimento',
+  'sobre',
+  'about',
+  'empresa',
+  'company',
+  'quem',
+  'história',
+  'history',
+  'missão',
+  'visão',
+  'valores',
+  'quem somos',
+  'endereço',
+  'address',
+  'localização',
+  'location',
+  'onde',
+  'rua',
+  'cep',
+  'telefone',
+  'phone',
+  'contato',
+  'contact',
+  'email',
+  'e-mail',
+  'whatsapp',
+  'wpp',
+  'política',
+  'policy',
+  'termos',
+  'terms',
+  'reembolso',
+  'refund',
+  'troca',
+  'return',
+  'privacidade',
+  'privacy',
+  'entrega',
+  'shipping',
+  'frete',
+  'delivery',
+  'prazo',
+  'envio',
+  'pagamento',
+  'payment',
+  'cartão',
+  'card',
+  'pix',
+  'boleto',
+  'transferência',
+  'stripe',
+  'paypal',
+  'garantia',
+  'warranty',
+  'ajuda',
+  'help',
+  'suporte',
+  'support',
+  'dúvida',
+  'duvida',
+  'cnpj',
+  'cpf',
+  'olá',
+  'ola',
+  'oi',
+  'bom dia',
+  'boa tarde',
+  'boa noite',
+  'obrigado',
+  'obrigada',
 ]
 
 function isInstitutionalQuery(query: string): boolean {
@@ -46,7 +128,7 @@ function isInstitutionalQuery(query: string): boolean {
 
 function checkKeywordRelevance(
   query: string,
-  keywords: Array<{ keyword: string; weight: number; is_blocking: boolean }>
+  keywords: Array<{ keyword: string; weight: number; is_blocking: boolean }>,
 ): { isBlocked: boolean; relevanceScore: number } {
   const lower = query.toLowerCase()
   let isBlocked = false
@@ -73,12 +155,18 @@ function extractProducts(rpcResult: any): any[] {
 function buildProductContext(products: any[]): any[] {
   return products.slice(0, 15).map((p: any) => {
     let techInfo = p.technical_info
-    try { if (techInfo) techInfo = JSON.parse(techInfo) } catch {}
+    try {
+      if (techInfo) techInfo = JSON.parse(techInfo)
+    } catch {}
     return {
-      id: p.id, name: p.name, sku: p.sku,
+      id: p.id,
+      name: p.name,
+      sku: p.sku,
       brand: p.manufacturers?.name || p.manufacturer_name || p.manufacturer || 'N/A',
-      price_usd: p.price_usd, image_url: p.image_url,
-      description: p.description, technical_info: techInfo,
+      price_usd: p.price_usd,
+      image_url: p.image_url,
+      description: p.description,
+      technical_info: techInfo,
     }
   })
 }
@@ -93,7 +181,8 @@ function mergeProductResults(resultArrays: any[][]): any[] {
   return Array.from(productMap.values())
 }
 
-const OUT_OF_SCOPE_MESSAGE = 'Desculpe, só posso responder perguntas relacionadas com o nosso catálogo de produtos e serviços.'
+const OUT_OF_SCOPE_MESSAGE =
+  'Desculpe, só posso responder perguntas relacionadas com o nosso catálogo de produtos e serviços.'
 
 async function extractEntities(query: string, openaiKey: string): Promise<string[]> {
   const extractionResponse = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -104,7 +193,8 @@ async function extractEntities(query: string, openaiKey: string): Promise<string
       messages: [
         {
           role: 'system',
-          content: 'You are a product entity extractor for a professional audiovisual equipment store. Given a user query, extract individual product names, models, brands, or technical terms that should be searched separately in the product database. Return a JSON object with an "entities" array. Each entity should be a concise search term (2-5 words max). If the query mentions multiple products for comparison, extract each one separately. If the query is institutional (hours, location, shipping, payment, etc.) and not about specific products, return an empty array. Examples: "Sony FX6 vs Blackmagic Pyxis 6K" -> {"entities": ["Sony FX6", "Blackmagic Pyxis 6K"]}; "preço da câmera FX3" -> {"entities": ["FX3"]}; "qual o horário de funcionamento" -> {"entities": []}; "lente 50mm e 85mm da Sony" -> {"entities": ["Sony 50mm lens", "Sony 85mm lens"]}.',
+          content:
+            'You are a product entity extractor for a professional audiovisual equipment store. Given a user query, extract individual product names, models, brands, or technical terms that should be searched separately in the product database. Return a JSON object with an "entities" array. Each entity should be a concise search term (2-5 words max). If the query mentions multiple products for comparison, extract each one separately. If the query is institutional (hours, location, shipping, payment, etc.) and not about specific products, return an empty array. Examples: "Sony FX6 vs Blackmagic Pyxis 6K" -> {"entities": ["Sony FX6", "Blackmagic Pyxis 6K"]}; "preço da câmera FX3" -> {"entities": ["FX3"]}; "qual o horário de funcionamento" -> {"entities": []}; "lente 50mm e 85mm da Sony" -> {"entities": ["Sony 50mm lens", "Sony 85mm lens"]}.',
         },
         { role: 'user', content: query },
       ],
@@ -135,9 +225,12 @@ Deno.serve(async (req: Request) => {
 
   try {
     let body: any = null
-    try { body = await req.json() } catch {
+    try {
+      body = await req.json()
+    } catch {
       return new Response(JSON.stringify({ error: 'Invalid JSON body' }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 400,
       })
     }
 
@@ -147,7 +240,9 @@ Deno.serve(async (req: Request) => {
     const lastReferencedProductId = body?.currentProductId || null
     const openaiKey = Deno.env.get('OPENAI_API_KEY') ?? ''
 
-    console.log(`[DEBUG] User="${userName}", Query="${query}", Session="${session_id}", ProductID="${lastReferencedProductId}"`)
+    console.log(
+      `[DEBUG] User="${userName}", Query="${query}", Session="${session_id}", ProductID="${lastReferencedProductId}"`,
+    )
 
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
@@ -157,9 +252,11 @@ Deno.serve(async (req: Request) => {
     let history: any[] = []
     if (session_id) {
       const { data: histRows } = await supabase
-        .from('chat_messages').select('role, content')
+        .from('chat_messages')
+        .select('role, content')
         .eq('session_id', session_id)
-        .order('created_at', { ascending: false }).limit(10)
+        .order('created_at', { ascending: false })
+        .limit(10)
       if (Array.isArray(histRows)) {
         history = histRows.reverse().map((row) => ({ role: row.role, content: row.content }))
       }
@@ -189,11 +286,13 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    const institutionalContext = Array.isArray(companyInfoRows) && companyInfoRows.length > 0
-      ? companyInfoRows
-          .filter((row: any) => row.type === 'ai_knowledge' || row.type === 'footer_about')
-          .map((row: any) => `[${row.type || 'info'}] ${row.content || ''}`).join('\n')
-      : (companyInfoRows as any)?.content || ''
+    const institutionalContext =
+      Array.isArray(companyInfoRows) && companyInfoRows.length > 0
+        ? companyInfoRows
+            .filter((row: any) => row.type === 'ai_knowledge' || row.type === 'footer_about')
+            .map((row: any) => `[${row.type || 'info'}] ${row.content || ''}`)
+            .join('\n')
+        : (companyInfoRows as any)?.content || ''
 
     const keywordList = Array.isArray(avproKeywords) ? avproKeywords : []
     const allowedProductIds = new Set<string>()
@@ -210,12 +309,14 @@ Deno.serve(async (req: Request) => {
     let level1Products: any[] = []
     if (query && query.trim().length > 0) {
       const searchPromises = searchEntities.map((term) =>
-        supabase.rpc('execute_ai_search_v3', { search_term: term })
+        supabase.rpc('execute_ai_search_v3', { search_term: term }),
       )
       const searchResults = await Promise.all(searchPromises)
       const productArrays = searchResults.map((r) => extractProducts(r.data))
       level1Products = mergeProductResults(productArrays)
-      console.log(`[DEBUG] Parallel search: ${searchEntities.length} entities, ${level1Products.length} unique products after merge`)
+      console.log(
+        `[DEBUG] Parallel search: ${searchEntities.length} entities, ${level1Products.length} unique products after merge`,
+      )
     }
 
     // === KEYWORD VALIDATION (only if no products found) ===
@@ -247,11 +348,17 @@ Deno.serve(async (req: Request) => {
       if (session_id) {
         await supabase.from('chat_messages').insert([
           { session_id, role: 'user', message: query, content: query },
-          { session_id, role: 'assistant', message: OUT_OF_SCOPE_MESSAGE, content: JSON.stringify(outOfScopeResult) },
+          {
+            session_id,
+            role: 'assistant',
+            message: OUT_OF_SCOPE_MESSAGE,
+            content: JSON.stringify(outOfScopeResult),
+          },
         ])
       }
       return new Response(JSON.stringify(outOfScopeResult), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 200,
       })
     }
 
@@ -260,19 +367,31 @@ Deno.serve(async (req: Request) => {
     if (lastReferencedProductId) {
       const { data: product, error: productError } = await supabase
         .from('products')
-        .select('id, name, sku, category, description, technical_info, image_url, manufacturer_id, manufacturers(name), price_usd, price_brl, price_cost, price_cost_rebate, price_nationalized_cost, price_nationalized_sales, price_usa_rebate')
-        .eq('id', lastReferencedProductId).maybeSingle()
+        .select(
+          'id, name, sku, category, description, technical_info, image_url, manufacturer_id, manufacturers(name), price_usd, price_brl, price_cost, price_cost_rebate, price_nationalized_cost, price_nationalized_sales, price_usa_rebate',
+        )
+        .eq('id', lastReferencedProductId)
+        .maybeSingle()
       if (productError) {
         console.error('[ERRO] Contextual product fetch:', productError)
       } else if (product) {
         let techInfo = product.technical_info
-        try { if (techInfo) techInfo = JSON.parse(techInfo) } catch {}
+        try {
+          if (techInfo) techInfo = JSON.parse(techInfo)
+        } catch {}
         contextualProductData = {
-          id: product.id, name: product.name, sku: product.sku, category: product.category,
-          description: product.description, technical_info: techInfo, image_url: product.image_url,
+          id: product.id,
+          name: product.name,
+          sku: product.sku,
+          category: product.category,
+          description: product.description,
+          technical_info: techInfo,
+          image_url: product.image_url,
           manufacturer: (product.manufacturers as any)?.name || 'N/A',
-          price_usd: product.price_usd, price_brl: product.price_brl,
-          price_cost: product.price_cost, price_cost_rebate: product.price_cost_rebate,
+          price_usd: product.price_usd,
+          price_brl: product.price_brl,
+          price_cost: product.price_cost,
+          price_cost_rebate: product.price_cost_rebate,
           price_nationalized_cost: product.price_nationalized_cost,
           price_nationalized_sales: product.price_nationalized_sales,
           price_usa_rebate: product.price_usa_rebate,
@@ -328,7 +447,9 @@ ${manufacturerList}
     if (lastReferencedProductId && contextualProductData) {
       messages.push({
         role: 'system',
-        content: 'CONTEXTUAL PRODUCT DATA (Structured JSON):\n' + JSON.stringify(contextualProductData, null, 2),
+        content:
+          'CONTEXTUAL PRODUCT DATA (Structured JSON):\n' +
+          JSON.stringify(contextualProductData, null, 2),
       })
     }
 
@@ -336,7 +457,9 @@ ${manufacturerList}
       const level1Context = buildProductContext(level1Products)
       messages.push({
         role: 'system',
-        content: 'INITIAL PRODUCT SEARCH RESULTS (Structured JSON):\n' + JSON.stringify(level1Context, null, 2),
+        content:
+          'INITIAL PRODUCT SEARCH RESULTS (Structured JSON):\n' +
+          JSON.stringify(level1Context, null, 2),
       })
     }
 
@@ -344,21 +467,31 @@ ${manufacturerList}
     messages.push({ role: 'user', content: query })
 
     if (session_id) {
-      await supabase.from('chat_messages').insert({ session_id, role: 'user', message: query, content: query })
+      await supabase
+        .from('chat_messages')
+        .insert({ session_id, role: 'user', message: query, content: query })
     }
 
-    const tools = [{
-      type: 'function',
-      function: {
-        name: 'search_products',
-        description: 'Search the internal database for products based on keywords, categories, SKUs, or specs.',
-        parameters: {
-          type: 'object',
-          properties: { search_term: { type: 'string', description: 'The search term to query the database.' } },
-          required: ['search_term'],
+    const tools = [
+      {
+        type: 'function',
+        function: {
+          name: 'search_products',
+          description:
+            'Search the internal database for products based on keywords, categories, SKUs, or specs.',
+          parameters: {
+            type: 'object',
+            properties: {
+              search_term: {
+                type: 'string',
+                description: 'The search term to query the database.',
+              },
+            },
+            required: ['search_term'],
+          },
         },
       },
-    }]
+    ]
 
     console.log('[DEBUG] Calling OpenAI (with response_format json_object)...')
     const firstAiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -366,7 +499,10 @@ ${manufacturerList}
       headers: { Authorization: `Bearer ${openaiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: aiSettings?.model_id || 'gpt-4o-mini',
-        messages, tools, tool_choice: 'auto', temperature: 0.1,
+        messages,
+        tools,
+        tool_choice: 'auto',
+        temperature: 0.1,
         response_format: { type: 'json_object' },
       }),
     })
@@ -376,7 +512,8 @@ ${manufacturerList}
     if (!firstAiResponse.ok) {
       console.error('[ERRO] OpenAI Error:', await firstAiResponse.text())
       return new Response(JSON.stringify({ error: 'Erro na API da IA' }), {
-        headers: corsHeaders, status: 500,
+        headers: corsHeaders,
+        status: 500,
       })
     }
 
@@ -392,19 +529,28 @@ ${manufacturerList}
           try {
             const args = JSON.parse(toolCall.function.arguments)
             console.log('[DEBUG] Searching products for:', args.search_term)
-            const { data: rpcResult } = await supabase.rpc('execute_ai_search_v3', { search_term: args.search_term })
+            const { data: rpcResult } = await supabase.rpc('execute_ai_search_v3', {
+              search_term: args.search_term,
+            })
             const searchResults = extractProducts(rpcResult)
             const injectedProducts = buildProductContext(searchResults)
             for (const p of injectedProducts) allowedProductIds.add(p.id)
 
             messages.push({
-              role: 'tool', tool_call_id: toolCall.id, name: toolCall.function.name,
-              content: injectedProducts.length > 0 ? JSON.stringify(injectedProducts, null, 2) : 'Nenhum produto encontrado.',
+              role: 'tool',
+              tool_call_id: toolCall.id,
+              name: toolCall.function.name,
+              content:
+                injectedProducts.length > 0
+                  ? JSON.stringify(injectedProducts, null, 2)
+                  : 'Nenhum produto encontrado.',
             })
           } catch (e) {
             console.error('[ERRO] Tool Call failed', e)
             messages.push({
-              role: 'tool', tool_call_id: toolCall.id, name: toolCall.function.name,
+              role: 'tool',
+              tool_call_id: toolCall.id,
+              name: toolCall.function.name,
               content: 'Erro interno ao buscar produtos.',
             })
           }
@@ -417,7 +563,9 @@ ${manufacturerList}
         headers: { Authorization: `Bearer ${openaiKey}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: aiSettings?.model_id || 'gpt-4o-mini',
-          messages, response_format: { type: 'json_object' }, temperature: 0.1,
+          messages,
+          response_format: { type: 'json_object' },
+          temperature: 0.1,
         }),
       })
       const secondData = await secondAiResponse.json()
@@ -427,7 +575,9 @@ ${manufacturerList}
     }
 
     if (session_id) {
-      await supabase.from('chat_messages').insert({ session_id, role: 'assistant', message: finalContent, content: finalContent })
+      await supabase
+        .from('chat_messages')
+        .insert({ session_id, role: 'assistant', message: finalContent, content: finalContent })
     }
 
     const result = safeJSONParse(finalContent, {
@@ -441,11 +591,17 @@ ${manufacturerList}
       result.referenced_internal_products = []
     }
 
-    result.referenced_internal_products = result.referenced_internal_products.filter((id: string) => allowedProductIds.has(id))
+    result.referenced_internal_products = result.referenced_internal_products.filter((id: string) =>
+      allowedProductIds.has(id),
+    )
 
     if (typeof result.message === 'string') {
       result.message = result.message.trim()
-      if (lastReferencedProductId && globalSettingsMap['transparency_note'] && result.referenced_internal_products.length > 0) {
+      if (
+        lastReferencedProductId &&
+        globalSettingsMap['transparency_note'] &&
+        result.referenced_internal_products.length > 0
+      ) {
         result.message += '\n\n' + globalSettingsMap['transparency_note']
       }
     }
@@ -453,24 +609,33 @@ ${manufacturerList}
     if (result.referenced_internal_products.length > 0) {
       const { data: groundedProducts } = await supabase
         .from('products')
-        .select('id, name, price_usd, price_brl, price_nationalized_sales, price_nationalized_currency, image_url, category, description, technical_info, sku, weight, is_discontinued, price_usa_rebate, date_rebate, manufacturer_id, manufacturer:manufacturers(name)')
+        .select(
+          'id, name, price_usd, price_brl, price_nationalized_sales, price_nationalized_currency, image_url, category, description, technical_info, sku, weight, is_discontinued, price_usa_rebate, date_rebate, manufacturer_id, manufacturer:manufacturers(name)',
+        )
         .in('id', result.referenced_internal_products)
       if (groundedProducts) {
         result.products = groundedProducts.map((p: any) => ({
-          ...p, manufacturer: (p.manufacturer as any)?.name || (p as any).manufacturer_name || 'N/A',
+          ...p,
+          manufacturer: (p.manufacturer as any)?.name || (p as any).manufacturer_name || 'N/A',
         }))
       }
     }
 
-    console.log('[DEBUG] Returning JSON with ' + result.referenced_internal_products.length + ' referenced products.')
+    console.log(
+      '[DEBUG] Returning JSON with ' +
+        result.referenced_internal_products.length +
+        ' referenced products.',
+    )
 
     return new Response(JSON.stringify(result), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      status: 200,
     })
   } catch (error: any) {
     console.error('[ERRO GLOBAL]', error)
     return new Response(JSON.stringify({ error: error.message }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      status: 500,
     })
   }
 })

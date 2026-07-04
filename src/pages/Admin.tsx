@@ -13,6 +13,7 @@ import {
   Settings,
   Sparkles,
   Search,
+  CreditCard,
 } from 'lucide-react'
 
 export default function Admin() {
@@ -64,6 +65,12 @@ export default function Admin() {
       description: 'Gerenciar cupons e regras de desconto',
       icon: Tag,
       href: '/admin/discounts',
+    },
+    {
+      title: 'Configurar Pagamentos',
+      description: 'Gerenciar métodos de pagamento e chaves de integração',
+      icon: CreditCard,
+      href: '/admin/payment-config',
     },
     {
       title: 'Configurações Globais',

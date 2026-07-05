@@ -1,197 +1,118 @@
-export function sanitizeInput(text: any): string {
-  try {
-    return JSON.stringify(String(text)).slice(1, -1)
-  } catch {
-    return ''
-  }
+export function sanitizeInput(text: string): string {
+  return text.trim().slice(0, 1000)
 }
 
-export function removeStopWords(query: string, stopWords: string[]): string {
-  if (!stopWords || stopWords.length === 0) return query
-
-  const normalize = (str: string): string =>
-    str
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-
-  const normalizedStopWords = stopWords
-    .map((sw) => normalize(sw.trim()))
-    .filter((sw) => sw.length > 0)
-
-  const stopWordSet = new Set<string>()
-  for (const sw of normalizedStopWords) {
-    stopWordSet.add(sw)
-    stopWordSet.add(sw + 's')
-    stopWordSet.add(sw + 'es')
-    if (sw.endsWith('s')) {
-      stopWordSet.add(sw.slice(0, -1))
-      if (sw.endsWith('es')) {
-        stopWordSet.add(sw.slice(0, -2))
-      }
-    }
-  }
-
-  const queryWords = query.split(/\s+/)
-  const filtered = queryWords.filter((word) => {
-    const normalizedWord = normalize(word)
-    return !stopWordSet.has(normalizedWord)
-  })
-
-  return filtered.join(' ').trim()
-}
-
-const INSTITUTIONAL_KEYWORDS = [
-  'horario',
-  'horário',
-  'hours',
-  'abre',
-  'fecha',
-  'funcionamento',
-  'expediente',
-  'open',
-  'close',
-  'atendimento',
-  'sobre',
-  'about',
-  'empresa',
-  'company',
-  'quem',
-  'história',
-  'history',
-  'missão',
-  'visão',
-  'valores',
-  'quem somos',
-  'endereço',
-  'address',
-  'localização',
-  'location',
-  'onde',
-  'rua',
-  'cep',
-  'telefone',
-  'phone',
-  'contato',
-  'contact',
-  'email',
-  'e-mail',
-  'whatsapp',
-  'wpp',
-  'política',
-  'policy',
-  'termos',
-  'terms',
-  'reembolso',
-  'refund',
-  'troca',
-  'return',
-  'privacidade',
-  'privacy',
-  'entrega',
-  'shipping',
-  'frete',
-  'delivery',
-  'prazo',
-  'envio',
-  'pagamento',
-  'payment',
-  'cartão',
-  'card',
-  'pix',
-  'boleto',
-  'transferência',
-  'stripe',
-  'paypal',
-  'garantia',
-  'warranty',
-  'ajuda',
-  'help',
-  'suporte',
-  'support',
-  'dúvida',
-  'duvida',
-  'cnpj',
-  'cpf',
-  'olá',
-  'ola',
-  'oi',
-  'bom dia',
-  'boa tarde',
-  'boa noite',
-  'obrigado',
-  'obrigada',
-]
-
-export function isInstitutionalQuery(query: string): boolean {
-  const lower = query.toLowerCase()
-  return INSTITUTIONAL_KEYWORDS.some((kw) => lower.includes(kw))
+export function isInstitutionalQuery(text: string): boolean {
+  const kws = [
+    'empresa',
+    'sobre',
+    'quem somos',
+    'contato',
+    'onde fica',
+    'endereço',
+    'telefone',
+    'email',
+    'horário',
+    'horario',
+    'funcionamento',
+    'política',
+    'politica',
+    'termos',
+    'privacidade',
+    'troca',
+    'devolução',
+    'devolucao',
+    'garantia',
+    'frete',
+    'entrega',
+    'prazo',
+    'pagamento',
+    'forma de pagamento',
+    'company',
+    'about',
+    'contact',
+    'shipping',
+    'delivery',
+    'payment',
+    'warranty',
+    'return',
+    'refund',
+    'terms',
+    'privacy',
+  ]
+  const lower = text.toLowerCase()
+  return kws.some((kw) => lower.includes(kw))
 }
 
 export function checkKeywordRelevance(
-  query: string,
-  keywords: Array<{ keyword: string; weight: number; is_blocking: boolean }>,
+  text: string,
+  keywordList: { keyword: string; weight: number; is_blocking: boolean }[],
 ): { isBlocked: boolean; relevanceScore: number } {
-  const lower = query.toLowerCase()
-  let isBlocked = false
+  if (!keywordList || keywordList.length === 0) return { isBlocked: false, relevanceScore: 1 }
+  const lower = text.toLowerCase()
   let relevanceScore = 0
-  for (const kw of keywords) {
-    if (lower.includes(kw.keyword.toLowerCase())) {
+  let isBlocked = false
+  for (const kw of keywordList) {
+    const keyword = (kw.keyword || '').toLowerCase()
+    if (!keyword) continue
+    if (lower.includes(keyword)) {
       if (kw.is_blocking) isBlocked = true
-      relevanceScore += kw.weight || 1.0
+      relevanceScore += Number(kw.weight) || 1
     }
   }
   return { isBlocked, relevanceScore }
 }
 
-export function extractProducts(rpcResult: any): any[] {
-  if (!rpcResult) return []
-  if (Array.isArray(rpcResult)) return rpcResult
-  if (Array.isArray(rpcResult?.stock)) return rpcResult.stock
-  if (Array.isArray(rpcResult?.products)) return rpcResult.products
-  const arrays = Object.values(rpcResult).filter(Array.isArray)
-  if (arrays.length > 0) return arrays[0] as any[]
+export function extractProducts(rpcData: any): any[] {
+  if (!rpcData) return []
+  if (Array.isArray(rpcData)) return rpcData
+  if (Array.isArray(rpcData?.data)) return rpcData.data
+  if (Array.isArray(rpcData?.products)) return rpcData.products
   return []
 }
 
 export function buildProductContext(products: any[]): any[] {
-  return products.slice(0, 15).map((p: any) => {
-    let techInfo = p.technical_info
-    try {
-      if (techInfo) techInfo = JSON.parse(techInfo)
-    } catch {}
-    return {
-      id: p.id,
-      name: p.name,
-      sku: p.sku,
-      brand: p.manufacturers?.name || p.manufacturer_name || p.manufacturer || 'N/A',
-      price_usd: p.price_usd,
-      image_url: p.image_url,
-      description: p.description,
-      technical_info: techInfo,
-    }
-  })
+  if (!products || products.length === 0) return []
+  return products.map((p) => ({
+    id: p.id,
+    name: p.name || p.title || '',
+    sku: p.sku || '',
+    category: p.category || '',
+    description: p.description || '',
+    price_usd: p.price_usd,
+    price_brl: p.price_brl,
+    price_nationalized_sales: p.price_nationalized_sales,
+    price_nationalized_currency: p.price_nationalized_currency,
+    image_url: p.image_url || '',
+    technical_info: p.technical_info || '',
+    manufacturer: p.manufacturer || p.manufacturer_name || '',
+    stock: p.stock,
+    weight: p.weight,
+  }))
 }
 
-export function mergeProductResults(resultArrays: any[][]): any[] {
-  const productMap = new Map<string, any>()
-  const seenIds = new Set<string>()
-  for (const products of resultArrays) {
-    for (const p of products) {
-      if (!p?.id) continue
-      const normalizedId = String(p.id).toLowerCase()
-      if (seenIds.has(normalizedId)) continue
-      seenIds.add(normalizedId)
-      productMap.set(normalizedId, p)
+export function mergeProductResults(arrays: any[][]): any[] {
+  const seen = new Set<string>()
+  const merged: any[] = []
+  for (const arr of arrays) {
+    if (!Array.isArray(arr)) continue
+    for (const p of arr) {
+      if (!p || !p.id) continue
+      const key = String(p.id)
+      if (!seen.has(key)) {
+        seen.add(key)
+        merged.push(p)
+      }
     }
   }
-  return Array.from(productMap.values())
+  return merged
 }
 
-export async function extractEntities(query: string, openaiKey?: string): Promise<string[]> {
-  if (!openaiKey) return extractEntitiesHeuristic(query)
+export async function extractEntities(query: string, openaiKey: string): Promise<string[]> {
+  if (!query.trim()) return [query]
+  if (!openaiKey) return [query]
   try {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -203,45 +124,33 @@ export async function extractEntities(query: string, openaiKey?: string): Promis
           {
             role: 'system',
             content:
-              'Extract specific product search terms from the user query for an audiovisual equipment store. Return ONLY a JSON array of strings. Example: "camera Sony vs Canon" -> ["camera Sony","Canon"]. If single product, return [original query]. Keep terms concise (max 5 words each).',
+              'Extract search terms from the user query for a product catalog. Return a JSON array of strings (max 5). Example: ["canon eos", "lente 50mm"]',
           },
           { role: 'user', content: query },
         ],
-        temperature: 0.1,
+        temperature: 0,
+        max_tokens: 200,
       }),
     })
-    if (!response.ok) return extractEntitiesHeuristic(query)
-    const data: any = await response.json()
-    const content = data?.choices?.[0]?.message?.content?.trim()
-    if (!content) return extractEntitiesHeuristic(query)
-    const cleaned = content
-      .replace(/```json/gi, '')
-      .replace(/```/g, '')
-      .trim()
-    const first = cleaned.indexOf('[')
-    const last = cleaned.lastIndexOf(']')
-    const jsonStr = first !== -1 && last !== -1 ? cleaned.slice(first, last + 1) : cleaned
-    const entities = JSON.parse(jsonStr)
+    const data = await res.json()
+    const content = data?.choices?.[0]?.message?.content || ''
+    const entities = JSON.parse(content)
     if (Array.isArray(entities) && entities.length > 0) {
-      return entities.map((e: any) => String(e).trim()).filter((e: string) => e.length > 0)
+      return entities.filter((e) => typeof e === 'string' && e.trim().length > 0).slice(0, 5)
     }
-    return extractEntitiesHeuristic(query)
-  } catch {
-    return extractEntitiesHeuristic(query)
-  }
-}
-
-export function extractEntitiesHeuristic(query: string): string[] {
-  const lower = query.toLowerCase()
-  const separators = [' vs ', ' versus ', ' ou ', ' com ', ' comparar ', ' comparação ']
-  for (const sep of separators) {
-    if (lower.includes(sep)) {
-      const parts = query
-        .split(new RegExp(sep.trim(), 'i'))
-        .map((s) => s.trim())
-        .filter((s) => s.length > 0)
-      if (parts.length > 1) return parts
-    }
+  } catch (e) {
+    console.error('[extractEntities] error:', e)
   }
   return [query]
+}
+
+export function removeStopWords(query: string, stopWords: string[]): string {
+  if (!stopWords || stopWords.length === 0) return query
+  let result = query
+  for (const sw of stopWords) {
+    if (!sw) continue
+    const regex = new RegExp(`\\b${sw.toLowerCase()}\\b`, 'gi')
+    result = result.replace(regex, '')
+  }
+  return result.replace(/\s+/g, ' ').trim()
 }

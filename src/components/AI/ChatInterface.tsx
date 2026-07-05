@@ -79,7 +79,7 @@ export function ChatInterface({ productId: propProductId }: { productId?: string
           const newMessages = [...prev]
           newMessages[newMessages.length - 1] = {
             role: 'assistant',
-            content: res.message || res.content,
+            content: res.content || '',
             products: productsToRender,
             showWhatsapp: res.should_show_whatsapp_button,
             confidence: res.confidence_level,
@@ -91,7 +91,7 @@ export function ChatInterface({ productId: propProductId }: { productId?: string
           ...prev,
           {
             role: 'assistant',
-            content: res.message || res.content,
+            content: res.content || '',
             products: productsToRender,
             showWhatsapp: res.should_show_whatsapp_button,
             confidence: res.confidence_level,

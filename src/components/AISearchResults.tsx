@@ -144,7 +144,7 @@ export function AISearchResults({
           <AILoader size="default" />
         ) : (
           <ResponseFormatter
-            content={(result.message || '')
+            content={(result.content || '')
               .replace(/realizando busca profunda my way/gi, '')
               .trim()}
             products={
@@ -173,7 +173,7 @@ export function AISearchResults({
               className="w-full bg-green-600 hover:bg-green-700 text-white sm:w-auto shrink-0"
               onClick={() => {
                 const text = encodeURIComponent(
-                  `Olá! Gostaria de falar com um especialista sobre o seguinte resultado da IA:\n\n${result.message?.substring(0, 150)}...`,
+                  `Olá! Gostaria de falar com um especialista sobre o seguinte resultado da IA:\n\n${result.content?.substring(0, 150)}...`,
                 )
                 window.open(`https://wa.me/5511999999999?text=${text}`, '_blank')
               }}

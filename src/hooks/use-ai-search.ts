@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase/client'
 
 export interface AIResult {
   message?: string
+  content?: string
   confidence_level?: 'high' | 'medium' | 'low'
   referenced_internal_products?: any[]
   should_show_whatsapp_button?: boolean

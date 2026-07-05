@@ -281,7 +281,7 @@ export function AIConsultantModal({
       const assistantMsg: Message = {
         id: crypto.randomUUID(),
         role: 'assistant',
-        content: data.message || 'Desculpe, não consegui processar sua requisição.',
+        content: data.content || 'Desculpe, não consegui processar sua requisição.',
         products: finalProducts,
         should_show_whatsapp_button: data.should_show_whatsapp_button,
         tier: data.tier || 1,

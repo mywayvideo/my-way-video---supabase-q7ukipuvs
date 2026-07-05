@@ -78,32 +78,80 @@ function buildMessages(query: string, ctx: GenerateContext) {
   return messages
 }
 
-async function callOpenAICompatible(
-  endpoint: string,
+function getProviderEndpoint(agent: AgentProvider): string {
+  if (agent.provider_type === 'openai' || agent.provider_type === 'custom') {
+    return agent.custom_endpoint || 'https://api.openai.com/v1/chat/completions'
+  }
+  if (agent.provider_type === 'deepseek') {
+    return 'https://api.deepseek.com/v1/chat/completions'
+  }
+  if (agent.provider_type === 'anthropic') {
+    return agent.custom_endpoint || 'https://api.anthropic.com/v1/messages'
+  }
+  return 'https://api.openai.com/v1/chat/completions'
+}
+
+async function callProvider(
+  agent: AgentProvider,
   apiKey: string,
   model: string,
   messages: any[],
 ): Promise<any> {
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
+  const url = getProviderEndpoint(agent)
+  const maxTokens = 4096
+
+  let body: any
+  let headers: Record<string, string>
+
+  if (agent.provider_type === 'anthropic') {
+    const systemMessage = messages.find((m) => m.role === 'system')
+    const conversationMessages = messages.filter((m) => m.role !== 'system')
+
+    body = {
+      model,
+      messages: conversationMessages,
+      max_tokens: maxTokens,
+      temperature: 0.3,
+      ...(systemMessage ? { system: systemMessage.content } : {}),
+    }
+
+    headers = {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+    }
+  } else {
+    body = {
       model,
       messages,
       temperature: 0.3,
-      max_tokens: 2000,
-    }),
-  })
+      max_tokens: maxTokens,
+    }
 
-  if (!response.ok) {
-    const text = await response.text()
-    throw new Error(`AI API error ${response.status}: ${text}`)
+    headers = {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    }
   }
 
-  return await response.json()
+  console.log(
+    `[intelligence] calling provider=${agent.provider_name} model=${model} url=${url} max_tokens=${body.max_tokens}`,
+  )
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+  })
+
+  console.log(`[intelligence] provider response status=${res.status} ok=${res.ok}`)
+
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`AI API error ${res.status}: ${text}`)
+  }
+
+  return await res.json()
 }
 
 export async function generateResponse(
@@ -127,20 +175,11 @@ export async function generateResponse(
 
   const apiKey = Deno.env.get(agent.api_key_secret_name) || Deno.env.get('OPENAI_API_KEY') || ''
 
-  let endpoint = 'https://api.openai.com/v1/chat/completions'
-  if (agent.provider_type === 'openai' || agent.provider_type === 'custom') {
-    endpoint = agent.custom_endpoint || endpoint
-  } else if (agent.provider_type === 'deepseek') {
-    endpoint = 'https://api.deepseek.com/v1/chat/completions'
-  } else if (agent.provider_type === 'anthropic') {
-    endpoint = 'https://api.anthropic.com/v1/messages'
-  }
-
   const model = agent.model_id || 'gpt-4o-mini'
 
   let content = ''
   try {
-    const result = await callOpenAICompatible(endpoint, apiKey, model, messages)
+    const result = await callProvider(agent, apiKey, model, messages)
     content =
       result?.choices?.[0]?.message?.content ||
       result?.content?.[0]?.text ||

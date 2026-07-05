@@ -20,6 +20,9 @@ interface GenerateContext {
   contextualProductData?: any
 }
 
+const PARSE_ERROR_MESSAGE =
+  'Desculpe, não pude processar a sua resposta no momento. Tente novamente.'
+
 export async function getActiveAgents(supabase: any): Promise<AgentProvider[]> {
   const { data, error } = await supabase
     .from('ai_providers')
@@ -91,6 +94,20 @@ function getProviderEndpoint(agent: AgentProvider): string {
   return 'https://api.openai.com/v1/chat/completions'
 }
 
+function parseResult(result: any): string {
+  const content =
+    result?.choices?.[0]?.message?.content || result?.content?.[0]?.text || result?.content || ''
+
+  if (!content) {
+    console.error(
+      `[intelligence] parseResult: no content found in result keys=${Object.keys(result || {}).join(',')}`,
+    )
+    return PARSE_ERROR_MESSAGE
+  }
+
+  return content
+}
+
 async function callProvider(
   agent: AgentProvider,
   apiKey: string,
@@ -146,12 +163,27 @@ async function callProvider(
 
   console.log(`[intelligence] provider response status=${res.status} ok=${res.ok}`)
 
+  const rawText = await res.text()
+
+  console.log(
+    `[intelligence] raw response length=${rawText.length}, first500=${rawText.slice(0, 500)}`,
+  )
+
   if (!res.ok) {
-    const text = await res.text()
-    throw new Error(`AI API error ${res.status}: ${text}`)
+    throw new Error(`AI API error ${res.status}: ${rawText}`)
   }
 
-  return await res.json()
+  let parsed: any
+  try {
+    parsed = JSON.parse(rawText)
+  } catch (parseErr: any) {
+    console.error(
+      `[intelligence] JSON.parse failed: ${parseErr?.message?.slice(0, 200)}, rawLength=${rawText.length}, rawStart=${rawText.slice(0, 200)}`,
+    )
+    throw new Error(`Failed to parse AI response JSON: ${parseErr?.message}`)
+  }
+
+  return parsed
 }
 
 export async function generateResponse(
@@ -180,10 +212,14 @@ export async function generateResponse(
   let content = ''
   try {
     const result = await callProvider(agent, apiKey, model, messages)
-    content =
-      result?.choices?.[0]?.message?.content ||
-      result?.content?.[0]?.text ||
-      'Não foi possível gerar uma resposta no momento.'
+    try {
+      content = parseResult(result)
+    } catch (e: any) {
+      console.error(
+        `[intelligence] parseResult CATCH: ${e?.message?.slice(0, 200)}, contentLength=${content?.length}, contentStart=${content?.slice(0, 200)}`,
+      )
+      content = PARSE_ERROR_MESSAGE
+    }
   } catch (err) {
     console.error('[intelligence] AI call failed:', err)
     content = 'Desculpe, houve um erro ao processar sua solicitação. Tente novamente.'

@@ -20,8 +20,36 @@ interface GenerateContext {
   contextualProductData?: any
 }
 
+interface ParsedResult {
+  content: string
+  referenced_internal_products: string[]
+  confidence_level: string
+  should_show_whatsapp_button: boolean
+}
+
 const PARSE_ERROR_MESSAGE =
   'Desculpe, não pude processar a sua resposta no momento. Tente novamente.'
+
+const DEFAULT_PARSED_RESULT: ParsedResult = {
+  content: PARSE_ERROR_MESSAGE,
+  referenced_internal_products: [],
+  confidence_level: 'low',
+  should_show_whatsapp_button: false,
+}
+
+const JSON_FORMAT_INSTRUCTIONS = `
+## FORMATO DE RESPOSTA OBRIGATÓRIO (JSON)
+
+Sua resposta DEVE ser um JSON válido com os seguintes campos:
+- "content": string contendo markdown (use ## para títulos, ### para subtítulos, - para listas, e | para tabelas).
+- "referenced_internal_products": array de strings contendo os UUIDs de todos os produtos mencionados ou comparados.
+- "confidence_level": limite os valores a "high", "medium", ou "low".
+- "should_show_whatsapp_button": boolean.
+
+NUNCA retorne {message: ...} — o campo correto é "content".
+
+Exemplo de resposta:
+{"content": "## Título\\n\\nTexto", "referenced_internal_products": ["uuid1", "uuid2"], "confidence_level": "high", "should_show_whatsapp_button": false}`
 
 export async function getActiveAgents(supabase: any): Promise<AgentProvider[]> {
   const { data, error } = await supabase
@@ -60,6 +88,12 @@ function buildSystemPrompt(ctx: GenerateContext): string {
 
   if (ctx.contextualProductData) {
     prompt += `\n\nProduto atualmente visualizado:\n${JSON.stringify(ctx.contextualProductData, null, 2)}`
+
+    if (aiSettings?.product_page_prompt) {
+      prompt += `\n\n${aiSettings.product_page_prompt}`
+    }
+
+    prompt += JSON_FORMAT_INSTRUCTIONS
   }
 
   prompt += `\n\nResponda sempre em português. Se encontrar produtos relevantes, inclua os IDs dos produtos no campo referenced_internal_products. Determine o nível de confiança (low, medium, high). Se a pergunta não for relacionada a produtos ou serviços, defina should_show_whatsapp_button como false.`
@@ -94,18 +128,72 @@ function getProviderEndpoint(agent: AgentProvider): string {
   return 'https://api.openai.com/v1/chat/completions'
 }
 
-function parseResult(result: any): string {
-  const content =
+function parseResult(result: any): ParsedResult {
+  const rawContent =
     result?.choices?.[0]?.message?.content || result?.content?.[0]?.text || result?.content || ''
 
-  if (!content) {
+  if (!rawContent) {
     console.error(
       `[intelligence] parseResult: no content found in result keys=${Object.keys(result || {}).join(',')}`,
     )
-    return PARSE_ERROR_MESSAGE
+    console.error('[intelligence] parseResult: no content or message field in response')
+    return { ...DEFAULT_PARSED_RESULT }
   }
 
-  return content
+  if (typeof rawContent === 'string') {
+    try {
+      const trimmed = rawContent.trim()
+      if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+        const parsed = JSON.parse(trimmed)
+        const content = parsed?.content ?? parsed?.message
+
+        if (content === undefined || content === null) {
+          console.error('[intelligence] parseResult: no content or message field in response')
+          return { ...DEFAULT_PARSED_RESULT }
+        }
+
+        return {
+          content: String(content),
+          referenced_internal_products: Array.isArray(parsed?.referenced_internal_products)
+            ? parsed.referenced_internal_products.map(String)
+            : [],
+          confidence_level: ['high', 'medium', 'low'].includes(parsed?.confidence_level)
+            ? parsed.confidence_level
+            : 'medium',
+          should_show_whatsapp_button: Boolean(parsed?.should_show_whatsapp_button),
+        }
+      }
+    } catch {
+      // Not valid JSON — treat as plain text content
+    }
+  }
+
+  if (typeof rawContent === 'object' && rawContent !== null) {
+    const content = rawContent?.content ?? rawContent?.message
+
+    if (content === undefined || content === null) {
+      console.error('[intelligence] parseResult: no content or message field in response')
+      return { ...DEFAULT_PARSED_RESULT }
+    }
+
+    return {
+      content: String(content),
+      referenced_internal_products: Array.isArray(rawContent?.referenced_internal_products)
+        ? rawContent.referenced_internal_products.map(String)
+        : [],
+      confidence_level: ['high', 'medium', 'low'].includes(rawContent?.confidence_level)
+        ? rawContent.confidence_level
+        : 'medium',
+      should_show_whatsapp_button: Boolean(rawContent?.should_show_whatsapp_button),
+    }
+  }
+
+  return {
+    content: String(rawContent),
+    referenced_internal_products: [],
+    confidence_level: 'medium',
+    should_show_whatsapp_button: false,
+  }
 }
 
 async function callProvider(
@@ -209,37 +297,46 @@ export async function generateResponse(
 
   const model = agent.model_id || 'gpt-4o-mini'
 
-  let content = ''
+  let parsedResult: ParsedResult
   try {
     const result = await callProvider(agent, apiKey, model, messages)
-    try {
-      content = parseResult(result)
-    } catch (e: any) {
-      console.error(
-        `[intelligence] parseResult CATCH: ${e?.message?.slice(0, 200)}, contentLength=${content?.length}, contentStart=${content?.slice(0, 200)}`,
-      )
-      content = PARSE_ERROR_MESSAGE
-    }
+    parsedResult = parseResult(result)
   } catch (err) {
     console.error('[intelligence] AI call failed:', err)
-    content = 'Desculpe, houve um erro ao processar sua solicitação. Tente novamente.'
+    parsedResult = {
+      content: 'Desculpe, houve um erro ao processar sua solicitação. Tente novamente.',
+      referenced_internal_products: [],
+      confidence_level: 'low',
+      should_show_whatsapp_button: false,
+    }
   }
 
   const agentSettings = ctx.agentSettings?.[0] || ctx.agentSettings || {}
 
-  let referencedProducts: string[] = []
-  const productIds = ctx.products?.map((p: any) => p.id).filter(Boolean) || []
-  if (productIds.length > 0) {
-    referencedProducts = productIds.slice(0, 5)
+  let referencedProducts = parsedResult.referenced_internal_products
+  if (referencedProducts.length === 0) {
+    const productIds = ctx.products?.map((p: any) => p.id).filter(Boolean) || []
+    if (productIds.length > 0) {
+      referencedProducts = productIds.slice(0, 5)
+    }
   }
 
-  const confidenceLevel = productIds.length > 0 ? 'high' : 'medium'
+  let confidenceLevel = parsedResult.confidence_level
+  if (confidenceLevel === 'medium' && referencedProducts.length > 0) {
+    confidenceLevel = 'high'
+  }
 
-  const shouldShowWhatsApp =
-    agentSettings.whatsapp_trigger_low_confidence === true && confidenceLevel === 'low'
+  let shouldShowWhatsApp = parsedResult.should_show_whatsapp_button
+  if (agentSettings.whatsapp_trigger_low_confidence === true && confidenceLevel === 'low') {
+    shouldShowWhatsApp = true
+  }
+
+  console.log(
+    `[intelligence] generateResponse result: content_length=${parsedResult.content.length} referenced_products=${JSON.stringify(referencedProducts)} confidence=${confidenceLevel} whatsapp=${shouldShowWhatsApp}`,
+  )
 
   return {
-    content,
+    content: parsedResult.content,
     confidence_level: confidenceLevel,
     referenced_internal_products: referencedProducts,
     should_show_whatsapp_button: shouldShowWhatsApp,

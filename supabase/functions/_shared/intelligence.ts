@@ -161,31 +161,42 @@ export async function generateResponse(
     }
   }
 
-  let aiMentionedProducts = contextProducts.filter((p: any) => refs.includes(p.id))
+  let aiMentionedProducts: any[] = []
 
-  if (aiMentionedProducts.length === 0) {
-    aiMentionedProducts = contextProducts.filter((p: any) => {
-      if (!p.name) return false
-      const name = p.name
-        .toLowerCase()
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-      const sku = p.sku
-        ? p.sku
-            .toLowerCase()
-            .normalize('NFD')
-            .replace(/[\u0300-\u036f]/g, '')
-        : ''
-      return contentLower.includes(name) || (sku && contentLower.includes(sku))
-    })
-  }
+  const isProductPage = !!unifiedData.currentProductId
 
-  console.log(
-    `[intelligence] aiMentionedProducts fallback check: refs=${refs.length} contextProducts=${contextProducts.length} matchedByRefs=${aiMentionedProducts.length}`,
-  )
-
-  if (aiMentionedProducts.length === 0 && contextProducts.length > 0) {
+  if (!isProductPage) {
     aiMentionedProducts = contextProducts
+    console.log(
+      `[intelligence] HP mode: showing all ${contextProducts.length} contextProducts, bypassing referenced_internal_products`,
+    )
+  } else {
+    aiMentionedProducts = contextProducts.filter((p: any) => refs.includes(p.id))
+
+    if (aiMentionedProducts.length === 0) {
+      aiMentionedProducts = contextProducts.filter((p: any) => {
+        if (!p.name) return false
+        const name = p.name
+          .toLowerCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+        const sku = p.sku
+          ? p.sku
+              .toLowerCase()
+              .normalize('NFD')
+              .replace(/[\u0300-\u036f]/g, '')
+          : ''
+        return contentLower.includes(name) || (sku && contentLower.includes(sku))
+      })
+    }
+
+    console.log(
+      `[intelligence] PP mode: refs=${refs.length} contextProducts=${contextProducts.length} matched=${aiMentionedProducts.length}`,
+    )
+
+    if (aiMentionedProducts.length === 0 && contextProducts.length > 0) {
+      aiMentionedProducts = contextProducts
+    }
   }
 
   return {

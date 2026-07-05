@@ -114,8 +114,8 @@ async function callOpenAICompatible(
     body: JSON.stringify({
       model,
       messages,
-      temperature: 0.7,
-      max_tokens: 2000,
+      temperature: 0.3,
+      max_tokens: 4096,
     }),
   })
 
@@ -206,7 +206,8 @@ export async function generateResponse(
               ...history.slice(-10).map((h: any) => ({ role: h.role, content: h.content })),
               { role: 'user', content: query },
             ],
-            max_tokens: 2000,
+            temperature: 0.3,
+            max_tokens: 4096,
           }),
         })
         if (!response.ok) continue
@@ -239,10 +240,28 @@ export async function generateResponse(
   const confidence = determineConfidence(content, referencedProducts.length > 0)
   const showWhatsApp = shouldShowWhatsApp(context.agentSettings || {}, confidence)
 
-  return {
+  const r: GenerateResult = {
     content,
     confidence_level: confidence,
     referenced_internal_products: referencedProducts,
     should_show_whatsapp_button: showWhatsApp,
   }
+
+  const hasContextProducts = products.length > 0
+  if (hasContextProducts && r.referenced_internal_products.length > 0) {
+    // Product UUID filtering already applied via extractProductIds
+  }
+
+  if (!context.currentProductId && hasContextProducts) {
+    r.referenced_internal_products = products.map((p: any) => p.id || p.product_id).filter(Boolean)
+    console.log(
+      `[intelligence] HP mode: showing all ${r.referenced_internal_products.length} products, bypassed AI selection`,
+    )
+  } else if (context.currentProductId) {
+    console.log(
+      `[intelligence] PP mode: AI selected ${r.referenced_internal_products.length} of ${products.length} products`,
+    )
+  }
+
+  return r
 }

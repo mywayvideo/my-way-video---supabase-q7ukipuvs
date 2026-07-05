@@ -84,8 +84,9 @@ export function checkKeywordRelevance(
 export function extractProducts(data: any): any[] {
   if (!data) return []
   if (Array.isArray(data)) return data
-  if (Array.isArray(data?.products)) return data.products
   if (Array.isArray(data?.data)) return data.data
+  if (Array.isArray(data?.products)) return data.products
+  if (Array.isArray(data?.stock)) return data.stock
   if (Array.isArray(data?.results)) return data.results
   return []
 }

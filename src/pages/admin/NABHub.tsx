@@ -14,14 +14,40 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog'
-import {
-  getIntelligences,
-  updateIntelligenceStatus,
-  updateIntelligenceSummary,
-  deleteIntelligence,
-} from '@/services/intelligence'
-
 import { supabase } from '@/lib/supabase/client'
+
+async function getIntelligences() {
+  const { data, error } = await supabase
+    .from('market_intelligence')
+    .select('*')
+    .order('created_at', { ascending: false })
+  if (error) throw error
+  return data || []
+}
+
+async function updateIntelligenceStatus(id: string, status: any) {
+  const { error } = await supabase
+    .from('market_intelligence')
+    .update(typeof status === 'object' ? status : { status })
+    .eq('id', id)
+  if (error) throw error
+  return true
+}
+
+async function updateIntelligenceSummary(id: string, summary: string) {
+  const { error } = await supabase
+    .from('market_intelligence')
+    .update({ ai_summary: summary })
+    .eq('id', id)
+  if (error) throw error
+  return true
+}
+
+async function deleteIntelligence(id: string) {
+  const { error } = await supabase.from('market_intelligence').delete().eq('id', id)
+  if (error) throw error
+  return true
+}
 
 export default function NABHub() {
   const [intelligences, setIntelligences] = useState<any[]>([])

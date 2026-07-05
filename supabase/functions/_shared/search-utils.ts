@@ -1,131 +1,4 @@
-export function sanitizeInput(input: string): string {
-  if (!input || typeof input !== 'string') return ''
-  return input
-    .replace(/[<>]/g, '')
-    .replace(/javascript:/gi, '')
-    .replace(/on\w+=/gi, '')
-    .trim()
-    .slice(0, 500)
-}
-
-const INSTITUTIONAL_KEYWORDS = [
-  'empresa',
-  'sobre',
-  'quem somos',
-  'missão',
-  'visão',
-  'valores',
-  'contato',
-  'telefone',
-  'email',
-  'endereço',
-  'onde fica',
-  'localização',
-  'horário',
-  'funcionamento',
-  'política',
-  'termos',
-  'privacidade',
-  'troca',
-  'devolução',
-  'garantia',
-  'frete',
-  'entrega',
-  'pagamento',
-  'forma de pagamento',
-  'prazo',
-  'reembolso',
-  'cancelamento',
-  'history',
-  'about',
-  'company',
-  'contact',
-  'shipping',
-  'warranty',
-  'company info',
-  'quem é',
-  'o que é a',
-  'nossa loja',
-]
-
-export function isInstitutionalQuery(query: string): boolean {
-  const q = query.toLowerCase()
-  return INSTITUTIONAL_KEYWORDS.some((kw) => q.includes(kw))
-}
-
-interface AvproKeyword {
-  keyword: string
-  weight: number
-  is_blocking: boolean
-}
-
-export function checkKeywordRelevance(
-  query: string,
-  keywords: AvproKeyword[],
-): { isBlocked: boolean; relevanceScore: number } {
-  if (!keywords || keywords.length === 0) {
-    return { isBlocked: false, relevanceScore: 0 }
-  }
-  const q = query.toLowerCase()
-  let relevanceScore = 0
-  for (const kw of keywords) {
-    const kwLower = (kw.keyword || '').toLowerCase()
-    if (!kwLower) continue
-    if (q.includes(kwLower)) {
-      if (kw.is_blocking) {
-        return { isBlocked: true, relevanceScore: 0 }
-      }
-      relevanceScore += kw.weight || 1
-    }
-  }
-  return { isBlocked: false, relevanceScore }
-}
-
-export function extractProducts(data: any): any[] {
-  if (!data) return []
-  if (Array.isArray(data)) return data
-  if (Array.isArray(data?.data)) return data.data
-  if (Array.isArray(data?.products)) return data.products
-  if (Array.isArray(data?.stock)) return data.stock
-  if (Array.isArray(data?.results)) return data.results
-  return []
-}
-
-export function buildProductContext(products: any[]): any[] {
-  if (!products || products.length === 0) return []
-  return products.slice(0, 20).map((p: any) => ({
-    id: p.id,
-    name: p.name || p.title || '',
-    sku: p.sku || '',
-    category: p.category || '',
-    description: (p.description || '').slice(0, 300),
-    price_usd: p.price_usd ?? null,
-    price_brl: p.price_brl ?? null,
-    price_nationalized_sales: p.price_nationalized_sales ?? null,
-    image_url: p.image_url || '',
-    stock: p.stock ?? null,
-    manufacturer: p.manufacturer || p.manufacturer_name || '',
-  }))
-}
-
-export function mergeProductResults(...arrays: any[][]): any[] {
-  const seen = new Set<string>()
-  const merged: any[] = []
-  for (const arr of arrays) {
-    if (!Array.isArray(arr)) continue
-    for (const item of arr) {
-      if (!item?.id) continue
-      const key = String(item.id)
-      if (!seen.has(key)) {
-        seen.add(key)
-        merged.push(item)
-      }
-    }
-  }
-  return merged
-}
-
-const STOP_WORDS_DEFAULT = [
+const DEFAULT_STOP_WORDS = [
   'o',
   'a',
   'os',
@@ -142,76 +15,212 @@ const STOP_WORDS_DEFAULT = [
   'para',
   'com',
   'sem',
-  'que',
   'em',
   'no',
   'na',
   'nos',
   'nas',
-  'por',
-  'the',
-  'a',
-  'an',
-  'and',
-  'or',
-  'for',
-  'with',
-  'without',
-  'in',
-  'on',
+  'que',
+  'qual',
+  'quais',
+  'preço',
+  'valor',
+  'quanto',
+  'custa',
+  'quero',
+  'preciso',
+  'procurando',
+  'busco',
+  'quero comprar',
 ]
 
+export function sanitizeInput(input: string): string {
+  return input.trim().replace(/[<>]/g, '').replace(/\s+/g, ' ').slice(0, 500)
+}
+
 export function removeStopWords(query: string, stopWords: string[]): string {
-  if (!query) return ''
-  const allStop = [...STOP_WORDS_DEFAULT, ...(stopWords || [])].map((w) => w.toLowerCase().trim())
-  const stopSet = new Set(allStop)
-  const tokens = query
-    .toLowerCase()
-    .split(/\s+/)
-    .filter((t) => {
-      const cleaned = t.replace(/[^\wáéíóúãõâêôç]/gi, '').trim()
-      return cleaned.length > 0 && !stopSet.has(cleaned)
-    })
-  return tokens.join(' ')
+  const allStopWords = [...new Set([...DEFAULT_STOP_WORDS, ...(stopWords || [])])]
+  const words = query.toLowerCase().split(' ')
+  const filtered = words.filter((w) => w.length > 1 && !allStopWords.includes(w))
+  return filtered.length > 0 ? filtered.join(' ') : query
+}
+
+export function isInstitutionalQuery(query: string): boolean {
+  const lower = query.toLowerCase()
+  const institutionalKeywords = [
+    'empresa',
+    'sobre',
+    'contato',
+    'endereço',
+    'telefone',
+    'email',
+    'horário',
+    'horario',
+    'funcionamento',
+    'quem somos',
+    'política',
+    'politica',
+    'termos',
+    'privacidade',
+    'devolução',
+    'devolucao',
+    'garantia',
+    'entrega',
+    'frete',
+    'pagamento',
+    'formas de pagamento',
+    'onde fica',
+    'como chegar',
+    'redes sociais',
+    'instagram',
+    'facebook',
+    'whatsapp',
+  ]
+  return institutionalKeywords.some((kw) => lower.includes(kw))
+}
+
+export function checkKeywordRelevance(
+  query: string,
+  keywords: any[],
+): { isBlocked: boolean; relevanceScore: number } {
+  if (!Array.isArray(keywords) || keywords.length === 0) {
+    return { isBlocked: false, relevanceScore: 0 }
+  }
+
+  const lowerQuery = query.toLowerCase()
+  let score = 0
+  let blocked = false
+
+  for (const kw of keywords) {
+    const keyword = (kw.keyword || '').toLowerCase()
+    if (!keyword) continue
+
+    if (lowerQuery.includes(keyword)) {
+      if (kw.is_blocking) {
+        blocked = true
+      }
+      score += parseFloat(kw.weight) || 1
+    }
+  }
+
+  return { isBlocked: blocked, relevanceScore: score }
+}
+
+export function extractProducts(data: any): any[] {
+  if (!data) return []
+
+  if (Array.isArray(data)) return data
+
+  if (Array.isArray(data?.products)) return data.products
+
+  if (Array.isArray(data?.data)) return data.data
+
+  if (data && typeof data === 'object') {
+    const values = Object.values(data)
+    const arrayVal = values.find((v) => Array.isArray(v)) as any[] | undefined
+    if (arrayVal) return arrayVal
+  }
+
+  return []
+}
+
+export function buildProductContext(products: any[]): any[] {
+  if (!Array.isArray(products)) return []
+
+  return products.slice(0, 20).map((p: any) => ({
+    id: p.id,
+    name: p.name || p.title || '',
+    sku: p.sku || '',
+    category: p.category || '',
+    description: (p.description || '').slice(0, 500),
+    price_usd: p.price_usd,
+    price_brl: p.price_brl,
+    price_nationalized_sales: p.price_nationalized_sales,
+    price_nationalized_cost: p.price_nationalized_cost,
+    stock: p.stock,
+    image_url: p.image_url,
+    weight: p.weight,
+    is_discontinued: p.is_discontinued,
+    technical_info: p.technical_info,
+    manufacturer: p.manufacturer || p.manufacturer_name || 'N/A',
+  }))
+}
+
+export function mergeProductResults(...arrays: any[][]): any[] {
+  const seen = new Set<string>()
+  const merged: any[] = []
+
+  for (const arr of arrays) {
+    if (!Array.isArray(arr)) continue
+    for (const item of arr) {
+      if (item && item.id && !seen.has(item.id)) {
+        seen.add(item.id)
+        merged.push(item)
+      }
+    }
+  }
+
+  return merged
 }
 
 export async function extractEntities(query: string, apiKey: string): Promise<string[]> {
-  if (!query || query.trim().length === 0) return [query]
-  if (!apiKey) return [query]
+  const trimmed = query.trim()
+  if (!trimmed) return [trimmed]
 
-  try {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [
-          {
-            role: 'system',
-            content:
-              'Extract search entities from the user query for a product search. Return a JSON array of strings, each being a distinct search term or entity. Include the original query as the first element. Only return the JSON array, no other text.',
-          },
-          { role: 'user', content: query },
-        ],
-        temperature: 0.2,
-        max_tokens: 200,
-      }),
-    })
-    if (!response.ok) return [query]
-    const data = await response.json()
-    const content = data?.choices?.[0]?.message?.content?.trim()
-    if (!content) return [query]
-    const parsed = JSON.parse(content)
-    if (Array.isArray(parsed) && parsed.length > 0) {
-      return parsed.filter((s: any) => typeof s === 'string' && s.trim().length > 0)
+  const words = trimmed.split(' ').filter((w) => w.length > 1)
+  if (words.length <= 1) return [trimmed]
+
+  const tokens = trimmed.split(/\s+/)
+  const entities = new Set<string>()
+  entities.add(trimmed)
+
+  for (let i = 0; i < tokens.length; i++) {
+    for (let j = i + 1; j <= Math.min(i + 4, tokens.length); j++) {
+      const phrase = tokens.slice(i, j).join(' ')
+      if (phrase.length > 2) entities.add(phrase)
     }
-    return [query]
-  } catch {
-    return [query]
   }
+
+  if (apiKey) {
+    try {
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o-mini',
+          messages: [
+            {
+              role: 'system',
+              content:
+                'Extract product search entities from the query. Return only a JSON array of strings, no explanation.',
+            },
+            { role: 'user', content: `Query: "${trimmed}"` },
+          ],
+          temperature: 0,
+          max_tokens: 200,
+        }),
+      })
+
+      if (response.ok) {
+        const result = await response.json()
+        const content = result?.choices?.[0]?.message?.content || '[]'
+        const cleaned = content.replace(/```json|```/g, '').trim()
+        const parsed = JSON.parse(cleaned)
+        if (Array.isArray(parsed)) {
+          for (const e of parsed) {
+            if (typeof e === 'string' && e.trim()) entities.add(e.trim())
+          }
+        }
+      }
+    } catch (err) {
+      console.error('[search-utils] Entity extraction failed:', err)
+    }
+  }
+
+  return Array.from(entities)
 }
 
 export async function searchWithEntityFallback(
@@ -224,13 +233,16 @@ export async function searchWithEntityFallback(
     return { products: primaryResults, usedFallback: false }
   }
 
-  for (const entity of entities) {
-    if (entity === originalQuery) continue
-    const entityResults = await searchFn(entity)
-    if (entityResults.length > 0) {
-      return { products: entityResults, usedFallback: true }
+  const sortedEntities = entities
+    .filter((e) => e !== originalQuery)
+    .sort((a, b) => b.length - a.length)
+
+  for (const entity of sortedEntities) {
+    const results = await searchFn(entity)
+    if (results.length > 0) {
+      return { products: results, usedFallback: true }
     }
   }
 
-  return { products: primaryResults, usedFallback: false }
+  return { products: [], usedFallback: false }
 }

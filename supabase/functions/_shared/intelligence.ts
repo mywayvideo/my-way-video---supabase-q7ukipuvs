@@ -1,110 +1,89 @@
-import { createClient } from 'jsr:@supabase/supabase-js@2'
-
-interface Agent {
+interface AgentProvider {
   id: string
   provider_name: string
+  api_key_secret_name: string
   model_id: string
+  is_active: boolean
+  priority_order: number
   provider_type: string
   custom_endpoint: string | null
-  api_key_secret_name: string | null
-  priority: number | null
 }
 
 interface GenerateContext {
   agentSettings?: any
   aiSettings?: any
-  institutionalContext?: string
-  history?: any[]
   products?: any[]
   manufacturerList?: string
+  history?: any[]
+  institutionalContext?: string
   currentProductId?: string | null
   contextualProductData?: any
 }
 
-interface GenerateResult {
-  content: string
-  confidence_level: string
-  referenced_internal_products: string[]
-  should_show_whatsapp_button: boolean
-}
-
-export async function getActiveAgents(supabase: ReturnType<typeof createClient>): Promise<Agent[]> {
+export async function getActiveAgents(supabase: any): Promise<AgentProvider[]> {
   const { data, error } = await supabase
     .from('ai_providers')
-    .select(
-      'id, provider_name, model_id, provider_type, custom_endpoint, api_key_secret_name, priority',
-    )
+    .select('*')
     .eq('is_active', true)
-    .order('priority', { ascending: true })
+    .order('priority_order', { ascending: true })
 
-  if (error || !data) return []
-  return data as Agent[]
+  if (error) {
+    console.error('[intelligence] Failed to fetch active agents:', error)
+    return []
+  }
+
+  return (data || []) as AgentProvider[]
 }
 
-function getApiKey(agent: Agent): string {
-  const secretName = agent.api_key_secret_name || ''
-  const envKey = secretName.toUpperCase().replace(/[^A-Z0-9_]/g, '_')
-  if (agent.provider_type === 'openai' || agent.provider_name?.toLowerCase().includes('openai')) {
-    return Deno.env.get('OPENAI_API_KEY') ?? ''
+function buildSystemPrompt(ctx: GenerateContext): string {
+  const agentSettings = ctx.agentSettings?.[0] || ctx.agentSettings || {}
+  const aiSettings = ctx.aiSettings?.[0] || ctx.aiSettings || {}
+
+  let prompt = aiSettings?.system_prompt_template || agentSettings?.system_prompt || ''
+
+  prompt += '\n\nVocê é um consultor de e-commerce de audiovisual profissional.'
+
+  if (ctx.institutionalContext) {
+    prompt += `\n\nContexto institucional:\n${ctx.institutionalContext}`
   }
-  if (
-    agent.provider_type === 'anthropic' ||
-    agent.provider_name?.toLowerCase().includes('anthropic')
-  ) {
-    return Deno.env.get('ANTHROPIC_API_KEY') ?? ''
+
+  if (ctx.manufacturerList) {
+    prompt += `\n\nFabricantes disponíveis: ${ctx.manufacturerList}`
   }
-  if (
-    agent.provider_type === 'deepseek' ||
-    agent.provider_name?.toLowerCase().includes('deepseek')
-  ) {
-    return Deno.env.get('DEEPSEEK_API_KEY') ?? ''
+
+  if (ctx.products && ctx.products.length > 0) {
+    prompt += `\n\nProdutos encontrados:\n${JSON.stringify(ctx.products, null, 2)}`
   }
-  return Deno.env.get(envKey) ?? Deno.env.get(secretName) ?? ''
+
+  if (ctx.contextualProductData) {
+    prompt += `\n\nProduto atualmente visualizado:\n${JSON.stringify(ctx.contextualProductData, null, 2)}`
+  }
+
+  prompt += `\n\nResponda sempre em português. Se encontrar produtos relevantes, inclua os IDs dos produtos no campo referenced_internal_products. Determine o nível de confiança (low, medium, high). Se a pergunta não for relacionada a produtos ou serviços, defina should_show_whatsapp_button como false.`
+
+  return prompt
 }
 
-function buildSystemPrompt(context: GenerateContext): string {
-  const agentSettings = context.agentSettings || {}
-  const aiSettings = context.aiSettings || {}
-  const basePrompt = agentSettings.system_prompt || aiSettings.system_prompt_template || ''
-  const logisticsRules = aiSettings.logistics_rules_prompt || ''
-  const productPagePrompt = aiSettings.product_page_prompt || ''
+function buildMessages(query: string, ctx: GenerateContext) {
+  const systemPrompt = buildSystemPrompt(ctx)
+  const messages: any[] = [{ role: 'system', content: systemPrompt }]
 
-  let systemPrompt = basePrompt
-  if (context.institutionalContext) {
-    systemPrompt += `\n\nContexto institucional:\n${context.institutionalContext}`
+  if (ctx.history && ctx.history.length > 0) {
+    for (const msg of ctx.history.slice(-10)) {
+      messages.push({ role: msg.role, content: msg.content })
+    }
   }
-  if (context.manufacturerList) {
-    systemPrompt += `\n\nFabricantes disponíveis: ${context.manufacturerList}`
-  }
-  if (logisticsRules) {
-    systemPrompt += `\n\nRegras de logística:\n${logisticsRules}`
-  }
-  if (context.products && context.products.length > 0) {
-    systemPrompt += `\n\nProdutos encontrados:\n${JSON.stringify(context.products)}`
-  }
-  if (context.contextualProductData) {
-    systemPrompt += `\n\nProduto atualmente em visualização:\n${JSON.stringify(context.contextualProductData)}`
-  }
-  if (productPagePrompt && context.currentProductId) {
-    systemPrompt += `\n\n${productPagePrompt}`
-  }
-  return systemPrompt
+
+  messages.push({ role: 'user', content: query })
+  return messages
 }
 
 async function callOpenAICompatible(
   endpoint: string,
   apiKey: string,
   model: string,
-  systemPrompt: string,
-  userQuery: string,
-  history: any[],
-): Promise<string> {
-  const messages = [
-    { role: 'system', content: systemPrompt },
-    ...history.slice(-10),
-    { role: 'user', content: userQuery },
-  ]
-
+  messages: any[],
+): Promise<any> {
   const response = await fetch(endpoint, {
     method: 'POST',
     headers: {
@@ -115,153 +94,79 @@ async function callOpenAICompatible(
       model,
       messages,
       temperature: 0.3,
-      max_tokens: 4096,
+      max_tokens: 2000,
     }),
   })
 
   if (!response.ok) {
-    const errorText = await response.text()
-    throw new Error(`AI API error (${response.status}): ${errorText}`)
+    const text = await response.text()
+    throw new Error(`AI API error ${response.status}: ${text}`)
   }
 
-  const data = await response.json()
-  return data.choices?.[0]?.message?.content || ''
-}
-
-function extractProductIds(content: string, products: any[]): string[] {
-  const ids: string[] = []
-  if (!products || products.length === 0) return ids
-  for (const p of products) {
-    const pid = p.id || p.product_id
-    if (pid && (content.includes(pid) || content.includes(p.name || p.title || ''))) {
-      ids.push(pid)
-    }
-  }
-  return [...new Set(ids)]
-}
-
-function determineConfidence(content: string, hasProducts: boolean): string {
-  const lowerContent = content.toLowerCase()
-  if (
-    lowerContent.includes('não tenho certeza') ||
-    lowerContent.includes('não sei') ||
-    lowerContent.includes('incerto')
-  ) {
-    return 'low'
-  }
-  if (hasProducts) return 'high'
-  return 'medium'
-}
-
-function shouldShowWhatsApp(agentSettings: any, confidence: string): boolean {
-  const threshold = agentSettings.confidence_threshold_for_whatsapp || 'low'
-  const levels = ['low', 'medium', 'high']
-  const thresholdIdx = levels.indexOf(threshold)
-  const confidenceIdx = levels.indexOf(confidence)
-  return confidenceIdx <= thresholdIdx
+  return await response.json()
 }
 
 export async function generateResponse(
   query: string,
-  context: GenerateContext,
-  _unused: any,
-  supabase: ReturnType<typeof createClient>,
-): Promise<GenerateResult> {
+  ctx: GenerateContext,
+  _unused: undefined,
+  supabase: any,
+): Promise<{
+  content: string
+  confidence_level: string
+  referenced_internal_products: string[]
+  should_show_whatsapp_button: boolean
+}> {
   const agents = await getActiveAgents(supabase)
   if (agents.length === 0) {
-    throw new Error('Nenhum provedor de IA ativo configurado.')
+    throw new Error('Nenhum provedor de IA ativo.')
   }
 
-  const systemPrompt = buildSystemPrompt(context)
-  const history = context.history || []
-  const products = context.products || []
+  const messages = buildMessages(query, ctx)
+  const agent = agents[0]
+
+  const apiKey = Deno.env.get(agent.api_key_secret_name) || Deno.env.get('OPENAI_API_KEY') || ''
+
+  let endpoint = 'https://api.openai.com/v1/chat/completions'
+  if (agent.provider_type === 'openai' || agent.provider_type === 'custom') {
+    endpoint = agent.custom_endpoint || endpoint
+  } else if (agent.provider_type === 'deepseek') {
+    endpoint = 'https://api.deepseek.com/v1/chat/completions'
+  } else if (agent.provider_type === 'anthropic') {
+    endpoint = 'https://api.anthropic.com/v1/messages'
+  }
+
+  const model = agent.model_id || 'gpt-4o-mini'
+
   let content = ''
-
-  for (const agent of agents) {
-    try {
-      const apiKey = getApiKey(agent)
-      if (!apiKey) continue
-
-      let endpoint = 'https://api.openai.com/v1/chat/completions'
-      if (agent.provider_type === 'deepseek') {
-        endpoint = 'https://api.deepseek.com/v1/chat/completions'
-      } else if (agent.custom_endpoint) {
-        endpoint = agent.custom_endpoint
-      } else if (agent.provider_type === 'anthropic') {
-        endpoint = 'https://api.anthropic.com/v1/messages'
-      }
-
-      if (agent.provider_type === 'anthropic') {
-        const response = await fetch(endpoint, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': apiKey,
-            'anthropic-version': '2023-06-01',
-          },
-          body: JSON.stringify({
-            model: agent.model_id,
-            system: systemPrompt,
-            messages: [
-              ...history.slice(-10).map((h: any) => ({ role: h.role, content: h.content })),
-              { role: 'user', content: query },
-            ],
-            temperature: 0.3,
-            max_tokens: 4096,
-          }),
-        })
-        if (!response.ok) continue
-        const data = await response.json()
-        content = data.content?.[0]?.text || ''
-      } else {
-        content = await callOpenAICompatible(
-          endpoint,
-          apiKey,
-          agent.model_id,
-          systemPrompt,
-          query,
-          history,
-        )
-      }
-
-      if (content) break
-    } catch (err) {
-      console.error(`[intelligence] Agent ${agent.provider_name} failed:`, err)
-      continue
-    }
-  }
-
-  if (!content) {
+  try {
+    const result = await callOpenAICompatible(endpoint, apiKey, model, messages)
     content =
-      'Desculpe, não foi possível processar sua solicitação no momento. Tente novamente em instantes.'
+      result?.choices?.[0]?.message?.content ||
+      result?.content?.[0]?.text ||
+      'Não foi possível gerar uma resposta no momento.'
+  } catch (err) {
+    console.error('[intelligence] AI call failed:', err)
+    content = 'Desculpe, houve um erro ao processar sua solicitação. Tente novamente.'
   }
 
-  const referencedProducts = extractProductIds(content, products)
-  const confidence = determineConfidence(content, referencedProducts.length > 0)
-  const showWhatsApp = shouldShowWhatsApp(context.agentSettings || {}, confidence)
+  const agentSettings = ctx.agentSettings?.[0] || ctx.agentSettings || {}
 
-  const r: GenerateResult = {
+  let referencedProducts: string[] = []
+  const productIds = ctx.products?.map((p: any) => p.id).filter(Boolean) || []
+  if (productIds.length > 0) {
+    referencedProducts = productIds.slice(0, 5)
+  }
+
+  const confidenceLevel = productIds.length > 0 ? 'high' : 'medium'
+
+  const shouldShowWhatsApp =
+    agentSettings.whatsapp_trigger_low_confidence === true && confidenceLevel === 'low'
+
+  return {
     content,
-    confidence_level: confidence,
+    confidence_level: confidenceLevel,
     referenced_internal_products: referencedProducts,
-    should_show_whatsapp_button: showWhatsApp,
+    should_show_whatsapp_button: shouldShowWhatsApp,
   }
-
-  const hasContextProducts = products.length > 0
-  if (hasContextProducts && r.referenced_internal_products.length > 0) {
-    // Product UUID filtering already applied via extractProductIds
-  }
-
-  if (!context.currentProductId && hasContextProducts) {
-    r.referenced_internal_products = products.map((p: any) => p.id || p.product_id).filter(Boolean)
-    console.log(
-      `[intelligence] HP mode: showing all ${r.referenced_internal_products.length} products, bypassed AI selection`,
-    )
-  } else if (context.currentProductId) {
-    console.log(
-      `[intelligence] PP mode: AI selected ${r.referenced_internal_products.length} of ${products.length} products`,
-    )
-  }
-
-  return r
 }

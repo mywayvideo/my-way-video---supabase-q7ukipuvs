@@ -148,6 +148,49 @@ export function mergeProductResults(resultArrays: any[][]): any[] {
   return Array.from(productMap.values())
 }
 
+export async function extractEntities(query: string, openaiKey?: string): Promise<string[]> {
+  if (!openaiKey) return extractEntitiesHeuristic(query)
+  try {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${openaiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          {
+            role: 'system',
+            content:
+              'Extract specific product search terms from the user query for an audiovisual equipment store. Return ONLY a JSON array of strings. Example: "camera Sony vs Canon" -> ["camera Sony","Canon"]. If single product, return [original query]. Keep terms concise (max 5 words each).',
+          },
+          { role: 'user', content: query },
+        ],
+        temperature: 0.1,
+      }),
+    })
+    if (!response.ok) return extractEntitiesHeuristic(query)
+    const data: any = await response.json()
+    const content = data?.choices?.[0]?.message?.content?.trim()
+    if (!content) return extractEntitiesHeuristic(query)
+    const cleaned = content
+      .replace(/```json/gi, '')
+      .replace(/```/g, '')
+      .trim()
+    const first = cleaned.indexOf('[')
+    const last = cleaned.lastIndexOf(']')
+    const jsonStr = first !== -1 && last !== -1 ? cleaned.slice(first, last + 1) : cleaned
+    const entities = JSON.parse(jsonStr)
+    if (Array.isArray(entities) && entities.length > 0) {
+      return entities.map((e: any) => String(e).trim()).filter((e: string) => e.length > 0)
+    }
+    return extractEntitiesHeuristic(query)
+  } catch {
+    return extractEntitiesHeuristic(query)
+  }
+}
+
 export function extractEntitiesHeuristic(query: string): string[] {
   const lower = query.toLowerCase()
   const separators = [' vs ', ' versus ', ' ou ', ' comparar ', ' comparação ']

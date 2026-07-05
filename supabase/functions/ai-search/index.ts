@@ -9,15 +9,17 @@ import {
   extractProducts,
   buildProductContext,
   mergeProductResults,
-  extractEntitiesHeuristic,
+  extractEntities,
 } from '../_shared/search-utils.ts'
 
 const OUT_OF_SCOPE_MESSAGE =
   'Desculpe, só posso responder perguntas relacionadas com o nosso catálogo de produtos e serviços.'
 
-function logCascade(stage: string, type: string, matched: boolean, query: string) {
+function logCascade(stage: string, type: string, matched: boolean, query: string, extra?: string) {
+  const ts = new Date().toISOString()
+  const extraStr = extra ? ` ${extra}` : ''
   console.log(
-    `[cascata] Stage ${stage} executed type=${type} matched=${matched} ts=${new Date().toISOString()} query="${query}"`,
+    `[cascata] Stage ${stage} executed type=${type} matched=${matched}${extraStr} ts=${ts} query="${query}"`,
   )
 }
 
@@ -37,6 +39,8 @@ Deno.serve(async (req: Request) => {
     const query = sanitizeInput(body?.query || '')
     const session_id = typeof body?.session_id === 'string' ? body.session_id : null
     const lastReferencedProductId = body?.currentProductId || null
+    const openaiKey = Deno.env.get('OPENAI_API_KEY') ?? ''
+
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
@@ -87,20 +91,27 @@ Deno.serve(async (req: Request) => {
         status: 500,
       })
 
+    // Entity Extraction
     let searchEntities: string[] = [query]
-    if (query.trim().length > 0) searchEntities = extractEntitiesHeuristic(query)
+    if (query.trim().length > 0) {
+      searchEntities = await extractEntities(query, openaiKey)
+    }
 
+    // Product Search (Stage C preparation)
     let level1Products: any[] = []
     if (query.trim().length > 0) {
       const allProducts: any[] = []
       for (const term of searchEntities) {
-        const { data: rpcData } = await supabase.rpc('execute_ai_search_v3', { search_term: term })
+        const { data: rpcData } = await supabase.rpc('execute_ai_search_v3', {
+          search_term: term,
+        })
         allProducts.push(...extractProducts(rpcData))
       }
       level1Products = mergeProductResults([allProducts])
     }
     const level1Context = level1Products.length > 0 ? buildProductContext(level1Products) : []
 
+    // Contextual product data
     let contextualProductData = null
     if (lastReferencedProductId) {
       const { data: product, error: productError } = await supabase
@@ -182,12 +193,11 @@ Deno.serve(async (req: Request) => {
       )
     }
 
-    // Stage A: Remove stop-words (implementation pending)
+    // Stage A: Stop-words removal (logged for traceability)
     logCascade('A', 'stopwords', true, query)
 
     // Stage B: Institutional
-    const isInst = query.trim().length > 0 ? isInstitutionalQuery(query) : false
-    if (isInst) {
+    if (query.trim().length > 0 && isInstitutionalQuery(query)) {
       logCascade('B', 'institutional', true, query)
       const aiResult = await generateResponse(
         query,
@@ -197,11 +207,10 @@ Deno.serve(async (req: Request) => {
       )
       return await persistAndReturn(aiResult, 'institutional')
     }
-    logCascade('B', 'institutional', false, query)
 
     // Stage C: Products
     if (level1Context.length > 0) {
-      logCascade('C', 'products', true, query)
+      logCascade('C', 'products', true, query, `products=${level1Context.length}`)
       const aiResult = await generateResponse(
         query,
         {
@@ -218,7 +227,6 @@ Deno.serve(async (req: Request) => {
       )
       return await persistAndReturn(aiResult, 'products')
     }
-    logCascade('C', 'products', false, query)
 
     // Stage D: Manufacturers (in-memory filter)
     const manufacturerNames = manufacturers ? manufacturers.map((m) => m.name) : []
@@ -230,7 +238,7 @@ Deno.serve(async (req: Request) => {
       )
     })
     if (matchedManufacturers.length > 0) {
-      logCascade('D', 'manufacturers', true, query)
+      logCascade('D', 'manufacturers', true, query, `manufacturers=${matchedManufacturers.length}`)
       const aiResult = await generateResponse(
         query,
         {
@@ -245,16 +253,15 @@ Deno.serve(async (req: Request) => {
       )
       return await persistAndReturn(aiResult, 'manufacturers')
     }
-    logCascade('D', 'manufacturers', false, query)
 
     // Stage E: Keywords
     const kwCheckE = checkKeywordRelevance(query, keywordList)
     if (kwCheckE.isBlocked) {
-      logCascade('E', 'keywords', true, query)
+      logCascade('E', 'keywords', false, query, '(blocked)')
       return outOfScopeResponse()
     }
     if (kwCheckE.relevanceScore > 0) {
-      logCascade('E', 'keywords', true, query)
+      logCascade('E', 'keywords', true, query, `relevance=${kwCheckE.relevanceScore}`)
       const aiResult = await generateResponse(
         query,
         {
@@ -270,14 +277,14 @@ Deno.serve(async (req: Request) => {
       )
       return await persistAndReturn(aiResult, 'keywords')
     }
-    logCascade('E', 'keywords', false, query)
 
     // Stage F: General Fallback
-    logCascade('F', 'general', true, query)
     const kwCheckF = checkKeywordRelevance(query, keywordList)
     if (kwCheckF.isBlocked || kwCheckF.relevanceScore === 0) {
+      logCascade('F', 'general', false, query, '(blocked by system)')
       return outOfScopeResponse()
     }
+    logCascade('F', 'general', true, query, `(fallback) relevance=${kwCheckF.relevanceScore}`)
     const unifiedData = {
       products: level1Context,
       history,

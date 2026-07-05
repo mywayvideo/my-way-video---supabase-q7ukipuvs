@@ -61,7 +61,6 @@ export async function generateResponse(
   const goldenRules = `REGRAS DE OURO (JSON):
 1. Resposta FINAL deve ser apenas JSON: {"message":"...","confidence_level":"high"|"low","referenced_internal_products":[],"should_show_whatsapp_button":boolean}
 2. "referenced_internal_products" deve conter APENAS IDs dos produtos fornecidos.
-2b. Para perguntas de listagem ou catálogo amplo (ex: 'quais câmeras PTZ 4K vocês têm'), referenced_internal_products DEVE conter os IDs de TODOS os produtos relevantes fornecidos em PRODUTOS, não apenas os citados nominalmente no texto.
 3. IDs nunca devem aparecer no texto visível.
 3b. Para perguntas de listagem ou catálogo amplo (ex: 'quais câmeras PTZ 4K vocês têm', 'mostre opções de X'), referenced_internal_products DEVE conter os IDs de TODOS os produtos relevantes fornecidos no contexto (PRODUTOS), não apenas os primeiros exemplos citados no texto. Nunca omita produtos do array apenas porque não foram citados nominalmente na resposta em texto corrido.
 4. Formate em markdown. Insira imagens: ![Nome](image_url).
@@ -162,9 +161,6 @@ export async function generateResponse(
     }
   }
 
-  console.log(
-    `[intelligence] refs received: ${JSON.stringify(refs)} contextProducts total: ${contextProducts.length}`,
-  )
   let aiMentionedProducts = contextProducts.filter((p: any) => refs.includes(p.id))
 
   if (aiMentionedProducts.length === 0) {
@@ -189,7 +185,6 @@ export async function generateResponse(
   )
 
   if (aiMentionedProducts.length === 0 && contextProducts.length > 0) {
-    console.log(`[intelligence] fallback triggered: contextProducts=${contextProducts.length}`)
     aiMentionedProducts = contextProducts
   }
 

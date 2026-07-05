@@ -30,6 +30,7 @@
     "generate-cart-whatsapp-message": 7,
     "generate-payment-token": 7,
     "generate-related-products": 7,
+    "initiate-paypal-payment": 6,
     "notify-admin-payment": 7,
     "notify-admin-refund": 7,
     "process-knowledge": 6,

@@ -251,9 +251,9 @@ ${JSON.stringify(nabJson)}
     })
   }
 
-  // If still empty, return top context products to ensure SOMETHING shows if we found items.
   if (aiMentionedProducts.length === 0 && contextProducts.length > 0) {
-    aiMentionedProducts = contextProducts.slice(0, 4)
+    console.log(`[intelligence] fallback triggered: contextProducts=${contextProducts.length}`)
+    aiMentionedProducts = contextProducts
   }
 
   return {

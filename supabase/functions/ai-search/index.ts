@@ -110,10 +110,15 @@ Deno.serve(async (req: Request) => {
     let level1Products: any[] = []
     if (searchQuery.trim().length > 0) {
       const searchFn = async (term: string): Promise<any[]> => {
-        const { data: rpcData } = await supabase.rpc('execute_ai_search_v3', {
+        console.log(`[ai-search] searchFn executing with term: "${term}"`)
+        const { data: rpcData, error: rpcError } = await supabase.rpc('execute_ai_search_v3', {
           search_term: term,
         })
-        return extractProducts(rpcData)
+        const products = extractProducts(rpcData)
+        console.log(
+          `[ai-search] searchFn result count: ${products.length}, error: ${rpcError ? JSON.stringify(rpcError) : 'null'}`,
+        )
+        return products
       }
       const { products: fallbackProducts, usedFallback } = await searchWithEntityFallback(
         searchEntities,

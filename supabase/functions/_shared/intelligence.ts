@@ -129,7 +129,10 @@ function parseResult(content: string): AIResult {
     }
   } catch (e) {
     const errorMsg = e instanceof Error ? e.message : 'unknown error'
-    console.error(`[intelligence] parseResult error: ${errorMsg}, contentLength=${content.length}`)
+    const contentEnd = content.length >= 100 ? content.slice(-100) : content
+    console.error(
+      `[intelligence] parseResult error: ${errorMsg}, contentLength=${content.length}, contentEnd=${contentEnd}`,
+    )
     console.error(`[intelligence] raw response: ${content.slice(0, 500)}`)
     return userFriendlyError
   }
@@ -144,7 +147,7 @@ async function callProvider(provider: any, messages: any[]): Promise<AIResult | 
     'Content-Type': 'application/json',
     Authorization: `Bearer ${apiKey}`,
   }
-  let body: any = { model, messages, temperature: 0.3, max_tokens: 2000 }
+  let body: any = { model, messages, temperature: 0.3, max_tokens: 4096 }
 
   if (ptype.includes('anthropic') || ptype.includes('claude')) {
     url = 'https://api.anthropic.com/v1/messages'
@@ -160,7 +163,7 @@ async function callProvider(provider: any, messages: any[]): Promise<AIResult | 
       messages: messages
         .filter((m) => m.role !== 'system')
         .map((m) => ({ role: m.role, content: m.content })),
-      max_tokens: 2000,
+      max_tokens: 4096,
     }
   } else if (ptype.includes('deepseek')) {
     url = 'https://api.deepseek.com/v1/chat/completions'

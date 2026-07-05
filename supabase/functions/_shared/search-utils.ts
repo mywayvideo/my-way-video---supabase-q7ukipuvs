@@ -1,122 +1,189 @@
-export function sanitizeInput(text: string): string {
-  return text.trim().slice(0, 1000)
+export function sanitizeInput(input: string): string {
+  if (!input || typeof input !== 'string') return ''
+  return input
+    .replace(/[<>]/g, '')
+    .replace(/javascript:/gi, '')
+    .replace(/on\w+=/gi, '')
+    .trim()
+    .slice(0, 500)
 }
 
-export function isInstitutionalQuery(text: string): boolean {
-  const kws = [
-    'empresa',
-    'sobre',
-    'quem somos',
-    'contato',
-    'onde fica',
-    'endereço',
-    'telefone',
-    'email',
-    'horário',
-    'horario',
-    'funcionamento',
-    'política',
-    'politica',
-    'termos',
-    'privacidade',
-    'troca',
-    'devolução',
-    'devolucao',
-    'garantia',
-    'frete',
-    'entrega',
-    'prazo',
-    'pagamento',
-    'forma de pagamento',
-    'company',
-    'about',
-    'contact',
-    'shipping',
-    'delivery',
-    'payment',
-    'warranty',
-    'return',
-    'refund',
-    'terms',
-    'privacy',
-  ]
-  const lower = text.toLowerCase()
-  return kws.some((kw) => lower.includes(kw))
+const INSTITUTIONAL_KEYWORDS = [
+  'empresa',
+  'sobre',
+  'quem somos',
+  'missão',
+  'visão',
+  'valores',
+  'contato',
+  'telefone',
+  'email',
+  'endereço',
+  'onde fica',
+  'localização',
+  'horário',
+  'funcionamento',
+  'política',
+  'termos',
+  'privacidade',
+  'troca',
+  'devolução',
+  'garantia',
+  'frete',
+  'entrega',
+  'pagamento',
+  'forma de pagamento',
+  'prazo',
+  'reembolso',
+  'cancelamento',
+  'history',
+  'about',
+  'company',
+  'contact',
+  'shipping',
+  'warranty',
+  'company info',
+  'quem é',
+  'o que é a',
+  'nossa loja',
+]
+
+export function isInstitutionalQuery(query: string): boolean {
+  const q = query.toLowerCase()
+  return INSTITUTIONAL_KEYWORDS.some((kw) => q.includes(kw))
+}
+
+interface AvproKeyword {
+  keyword: string
+  weight: number
+  is_blocking: boolean
 }
 
 export function checkKeywordRelevance(
-  text: string,
-  keywordList: { keyword: string; weight: number; is_blocking: boolean }[],
+  query: string,
+  keywords: AvproKeyword[],
 ): { isBlocked: boolean; relevanceScore: number } {
-  if (!keywordList || keywordList.length === 0) return { isBlocked: false, relevanceScore: 1 }
-  const lower = text.toLowerCase()
+  if (!keywords || keywords.length === 0) {
+    return { isBlocked: false, relevanceScore: 0 }
+  }
+  const q = query.toLowerCase()
   let relevanceScore = 0
-  let isBlocked = false
-  for (const kw of keywordList) {
-    const keyword = (kw.keyword || '').toLowerCase()
-    if (!keyword) continue
-    if (lower.includes(keyword)) {
-      if (kw.is_blocking) isBlocked = true
-      relevanceScore += Number(kw.weight) || 1
+  for (const kw of keywords) {
+    const kwLower = (kw.keyword || '').toLowerCase()
+    if (!kwLower) continue
+    if (q.includes(kwLower)) {
+      if (kw.is_blocking) {
+        return { isBlocked: true, relevanceScore: 0 }
+      }
+      relevanceScore += kw.weight || 1
     }
   }
-  return { isBlocked, relevanceScore }
+  return { isBlocked: false, relevanceScore }
 }
 
-export function extractProducts(rpcData: any): any[] {
-  if (!rpcData) return []
-  if (Array.isArray(rpcData)) return rpcData
-  if (Array.isArray(rpcData?.data)) return rpcData.data
-  if (Array.isArray(rpcData?.products)) return rpcData.products
+export function extractProducts(data: any): any[] {
+  if (!data) return []
+  if (Array.isArray(data)) return data
+  if (Array.isArray(data?.products)) return data.products
+  if (Array.isArray(data?.data)) return data.data
+  if (Array.isArray(data?.results)) return data.results
   return []
 }
 
 export function buildProductContext(products: any[]): any[] {
   if (!products || products.length === 0) return []
-  return products.map((p) => ({
+  return products.slice(0, 20).map((p: any) => ({
     id: p.id,
     name: p.name || p.title || '',
     sku: p.sku || '',
     category: p.category || '',
-    description: p.description || '',
-    price_usd: p.price_usd,
-    price_brl: p.price_brl,
-    price_nationalized_sales: p.price_nationalized_sales,
-    price_nationalized_currency: p.price_nationalized_currency,
+    description: (p.description || '').slice(0, 300),
+    price_usd: p.price_usd ?? null,
+    price_brl: p.price_brl ?? null,
+    price_nationalized_sales: p.price_nationalized_sales ?? null,
     image_url: p.image_url || '',
-    technical_info: p.technical_info || '',
+    stock: p.stock ?? null,
     manufacturer: p.manufacturer || p.manufacturer_name || '',
-    stock: p.stock,
-    weight: p.weight,
   }))
 }
 
-export function mergeProductResults(arrays: any[][]): any[] {
+export function mergeProductResults(...arrays: any[][]): any[] {
   const seen = new Set<string>()
   const merged: any[] = []
   for (const arr of arrays) {
     if (!Array.isArray(arr)) continue
-    for (const p of arr) {
-      if (!p || !p.id) continue
-      const key = String(p.id)
+    for (const item of arr) {
+      if (!item?.id) continue
+      const key = String(item.id)
       if (!seen.has(key)) {
         seen.add(key)
-        merged.push(p)
+        merged.push(item)
       }
     }
   }
   return merged
 }
 
-export async function extractEntities(query: string, openaiKey: string): Promise<string[]> {
-  if (!query.trim()) return [query]
-  if (!openaiKey) return [query]
+const STOP_WORDS_DEFAULT = [
+  'o',
+  'a',
+  'os',
+  'as',
+  'um',
+  'uma',
+  'de',
+  'do',
+  'da',
+  'dos',
+  'das',
+  'e',
+  'ou',
+  'para',
+  'com',
+  'sem',
+  'que',
+  'em',
+  'no',
+  'na',
+  'nos',
+  'nas',
+  'por',
+  'the',
+  'a',
+  'an',
+  'and',
+  'or',
+  'for',
+  'with',
+  'without',
+  'in',
+  'on',
+]
+
+export function removeStopWords(query: string, stopWords: string[]): string {
+  if (!query) return ''
+  const allStop = [...STOP_WORDS_DEFAULT, ...(stopWords || [])].map((w) => w.toLowerCase().trim())
+  const stopSet = new Set(allStop)
+  const tokens = query
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((t) => {
+      const cleaned = t.replace(/[^\wáéíóúãõâêôç]/gi, '').trim()
+      return cleaned.length > 0 && !stopSet.has(cleaned)
+    })
+  return tokens.join(' ')
+}
+
+export async function extractEntities(query: string, apiKey: string): Promise<string[]> {
+  if (!query || query.trim().length === 0) return [query]
+  if (!apiKey) return [query]
+
   try {
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${openaiKey}`,
+        Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
         model: 'gpt-4o-mini',
@@ -124,61 +191,45 @@ export async function extractEntities(query: string, openaiKey: string): Promise
           {
             role: 'system',
             content:
-              'Extract search terms from the user query for a product catalog. Return a JSON array of strings (max 5). Example: ["canon eos", "lente 50mm"]',
+              'Extract search entities from the user query for a product search. Return a JSON array of strings, each being a distinct search term or entity. Include the original query as the first element. Only return the JSON array, no other text.',
           },
           { role: 'user', content: query },
         ],
-        temperature: 0,
+        temperature: 0.2,
         max_tokens: 200,
       }),
     })
-    const data = await res.json()
-    const content = data?.choices?.[0]?.message?.content || ''
-    const entities = JSON.parse(content)
-    if (Array.isArray(entities) && entities.length > 0) {
-      return entities.filter((e) => typeof e === 'string' && e.trim().length > 0).slice(0, 5)
+    if (!response.ok) return [query]
+    const data = await response.json()
+    const content = data?.choices?.[0]?.message?.content?.trim()
+    if (!content) return [query]
+    const parsed = JSON.parse(content)
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      return parsed.filter((s: any) => typeof s === 'string' && s.trim().length > 0)
     }
-  } catch (e) {
-    console.error('[extractEntities] error:', e)
+    return [query]
+  } catch {
+    return [query]
   }
-  return [query]
-}
-
-export function removeStopWords(query: string, stopWords: string[]): string {
-  if (!stopWords || stopWords.length === 0) return query
-  let result = query
-  for (const sw of stopWords) {
-    if (!sw) continue
-    const regex = new RegExp(`\\b${sw.toLowerCase()}\\b`, 'gi')
-    result = result.replace(regex, '')
-  }
-  return result.replace(/\s+/g, ' ').trim()
 }
 
 export async function searchWithEntityFallback(
-  searchEntities: string[],
+  entities: string[],
   originalQuery: string,
   searchFn: (term: string) => Promise<any[]>,
 ): Promise<{ products: any[]; usedFallback: boolean }> {
-  const allProducts: any[] = []
-  for (const term of searchEntities) {
-    const results = await searchFn(term)
-    allProducts.push(...results)
-  }
-  const merged = mergeProductResults([allProducts])
-
-  if (merged.length > 0) {
-    return { products: merged, usedFallback: false }
+  const primaryResults = await searchFn(originalQuery)
+  if (primaryResults.length > 0) {
+    return { products: primaryResults, usedFallback: false }
   }
 
-  if (originalQuery.trim().length > 0 && !searchEntities.includes(originalQuery)) {
-    console.log(
-      `[ai-search] entity fallback triggered originalQuery="${originalQuery}" failedTerms=${JSON.stringify(searchEntities)}`,
-    )
-    const fallbackResults = await searchFn(originalQuery)
-    const fallbackMerged = mergeProductResults([fallbackResults])
-    return { products: fallbackMerged, usedFallback: true }
+  for (const entity of entities) {
+    if (entity === originalQuery) continue
+    const entityResults = await searchFn(entity)
+    if (entityResults.length > 0) {
+      return { products: entityResults, usedFallback: true }
+    }
   }
 
-  return { products: [], usedFallback: false }
+  return { products: primaryResults, usedFallback: false }
 }

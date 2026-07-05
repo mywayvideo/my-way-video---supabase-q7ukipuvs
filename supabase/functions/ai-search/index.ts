@@ -43,10 +43,13 @@ Deno.serve(async (req: Request) => {
     const lastReferencedProductId = body?.currentProductId || null
     const openaiKey = Deno.env.get('OPENAI_API_KEY') ?? ''
 
-    const supabase = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+    const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? ''
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+    console.log(
+      `[ai-search][env-check] SUPABASE_URL present=${!!supabaseUrl} length=${supabaseUrl.length} | SUPABASE_SERVICE_ROLE_KEY present=${!!supabaseServiceKey} length=${supabaseServiceKey.length}`,
     )
+
+    const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
     let history: any[] = []
     if (session_id) {
@@ -114,10 +117,20 @@ Deno.serve(async (req: Request) => {
         const { data: rpcData, error: rpcError } = await supabase.rpc('execute_ai_search_v3', {
           search_term: term,
         })
-        const products = extractProducts(rpcData)
         console.log(
-          `[ai-search] searchFn result count: ${products.length}, error: ${rpcError ? JSON.stringify(rpcError) : 'null'}`,
+          `[ai-search][rpc-diagnostic] term="${term}" | typeof data=${typeof rpcData} | dataPreview=${JSON.stringify(rpcData).slice(0, 200)}`,
         )
+        console.log(
+          `[ai-search][rpc-diagnostic] error=${rpcError ? JSON.stringify(rpcError) : 'null'}`,
+        )
+        if (rpcError) {
+          console.error(
+            `[ai-search][rpc-error] execute_ai_search_v3 failed for term="${term}" | fullError=${JSON.stringify(rpcError)}`,
+          )
+          return []
+        }
+        const products = extractProducts(rpcData)
+        console.log(`[ai-search] searchFn result count: ${products.length} for term="${term}"`)
         return products
       }
       const { products: fallbackProducts, usedFallback } = await searchWithEntityFallback(

@@ -1,4 +1,16 @@
-interface GenContext {
+import { createClient } from 'jsr:@supabase/supabase-js@2'
+
+interface Agent {
+  id: string
+  provider_name: string
+  model_id: string
+  provider_type: string
+  custom_endpoint: string | null
+  api_key_secret_name: string | null
+  priority: number | null
+}
+
+interface GenerateContext {
   agentSettings?: any
   aiSettings?: any
   institutionalContext?: string
@@ -9,228 +21,228 @@ interface GenContext {
   contextualProductData?: any
 }
 
-interface AIResult {
+interface GenerateResult {
   content: string
   confidence_level: string
   referenced_internal_products: string[]
   should_show_whatsapp_button: boolean
 }
 
-const BLOCKED_DOMAINS = [
-  'bhphotovideo.com',
-  'amazon.com',
-  'adorama.com',
-  'ebay.com',
-  'aliexpress.com',
-  'walmart.com',
-  'bestbuy.com',
-  'mercadolivre.com',
-]
-
-const PARSE_ERROR_MESSAGE =
-  'Desculpe, ocorreu um erro ao processar sua resposta. Tente reformular sua pergunta.'
-
-export async function getActiveAgents(supabase: any) {
+export async function getActiveAgents(supabase: ReturnType<typeof createClient>): Promise<Agent[]> {
   const { data, error } = await supabase
     .from('ai_providers')
-    .select('*')
+    .select(
+      'id, provider_name, model_id, provider_type, custom_endpoint, api_key_secret_name, priority',
+    )
     .eq('is_active', true)
     .order('priority', { ascending: true })
+
   if (error || !data) return []
-  return data
+  return data as Agent[]
 }
 
-function isHallucinatedProductRef(ref: string): boolean {
-  if (!ref || typeof ref !== 'string') return true
-  const lower = ref.toLowerCase()
-  if (BLOCKED_DOMAINS.some((d) => lower.includes(d))) return true
-  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-  if (!uuidRegex.test(ref)) return true
-  return false
+function getApiKey(agent: Agent): string {
+  const secretName = agent.api_key_secret_name || ''
+  const envKey = secretName.toUpperCase().replace(/[^A-Z0-9_]/g, '_')
+  if (agent.provider_type === 'openai' || agent.provider_name?.toLowerCase().includes('openai')) {
+    return Deno.env.get('OPENAI_API_KEY') ?? ''
+  }
+  if (
+    agent.provider_type === 'anthropic' ||
+    agent.provider_name?.toLowerCase().includes('anthropic')
+  ) {
+    return Deno.env.get('ANTHROPIC_API_KEY') ?? ''
+  }
+  if (
+    agent.provider_type === 'deepseek' ||
+    agent.provider_name?.toLowerCase().includes('deepseek')
+  ) {
+    return Deno.env.get('DEEPSEEK_API_KEY') ?? ''
+  }
+  return Deno.env.get(envKey) ?? Deno.env.get(secretName) ?? ''
 }
 
-function buildSystemPrompt(ctx: GenContext): string {
-  const parts: string[] = []
-  parts.push(
-    ctx.agentSettings?.system_prompt ||
-      ctx.aiSettings?.system_prompt_template ||
-      'You are a helpful assistant for an audiovisual e-commerce. Responda em português. Sempre retorne JSON.',
-  )
-  if (ctx.institutionalContext)
-    parts.push(`\n## Informações Institucionais\n${ctx.institutionalContext}`)
-  if (ctx.manufacturerList) parts.push(`\n## Fabricantes Disponíveis\n${ctx.manufacturerList}`)
-  if (ctx.aiSettings?.logistics_rules_prompt)
-    parts.push(`\n## Regras de Logística\n${ctx.aiSettings.logistics_rules_prompt}`)
+function buildSystemPrompt(context: GenerateContext): string {
+  const agentSettings = context.agentSettings || {}
+  const aiSettings = context.aiSettings || {}
+  const basePrompt = agentSettings.system_prompt || aiSettings.system_prompt_template || ''
+  const logisticsRules = aiSettings.logistics_rules_prompt || ''
+  const productPagePrompt = aiSettings.product_page_prompt || ''
 
-  parts.push(
-    '\n## REGRA ANTI-ALUCINAÇÃO (NÃO NEGOCIÁVEL)\n' +
-      'Se KNOWLEDGE_BASE/PRODUTOS estiver vazio, você está PROIBIDO de inventar, citar ou listar qualquer produto com ID, SKU, preço ou imagem. ' +
-      'Responda apenas em texto descritivo genérico, sem estrutura de produto. ' +
-      'NUNCA referencie produtos de terceiros ou domínios externos (ex: bhphotovideo.com, amazon.com). ' +
-      'Os campos "referenced_internal_products" só devem conter UUIDs que foram fornecidos no contexto de produtos.',
-  )
-
-  parts.push(
-    '\nResponda SEMPRE em JSON: {"content":"texto","confidence_level":"high|medium|low","referenced_internal_products":["uuid"],"should_show_whatsapp_button":boolean}',
-  )
-  return parts.join('\n')
+  let systemPrompt = basePrompt
+  if (context.institutionalContext) {
+    systemPrompt += `\n\nContexto institucional:\n${context.institutionalContext}`
+  }
+  if (context.manufacturerList) {
+    systemPrompt += `\n\nFabricantes disponíveis: ${context.manufacturerList}`
+  }
+  if (logisticsRules) {
+    systemPrompt += `\n\nRegras de logística:\n${logisticsRules}`
+  }
+  if (context.products && context.products.length > 0) {
+    systemPrompt += `\n\nProdutos encontrados:\n${JSON.stringify(context.products)}`
+  }
+  if (context.contextualProductData) {
+    systemPrompt += `\n\nProduto atualmente em visualização:\n${JSON.stringify(context.contextualProductData)}`
+  }
+  if (productPagePrompt && context.currentProductId) {
+    systemPrompt += `\n\n${productPagePrompt}`
+  }
+  return systemPrompt
 }
 
-function buildMessages(query: string, ctx: GenContext, systemPrompt: string): any[] {
-  const msgs: any[] = [{ role: 'system', content: systemPrompt }]
-  if (ctx.history?.length) {
-    for (const m of ctx.history.slice(-10)) {
-      if (m.role && m.content) msgs.push({ role: m.role, content: m.content })
-    }
-  }
-  let user = query
-  if (ctx.products?.length) user += `\n\n## Produtos do catálogo:\n${JSON.stringify(ctx.products)}`
-  if (ctx.contextualProductData)
-    user += `\n\n## Produto em visualização:\n${JSON.stringify(ctx.contextualProductData)}`
-  msgs.push({ role: 'user', content: user })
-  return msgs
-}
+async function callOpenAICompatible(
+  endpoint: string,
+  apiKey: string,
+  model: string,
+  systemPrompt: string,
+  userQuery: string,
+  history: any[],
+): Promise<string> {
+  const messages = [
+    { role: 'system', content: systemPrompt },
+    ...history.slice(-10),
+    { role: 'user', content: userQuery },
+  ]
 
-function parseResult(content: string): AIResult {
-  const userFriendlyError: AIResult = {
-    content: PARSE_ERROR_MESSAGE,
-    confidence_level: 'low',
-    referenced_internal_products: [],
-    should_show_whatsapp_button: false,
-  }
-
-  if (!content || content.trim().length === 0) {
-    console.error('[intelligence] parseResult error: empty content, length=0')
-    return userFriendlyError
-  }
-
-  try {
-    const m = content.match(/\{[\s\S]*\}/)
-    if (!m) {
-      console.error(
-        `[intelligence] parseResult error: no JSON structure found, contentLength=${content.length}`,
-      )
-      console.error(`[intelligence] raw response: ${content.slice(0, 500)}`)
-      return userFriendlyError
-    }
-
-    const parsed = JSON.parse(m[0])
-
-    return {
-      content:
-        typeof parsed.content === 'string' && parsed.content.trim().length > 0
-          ? parsed.content
-          : userFriendlyError.content,
-      confidence_level: parsed.confidence_level || 'medium',
-      referenced_internal_products: Array.isArray(parsed.referenced_internal_products)
-        ? parsed.referenced_internal_products.filter((id: any) => typeof id === 'string')
-        : [],
-      should_show_whatsapp_button: Boolean(parsed.should_show_whatsapp_button),
-    }
-  } catch (e) {
-    const errorMsg = e instanceof Error ? e.message : 'unknown error'
-    const contentEnd = content.length >= 100 ? content.slice(-100) : content
-    console.error(
-      `[intelligence] parseResult error: ${errorMsg}, contentLength=${content.length}, contentEnd=${contentEnd}`,
-    )
-    console.error(`[intelligence] raw response: ${content.slice(0, 500)}`)
-    return userFriendlyError
-  }
-}
-
-async function callProvider(provider: any, messages: any[]): Promise<AIResult | null> {
-  const apiKey = Deno.env.get(provider.api_key_secret_name || '') || ''
-  const model = provider.model_id || 'gpt-4o-mini'
-  const ptype = (provider.provider_type || provider.provider_name || '').toLowerCase()
-  let url = provider.custom_endpoint || 'https://api.openai.com/v1/chat/completions'
-  let headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    Authorization: `Bearer ${apiKey}`,
-  }
-  let body: any = { model, messages, temperature: 0.3, max_tokens: 4096 }
-
-  if (ptype.includes('anthropic') || ptype.includes('claude')) {
-    url = 'https://api.anthropic.com/v1/messages'
-    headers = {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-    }
-    const sys = messages.find((m) => m.role === 'system')?.content || ''
-    body = {
-      model,
-      system: sys,
-      messages: messages
-        .filter((m) => m.role !== 'system')
-        .map((m) => ({ role: m.role, content: m.content })),
-      max_tokens: 4096,
-    }
-  } else if (ptype.includes('deepseek')) {
-    url = 'https://api.deepseek.com/v1/chat/completions'
-  }
-
-  const res = await fetch(url, {
+  const response = await fetch(endpoint, {
     method: 'POST',
-    headers,
-    body: JSON.stringify(body),
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      messages,
+      temperature: 0.7,
+      max_tokens: 2000,
+    }),
   })
-  if (!res.ok) {
-    console.error(`[callProvider] ${provider.provider_name} returned ${res.status}`)
-    return null
+
+  if (!response.ok) {
+    const errorText = await response.text()
+    throw new Error(`AI API error (${response.status}): ${errorText}`)
   }
-  const data = await res.json()
-  const content = ptype.includes('anthropic')
-    ? data?.content?.[0]?.text
-    : data?.choices?.[0]?.message?.content
-  return parseResult(content || '')
+
+  const data = await response.json()
+  return data.choices?.[0]?.message?.content || ''
+}
+
+function extractProductIds(content: string, products: any[]): string[] {
+  const ids: string[] = []
+  if (!products || products.length === 0) return ids
+  for (const p of products) {
+    const pid = p.id || p.product_id
+    if (pid && (content.includes(pid) || content.includes(p.name || p.title || ''))) {
+      ids.push(pid)
+    }
+  }
+  return [...new Set(ids)]
+}
+
+function determineConfidence(content: string, hasProducts: boolean): string {
+  const lowerContent = content.toLowerCase()
+  if (
+    lowerContent.includes('não tenho certeza') ||
+    lowerContent.includes('não sei') ||
+    lowerContent.includes('incerto')
+  ) {
+    return 'low'
+  }
+  if (hasProducts) return 'high'
+  return 'medium'
+}
+
+function shouldShowWhatsApp(agentSettings: any, confidence: string): boolean {
+  const threshold = agentSettings.confidence_threshold_for_whatsapp || 'low'
+  const levels = ['low', 'medium', 'high']
+  const thresholdIdx = levels.indexOf(threshold)
+  const confidenceIdx = levels.indexOf(confidence)
+  return confidenceIdx <= thresholdIdx
 }
 
 export async function generateResponse(
   query: string,
-  ctx: GenContext,
-  _modelOverride: string | undefined,
-  supabase: any,
-): Promise<AIResult> {
-  const providers = await getActiveAgents(supabase)
-  if (providers.length === 0) throw new Error('No active AI providers')
-  const messages = buildMessages(query, ctx, buildSystemPrompt(ctx))
+  context: GenerateContext,
+  _unused: any,
+  supabase: ReturnType<typeof createClient>,
+): Promise<GenerateResult> {
+  const agents = await getActiveAgents(supabase)
+  if (agents.length === 0) {
+    throw new Error('Nenhum provedor de IA ativo configurado.')
+  }
 
-  for (const p of providers) {
+  const systemPrompt = buildSystemPrompt(context)
+  const history = context.history || []
+  const products = context.products || []
+  let content = ''
+
+  for (const agent of agents) {
     try {
-      const r = await callProvider(p, messages)
-      if (r) {
-        const hasContextProducts = ctx.products && ctx.products.length > 0
+      const apiKey = getApiKey(agent)
+      if (!apiKey) continue
 
-        if (!hasContextProducts && r.referenced_internal_products.length > 0) {
-          console.log(
-            `[intelligence] blocked hallucinated products count=${r.referenced_internal_products.length} sample=${JSON.stringify(r.referenced_internal_products.slice(0, 3))} reason=no_products_in_context`,
-          )
-          r.referenced_internal_products = []
-        }
-
-        if (hasContextProducts && r.referenced_internal_products.length > 0) {
-          const blocked: string[] = []
-          const valid: string[] = []
-          for (const ref of r.referenced_internal_products) {
-            if (isHallucinatedProductRef(ref)) {
-              blocked.push(ref)
-            } else {
-              valid.push(ref)
-            }
-          }
-          if (blocked.length > 0) {
-            console.log(
-              `[intelligence] blocked hallucinated products count=${blocked.length} sample=${JSON.stringify(blocked.slice(0, 3))} reason=invalid_uuid_or_domain_ref`,
-            )
-          }
-          r.referenced_internal_products = valid
-        }
-
-        return r
+      let endpoint = 'https://api.openai.com/v1/chat/completions'
+      if (agent.provider_type === 'deepseek') {
+        endpoint = 'https://api.deepseek.com/v1/chat/completions'
+      } else if (agent.custom_endpoint) {
+        endpoint = agent.custom_endpoint
+      } else if (agent.provider_type === 'anthropic') {
+        endpoint = 'https://api.anthropic.com/v1/messages'
       }
-    } catch (e) {
-      console.error(`[generateResponse] ${p.provider_name} failed:`, e)
+
+      if (agent.provider_type === 'anthropic') {
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+          },
+          body: JSON.stringify({
+            model: agent.model_id,
+            system: systemPrompt,
+            messages: [
+              ...history.slice(-10).map((h: any) => ({ role: h.role, content: h.content })),
+              { role: 'user', content: query },
+            ],
+            max_tokens: 2000,
+          }),
+        })
+        if (!response.ok) continue
+        const data = await response.json()
+        content = data.content?.[0]?.text || ''
+      } else {
+        content = await callOpenAICompatible(
+          endpoint,
+          apiKey,
+          agent.model_id,
+          systemPrompt,
+          query,
+          history,
+        )
+      }
+
+      if (content) break
+    } catch (err) {
+      console.error(`[intelligence] Agent ${agent.provider_name} failed:`, err)
+      continue
     }
   }
-  throw new Error('All AI providers failed')
+
+  if (!content) {
+    content =
+      'Desculpe, não foi possível processar sua solicitação no momento. Tente novamente em instantes.'
+  }
+
+  const referencedProducts = extractProductIds(content, products)
+  const confidence = determineConfidence(content, referencedProducts.length > 0)
+  const showWhatsApp = shouldShowWhatsApp(context.agentSettings || {}, confidence)
+
+  return {
+    content,
+    confidence_level: confidence,
+    referenced_internal_products: referencedProducts,
+    should_show_whatsapp_button: showWhatsApp,
+  }
 }

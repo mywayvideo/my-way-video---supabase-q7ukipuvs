@@ -4,12 +4,41 @@ export function sanitizeInput(text: string): string {
 
 export function isInstitutionalQuery(text: string): boolean {
   const kws = [
-    'empresa', 'sobre', 'quem somos', 'contato', 'onde fica', 'endereço',
-    'telefone', 'email', 'horário', 'horario', 'funcionamento', 'política',
-    'politica', 'termos', 'privacidade', 'troca', 'devolução', 'devolucao',
-    'garantia', 'frete', 'entrega', 'prazo', 'pagamento', 'forma de pagamento',
-    'company', 'about', 'contact', 'shipping', 'delivery', 'payment',
-    'warranty', 'return', 'refund', 'terms', 'privacy',
+    'empresa',
+    'sobre',
+    'quem somos',
+    'contato',
+    'onde fica',
+    'endereço',
+    'telefone',
+    'email',
+    'horário',
+    'horario',
+    'funcionamento',
+    'política',
+    'politica',
+    'termos',
+    'privacidade',
+    'troca',
+    'devolução',
+    'devolucao',
+    'garantia',
+    'frete',
+    'entrega',
+    'prazo',
+    'pagamento',
+    'forma de pagamento',
+    'company',
+    'about',
+    'contact',
+    'shipping',
+    'delivery',
+    'payment',
+    'warranty',
+    'return',
+    'refund',
+    'terms',
+    'privacy',
   ]
   const lower = text.toLowerCase()
   return kws.some((kw) => lower.includes(kw))
@@ -19,8 +48,7 @@ export function checkKeywordRelevance(
   text: string,
   keywordList: { keyword: string; weight: number; is_blocking: boolean }[],
 ): { isBlocked: boolean; relevanceScore: number } {
-  if (!keywordList || keywordList.length === 0)
-    return { isBlocked: false, relevanceScore: 1 }
+  if (!keywordList || keywordList.length === 0) return { isBlocked: false, relevanceScore: 1 }
   const lower = text.toLowerCase()
   let relevanceScore = 0
   let isBlocked = false
@@ -80,10 +108,7 @@ export function mergeProductResults(arrays: any[][]): any[] {
   return merged
 }
 
-export async function extractEntities(
-  query: string,
-  openaiKey: string,
-): Promise<string[]> {
+export async function extractEntities(query: string, openaiKey: string): Promise<string[]> {
   if (!query.trim()) return [query]
   if (!openaiKey) return [query]
   try {
@@ -111,9 +136,7 @@ export async function extractEntities(
     const content = data?.choices?.[0]?.message?.content || ''
     const entities = JSON.parse(content)
     if (Array.isArray(entities) && entities.length > 0) {
-      return entities
-        .filter((e) => typeof e === 'string' && e.trim().length > 0)
-        .slice(0, 5)
+      return entities.filter((e) => typeof e === 'string' && e.trim().length > 0).slice(0, 5)
     }
   } catch (e) {
     console.error('[extractEntities] error:', e)
@@ -130,4 +153,32 @@ export function removeStopWords(query: string, stopWords: string[]): string {
     result = result.replace(regex, '')
   }
   return result.replace(/\s+/g, ' ').trim()
+}
+
+export async function searchWithEntityFallback(
+  searchEntities: string[],
+  originalQuery: string,
+  searchFn: (term: string) => Promise<any[]>,
+): Promise<{ products: any[]; usedFallback: boolean }> {
+  const allProducts: any[] = []
+  for (const term of searchEntities) {
+    const results = await searchFn(term)
+    allProducts.push(...results)
+  }
+  const merged = mergeProductResults([allProducts])
+
+  if (merged.length > 0) {
+    return { products: merged, usedFallback: false }
+  }
+
+  if (originalQuery.trim().length > 0 && !searchEntities.includes(originalQuery)) {
+    console.log(
+      `[ai-search] entity fallback triggered originalQuery="${originalQuery}" failedTerms=${JSON.stringify(searchEntities)}`,
+    )
+    const fallbackResults = await searchFn(originalQuery)
+    const fallbackMerged = mergeProductResults([fallbackResults])
+    return { products: fallbackMerged, usedFallback: true }
+  }
+
+  return { products: [], usedFallback: false }
 }

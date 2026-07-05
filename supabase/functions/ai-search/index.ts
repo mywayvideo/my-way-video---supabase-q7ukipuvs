@@ -11,6 +11,7 @@ import {
   mergeProductResults,
   extractEntities,
   removeStopWords,
+  searchWithEntityFallback,
 } from '../_shared/search-utils.ts'
 
 const OUT_OF_SCOPE_MESSAGE =
@@ -105,17 +106,26 @@ Deno.serve(async (req: Request) => {
       searchEntities = await extractEntities(searchQuery, openaiKey)
     }
 
-    // Product Search (Stage C preparation)
+    // Product Search (Stage C preparation) with deterministic entity fallback
     let level1Products: any[] = []
     if (searchQuery.trim().length > 0) {
-      const allProducts: any[] = []
-      for (const term of searchEntities) {
+      const searchFn = async (term: string): Promise<any[]> => {
         const { data: rpcData } = await supabase.rpc('execute_ai_search_v3', {
           search_term: term,
         })
-        allProducts.push(...extractProducts(rpcData))
+        return extractProducts(rpcData)
       }
-      level1Products = mergeProductResults([allProducts])
+      const { products: fallbackProducts, usedFallback } = await searchWithEntityFallback(
+        searchEntities,
+        searchQuery,
+        searchFn,
+      )
+      level1Products = fallbackProducts
+      if (usedFallback) {
+        console.log(
+          `[ai-search] entity fallback produced results count=${level1Products.length} for query="${searchQuery}"`,
+        )
+      }
     }
     level1Products = level1Products.filter((p: any) => p && p.id && (p.name || p.title || p.sku))
     console.log(

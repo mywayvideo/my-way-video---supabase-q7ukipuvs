@@ -35,7 +35,8 @@ function buildSystemPrompt(ctx: GenContext): string {
   )
   if (ctx.institutionalContext)
     parts.push(`\n## Informações Institucionais\n${ctx.institutionalContext}`)
-  if (ctx.manufacturerList) parts.push(`\n## Fabricantes Disponíveis\n${ctx.manufacturerList}`)
+  if (ctx.manufacturerList)
+    parts.push(`\n## Fabricantes Disponíveis\n${ctx.manufacturerList}`)
   if (ctx.aiSettings?.logistics_rules_prompt)
     parts.push(`\n## Regras de Logística\n${ctx.aiSettings.logistics_rules_prompt}`)
   parts.push(
@@ -52,7 +53,8 @@ function buildMessages(query: string, ctx: GenContext, systemPrompt: string): an
     }
   }
   let user = query
-  if (ctx.products?.length) user += `\n\n## Produtos do catálogo:\n${JSON.stringify(ctx.products)}`
+  if (ctx.products?.length)
+    user += `\n\n## Produtos do catálogo:\n${JSON.stringify(ctx.products)}`
   if (ctx.contextualProductData)
     user += `\n\n## Produto em visualização:\n${JSON.stringify(ctx.contextualProductData)}`
   msgs.push({ role: 'user', content: user })

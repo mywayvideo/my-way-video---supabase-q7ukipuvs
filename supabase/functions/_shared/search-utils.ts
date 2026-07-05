@@ -4,41 +4,12 @@ export function sanitizeInput(text: string): string {
 
 export function isInstitutionalQuery(text: string): boolean {
   const kws = [
-    'empresa',
-    'sobre',
-    'quem somos',
-    'contato',
-    'onde fica',
-    'endereço',
-    'telefone',
-    'email',
-    'horário',
-    'horario',
-    'funcionamento',
-    'política',
-    'politica',
-    'termos',
-    'privacidade',
-    'troca',
-    'devolução',
-    'devolucao',
-    'garantia',
-    'frete',
-    'entrega',
-    'prazo',
-    'pagamento',
-    'forma de pagamento',
-    'company',
-    'about',
-    'contact',
-    'shipping',
-    'delivery',
-    'payment',
-    'warranty',
-    'return',
-    'refund',
-    'terms',
-    'privacy',
+    'empresa', 'sobre', 'quem somos', 'contato', 'onde fica', 'endereço',
+    'telefone', 'email', 'horário', 'horario', 'funcionamento', 'política',
+    'politica', 'termos', 'privacidade', 'troca', 'devolução', 'devolucao',
+    'garantia', 'frete', 'entrega', 'prazo', 'pagamento', 'forma de pagamento',
+    'company', 'about', 'contact', 'shipping', 'delivery', 'payment',
+    'warranty', 'return', 'refund', 'terms', 'privacy',
   ]
   const lower = text.toLowerCase()
   return kws.some((kw) => lower.includes(kw))
@@ -48,7 +19,8 @@ export function checkKeywordRelevance(
   text: string,
   keywordList: { keyword: string; weight: number; is_blocking: boolean }[],
 ): { isBlocked: boolean; relevanceScore: number } {
-  if (!keywordList || keywordList.length === 0) return { isBlocked: false, relevanceScore: 1 }
+  if (!keywordList || keywordList.length === 0)
+    return { isBlocked: false, relevanceScore: 1 }
   const lower = text.toLowerCase()
   let relevanceScore = 0
   let isBlocked = false
@@ -108,7 +80,10 @@ export function mergeProductResults(arrays: any[][]): any[] {
   return merged
 }
 
-export async function extractEntities(query: string, openaiKey: string): Promise<string[]> {
+export async function extractEntities(
+  query: string,
+  openaiKey: string,
+): Promise<string[]> {
   if (!query.trim()) return [query]
   if (!openaiKey) return [query]
   try {
@@ -136,7 +111,9 @@ export async function extractEntities(query: string, openaiKey: string): Promise
     const content = data?.choices?.[0]?.message?.content || ''
     const entities = JSON.parse(content)
     if (Array.isArray(entities) && entities.length > 0) {
-      return entities.filter((e) => typeof e === 'string' && e.trim().length > 0).slice(0, 5)
+      return entities
+        .filter((e) => typeof e === 'string' && e.trim().length > 0)
+        .slice(0, 5)
     }
   } catch (e) {
     console.error('[extractEntities] error:', e)

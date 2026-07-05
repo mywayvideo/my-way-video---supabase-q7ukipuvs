@@ -38,18 +38,14 @@ const DEFAULT_PARSED_RESULT: ParsedResult = {
 }
 
 const JSON_FORMAT_INSTRUCTIONS = `
-## FORMATO DE RESPOSTA OBRIGATÓRIO (JSON)
-
-Sua resposta DEVE ser um JSON válido com os seguintes campos:
-- "content": string contendo markdown (use ## para títulos, ### para subtítulos, - para listas, e | para tabelas).
-- "referenced_internal_products": array de strings contendo os UUIDs de todos os produtos mencionados ou comparados.
-- "confidence_level": limite os valores a "high", "medium", ou "low".
-- "should_show_whatsapp_button": boolean.
-
-NUNCA retorne {message: ...} — o campo correto é "content".
-
-Exemplo de resposta:
-{"content": "## Título\\n\\nTexto", "referenced_internal_products": ["uuid1", "uuid2"], "confidence_level": "high", "should_show_whatsapp_button": false}`
+## FORMATO DE RESPOSTA OBRIGATÓRIO
+Sua resposta DEVE ser um JSON válido com exatamente estes campos:
+- "content": string com markdown puro (use ## para títulos, ### para subtítulos, - para listas, | para tabelas). NUNCA coloque outro JSON dentro de content.
+- "referenced_internal_products": array de strings com UUIDs de TODOS os produtos mencionados
+- "confidence_level": "high", "medium" ou "low"
+- "should_show_whatsapp_button": boolean
+Exemplo CORRETO: {"content": "## Comparação\\n\\nTexto", "referenced_internal_products": ["uuid1", "uuid2"], "confidence_level": "high", "should_show_whatsapp_button": false}
+Exemplo ERRADO (não faça): {"content": "{\\"message\\":\\"## ...\\"}"} — NUNCA aninhe JSON dentro de content.`
 
 export async function getActiveAgents(supabase: any): Promise<AgentProvider[]> {
   const { data, error } = await supabase
@@ -93,6 +89,8 @@ function buildSystemPrompt(ctx: GenerateContext): string {
       prompt += `\n\n${aiSettings.product_page_prompt}`
     }
 
+    prompt += JSON_FORMAT_INSTRUCTIONS
+  } else {
     prompt += JSON_FORMAT_INSTRUCTIONS
   }
 

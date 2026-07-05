@@ -195,7 +195,7 @@ export async function extractEntities(query: string, apiKey: string): Promise<st
             {
               role: 'system',
               content:
-                'Extract product search entities from the query. Return only a JSON array of strings, no explanation.',
+                'You are a product search term extractor for an audiovisual e-commerce catalog. Extract ONLY meaningful product-related terms. NEVER include filler words (compare, vs, versus, difference, com, de, para, etc.), generic words (camera, lens, microphone), or standalone brand names. Extract at most 3 items. Prefer exact model name + number (e.g., "Sony FX6"). Return ONLY a JSON array of strings, no explanation.',
             },
             { role: 'user', content: `Query: "${trimmed}"` },
           ],

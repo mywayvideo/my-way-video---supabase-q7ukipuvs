@@ -62,6 +62,7 @@ export async function generateResponse(
 1. Resposta FINAL deve ser apenas JSON: {"message":"...","confidence_level":"high"|"low","referenced_internal_products":[],"should_show_whatsapp_button":boolean}
 2. "referenced_internal_products" deve conter APENAS IDs dos produtos fornecidos.
 3. IDs nunca devem aparecer no texto visível.
+3b. Para perguntas de listagem ou catálogo amplo (ex: 'quais câmeras PTZ 4K vocês têm', 'mostre opções de X'), referenced_internal_products DEVE conter os IDs de TODOS os produtos relevantes fornecidos no contexto (PRODUTOS), não apenas os primeiros exemplos citados no texto. Nunca omita produtos do array apenas porque não foram citados nominalmente na resposta em texto corrido.
 4. Formate em markdown. Insira imagens: ![Nome](image_url).
 5. Para perguntas institucionais, "referenced_internal_products" vazio e "should_show_whatsapp_button" true.`
 
@@ -179,8 +180,12 @@ export async function generateResponse(
     })
   }
 
+  console.log(
+    `[intelligence] aiMentionedProducts fallback check: refs=${refs.length} contextProducts=${contextProducts.length} matchedByRefs=${aiMentionedProducts.length}`,
+  )
+
   if (aiMentionedProducts.length === 0 && contextProducts.length > 0) {
-    aiMentionedProducts = contextProducts.slice(0, 4)
+    aiMentionedProducts = contextProducts
   }
 
   return {

@@ -6,6 +6,41 @@ export function sanitizeInput(text: any): string {
   }
 }
 
+export function removeStopWords(query: string, stopWords: string[]): string {
+  if (!stopWords || stopWords.length === 0) return query
+
+  const normalize = (str: string): string =>
+    str
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+
+  const normalizedStopWords = stopWords
+    .map((sw) => normalize(sw.trim()))
+    .filter((sw) => sw.length > 0)
+
+  const stopWordSet = new Set<string>()
+  for (const sw of normalizedStopWords) {
+    stopWordSet.add(sw)
+    stopWordSet.add(sw + 's')
+    stopWordSet.add(sw + 'es')
+    if (sw.endsWith('s')) {
+      stopWordSet.add(sw.slice(0, -1))
+      if (sw.endsWith('es')) {
+        stopWordSet.add(sw.slice(0, -2))
+      }
+    }
+  }
+
+  const queryWords = query.split(/\s+/)
+  const filtered = queryWords.filter((word) => {
+    const normalizedWord = normalize(word)
+    return !stopWordSet.has(normalizedWord)
+  })
+
+  return filtered.join(' ').trim()
+}
+
 const INSTITUTIONAL_KEYWORDS = [
   'horario',
   'horário',
@@ -140,9 +175,14 @@ export function buildProductContext(products: any[]): any[] {
 
 export function mergeProductResults(resultArrays: any[][]): any[] {
   const productMap = new Map<string, any>()
+  const seenIds = new Set<string>()
   for (const products of resultArrays) {
     for (const p of products) {
-      if (p?.id && !productMap.has(p.id)) productMap.set(p.id, p)
+      if (!p?.id) continue
+      const normalizedId = String(p.id).toLowerCase()
+      if (seenIds.has(normalizedId)) continue
+      seenIds.add(normalizedId)
+      productMap.set(normalizedId, p)
     }
   }
   return Array.from(productMap.values())
@@ -193,7 +233,7 @@ export async function extractEntities(query: string, openaiKey?: string): Promis
 
 export function extractEntitiesHeuristic(query: string): string[] {
   const lower = query.toLowerCase()
-  const separators = [' vs ', ' versus ', ' ou ', ' comparar ', ' comparação ']
+  const separators = [' vs ', ' versus ', ' ou ', ' com ', ' comparar ', ' comparação ']
   for (const sep of separators) {
     if (lower.includes(sep)) {
       const parts = query

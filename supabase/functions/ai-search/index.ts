@@ -10,6 +10,7 @@ import {
   buildProductContext,
   mergeProductResults,
   extractEntities,
+  removeStopWords,
 } from '../_shared/search-utils.ts'
 
 const OUT_OF_SCOPE_MESSAGE =
@@ -91,15 +92,22 @@ Deno.serve(async (req: Request) => {
         status: 500,
       })
 
+    // Stage A: Stop-words removal
+    const stopWords = Array.isArray(aiSettings?.custom_stop_words)
+      ? aiSettings.custom_stop_words
+      : []
+    const searchQuery = removeStopWords(query, stopWords) || query
+    logCascade('A', 'stopwords', true, query, `cleaned="${searchQuery}"`)
+
     // Entity Extraction
-    let searchEntities: string[] = [query]
-    if (query.trim().length > 0) {
-      searchEntities = await extractEntities(query, openaiKey)
+    let searchEntities: string[] = [searchQuery]
+    if (searchQuery.trim().length > 0) {
+      searchEntities = await extractEntities(searchQuery, openaiKey)
     }
 
     // Product Search (Stage C preparation)
     let level1Products: any[] = []
-    if (query.trim().length > 0) {
+    if (searchQuery.trim().length > 0) {
       const allProducts: any[] = []
       for (const term of searchEntities) {
         const { data: rpcData } = await supabase.rpc('execute_ai_search_v3', {
@@ -109,6 +117,10 @@ Deno.serve(async (req: Request) => {
       }
       level1Products = mergeProductResults([allProducts])
     }
+    level1Products = level1Products.filter((p: any) => p && p.id && (p.name || p.title || p.sku))
+    console.log(
+      `[ai-search] searchEntities=${JSON.stringify(searchEntities)} validProducts=${level1Products.length}`,
+    )
     const level1Context = level1Products.length > 0 ? buildProductContext(level1Products) : []
 
     // Contextual product data
@@ -193,11 +205,8 @@ Deno.serve(async (req: Request) => {
       )
     }
 
-    // Stage A: Stop-words removal (logged for traceability)
-    logCascade('A', 'stopwords', true, query)
-
     // Stage B: Institutional
-    if (query.trim().length > 0 && isInstitutionalQuery(query)) {
+    if (searchQuery.trim().length > 0 && isInstitutionalQuery(searchQuery)) {
       logCascade('B', 'institutional', true, query)
       const aiResult = await generateResponse(
         query,
@@ -255,7 +264,7 @@ Deno.serve(async (req: Request) => {
     }
 
     // Stage E: Keywords
-    const kwCheckE = checkKeywordRelevance(query, keywordList)
+    const kwCheckE = checkKeywordRelevance(searchQuery, keywordList)
     if (kwCheckE.isBlocked) {
       logCascade('E', 'keywords', false, query, '(blocked)')
       return outOfScopeResponse()
@@ -279,7 +288,7 @@ Deno.serve(async (req: Request) => {
     }
 
     // Stage F: General Fallback
-    const kwCheckF = checkKeywordRelevance(query, keywordList)
+    const kwCheckF = checkKeywordRelevance(searchQuery, keywordList)
     if (kwCheckF.isBlocked || kwCheckF.relevanceScore === 0) {
       logCascade('F', 'general', false, query, '(blocked by system)')
       return outOfScopeResponse()

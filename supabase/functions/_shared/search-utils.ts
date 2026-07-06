@@ -102,7 +102,7 @@ export function mergeProductResults(products: any[]): any[] {
   return merged
 }
 
-const EXCLUSION_WORDS = new Set([
+const STOP_AND_GENERIC_WORDS = new Set([
   'ela',
   'ele',
   'este',
@@ -127,13 +127,33 @@ const EXCLUSION_WORDS = new Set([
   'the',
   'an',
   'compare',
+  'comparar',
+  'with',
+  'com',
+  'de',
+  'da',
+  'do',
+  'das',
+  'dos',
+  'câmera',
   'camera',
-  'lens',
-  'microphone',
-  'tripod',
-  'battery',
-  'cable',
+  'lente',
+  'microfone',
+  'microfones',
+  'tripé',
+  'tripés',
   'monitor',
+  'monitores',
+  'iluminação',
+  'battery',
+  'bateria',
+  'audio',
+  'áudio',
+  'video',
+  'vídeo',
+  'cable',
+  'tripod',
+  'lens',
   'light',
   'card',
   'case',
@@ -158,18 +178,29 @@ const EXCLUSION_WORDS = new Set([
 ])
 
 export async function extractEntities(query: string, _apiKey: string): Promise<string[]> {
-  const trimmed = query.trim()
+  let trimmed = query.trim()
   if (trimmed.length === 0) return []
 
-  if (trimmed.includes(' ')) {
-    return Array.from(new Set([trimmed.toLowerCase()]))
-  }
+  // NEVER include "compare" in the search term
+  trimmed = trimmed.replace(/\bcompare\b/gi, '').trim()
 
-  if (!EXCLUSION_WORDS.has(trimmed.toLowerCase())) {
-    return [trimmed]
-  }
+  // NEVER include punctuation like periods or commas (preserve hyphens in model names)
+  trimmed = trimmed
+    .replace(/[.,;:!?]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
 
-  return [trimmed]
+  // NEVER include generic words — extract ONLY manufacturer and model name
+  const words = trimmed.split(/\s+/)
+  const filteredWords = words.filter((w) => !STOP_AND_GENERIC_WORDS.has(w.toLowerCase()))
+
+  if (filteredWords.length === 0) return []
+
+  const result = filteredWords.join(' ').trim()
+  if (result.length === 0) return []
+
+  // Preserve original case for manufacturer/model names
+  return Array.from(new Set([result]))
 }
 
 export function removeStopWords(query: string, stopWords: string[]): string {

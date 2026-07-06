@@ -141,6 +141,21 @@ Deno.serve(async (req: Request) => {
       logCascade('A', 'stopwords', true, query, `cleaned="${searchQuery}"`)
     }
 
+    // Comparison Mode Detection — extract target product name from patterns like "compare com a Sony..."
+    if (!skipSearch) {
+      const compareMatch = query.match(/\bcom\s+(?:a|o)\s+(.+)/i)
+      if (compareMatch && compareMatch[1]) {
+        const extracted = compareMatch[1]
+          .trim()
+          .replace(/[.,;:!?\s]+$/, '')
+          .trim()
+        if (extracted.length > 0) {
+          searchQuery = extracted
+          console.log(`[ai-search] PP compare mode: extracted target term="${extracted}"`)
+        }
+      }
+    }
+
     // Entity Extraction (skipped if technical intent detected)
     let searchEntities: string[] = [searchQuery]
     if (!skipSearch && searchQuery.trim().length > 0) {
@@ -217,6 +232,18 @@ Deno.serve(async (req: Request) => {
     const level1Context = level1Products.length > 0 ? buildProductContext(level1Products) : []
 
     async function persistAndReturn(aiResult: any, type: string): Promise<Response> {
+      // Product Page Deduplication — remove currently viewed product from results
+      if (lastReferencedProductId && Array.isArray(aiResult.referenced_internal_products)) {
+        const beforeCount = aiResult.referenced_internal_products.length
+        aiResult.referenced_internal_products = aiResult.referenced_internal_products.filter(
+          (id: string) => id !== lastReferencedProductId,
+        )
+        if (beforeCount !== aiResult.referenced_internal_products.length) {
+          console.log(
+            `[ai-search] PP dedup: removed currentProductId=${lastReferencedProductId} from referenced_internal_products`,
+          )
+        }
+      }
       if (session_id) {
         await supabase
           .from('chat_messages')

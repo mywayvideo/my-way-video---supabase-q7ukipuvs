@@ -12,7 +12,7 @@
     "create-discount-coupon": 34,
     "create-payment-intent": 35,
     "create-paypal-payment-intent": 34,
-    "ai-search": 60,
+    "ai-search": 61,
     "update-exchange-rate": 22,
     "execute_ai_search_v2_pp": 21,
     "lookup-address": 22,

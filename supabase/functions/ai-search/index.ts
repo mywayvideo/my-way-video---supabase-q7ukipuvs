@@ -45,7 +45,7 @@ Deno.serve(async (req: Request) => {
       })
     }
 
-    const query = sanitizeInput(body?.query || '')
+    let query = sanitizeInput(body?.query || '')
     const session_id = typeof body?.session_id === 'string' ? body.session_id : null
     const lastReferencedProductId = body?.currentProductId || null
     const openaiKey = Deno.env.get('OPENAI_API_KEY') ?? ''
@@ -124,6 +124,45 @@ Deno.serve(async (req: Request) => {
           ...product,
           technical_info: techInfo,
           manufacturer: (product.manufacturers as any)?.name || 'N/A',
+        }
+      }
+    }
+
+    // Pronoun Resolution — replace demonstrative pronouns with actual product name on Product Page
+    if (contextualProductData && (contextualProductData.id || lastReferencedProductId)) {
+      const ppProductId = contextualProductData.id || lastReferencedProductId
+      const ppProductName = contextualProductData.name || ''
+      if (ppProductName) {
+        const pronounPatterns = [
+          'essa camera',
+          'esta camera',
+          'essa',
+          'esta',
+          'este produto',
+          'esse produto',
+          'esse',
+          'dessa',
+          'desta',
+          'nessa',
+          'nesta',
+          'this camera',
+          'this product',
+          'this',
+        ]
+        const lowerQuery = query.toLowerCase()
+        for (const pattern of pronounPatterns) {
+          const patternLower = pattern.toLowerCase()
+          const idx = lowerQuery.indexOf(patternLower)
+          if (idx !== -1) {
+            const beforeOk = idx === 0 || !/[a-zà-ÿ]/i.test(query[idx - 1])
+            const afterIdx = idx + patternLower.length
+            const afterOk = afterIdx >= query.length || !/[a-zà-ÿ]/i.test(query[afterIdx])
+            if (beforeOk && afterOk) {
+              query = query.slice(0, idx) + ppProductName + query.slice(afterIdx)
+              console.log(`[ai-search] PP pronoun resolved: "${pattern}" → ID=${ppProductId}`)
+              break
+            }
+          }
         }
       }
     }
@@ -289,68 +328,67 @@ Deno.serve(async (req: Request) => {
     const level1Context = level1Products.length > 0 ? buildProductContext(level1Products) : []
 
     async function persistAndReturn(aiResult: any, type: string): Promise<Response> {
-      // Dynamic Product Reference Expansion — merge all found products (excluding accessories)
-      const accessoryKeywords = [
-        'memory',
-        'card',
-        'battery',
-        'bateria',
-        'cable',
-        'cabo',
-        'adapter',
-        'adaptador',
-        'mount',
-        'suporte',
-        'case',
-        'estojo',
-        'bag',
-        'bolsa',
-        'grip',
-        'wind',
-        'screen',
-        'protector',
-        'cap',
-        'cover',
-        'carte',
-        'cartão',
-        'memória',
-        'bateria',
-        'teleconverter',
-        'converter',
-        'lens cap',
-        'strap',
-        'headphone',
-        'microphone',
-        'recorder',
-        'monitor',
-      ]
-      const accessoryLower = accessoryKeywords.map((k) => k.toLowerCase())
-      const filteredProducts = level1Products.filter((p: any) => {
-        const name = (p.name || p.title || '').toLowerCase()
-        const category = (p.category || '').toLowerCase()
-        return !accessoryLower.some((kw) => name.includes(kw) || category.includes(kw))
-      })
-      const allProductIds = filteredProducts.map((p: any) => p.id).filter(Boolean)
       const existingIds = Array.isArray(aiResult.referenced_internal_products)
         ? aiResult.referenced_internal_products
         : []
-      const mergedIdSet = new Set<string>([...existingIds, ...allProductIds])
-      aiResult.referenced_internal_products = Array.from(mergedIdSet)
-      console.log(
-        `[ai-search] EXPANDED referenced_internal_products: IA chose ${existingIds.length}, search added ${allProductIds.length}, total=${aiResult.referenced_internal_products.length}`,
-      )
+      const isPPMode = !!(contextualProductData?.id || lastReferencedProductId)
 
-      // Product Page Deduplication — remove currently viewed product from results
-      if (lastReferencedProductId && Array.isArray(aiResult.referenced_internal_products)) {
-        const beforeCount = aiResult.referenced_internal_products.length
-        aiResult.referenced_internal_products = aiResult.referenced_internal_products.filter(
-          (id: string) => id !== lastReferencedProductId,
+      if (isPPMode) {
+        // PP Mode: keep ONLY AI-selected products, remove current product
+        const currentProductId = lastReferencedProductId || contextualProductData?.id
+        aiResult.referenced_internal_products = existingIds.filter(
+          (id: string) => id !== currentProductId,
         )
-        if (beforeCount !== aiResult.referenced_internal_products.length) {
-          console.log(
-            `[ai-search] PP dedup: removed currentProductId=${lastReferencedProductId} from referenced_internal_products`,
-          )
-        }
+        console.log(
+          `[ai-search] PP MODE: ${existingIds.length} IA choices → ${aiResult.referenced_internal_products.length} after removing currentProduct`,
+        )
+      } else {
+        // HP Mode: expand with all search products (excluding accessories)
+        const accessoryKeywords = [
+          'memory',
+          'card',
+          'battery',
+          'bateria',
+          'cable',
+          'cabo',
+          'adapter',
+          'adaptador',
+          'mount',
+          'suporte',
+          'case',
+          'estojo',
+          'bag',
+          'bolsa',
+          'grip',
+          'wind',
+          'screen',
+          'protector',
+          'cap',
+          'cover',
+          'carte',
+          'cartão',
+          'memória',
+          'teleconverter',
+          'converter',
+          'lens cap',
+          'strap',
+          'headphone',
+          'microphone',
+          'recorder',
+          'monitor',
+        ]
+        const accessoryLower = accessoryKeywords.map((k) => k.toLowerCase())
+        const filteredProducts = level1Products.filter((p: any) => {
+          const name = (p.name || p.title || '').toLowerCase()
+          const category = (p.category || '').toLowerCase()
+          return !accessoryLower.some((kw) => name.includes(kw) || category.includes(kw))
+        })
+        const allProductIds = filteredProducts.map((p: any) => p.id).filter(Boolean)
+        const mergedIdSet = new Set<string>([...existingIds, ...allProductIds])
+        aiResult.referenced_internal_products = Array.from(mergedIdSet)
+        console.log(
+          `[ai-search] HP MODE: expanded from ${existingIds.length} to ${aiResult.referenced_internal_products.length} products`,
+        )
       }
       if (session_id) {
         await supabase

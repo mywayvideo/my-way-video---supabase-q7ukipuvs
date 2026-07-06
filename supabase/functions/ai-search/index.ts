@@ -141,18 +141,24 @@ Deno.serve(async (req: Request) => {
       logCascade('A', 'stopwords', true, query, `cleaned="${searchQuery}"`)
     }
 
-    // Comparison Mode Detection — extract target product name from patterns like "compare com a Sony..."
+    // Comparison Mode Detection — context-aware (PP vs HP)
     if (!skipSearch) {
-      const compareMatch = query.match(/\bcom\s+(?:a|o)\s+(.+)/i)
-      if (compareMatch && compareMatch[1]) {
-        const extracted = compareMatch[1]
-          .trim()
-          .replace(/[.,;:!?\s]+$/, '')
-          .trim()
-        if (extracted.length > 0) {
-          searchQuery = extracted
-          console.log(`[ai-search] PP compare mode: extracted target term="${extracted}"`)
+      if (lastReferencedProductId) {
+        // PP Mode: On a product page, extract the target product mentioned after "com a" or "com o"
+        const compareMatch = query.match(/(?:com a|com o)\s+(.+)/i)
+        if (compareMatch && compareMatch[1]) {
+          const extracted = compareMatch[1]
+            .trim()
+            .replace(/[.,;:!?\s]+$/, '')
+            .trim()
+          if (extracted.length > 0) {
+            searchQuery = extracted
+            console.log(`[ai-search] PP compare mode: extracted target term="${extracted}"`)
+          }
         }
+      } else {
+        // HP Mode: On the Home Page, skip PP compare extraction and proceed with standard entity extraction
+        console.log(`[ai-search] HP mode: skipping PP compare extraction, query="${query}"`)
       }
     }
 

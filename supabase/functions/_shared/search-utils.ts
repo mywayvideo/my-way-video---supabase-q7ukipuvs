@@ -190,6 +190,24 @@ export async function extractEntities(query: string, _apiKey: string): Promise<s
     .replace(/\s+/g, ' ')
     .trim()
 
+  // Comparison query detection: split on "com a" or "com o" to extract multiple entities
+  // e.g., "sony fx3 com a Canon eos c50" → ["sony fx3", "Canon eos c50"]
+  const compareParts = trimmed.split(/\s+com\s+(?:a|o)\s+/i)
+  if (compareParts.length >= 2) {
+    const entities: string[] = []
+    for (const part of compareParts) {
+      const words = part.split(/\s+/).filter((w) => !STOP_AND_GENERIC_WORDS.has(w.toLowerCase()))
+      const result = words.join(' ').trim()
+      if (result.length > 0) entities.push(result)
+    }
+    if (entities.length > 0) {
+      console.log(
+        `[extractEntities] comparison query detected, extracted entities=${JSON.stringify(entities)}`,
+      )
+      return Array.from(new Set(entities))
+    }
+  }
+
   // NEVER include generic words — extract ONLY manufacturer and model name
   const words = trimmed.split(/\s+/)
   const filteredWords = words.filter((w) => !STOP_AND_GENERIC_WORDS.has(w.toLowerCase()))

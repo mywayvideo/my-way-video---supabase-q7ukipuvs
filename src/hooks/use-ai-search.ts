@@ -75,6 +75,23 @@ export function useAiSearch() {
 
         const data = await response.json()
 
+        // Ensure content is always a plain string (not a JSON object string)
+        let contentStr = data.content
+        if (typeof contentStr === 'object' && contentStr !== null) {
+          contentStr = contentStr.content || contentStr.message || JSON.stringify(contentStr)
+        } else if (typeof contentStr === 'string') {
+          const trimmed = contentStr.trim()
+          if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+            try {
+              const parsed = JSON.parse(trimmed)
+              if (typeof parsed.content === 'string') contentStr = parsed.content
+              else if (typeof parsed.message === 'string') contentStr = parsed.message
+            } catch {
+              // Keep original if parse fails
+            }
+          }
+        }
+
         const rawRefs = Array.isArray(data.referenced_internal_products)
           ? data.referenced_internal_products
           : []
@@ -101,6 +118,7 @@ export function useAiSearch() {
 
         setResults({
           ...data,
+          content: contentStr,
           referenced_internal_products: enrichedProducts.length > 0 ? enrichedProducts : refIds,
           products: enrichedProducts,
         })

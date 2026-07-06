@@ -55,8 +55,28 @@ export function ResponseFormatter({
     return filtered
   }, [products, stock, referenced_internal_products])
 
+  // Detect and extract markdown content if the AI returned a JSON string
+  const extractContent = (raw: string): string => {
+    if (!raw) return ''
+    const trimmed = raw.trim()
+    // If it looks like a JSON object, try to parse and extract the "content" field
+    if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+      try {
+        const parsed = JSON.parse(trimmed)
+        if (typeof parsed === 'object' && parsed !== null) {
+          if (typeof parsed.content === 'string') return parsed.content
+          if (typeof parsed.message === 'string') return parsed.message
+          if (typeof parsed.response === 'string') return parsed.response
+        }
+      } catch {
+        // Not valid JSON, return as-is
+      }
+    }
+    return raw
+  }
+
   // Extract inline WhatsApp triggers to ensure they only appear at the bottom
-  const cleanContent = content
+  const cleanContent = extractContent(content || '')
     ?.replace(/<WhatsAppButton[^>]*\/>/gi, '')
     ?.replace(/\[WHATSAPP_BUTTON\]/gi, '')
     ?.replace(/\[WHATSAPP\]/gi, '')

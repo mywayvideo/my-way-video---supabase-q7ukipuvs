@@ -13,6 +13,8 @@ import {
   removeStopWords,
   searchAllEntities,
   isTechnicalQuery,
+  extractFilters,
+  applyZoomFilter,
 } from '../_shared/search-utils.ts'
 
 const OUT_OF_SCOPE_MESSAGE =
@@ -43,6 +45,8 @@ Deno.serve(async (req: Request) => {
     const session_id = typeof body?.session_id === 'string' ? body.session_id : null
     const lastReferencedProductId = body?.currentProductId || null
     const openaiKey = Deno.env.get('OPENAI_API_KEY') ?? ''
+    const execution_id = crypto.randomUUID()
+    console.log(`[ai-search][execution] execution_id=${execution_id} query="${query}"`)
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? ''
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
@@ -186,6 +190,19 @@ Deno.serve(async (req: Request) => {
     console.log(
       `[ai-search] searchEntities=${JSON.stringify(searchEntities)} validProducts=${level1Products.length}`,
     )
+
+    // Post-processing: extract numeric filters (e.g. "20x zoom") and apply to product list
+    const filters = extractFilters(query)
+    if (filters.minZoom !== null && level1Products.length > 0) {
+      const { filtered, wasFiltered } = applyZoomFilter(level1Products, filters.minZoom)
+      console.log(
+        `[filter] minZoom=${filters.minZoom} original=${level1Products.length} filtered=${filtered.length}`,
+      )
+      if (wasFiltered && filtered.length > 0) {
+        level1Products = filtered
+      }
+    }
+
     const level1Context = level1Products.length > 0 ? buildProductContext(level1Products) : []
 
     async function persistAndReturn(aiResult: any, type: string): Promise<Response> {
@@ -229,6 +246,7 @@ Deno.serve(async (req: Request) => {
             manufacturer: (p.manufacturer as any)?.name || (p as any).manufacturer_name || 'N/A',
           }))
       }
+      result.execution_id = execution_id
       return new Response(JSON.stringify(result), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         status: 200,

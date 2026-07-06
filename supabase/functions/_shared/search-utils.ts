@@ -209,6 +209,37 @@ export async function searchAllEntities(
   return { products: allProducts, searchCount }
 }
 
+export function extractFilters(originalQuery: string): { minZoom: number | null } {
+  const match = originalQuery.match(/(\d+)\s*x\s*(?:zoom|óptico|optico)?/i)
+  if (match) {
+    const value = parseInt(match[1], 10)
+    if (!isNaN(value) && value > 0) {
+      return { minZoom: value }
+    }
+  }
+  return { minZoom: null }
+}
+
+export function applyZoomFilter(
+  products: any[],
+  minZoom: number | null,
+): { filtered: any[]; wasFiltered: boolean } {
+  if (minZoom === null || products.length === 0) {
+    return { filtered: products, wasFiltered: false }
+  }
+  const zoomStr = `${minZoom}x`
+  const filtered = products.filter((p: any) => {
+    const name = (p.name || p.title || '').toLowerCase()
+    const description = (p.description || '').toLowerCase()
+    const specs =
+      typeof p.technical_info === 'string'
+        ? p.technical_info.toLowerCase()
+        : JSON.stringify(p.technical_info || {}).toLowerCase()
+    return name.includes(zoomStr) || description.includes(zoomStr) || specs.includes(zoomStr)
+  })
+  return { filtered, wasFiltered: true }
+}
+
 export function isTechnicalQuery(query: string): boolean {
   const technicalKeywords = [
     'especificação',

@@ -51,7 +51,7 @@ export function ChatInterface({ productId: propProductId }: { productId?: string
     scrollToBottom()
     const timeout = setTimeout(scrollToBottom, 150)
     return () => clearTimeout(timeout)
-  }, [messages, isLoading, results?.message])
+  }, [messages, isLoading, results?.content])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()

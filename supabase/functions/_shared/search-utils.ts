@@ -1,52 +1,8 @@
-const DEFAULT_STOP_WORDS = [
-  'o',
-  'a',
-  'os',
-  'as',
-  'um',
-  'uma',
-  'de',
-  'do',
-  'da',
-  'dos',
-  'das',
-  'e',
-  'ou',
-  'para',
-  'com',
-  'sem',
-  'em',
-  'no',
-  'na',
-  'nos',
-  'nas',
-  'que',
-  'qual',
-  'quais',
-  'preço',
-  'valor',
-  'quanto',
-  'custa',
-  'quero',
-  'preciso',
-  'procurando',
-  'busco',
-  'quero comprar',
-]
-
 export function sanitizeInput(input: string): string {
-  return input.trim().replace(/[<>]/g, '').replace(/\s+/g, ' ').slice(0, 500)
-}
-
-export function removeStopWords(query: string, stopWords: string[]): string {
-  const allStopWords = [...new Set([...DEFAULT_STOP_WORDS, ...(stopWords || [])])]
-  const words = query.toLowerCase().split(' ')
-  const filtered = words.filter((w) => w.length > 1 && !allStopWords.includes(w))
-  return filtered.length > 0 ? filtered.join(' ') : query
+  return input.slice(0, 2000).trim()
 }
 
 export function isInstitutionalQuery(query: string): boolean {
-  const lower = query.toLowerCase()
   const institutionalKeywords = [
     'empresa',
     'sobre',
@@ -55,70 +11,60 @@ export function isInstitutionalQuery(query: string): boolean {
     'telefone',
     'email',
     'horário',
-    'horario',
     'funcionamento',
-    'quem somos',
     'política',
-    'politica',
     'termos',
     'privacidade',
+    'troca',
     'devolução',
-    'devolucao',
     'garantia',
-    'entrega',
     'frete',
+    'entrega',
     'pagamento',
-    'formas de pagamento',
-    'onde fica',
-    'como chegar',
-    'redes sociais',
-    'instagram',
-    'facebook',
-    'whatsapp',
+    'quemsomos',
+    'quem somos',
+    'história',
+    'missão',
+    'visão',
   ]
+  const lower = query.toLowerCase()
   return institutionalKeywords.some((kw) => lower.includes(kw))
 }
 
 export function checkKeywordRelevance(
   query: string,
-  keywords: any[],
+  keywords: Array<{ keyword: string; weight: number; is_blocking: boolean }>,
 ): { isBlocked: boolean; relevanceScore: number } {
-  if (!Array.isArray(keywords) || keywords.length === 0) {
-    return { isBlocked: false, relevanceScore: 0 }
-  }
-
-  const lowerQuery = query.toLowerCase()
-  let score = 0
-  let blocked = false
-
+  const lower = query.toLowerCase()
+  let relevanceScore = 0
+  let isBlocked = false
   for (const kw of keywords) {
-    const keyword = (kw.keyword || '').toLowerCase()
-    if (!keyword) continue
-
-    if (lowerQuery.includes(keyword)) {
+    if (!kw?.keyword) continue
+    const kwLower = kw.keyword.toLowerCase()
+    if (lower.includes(kwLower)) {
       if (kw.is_blocking) {
-        blocked = true
+        isBlocked = true
       }
-      score += parseFloat(kw.weight) || 1
+      relevanceScore += kw.weight || 1
     }
   }
-
-  return { isBlocked: blocked, relevanceScore: score }
+  return { isBlocked, relevanceScore }
 }
 
 export function extractProducts(data: any): any[] {
   if (!data) return []
-
   if (Array.isArray(data)) return data
-
-  if (Array.isArray(data?.products)) return data.products
-
+  if (Array.isArray(data?.stock)) return data.stock
   if (Array.isArray(data?.data)) return data.data
+  if (Array.isArray(data?.products)) return data.products
+  if (Array.isArray(data?.items)) return data.items
+  if (Array.isArray(data?.results)) return data.results
 
-  if (data && typeof data === 'object') {
-    const values = Object.values(data)
-    const arrayVal = values.find((v) => Array.isArray(v)) as any[] | undefined
-    if (arrayVal) return arrayVal
+  const values = Object.values(data)
+  const allObjects = values.every((v) => v && typeof v === 'object' && !Array.isArray(v))
+  if (allObjects && values.length > 0) {
+    const productLike = values.filter((v: any) => v && typeof v === 'object' && v.id) as any[]
+    if (productLike.length > 0) return productLike
   }
 
   return []
@@ -126,123 +72,182 @@ export function extractProducts(data: any): any[] {
 
 export function buildProductContext(products: any[]): any[] {
   if (!Array.isArray(products)) return []
-
-  return products.slice(0, 20).map((p: any) => ({
+  return products.map((p: any) => ({
     id: p.id,
     name: p.name || p.title || '',
     sku: p.sku || '',
     category: p.category || '',
-    description: (p.description || '').slice(0, 500),
-    price_usd: p.price_usd,
-    price_brl: p.price_brl,
-    price_nationalized_sales: p.price_nationalized_sales,
-    price_nationalized_cost: p.price_nationalized_cost,
-    stock: p.stock,
-    image_url: p.image_url,
-    weight: p.weight,
-    is_discontinued: p.is_discontinued,
-    technical_info: p.technical_info,
+    description: p.description || '',
+    technical_info: p.technical_info || null,
+    image_url: p.image_url || '',
     manufacturer: p.manufacturer || p.manufacturer_name || 'N/A',
+    price_usd: p.price_usd ?? null,
+    price_brl: p.price_brl ?? null,
+    price_nationalized_sales: p.price_nationalized_sales ?? null,
+    price_nationalized_cost: p.price_nationalized_cost ?? null,
+    price_usa_rebate: p.price_usa_rebate ?? null,
+    weight: p.weight ?? null,
+    is_discontinued: p.is_discontinued ?? false,
   }))
 }
 
-export function mergeProductResults(...arrays: any[][]): any[] {
+export function mergeProductResults(products: any[]): any[] {
   const seen = new Set<string>()
   const merged: any[] = []
-
-  for (const arr of arrays) {
-    if (!Array.isArray(arr)) continue
-    for (const item of arr) {
-      if (item && item.id && !seen.has(item.id)) {
-        seen.add(item.id)
-        merged.push(item)
-      }
-    }
+  for (const p of products) {
+    if (!p?.id || seen.has(p.id)) continue
+    seen.add(p.id)
+    merged.push(p)
   }
-
   return merged
 }
 
-export async function extractEntities(query: string, apiKey: string): Promise<string[]> {
+const EXCLUSION_WORDS = new Set([
+  'ela',
+  'ele',
+  'este',
+  'esta',
+  'esse',
+  'essa',
+  'isto',
+  'isso',
+  'a',
+  'o',
+  'as',
+  'os',
+  'um',
+  'uma',
+  'uns',
+  'umas',
+  'it',
+  'this',
+  'that',
+  'these',
+  'those',
+  'the',
+  'an',
+  'compare',
+  'camera',
+  'lens',
+  'microphone',
+  'tripod',
+  'battery',
+  'cable',
+  'monitor',
+  'light',
+  'card',
+  'case',
+  'bag',
+  'mount',
+  'plate',
+  'grip',
+  'head',
+  'stand',
+  'boom',
+  'clamp',
+  'filter',
+  'recorder',
+  'switcher',
+  'converter',
+  'adapter',
+  'ptz',
+  '4k',
+  'hdmi',
+  'sdi',
+  'ndi',
+])
+
+export async function extractEntities(query: string, _apiKey: string): Promise<string[]> {
   const trimmed = query.trim()
-  if (!trimmed) return [trimmed]
+  if (trimmed.length === 0) return []
 
-  const words = trimmed.split(' ').filter((w) => w.length > 1)
-  if (words.length <= 1) return [trimmed]
-
-  const tokens = trimmed.split(/\s+/)
-  const entities = new Set<string>()
-  entities.add(trimmed)
-
-  for (let i = 0; i < tokens.length; i++) {
-    for (let j = i + 1; j <= Math.min(i + 4, tokens.length); j++) {
-      const phrase = tokens.slice(i, j).join(' ')
-      if (phrase.length > 2) entities.add(phrase)
-    }
+  if (trimmed.includes(' ')) {
+    return Array.from(new Set([trimmed.toLowerCase()]))
   }
 
-  if (apiKey) {
-    try {
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model: 'gpt-4o-mini',
-          messages: [
-            {
-              role: 'system',
-              content:
-                'You are a product search term extractor for an audiovisual e-commerce catalog. Extract ONLY meaningful product-related terms. NEVER include filler words (compare, vs, versus, difference, com, de, para, etc.), generic words (camera, lens, microphone), or standalone brand names. Extract at most 3 items. Prefer exact model name + number (e.g., "Sony FX6"). Return ONLY a JSON array of strings, no explanation.',
-            },
-            { role: 'user', content: `Query: "${trimmed}"` },
-          ],
-          temperature: 0,
-          max_tokens: 200,
-        }),
-      })
+  if (!EXCLUSION_WORDS.has(trimmed.toLowerCase())) {
+    return [trimmed]
+  }
 
-      if (response.ok) {
-        const result = await response.json()
-        const content = result?.choices?.[0]?.message?.content || '[]'
-        const cleaned = content.replace(/```json|```/g, '').trim()
-        const parsed = JSON.parse(cleaned)
-        if (Array.isArray(parsed)) {
-          for (const e of parsed) {
-            if (typeof e === 'string' && e.trim()) entities.add(e.trim())
+  return [trimmed]
+}
+
+export function removeStopWords(query: string, stopWords: string[]): string {
+  if (!Array.isArray(stopWords) || stopWords.length === 0) return query
+  const stopSet = new Set(stopWords.map((w) => w.toLowerCase().trim()))
+  const words = query.split(/\s+/).filter((w) => !stopSet.has(w.toLowerCase().trim()))
+  return words.join(' ').trim()
+}
+
+export async function searchAllEntities(
+  entities: string[],
+  fallbackQuery: string,
+  searchFn: (term: string) => Promise<any[]>,
+): Promise<{ products: any[]; searchCount: number }> {
+  const allProducts: any[] = []
+  const seenIds = new Set<string>()
+  let searchCount = 0
+  const terms = Array.from(new Set([...entities, fallbackQuery])).filter(
+    (t) => t && t.trim().length > 0,
+  )
+  for (const term of terms) {
+    try {
+      const results = await searchFn(term)
+      if (results.length > 0) {
+        searchCount++
+        for (const p of results) {
+          if (p?.id && !seenIds.has(p.id)) {
+            seenIds.add(p.id)
+            allProducts.push(p)
           }
         }
       }
     } catch (err) {
-      console.error('[search-utils] Entity extraction failed:', err)
+      console.error(`[searchAllEntities] Error for term="${term}":`, err)
     }
   }
-
-  return Array.from(entities)
+  return { products: allProducts, searchCount }
 }
 
-export async function searchWithEntityFallback(
-  entities: string[],
-  originalQuery: string,
-  searchFn: (term: string) => Promise<any[]>,
-): Promise<{ products: any[]; usedFallback: boolean }> {
-  const primaryResults = await searchFn(originalQuery)
-  if (primaryResults.length > 0) {
-    return { products: primaryResults, usedFallback: false }
-  }
-
-  const sortedEntities = entities
-    .filter((e) => e !== originalQuery)
-    .sort((a, b) => b.length - a.length)
-
-  for (const entity of sortedEntities) {
-    const results = await searchFn(entity)
-    if (results.length > 0) {
-      return { products: results, usedFallback: true }
-    }
-  }
-
-  return { products: [], usedFallback: false }
+export function isTechnicalQuery(query: string): boolean {
+  const technicalKeywords = [
+    'especificação',
+    'especificações',
+    'spec',
+    'specs',
+    'dimensão',
+    'dimensões',
+    'peso',
+    'voltagem',
+    'potência',
+    'watt',
+    'watts',
+    'resolução',
+    'sensor',
+    'lente',
+    'zoom',
+    'frequência',
+    'interface',
+    'conexão',
+    'porta',
+    'usb',
+    'hdmi',
+    'sdi',
+    'xdm',
+    'protocolo',
+    'compatível',
+    'compatibilidade',
+    'requisito',
+    'requisitos',
+    'manual',
+    'datasheet',
+    'manual do produto',
+    'característica',
+    'características',
+    'technical',
+    'técnico',
+    'técnica',
+  ]
+  const lower = query.toLowerCase()
+  return technicalKeywords.some((kw) => lower.includes(kw))
 }

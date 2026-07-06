@@ -1,7 +1,7 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
 import { createClient } from 'npm:@supabase/supabase-js'
 import { corsHeaders } from '../_shared/cors.ts'
-import { getActiveAgents, generateResponse } from '../_shared/intelligence.ts'
+import { getActiveAgents, generateResponse } from './intelligence.ts'
 import {
   sanitizeInput,
   isInstitutionalQuery,
@@ -11,7 +11,8 @@ import {
   mergeProductResults,
   extractEntities,
   removeStopWords,
-  searchWithEntityFallback,
+  searchAllEntities,
+  isTechnicalQuery,
 } from '../_shared/search-utils.ts'
 
 const OUT_OF_SCOPE_MESSAGE =
@@ -96,62 +97,7 @@ Deno.serve(async (req: Request) => {
         status: 500,
       })
 
-    // Stage A: Stop-words removal
-    const stopWords = Array.isArray(aiSettings?.custom_stop_words)
-      ? aiSettings.custom_stop_words
-      : []
-    const searchQuery = removeStopWords(query, stopWords) || query
-    logCascade('A', 'stopwords', true, query, `cleaned="${searchQuery}"`)
-
-    // Entity Extraction
-    let searchEntities: string[] = [searchQuery]
-    if (searchQuery.trim().length > 0) {
-      searchEntities = await extractEntities(searchQuery, openaiKey)
-    }
-
-    // Product Search (Stage C preparation) with deterministic entity fallback
-    let level1Products: any[] = []
-    if (searchQuery.trim().length > 0) {
-      const searchFn = async (term: string): Promise<any[]> => {
-        console.log(`[ai-search] searchFn executing with term: "${term}"`)
-        const { data: rpcData, error: rpcError } = await supabase.rpc('execute_ai_search_v3', {
-          search_term: term,
-        })
-        console.log(
-          `[ai-search][rpc-diagnostic] term="${term}" | typeof data=${typeof rpcData} | dataPreview=${JSON.stringify(rpcData).slice(0, 200)}`,
-        )
-        console.log(
-          `[ai-search][rpc-diagnostic] error=${rpcError ? JSON.stringify(rpcError) : 'null'}`,
-        )
-        if (rpcError) {
-          console.error(
-            `[ai-search][rpc-error] execute_ai_search_v3 failed for term="${term}" | fullError=${JSON.stringify(rpcError)}`,
-          )
-          return []
-        }
-        const products = extractProducts(rpcData)
-        console.log(`[ai-search] searchFn result count: ${products.length} for term="${term}"`)
-        return products
-      }
-      const { products: fallbackProducts, usedFallback } = await searchWithEntityFallback(
-        searchEntities,
-        searchQuery,
-        searchFn,
-      )
-      level1Products = fallbackProducts
-      if (usedFallback) {
-        console.log(
-          `[ai-search] entity fallback produced results count=${level1Products.length} for query="${searchQuery}"`,
-        )
-      }
-    }
-    level1Products = level1Products.filter((p: any) => p && p.id && (p.name || p.title || p.sku))
-    console.log(
-      `[ai-search] searchEntities=${JSON.stringify(searchEntities)} validProducts=${level1Products.length}`,
-    )
-    const level1Context = level1Products.length > 0 ? buildProductContext(level1Products) : []
-
-    // Contextual product data
+    // Contextual product data (moved before cascade to enable technical intent detection)
     let contextualProductData = null
     if (lastReferencedProductId) {
       const { data: product, error: productError } = await supabase
@@ -174,6 +120,74 @@ Deno.serve(async (req: Request) => {
       }
     }
 
+    // Technical Intent Detection — skip search cascade if query is technical and product context exists
+    const skipSearch =
+      !!lastReferencedProductId && !!contextualProductData && isTechnicalQuery(query)
+    if (skipSearch) {
+      console.log(`[ai-search] Skipping cascade for technical question: "${query}"`)
+    }
+
+    // Stage A: Stop-words removal (skipped if technical intent detected)
+    let searchQuery = query
+    if (!skipSearch) {
+      const stopWords = Array.isArray(aiSettings?.custom_stop_words)
+        ? aiSettings.custom_stop_words
+        : []
+      searchQuery = removeStopWords(query, stopWords) || query
+      logCascade('A', 'stopwords', true, query, `cleaned="${searchQuery}"`)
+    }
+
+    // Entity Extraction (skipped if technical intent detected)
+    let searchEntities: string[] = [searchQuery]
+    if (!skipSearch && searchQuery.trim().length > 0) {
+      searchEntities = await extractEntities(searchQuery, openaiKey)
+    }
+
+    // Product Search (Stage C preparation) with deterministic entity fallback
+    let level1Products: any[] = []
+    if (!skipSearch && searchQuery.trim().length > 0) {
+      const searchFn = async (term: string): Promise<any[]> => {
+        console.log(`[ai-search] searchFn executing with term: "${term}"`)
+        const { data: rpcData, error: rpcError } = await supabase.rpc('execute_ai_search_v3', {
+          search_term: term,
+        })
+        const hasStock = rpcData && Array.isArray((rpcData as any)?.stock)
+        const stockLen = hasStock ? (rpcData as any).stock.length : 0
+        console.log(
+          `[searchFn] term="${term}" rpcData type=${typeof rpcData} isArray=${Array.isArray(rpcData)} hasStock=${hasStock} stockLen=${stockLen}`,
+        )
+        console.log(
+          `[ai-search][rpc-diagnostic] term="${term}" | typeof data=${typeof rpcData} | dataPreview=${JSON.stringify(rpcData).slice(0, 200)}`,
+        )
+        console.log(
+          `[ai-search][rpc-diagnostic] error=${rpcError ? JSON.stringify(rpcError) : 'null'}`,
+        )
+        if (rpcError) {
+          console.error(
+            `[ai-search][rpc-error] execute_ai_search_v3 failed for term="${term}" | fullError=${JSON.stringify(rpcError)}`,
+          )
+          return []
+        }
+        const products = extractProducts(rpcData)
+        console.log(`[ai-search] searchFn result count: ${products.length} for term="${term}"`)
+        return products
+      }
+      const { products: allProducts, searchCount } = await searchAllEntities(
+        searchEntities,
+        searchQuery,
+        searchFn,
+      )
+      level1Products = allProducts
+      console.log(
+        `[ai-search] multi-entity search completed: ${searchCount} terms returned results, total unique products=${level1Products.length} for query="${searchQuery}"`,
+      )
+    }
+    level1Products = level1Products.filter((p: any) => p && p.id && (p.name || p.title || p.sku))
+    console.log(
+      `[ai-search] searchEntities=${JSON.stringify(searchEntities)} validProducts=${level1Products.length}`,
+    )
+    const level1Context = level1Products.length > 0 ? buildProductContext(level1Products) : []
+
     async function persistAndReturn(aiResult: any, type: string): Promise<Response> {
       if (session_id) {
         await supabase
@@ -188,19 +202,19 @@ Deno.serve(async (req: Request) => {
         })
       }
       const result: any = {
-        message: aiResult.content,
+        content: aiResult.content,
         confidence_level: aiResult.confidence_level,
         referenced_internal_products: aiResult.referenced_internal_products,
         should_show_whatsapp_button: aiResult.should_show_whatsapp_button,
       }
-      if (typeof result.message === 'string') {
-        result.message = result.message.trim()
+      if (typeof result.content === 'string') {
+        result.content = result.content.trim()
         if (
           lastReferencedProductId &&
           globalSettingsMap['transparency_note'] &&
           result.referenced_internal_products.length > 0
         )
-          result.message += '\n\n' + globalSettingsMap['transparency_note']
+          result.content += '\n\n' + globalSettingsMap['transparency_note']
       }
       if (result.referenced_internal_products.length > 0) {
         const { data: groundedProducts } = await supabase
@@ -221,16 +235,84 @@ Deno.serve(async (req: Request) => {
       })
     }
 
-    function outOfScopeResponse(): Response {
+    const CATEGORY_KEYWORDS = [
+      'camera',
+      'cameras',
+      'lente',
+      'lentes',
+      'microfone',
+      'microfones',
+      'tripé',
+      'tripés',
+      'monitor',
+      'monitores',
+      'ptz',
+      '4k',
+      'hdmi',
+      'sdi',
+      'ndi',
+      'battery',
+      'bateria',
+      'light',
+      'iluminação',
+      'audio',
+      'áudio',
+      'video',
+      'vídeo',
+    ]
+
+    function isCategoryQuery(q: string): boolean {
+      const lower = q.toLowerCase()
+      return CATEGORY_KEYWORDS.some((kw) => lower.includes(kw))
+    }
+
+    function categoryResponse(productIds: string[]): Response {
       return new Response(
         JSON.stringify({
-          message: OUT_OF_SCOPE_MESSAGE,
+          content: `Encontrei alguns produtos no catálogo relacionados a "${query}".`,
+          confidence_level: 'medium',
+          referenced_internal_products: productIds,
+          should_show_whatsapp_button: false,
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 },
+      )
+    }
+
+    function outOfScopeResponse(): Response {
+      if (isCategoryQuery(query) && level1Context.length > 0) {
+        return categoryResponse(level1Context.map((p) => p.id).filter(Boolean))
+      }
+      return new Response(
+        JSON.stringify({
+          content: OUT_OF_SCOPE_MESSAGE,
           confidence_level: 'high',
           referenced_internal_products: [],
           should_show_whatsapp_button: false,
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 },
       )
+    }
+
+    // Technical Intent — bypass all cascade stages and answer directly from product context
+    if (skipSearch) {
+      const technicalProducts = contextualProductData
+        ? buildProductContext([contextualProductData])
+        : []
+      const aiResult = await generateResponse(
+        query,
+        {
+          agentSettings,
+          aiSettings,
+          products: technicalProducts,
+          manufacturerList,
+          history,
+          currentProductId: lastReferencedProductId,
+          contextualProductData,
+        },
+        undefined,
+        supabase,
+      )
+      return await persistAndReturn(aiResult, 'technical')
     }
 
     // Stage B: Institutional
@@ -294,6 +376,10 @@ Deno.serve(async (req: Request) => {
     // Stage E: Keywords
     const kwCheckE = checkKeywordRelevance(searchQuery, keywordList)
     if (kwCheckE.isBlocked) {
+      if (isCategoryQuery(query) && level1Context.length > 0) {
+        logCascade('E', 'keywords', true, query, '(category bypass)')
+        return categoryResponse(level1Context.map((p) => p.id).filter(Boolean))
+      }
       logCascade('E', 'keywords', false, query, '(blocked)')
       return outOfScopeResponse()
     }
@@ -318,6 +404,10 @@ Deno.serve(async (req: Request) => {
     // Stage F: General Fallback
     const kwCheckF = checkKeywordRelevance(searchQuery, keywordList)
     if (kwCheckF.isBlocked || kwCheckF.relevanceScore === 0) {
+      if (isCategoryQuery(query) && level1Context.length > 0) {
+        logCascade('F', 'general', true, query, '(category bypass)')
+        return categoryResponse(level1Context.map((p) => p.id).filter(Boolean))
+      }
       logCascade('F', 'general', false, query, '(blocked by system)')
       return outOfScopeResponse()
     }

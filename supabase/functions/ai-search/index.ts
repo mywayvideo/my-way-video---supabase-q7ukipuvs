@@ -145,6 +145,17 @@ Deno.serve(async (req: Request) => {
     let searchEntities: string[] = [searchQuery]
     if (!skipSearch && searchQuery.trim().length > 0) {
       searchEntities = await extractEntities(searchQuery, openaiKey)
+
+      if (searchEntities.length === 1 && searchEntities[0].length > 30) {
+        const longEntity = searchEntities[0]
+        const words = longEntity.split(/\s+/).slice(0, 3).join(' ')
+        if (words.length > 0 && words.length < longEntity.length) {
+          searchEntities.push(words)
+          console.log(
+            `[ai-search] added short fallback: "${words}" from long entity "${longEntity}"`,
+          )
+        }
+      }
     }
 
     // Product Search (Stage C preparation) with deterministic entity fallback
@@ -411,7 +422,7 @@ Deno.serve(async (req: Request) => {
           institutionalContext,
           manufacturerList,
           history,
-          products: [],
+          products: level1Context,
         },
         undefined,
         supabase,

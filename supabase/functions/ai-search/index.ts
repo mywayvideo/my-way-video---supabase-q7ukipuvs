@@ -15,6 +15,10 @@ import {
   isTechnicalQuery,
   extractFilters,
   applyZoomFilter,
+  detectComparison,
+  generateFallbackTerms,
+  isGenericSearch,
+  filterAccessories,
 } from '../_shared/search-utils.ts'
 
 const OUT_OF_SCOPE_MESSAGE =
@@ -141,9 +145,16 @@ Deno.serve(async (req: Request) => {
       logCascade('A', 'stopwords', true, query, `cleaned="${searchQuery}"`)
     }
 
-    // Comparison Mode Detection — context-aware (PP vs HP)
+    // Comparison Detection — detects "com a", "com o", "vs.", "versus", or "e" patterns
+    let searchEntities: string[] = [searchQuery]
+    let isComparisonDetected = false
     if (!skipSearch) {
-      if (lastReferencedProductId) {
+      const comparison = detectComparison(query)
+      if (comparison.isComparison) {
+        isComparisonDetected = true
+        searchEntities = comparison.terms
+        console.log(`[ai-search] COMPARISON DETECTED terms=${JSON.stringify(comparison.terms)}`)
+      } else if (lastReferencedProductId) {
         // PP Mode: On a product page, extract the target product mentioned after "com a" or "com o"
         const compareMatch = query.match(/(?:com a|com o)\s+(.+)/i)
         if (compareMatch && compareMatch[1]) {
@@ -153,18 +164,15 @@ Deno.serve(async (req: Request) => {
             .trim()
           if (extracted.length > 0) {
             searchQuery = extracted
+            searchEntities = [searchQuery]
             console.log(`[ai-search] PP compare mode: extracted target term="${extracted}"`)
           }
         }
-      } else {
-        // HP Mode: On the Home Page, skip PP compare extraction and proceed with standard entity extraction
-        console.log(`[ai-search] HP mode: skipping PP compare extraction, query="${query}"`)
       }
     }
 
-    // Entity Extraction (skipped if technical intent detected)
-    let searchEntities: string[] = [searchQuery]
-    if (!skipSearch && searchQuery.trim().length > 0) {
+    // Entity Extraction (skipped if technical intent or comparison detected)
+    if (!skipSearch && !isComparisonDetected && searchQuery.trim().length > 0) {
       searchEntities = await extractEntities(searchQuery, openaiKey)
 
       if (searchEntities.length === 1 && searchEntities[0].length > 30) {
@@ -222,6 +230,49 @@ Deno.serve(async (req: Request) => {
     console.log(
       `[ai-search] searchEntities=${JSON.stringify(searchEntities)} validProducts=${level1Products.length}`,
     )
+
+    // PT-EN Fallback: if primary search returned zero products, try translated/cleaned/simplified terms
+    if (!skipSearch && level1Products.length === 0 && searchQuery.trim().length > 0) {
+      const fallbackTerms = generateFallbackTerms(searchQuery)
+      if (fallbackTerms.length > 0) {
+        console.log(`[ai-search] PT FALLBACK: trying [${fallbackTerms.join(', ')}]`)
+        const seenIds = new Set<string>()
+        const searchFnFallback = async (term: string): Promise<any[]> => {
+          const { data: rpcData, error: rpcError } = await supabase.rpc('execute_ai_search_v3', {
+            search_term: term,
+          })
+          if (rpcError) return []
+          return extractProducts(rpcData)
+        }
+        for (const term of fallbackTerms) {
+          try {
+            const results = await searchFnFallback(term)
+            for (const p of results) {
+              if (p?.id && !seenIds.has(p.id)) {
+                seenIds.add(p.id)
+                level1Products.push(p)
+              }
+            }
+          } catch (err) {
+            console.error(`[ai-search] PT FALLBACK error for term="${term}":`, err)
+          }
+        }
+        console.log(
+          `[ai-search] PT FALLBACK completed: total products after fallback=${level1Products.length}`,
+        )
+      }
+    }
+
+    // Accessory Filtering: remove non-core products for generic (single-word) searches
+    if (!skipSearch && level1Products.length > 0 && isGenericSearch(searchEntities)) {
+      const { filtered, removedCount } = filterAccessories(level1Products)
+      if (filtered.length >= 3) {
+        console.log(
+          `[ai-search] FILTER: removed ${removedCount} accessories, ${filtered.length} remain`,
+        )
+        level1Products = filtered
+      }
+    }
 
     // Post-processing: extract numeric filters (e.g. "20x zoom") and apply to product list
     const filters = extractFilters(query)

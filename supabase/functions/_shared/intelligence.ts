@@ -102,6 +102,15 @@ function buildSystemPrompt(context: GenerateContext): string {
   prompt += '\nResponda sempre em português brasileiro, de forma clara e objetiva.'
   prompt +=
     '\nQuando mencionar produtos do catálogo, inclua o ID do produto na resposta usando o formato [PRODUCT:id].'
+  prompt += '\n\nREGRAS DE REFERÊNCIA DE PRODUTOS (referenced_internal_products):'
+  prompt +=
+    '\n- Densidade Mínima: Para buscas de categoria, inclua pelo menos os 6 IDs de produtos mais relevantes usando o formato [PRODUCT:id].'
+  prompt +=
+    '\n- Diversidade de Fabricantes: Para buscas de categoria, os IDs referenciados devem representar diferentes fabricantes (ex: Sony, Canon, Datavideo, Blackmagic).'
+  prompt +=
+    '\n- Integridade de Comparação: Para consultas de comparação, pelo menos ambos os produtos comparados (mínimo 2) devem ser referenciados.'
+  prompt +=
+    '\n- Política de Não-Vazio: O array de produtos referenciados nunca deve estar vazio se a busca retornou produtos válidos.'
   if (context.manufacturerList) {
     prompt += `\n\nFabricantes disponíveis: ${context.manufacturerList}`
   }
@@ -216,7 +225,10 @@ function parseAIResponse(content: string, context: GenerateContext): any {
   const cleanedContent = content.replace(idRegex, '').trim()
 
   const referencedProducts = context.products || []
-  const hasProductMatch = referencedProducts.length > 0 || productIds.length > 0
+  const contextProductIds = referencedProducts.map((p: any) => p.id).filter(Boolean)
+  const mergedIds = Array.from(new Set([...productIds, ...contextProductIds]))
+
+  const hasProductMatch = mergedIds.length > 0
   const confidenceLevel = hasProductMatch ? 'high' : 'medium'
 
   const shouldShowWhatsApp =
@@ -225,8 +237,7 @@ function parseAIResponse(content: string, context: GenerateContext): any {
   return {
     content: cleanedContent,
     confidence_level: confidenceLevel,
-    referenced_internal_products:
-      productIds.length > 0 ? productIds : referencedProducts.map((p: any) => p.id).filter(Boolean),
+    referenced_internal_products: mergedIds,
     should_show_whatsapp_button: shouldShowWhatsApp,
   }
 }

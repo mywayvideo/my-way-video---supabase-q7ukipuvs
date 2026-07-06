@@ -331,3 +331,342 @@ export function isTechnicalQuery(query: string): boolean {
   const lower = query.toLowerCase()
   return technicalKeywords.some((kw) => lower.includes(kw))
 }
+
+const COMPARISON_ARTICLES = new Set([
+  'compare',
+  'comparar',
+  'a',
+  'o',
+  'as',
+  'os',
+  'de',
+  'da',
+  'do',
+  'das',
+  'dos',
+  'with',
+  'com',
+  'um',
+  'uma',
+  'para',
+  'por',
+  'sobre',
+])
+
+function cleanComparisonTerm(term: string): string {
+  let cleaned = term.trim()
+  cleaned = cleaned
+    .replace(/^[.,;:!?]+/, '')
+    .replace(/[.,;:!?]+$/, '')
+    .trim()
+  const words = cleaned.split(/\s+/).filter((w) => !COMPARISON_ARTICLES.has(w.toLowerCase()))
+  return words.join(' ').trim()
+}
+
+export function detectComparison(query: string): { isComparison: boolean; terms: string[] } {
+  let cleaned = query.replace(/\bcompare\b/gi, '').trim()
+  cleaned = cleaned
+    .replace(/[.,;:!?]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  const parts1 = cleaned.split(/\s+com\s+(?:a|o)\s+/i)
+  if (parts1.length >= 2) {
+    const terms = parts1.map((p) => cleanComparisonTerm(p)).filter((t) => t.length > 0)
+    if (terms.length >= 2 && terms[0].toLowerCase() !== terms[1].toLowerCase()) {
+      return { isComparison: true, terms: [terms[0], terms[1]] }
+    }
+  }
+
+  const vsMatch = cleaned.match(/^(.+?)\s+(?:vs\.?|versus)\s+(.+)$/i)
+  if (vsMatch) {
+    const term1 = cleanComparisonTerm(vsMatch[1])
+    const term2 = cleanComparisonTerm(vsMatch[2])
+    if (term1 && term2 && term1.toLowerCase() !== term2.toLowerCase()) {
+      return { isComparison: true, terms: [term1, term2] }
+    }
+  }
+
+  const eMatch = cleaned.match(/^(.+?)\s+e\s+(.+)$/i)
+  if (eMatch) {
+    const term1 = cleanComparisonTerm(eMatch[1])
+    const term2 = cleanComparisonTerm(eMatch[2])
+    if (term1.length >= 3 && term2.length >= 3 && term1.toLowerCase() !== term2.toLowerCase()) {
+      return { isComparison: true, terms: [term1, term2] }
+    }
+  }
+
+  return { isComparison: false, terms: [] }
+}
+
+const PT_EN_MAP: Record<string, string> = {
+  'zoom optico': 'optical zoom',
+  'zoom óptico': 'optical zoom',
+  'comprimento focal': 'focal length',
+  lente: 'lens',
+  lentes: 'lenses',
+  câmera: 'camera',
+  camera: 'camera',
+  cameras: 'cameras',
+  câmeras: 'cameras',
+  microfone: 'microphone',
+  microfones: 'microphones',
+  iluminação: 'lighting',
+  iluminacao: 'lighting',
+  tripé: 'tripod',
+  tripe: 'tripod',
+  bateria: 'battery',
+  baterias: 'batteries',
+  cabo: 'cable',
+  cabos: 'cables',
+  tela: 'screen',
+  gravador: 'recorder',
+  gravadores: 'recorders',
+  som: 'audio',
+  áudio: 'audio',
+  audio: 'audio',
+  vídeo: 'video',
+  video: 'video',
+  resolução: 'resolution',
+  resolucao: 'resolution',
+  potência: 'power',
+  potencia: 'power',
+  voltagem: 'voltage',
+  dimensões: 'dimensions',
+  dimensao: 'dimension',
+  dimensão: 'dimension',
+  peso: 'weight',
+  conexão: 'connection',
+  conexao: 'connection',
+  porta: 'port',
+  portas: 'ports',
+  compatível: 'compatible',
+  compativel: 'compatible',
+  compatibilidade: 'compatibility',
+  'sem fio': 'wireless',
+  estabilização: 'stabilization',
+  estabilizacao: 'stabilization',
+}
+
+export function translateToEnglish(query: string): string {
+  let result = query
+  const keys = Object.keys(PT_EN_MAP).sort((a, b) => b.length - a.length)
+  for (const pt of keys) {
+    const regex = new RegExp(`\\b${pt}\\b`, 'gi')
+    result = result.replace(regex, PT_EN_MAP[pt])
+  }
+  return result.trim()
+}
+
+const PT_GENERIC_STOP_WORDS_SET = new Set([
+  'com',
+  'para',
+  'por',
+  'sobre',
+  'peso',
+  'cor',
+  'de',
+  'da',
+  'do',
+  'das',
+  'dos',
+  'a',
+  'o',
+  'as',
+  'os',
+  'um',
+  'uma',
+  'uns',
+  'umas',
+  'no',
+  'na',
+  'nos',
+  'nas',
+  'em',
+  'que',
+  'qual',
+  'quais',
+  'este',
+  'esta',
+  'esse',
+  'essa',
+  'isto',
+  'isso',
+  'ele',
+  'ela',
+  'eles',
+  'elas',
+])
+
+export function cleanPortugueseGenericWords(query: string): string {
+  const words = query.split(/\s+/).filter((w) => !PT_GENERIC_STOP_WORDS_SET.has(w.toLowerCase()))
+  return words.join(' ').trim()
+}
+
+const CATEGORY_TERMS_SET = new Set([
+  'camera',
+  'cameras',
+  'câmera',
+  'câmeras',
+  'lens',
+  'lenses',
+  'lente',
+  'lentes',
+  'microphone',
+  'microphones',
+  'microfone',
+  'microfones',
+  'tripod',
+  'tripods',
+  'tripé',
+  'tripés',
+  'tripe',
+  'monitor',
+  'monitors',
+  'monitores',
+  'light',
+  'lights',
+  'iluminação',
+  'iluminacao',
+  'ptz',
+  '4k',
+  '8k',
+  'hd',
+  'hdmi',
+  'sdi',
+  'ndi',
+  'audio',
+  'áudio',
+  'video',
+  'vídeo',
+  'recorder',
+  'recorders',
+  'gravador',
+  'gravadores',
+  'switcher',
+  'switchers',
+  'converter',
+  'converters',
+  'wireless',
+  'optical',
+  'zoom',
+  'battery',
+  'batteries',
+  'bateria',
+  'baterias',
+  'cable',
+  'cabos',
+  'cabo',
+  'cables',
+  'case',
+  'bag',
+  'bolsa',
+  'estojo',
+  'adapter',
+  'adaptador',
+  'mount',
+  'suporte',
+  'grip',
+  'strap',
+  'cap',
+  'cover',
+  'card',
+  'cartão',
+  'memory',
+  'memória',
+  'headphone',
+  'screen',
+  'protector',
+  'teleconverter',
+  'wind',
+  'sony',
+  'canon',
+  'panasonic',
+  'blackmagic',
+  'datavideo',
+  'sennheiser',
+  'rode',
+  'shure',
+  'manfrotto',
+  'atomos',
+  'smallrig',
+  'dji',
+])
+
+export function simplifyToCategoryAndNumbers(query: string): string {
+  const words = query.split(/\s+/)
+  const filtered = words.filter((w) => {
+    const lower = w.toLowerCase()
+    return CATEGORY_TERMS_SET.has(lower) || /^\d+$/.test(w) || /^\d+[a-z]*$/i.test(w)
+  })
+  return filtered.join(' ').trim()
+}
+
+export function generateFallbackTerms(query: string): string[] {
+  const terms: string[] = []
+
+  const translated = translateToEnglish(query)
+  if (translated && translated.toLowerCase() !== query.toLowerCase()) {
+    terms.push(translated)
+  }
+
+  const cleaned = cleanPortugueseGenericWords(query)
+  if (cleaned && cleaned.toLowerCase() !== query.toLowerCase() && !terms.includes(cleaned)) {
+    terms.push(cleaned)
+  }
+
+  const simplified = simplifyToCategoryAndNumbers(query)
+  if (simplified && simplified.length > 0 && !terms.includes(simplified)) {
+    terms.push(simplified)
+  }
+
+  return terms
+}
+
+const ACCESSORY_KEYWORDS_LIST = [
+  'memory',
+  'card',
+  'battery',
+  'bateria',
+  'cable',
+  'cabo',
+  'adapter',
+  'adaptador',
+  'mount',
+  'suporte',
+  'case',
+  'estojo',
+  'bag',
+  'bolsa',
+  'grip',
+  'wind',
+  'screen',
+  'protector',
+  'cap',
+  'cover',
+  'carte',
+  'cartão',
+  'memória',
+  'teleconverter',
+  'converter',
+  'lens cap',
+  'strap',
+  'headphone',
+  'microphone',
+  'recorder',
+  'monitor',
+]
+
+export function isGenericSearch(entities: string[]): boolean {
+  return entities.some((e) => e.trim().split(/\s+/).length === 1)
+}
+
+export function filterAccessories(products: any[]): { filtered: any[]; removedCount: number } {
+  const accessoryLower = ACCESSORY_KEYWORDS_LIST.map((k) => k.toLowerCase())
+  const nonAccessories = products.filter((p) => {
+    const name = (p.name || p.title || '').toLowerCase()
+    const category = (p.category || '').toLowerCase()
+    return !accessoryLower.some((kw) => name.includes(kw) || category.includes(kw))
+  })
+  return { filtered: nonAccessories, removedCount: products.length - nonAccessories.length }
+}

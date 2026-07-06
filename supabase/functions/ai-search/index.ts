@@ -289,6 +289,57 @@ Deno.serve(async (req: Request) => {
     const level1Context = level1Products.length > 0 ? buildProductContext(level1Products) : []
 
     async function persistAndReturn(aiResult: any, type: string): Promise<Response> {
+      // Dynamic Product Reference Expansion — merge all found products (excluding accessories)
+      const accessoryKeywords = [
+        'memory',
+        'card',
+        'battery',
+        'bateria',
+        'cable',
+        'cabo',
+        'adapter',
+        'adaptador',
+        'mount',
+        'suporte',
+        'case',
+        'estojo',
+        'bag',
+        'bolsa',
+        'grip',
+        'wind',
+        'screen',
+        'protector',
+        'cap',
+        'cover',
+        'carte',
+        'cartão',
+        'memória',
+        'bateria',
+        'teleconverter',
+        'converter',
+        'lens cap',
+        'strap',
+        'headphone',
+        'microphone',
+        'recorder',
+        'monitor',
+      ]
+      const accessoryLower = accessoryKeywords.map((k) => k.toLowerCase())
+      const filteredProducts = level1Products.filter((p: any) => {
+        const name = (p.name || p.title || '').toLowerCase()
+        const category = (p.category || '').toLowerCase()
+        return !accessoryLower.some((kw) => name.includes(kw) || category.includes(kw))
+      })
+      const allProductIds = filteredProducts.map((p: any) => p.id).filter(Boolean)
+      const existingIds = Array.isArray(aiResult.referenced_internal_products)
+        ? aiResult.referenced_internal_products
+        : []
+      const mergedIdSet = new Set<string>([...existingIds, ...allProductIds])
+      aiResult.referenced_internal_products = Array.from(mergedIdSet)
+      console.log(
+        `[ai-search] EXPANDED referenced_internal_products: IA chose ${existingIds.length}, search added ${allProductIds.length}, total=${aiResult.referenced_internal_products.length}`,
+      )
+
       // Product Page Deduplication — remove currently viewed product from results
       if (lastReferencedProductId && Array.isArray(aiResult.referenced_internal_products)) {
         const beforeCount = aiResult.referenced_internal_products.length

@@ -12,6 +12,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Send, Bot, MessageCircle, Sparkles, Loader2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase/client'
 import { useAuth } from '@/hooks/use-auth'
+import { useAIConsultant } from '@/hooks/use-ai-consultant'
 import { Link, useParams } from 'react-router-dom'
 import { ProductCard } from '@/components/ProductCard'
 
@@ -72,6 +73,7 @@ export function AIConsultantModal({
   const [isLoading, setIsLoading] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const { user } = useAuth()
+  const { setAIResult } = useAIConsultant()
   const [sessionId] = useState(() => {
     let id = sessionStorage.getItem('mw_ai_session_id')
     if (!id) {
@@ -277,6 +279,13 @@ export function AIConsultantModal({
           console.error('Error fetching final prices', e)
         }
       }
+
+      setAIResult({
+        referenced_internal_products: refIds.filter(
+          (id: string) => id !== (activeProductId || productId),
+        ),
+        products: finalProducts,
+      })
 
       const assistantMsg: Message = {
         id: crypto.randomUUID(),

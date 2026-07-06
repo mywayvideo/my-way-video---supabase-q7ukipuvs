@@ -39,6 +39,7 @@ import { useAppSettingsRealtime } from '@/hooks/useAppSettingsRealtime'
 import { useFavorites } from '@/hooks/useFavorites'
 import { useHeartAnimation } from '@/hooks/useHeartAnimation'
 import { useAuthState } from '@/hooks/useAuthState'
+import { useAIConsultant } from '@/hooks/use-ai-consultant'
 import { ProductCard } from '@/components/ProductCard'
 
 const formatNCM = (ncm?: string | number | null) => {
@@ -142,6 +143,7 @@ export default function Product() {
   const isProductFavorite = product ? favorites.includes(product.id) : false
   const { isAnimating, triggerAnimation } = useHeartAnimation()
   const { user: authUser, isLoading: isAuthLoading } = useAuthState()
+  const { aiResult, clearAIResult } = useAIConsultant()
 
   const { originalPrice, discountedPrice, discountPercentage, ruleName, isRebateActive } =
     useProductDiscount(product)
@@ -359,6 +361,46 @@ export default function Product() {
   }, [product, hasFetchedRelated])
 
   useEffect(() => {
+    if (!product) return
+
+    const aiRefIds = (aiResult?.referenced_internal_products || [])
+      .map((item: any) => (typeof item === 'object' && item !== null ? item.id : item))
+      .filter((id: any): id is string => typeof id === 'string' && id.trim() !== '')
+      .filter((id: string) => id !== product.id)
+
+    if (aiRefIds.length === 0) return
+
+    let aiMounted = true
+    setIsLoadingRelated(true)
+
+    const fetchAIReferencedProducts = async () => {
+      try {
+        const { data: aiRelatedData } = await supabase
+          .from('products')
+          .select('*, manufacturer:manufacturers(*)')
+          .in('id', aiRefIds)
+          .eq('is_discontinued', false)
+
+        if (aiRelatedData && aiMounted) {
+          setRelatedProducts(aiRelatedData)
+        }
+      } catch (e) {
+        console.error('Error fetching AI-referenced products:', e)
+      } finally {
+        if (aiMounted) {
+          setIsLoadingRelated(false)
+        }
+      }
+    }
+
+    fetchAIReferencedProducts()
+
+    return () => {
+      aiMounted = false
+    }
+  }, [aiResult, product])
+
+  useEffect(() => {
     window.scrollTo(0, 0)
     if (!id) return
 
@@ -370,6 +412,7 @@ export default function Product() {
     setRelatedProducts([])
     setHasFetchedRelated(false)
     setIsLoadingRelated(false)
+    clearAIResult()
 
     supabase
       .from('products')
@@ -796,43 +839,39 @@ export default function Product() {
         </div>
 
         {/* Produtos Relacionados Section */}
-        <div className="mt-16 border-t border-border/50 pt-12">
-          <h2 className="text-2xl font-bold mb-6 flex items-center gap-2">
-            <Sparkles className="w-6 h-6 text-primary" />
-            Produtos Relacionados
-          </h2>
+        {(isLoadingRelated || relatedProducts.length > 0) && (
+          <div className="mt-16 border-t border-border/50 pt-12">
+            <h2 className="text-2xl font-bold mb-6 flex items-center gap-2">
+              <Sparkles className="w-6 h-6 text-primary" />
+              Produtos Relacionados
+            </h2>
 
-          {isLoadingRelated ? (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 lg:gap-6">
-              {Array.from({ length: 6 }).map((_, i) => (
-                <div
-                  key={i}
-                  className="flex flex-col gap-3 p-4 rounded-xl border border-border/50 bg-card shadow-sm h-full"
-                >
-                  <div className="w-full aspect-square bg-slate-800 animate-pulse rounded-lg" />
-                  <div className="flex flex-col flex-1 mt-2">
-                    <div className="h-3 bg-slate-800 animate-pulse rounded w-1/3 mb-2" />
-                    <div className="h-4 bg-slate-800 animate-pulse rounded w-full mb-1" />
-                    <div className="h-4 bg-slate-800 animate-pulse rounded w-2/3 mb-4" />
-                    <div className="h-6 bg-slate-800 animate-pulse rounded w-1/2 mt-auto" />
+            {isLoadingRelated ? (
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 lg:gap-6">
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <div
+                    key={i}
+                    className="flex flex-col gap-3 p-4 rounded-xl border border-border/50 bg-card shadow-sm h-full"
+                  >
+                    <div className="w-full aspect-square bg-slate-800 animate-pulse rounded-lg" />
+                    <div className="flex flex-col flex-1 mt-2">
+                      <div className="h-3 bg-slate-800 animate-pulse rounded w-1/3 mb-2" />
+                      <div className="h-4 bg-slate-800 animate-pulse rounded w-full mb-1" />
+                      <div className="h-4 bg-slate-800 animate-pulse rounded w-2/3 mb-4" />
+                      <div className="h-6 bg-slate-800 animate-pulse rounded w-1/2 mt-auto" />
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
-          ) : relatedProducts.length > 0 ? (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 lg:gap-6">
-              {relatedProducts.map((p) => (
-                <ProductCard key={p.id} product={p} />
-              ))}
-            </div>
-          ) : (
-            <div className="p-8 text-center bg-muted/20 rounded-xl border border-border/50">
-              <p className="text-muted-foreground">
-                Nenhum produto relacionado encontrado no momento.
-              </p>
-            </div>
-          )}
-        </div>
+                ))}
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 lg:gap-6">
+                {relatedProducts.map((p) => (
+                  <ProductCard key={p.id} product={p} />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         <AIConsultantModal
           isOpen={isAiChatOpen}

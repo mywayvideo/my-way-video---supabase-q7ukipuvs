@@ -48,6 +48,7 @@ import ResetPassword from './pages/ResetPassword'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import { AuthProvider } from '@/contexts/AuthContext'
 import { CartProvider } from '@/hooks/useCart'
+import { AIConsultantProvider } from '@/hooks/use-ai-consultant'
 import { HelmetProvider } from 'react-helmet-async'
 
 const App = () => {
@@ -91,227 +92,229 @@ const App = () => {
           </div>
         )}
         <CartProvider>
-          <BrowserRouter future={{ v7_startTransition: false, v7_relativeSplatPath: false }}>
-            <TooltipProvider>
-              <Toaster />
-              <Sonner />
-              <Routes>
-                <Route element={<Layout />}>
-                  <Route path="/" element={<Index />} />
-                  <Route path="/search" element={<Search />} />
-                  <Route path="/search-results" element={<SearchResults />} />
-                  <Route path="/product/:id" element={<Product />} />
-                  <Route
-                    path="/admin"
-                    element={
-                      <ProtectedRoute>
-                        <Admin />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/admin/dashboard"
-                    element={
-                      <ProtectedRoute>
-                        <Admin />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/admin/search-test"
-                    element={
-                      <ProtectedRoute>
-                        <AdminSearchTestPage />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/dashboard-admin"
-                    element={
-                      <ProtectedRoute>
-                        <DashboardAdmin />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/admin/ai"
-                    element={
-                      <ProtectedRoute>
-                        <AdminAIPage />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/admin/catalog"
-                    element={
-                      <ProtectedRoute>
-                        <AdminCatalogPage />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/admin/avpro-keywords"
-                    element={
-                      <ProtectedRoute>
-                        <AdminAVProKeywordsPage />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/admin/products"
-                    element={
-                      <ProtectedRoute>
-                        <ProductsPage />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/products/new"
-                    element={
-                      <ProtectedRoute>
-                        <NewProductPage />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/products/edit/:id"
-                    element={
-                      <ProtectedRoute>
-                        <NewProductPage />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/admin/pricing"
-                    element={
-                      <ProtectedRoute>
-                        <AdminPricingPage />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/admin/ai-providers"
-                    element={
-                      <ProtectedRoute>
-                        <AdminAIProviders />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/admin/product-cache"
-                    element={
-                      <ProtectedRoute>
-                        <AdminProductCache />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/admin/ai-settings"
-                    element={
-                      <ProtectedRoute>
-                        <AdminAISettings />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/admin/settings"
-                    element={
-                      <ProtectedRoute>
-                        <SettingsPage />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/admin/nab-hub"
-                    element={
-                      <ProtectedRoute>
-                        <NABHub />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/admin/shipping-config"
-                    element={
-                      <ProtectedRoute>
-                        <ShippingConfigPage />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/admin/discounts"
-                    element={
-                      <ProtectedRoute>
-                        <AdminDiscountsPage />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/admin/orders"
-                    element={
-                      <ProtectedRoute>
-                        <AdminOrdersPage />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/admin/checkout-assistido/:customerId"
-                    element={
-                      <ProtectedRoute>
-                        <AssistedCheckoutPage />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/admin/customers"
-                    element={
-                      <ProtectedRoute>
-                        <AdminCustomersPage />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/admin/metrics"
-                    element={
-                      <ProtectedRoute>
-                        <AdminMetricsPage />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/admin/profile"
-                    element={
-                      <ProtectedRoute>
-                        <AdminProfilePage />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/admin/payment-config"
-                    element={
-                      <ProtectedRoute>
-                        <AdminPaymentConfigPage />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route path="/dashboard" element={<Dashboard />} />
-                  <Route path="/login" element={<Login />} />
-                  <Route path="/signup" element={<Signup />} />
-                  <Route path="/forgot-password" element={<ForgotPassword />} />
-                  <Route path="/reset-password" element={<ResetPassword />} />
-                  <Route path="/migration-setup" element={<MigrationSetup />} />
-                  <Route path="/favorites" element={<Favorites />} />
-                  <Route path="/cart" element={<Cart />} />
-                  <Route path="/checkout" element={<Checkout />} />
-                  <Route path="/checkout/success" element={<CheckoutSuccess />} />
-                  <Route path="/privacy-policy" element={<PrivacyPolicy />} />
-                  <Route path="/terms-of-service" element={<TermsOfService />} />
-                  <Route path="/refund-policy" element={<RefundPolicy />} />
-                  <Route path="/shipping-policy" element={<ShippingPolicy />} />
-                </Route>
-                <Route path="*" element={<NotFound />} />
-              </Routes>
-            </TooltipProvider>
-          </BrowserRouter>
+          <AIConsultantProvider>
+            <BrowserRouter future={{ v7_startTransition: false, v7_relativeSplatPath: false }}>
+              <TooltipProvider>
+                <Toaster />
+                <Sonner />
+                <Routes>
+                  <Route element={<Layout />}>
+                    <Route path="/" element={<Index />} />
+                    <Route path="/search" element={<Search />} />
+                    <Route path="/search-results" element={<SearchResults />} />
+                    <Route path="/product/:id" element={<Product />} />
+                    <Route
+                      path="/admin"
+                      element={
+                        <ProtectedRoute>
+                          <Admin />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/admin/dashboard"
+                      element={
+                        <ProtectedRoute>
+                          <Admin />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/admin/search-test"
+                      element={
+                        <ProtectedRoute>
+                          <AdminSearchTestPage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/dashboard-admin"
+                      element={
+                        <ProtectedRoute>
+                          <DashboardAdmin />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/admin/ai"
+                      element={
+                        <ProtectedRoute>
+                          <AdminAIPage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/admin/catalog"
+                      element={
+                        <ProtectedRoute>
+                          <AdminCatalogPage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/admin/avpro-keywords"
+                      element={
+                        <ProtectedRoute>
+                          <AdminAVProKeywordsPage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/admin/products"
+                      element={
+                        <ProtectedRoute>
+                          <ProductsPage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/products/new"
+                      element={
+                        <ProtectedRoute>
+                          <NewProductPage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/products/edit/:id"
+                      element={
+                        <ProtectedRoute>
+                          <NewProductPage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/admin/pricing"
+                      element={
+                        <ProtectedRoute>
+                          <AdminPricingPage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/admin/ai-providers"
+                      element={
+                        <ProtectedRoute>
+                          <AdminAIProviders />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/admin/product-cache"
+                      element={
+                        <ProtectedRoute>
+                          <AdminProductCache />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/admin/ai-settings"
+                      element={
+                        <ProtectedRoute>
+                          <AdminAISettings />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/admin/settings"
+                      element={
+                        <ProtectedRoute>
+                          <SettingsPage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/admin/nab-hub"
+                      element={
+                        <ProtectedRoute>
+                          <NABHub />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/admin/shipping-config"
+                      element={
+                        <ProtectedRoute>
+                          <ShippingConfigPage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/admin/discounts"
+                      element={
+                        <ProtectedRoute>
+                          <AdminDiscountsPage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/admin/orders"
+                      element={
+                        <ProtectedRoute>
+                          <AdminOrdersPage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/admin/checkout-assistido/:customerId"
+                      element={
+                        <ProtectedRoute>
+                          <AssistedCheckoutPage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/admin/customers"
+                      element={
+                        <ProtectedRoute>
+                          <AdminCustomersPage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/admin/metrics"
+                      element={
+                        <ProtectedRoute>
+                          <AdminMetricsPage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/admin/profile"
+                      element={
+                        <ProtectedRoute>
+                          <AdminProfilePage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/admin/payment-config"
+                      element={
+                        <ProtectedRoute>
+                          <AdminPaymentConfigPage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route path="/dashboard" element={<Dashboard />} />
+                    <Route path="/login" element={<Login />} />
+                    <Route path="/signup" element={<Signup />} />
+                    <Route path="/forgot-password" element={<ForgotPassword />} />
+                    <Route path="/reset-password" element={<ResetPassword />} />
+                    <Route path="/migration-setup" element={<MigrationSetup />} />
+                    <Route path="/favorites" element={<Favorites />} />
+                    <Route path="/cart" element={<Cart />} />
+                    <Route path="/checkout" element={<Checkout />} />
+                    <Route path="/checkout/success" element={<CheckoutSuccess />} />
+                    <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+                    <Route path="/terms-of-service" element={<TermsOfService />} />
+                    <Route path="/refund-policy" element={<RefundPolicy />} />
+                    <Route path="/shipping-policy" element={<ShippingPolicy />} />
+                  </Route>
+                  <Route path="*" element={<NotFound />} />
+                </Routes>
+              </TooltipProvider>
+            </BrowserRouter>
+          </AIConsultantProvider>
         </CartProvider>
       </AuthProvider>
     </HelmetProvider>

@@ -39,7 +39,7 @@ import { useAppSettingsRealtime } from '@/hooks/useAppSettingsRealtime'
 import { useFavorites } from '@/hooks/useFavorites'
 import { useHeartAnimation } from '@/hooks/useHeartAnimation'
 import { useAuthState } from '@/hooks/useAuthState'
-import { useAIConsultant } from '@/hooks/use-ai-consultant'
+import { type AIConsultantResult } from '@/hooks/use-ai-consultant'
 import { ProductCard } from '@/components/ProductCard'
 
 const formatNCM = (ncm?: string | number | null) => {
@@ -142,7 +142,7 @@ export default function Product() {
   const isProductFavorite = product ? favorites.includes(product.id) : false
   const { isAnimating, triggerAnimation } = useHeartAnimation()
   const { user: authUser, isLoading: isAuthLoading } = useAuthState()
-  const { aiResult, clearAIResult } = useAIConsultant()
+  const [localAIResult, setLocalAIResult] = useState<AIConsultantResult | null>(null)
 
   const { originalPrice, discountedPrice, discountPercentage, ruleName, isRebateActive } =
     useProductDiscount(product)
@@ -289,14 +289,12 @@ export default function Product() {
   useEffect(() => {
     if (!product) return
 
-    const aiRefIds = (aiResult?.ai_referenced_products || [])
+    const filteredIds = (localAIResult?.ai_referenced_products || [])
       .map((item: any) => (typeof item === 'object' && item !== null ? item.id : item))
       .filter((id: any): id is string => typeof id === 'string' && id.trim() !== '')
       .filter((id: string) => id !== product.id)
 
-    console.log('[Product] aiResult changed:', JSON.stringify(aiResult?.ai_referenced_products))
-
-    if (aiRefIds.length === 0) {
+    if (filteredIds.length === 0) {
       setRelatedProducts([])
       return
     }
@@ -309,7 +307,7 @@ export default function Product() {
         const { data: aiRelatedData } = await supabase
           .from('products')
           .select('*, manufacturer:manufacturers(*)')
-          .in('id', aiRefIds)
+          .in('id', filteredIds)
           .eq('is_discontinued', false)
 
         if (aiRelatedData && aiMounted) {
@@ -329,7 +327,7 @@ export default function Product() {
     return () => {
       aiMounted = false
     }
-  }, [aiResult, product])
+  }, [localAIResult, product])
 
   useEffect(() => {
     window.scrollTo(0, 0)
@@ -342,7 +340,7 @@ export default function Product() {
     setIsAiChatOpen(false)
     setRelatedProducts([])
     setIsLoadingRelated(false)
-    clearAIResult()
+    setLocalAIResult(null)
 
     supabase
       .from('products')
@@ -804,11 +802,13 @@ export default function Product() {
         )}
 
         <AIConsultantModal
+          key={product.id}
           isOpen={isAiChatOpen}
           onClose={() => setIsAiChatOpen(false)}
           productName={product.name}
           technicalInfo={normalizeSpecs(product.technical_info)}
           productId={product.id}
+          onAIResult={setLocalAIResult}
         />
 
         <TechnicalInfoModal

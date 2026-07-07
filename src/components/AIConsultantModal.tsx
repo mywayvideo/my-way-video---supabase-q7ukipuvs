@@ -12,7 +12,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Send, Bot, MessageCircle, Sparkles, Loader2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase/client'
 import { useAuth } from '@/hooks/use-auth'
-import { useAIConsultant } from '@/hooks/use-ai-consultant'
+import { useAIConsultant, type AIConsultantResult } from '@/hooks/use-ai-consultant'
 import { Link, useParams } from 'react-router-dom'
 import { ProductCard } from '@/components/ProductCard'
 
@@ -60,6 +60,7 @@ interface AIConsultantModalProps {
   onClose: () => void
   productId?: string
   initialQuery?: string
+  onAIResult?: (result: AIConsultantResult | null) => void
 }
 
 export function AIConsultantModal({
@@ -67,6 +68,7 @@ export function AIConsultantModal({
   onClose,
   productId,
   initialQuery,
+  onAIResult,
 }: AIConsultantModalProps) {
   const [messages, setMessages] = useState<Message[]>([])
   const [inputValue, setInputValue] = useState('')
@@ -281,13 +283,15 @@ export function AIConsultantModal({
         }
       }
 
-      setAIResult({
+      const aiResultData: AIConsultantResult = {
         referenced_internal_products: refIds.filter(
           (id: string) => id !== (activeProductId || productId),
         ),
         ai_referenced_products: data.ai_referenced_products || [],
         products: finalProducts,
-      })
+      }
+      setAIResult(aiResultData)
+      onAIResult?.(aiResultData)
 
       const assistantMsg: Message = {
         id: crypto.randomUUID(),

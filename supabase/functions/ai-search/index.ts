@@ -6,7 +6,7 @@ const corsHeaders = {
   'Access-Control-Allow-Headers':
     'authorization, x-client-info, x-supabase-client-platform, apikey, content-type',
 }
-import { getActiveAgents, generateResponse } from './intelligence.ts'
+import { getActiveAgents, generateResponse } from '../_shared/intelligence.ts'
 import {
   sanitizeInput,
   isInstitutionalQuery,
@@ -336,17 +336,15 @@ Deno.serve(async (req: Request) => {
       const existingIds = Array.isArray(aiResult.referenced_internal_products)
         ? aiResult.referenced_internal_products
         : []
-      aiResult.ai_referenced_products = [...(aiResult.referenced_internal_products || [])]
+      const aiReferencedProducts = [...existingIds]
       const aiReferencedCount = aiResult.ai_referenced_count ?? existingIds.length
       const isPPMode = !!(contextualProductData?.id || lastReferencedProductId)
+      let referencedInternalProducts: string[]
       if (isPPMode) {
-        // PP Mode: keep ONLY AI-selected products, remove current product
         const currentProductId = lastReferencedProductId || contextualProductData?.id
-        aiResult.referenced_internal_products = existingIds.filter(
-          (id: string) => id !== currentProductId,
-        )
+        referencedInternalProducts = existingIds.filter((id: string) => id !== currentProductId)
         console.log(
-          `[ai-search] PP MODE: ${existingIds.length} IA choices → ${aiResult.referenced_internal_products.length} after removing currentProduct`,
+          `[ai-search] PP MODE: ${existingIds.length} IA choices → ${referencedInternalProducts.length} after removing currentProduct`,
         )
       } else {
         // HP Mode: expand with all search products (excluding accessories)
@@ -391,9 +389,9 @@ Deno.serve(async (req: Request) => {
         })
         const allProductIds = filteredProducts.map((p: any) => p.id).filter(Boolean)
         const mergedIdSet = new Set<string>([...existingIds, ...allProductIds])
-        aiResult.referenced_internal_products = Array.from(mergedIdSet)
+        referencedInternalProducts = Array.from(mergedIdSet)
         console.log(
-          `[ai-search] HP MODE: expanded from ${existingIds.length} to ${aiResult.referenced_internal_products.length} products`,
+          `[ai-search] HP MODE: expanded from ${existingIds.length} to ${referencedInternalProducts.length} products`,
         )
       }
       if (session_id) {
@@ -404,15 +402,19 @@ Deno.serve(async (req: Request) => {
           session_id,
           role: 'assistant',
           message: aiResult.content,
-          content: JSON.stringify(aiResult),
+          content: JSON.stringify({
+            ...aiResult,
+            referenced_internal_products: referencedInternalProducts,
+            ai_referenced_products: aiReferencedProducts,
+          }),
           type,
         })
       }
       const result: any = {
         content: aiResult.content,
         confidence_level: aiResult.confidence_level,
-        referenced_internal_products: aiResult.referenced_internal_products,
-        ai_referenced_products: aiResult.ai_referenced_products,
+        referenced_internal_products: referencedInternalProducts,
+        ai_referenced_products: aiReferencedProducts,
         should_show_whatsapp_button: aiResult.should_show_whatsapp_button,
         ai_referenced_count: aiReferencedCount,
       }

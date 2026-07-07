@@ -12,7 +12,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Send, Bot, MessageCircle, Sparkles, Loader2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase/client'
 import { useAuth } from '@/hooks/use-auth'
-import { useAIConsultant, type AIConsultantResult } from '@/hooks/use-ai-consultant'
+import { type AIConsultantResult } from '@/hooks/use-ai-consultant'
 import { Link, useParams } from 'react-router-dom'
 import { ProductCard } from '@/components/ProductCard'
 
@@ -59,6 +59,8 @@ interface AIConsultantModalProps {
   isOpen: boolean
   onClose: () => void
   productId?: string
+  productName?: string
+  technicalInfo?: string
   initialQuery?: string
   onAIResult?: (result: AIConsultantResult | null) => void
 }
@@ -67,6 +69,8 @@ export function AIConsultantModal({
   isOpen,
   onClose,
   productId,
+  productName,
+  technicalInfo,
   initialQuery,
   onAIResult,
 }: AIConsultantModalProps) {
@@ -75,19 +79,13 @@ export function AIConsultantModal({
   const [isLoading, setIsLoading] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const { user } = useAuth()
-  const { setAIResult } = useAIConsultant()
   const [sessionId] = useState(() => {
-    let id = sessionStorage.getItem('mw_ai_session_id')
-    if (!id) {
-      id = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString()
-      sessionStorage.setItem('mw_ai_session_id', id)
-    }
-    return id
+    return crypto.randomUUID ? crypto.randomUUID() : Date.now().toString()
   })
   const [whatsappNumber, setWhatsappNumber] = useState('17867161170')
   const [priceThreshold, setPriceThreshold] = useState(5000)
   const [currentProductPrice, setCurrentProductPrice] = useState(0)
-  const [currentProductName, setCurrentProductName] = useState('')
+  const [currentProductName, setCurrentProductName] = useState(productName || '')
   const [fullProductData, setFullProductData] = useState<any>(null)
   const [productPagePrompt, setProductPagePrompt] = useState<string>('')
 
@@ -109,7 +107,7 @@ export function AIConsultantModal({
 
         const { data: aiSettings } = await supabase
           .from('ai_settings')
-          .select('price_threshold_usd')
+          .select('price_threshold_usd, product_page_prompt')
           .limit(1)
           .maybeSingle()
 
@@ -130,8 +128,14 @@ export function AIConsultantModal({
 
           if (productData) {
             setCurrentProductPrice(productData.price_usd || 0)
-            setCurrentProductName(productData.name || '')
-            setFullProductData(productData)
+            setCurrentProductName(productData.name || productName || '')
+            setFullProductData({
+              ...productData,
+              technical_info: productData.technical_info || technicalInfo || '',
+            })
+          } else if (productName) {
+            setCurrentProductName(productName)
+            setFullProductData({ name: productName, technical_info: technicalInfo || '' })
           }
         }
       }
@@ -170,6 +174,19 @@ export function AIConsultantModal({
     const query = overrideQuery || inputValue
     if (!query.trim()) return
 
+    let promptToUse = productPagePrompt
+    if (activeProductId && !promptToUse) {
+      const { data: promptData } = await supabase
+        .from('ai_settings')
+        .select('product_page_prompt')
+        .limit(1)
+        .maybeSingle()
+      if (promptData?.product_page_prompt) {
+        promptToUse = promptData.product_page_prompt
+        setProductPagePrompt(promptToUse)
+      }
+    }
+
     const userMsg: Message = {
       id: crypto.randomUUID(),
       role: 'user',
@@ -198,7 +215,7 @@ export function AIConsultantModal({
           session_id: sessionId,
           currentProductId: activeProductId,
           currentProductContext: fullProductData,
-          productPagePrompt: productPagePrompt,
+          productPagePrompt: promptToUse,
           userName: user?.user_metadata?.name || 'Cliente',
           messages: messages.map((m) => ({ role: m.role, content: m.content })),
         }),
@@ -290,7 +307,6 @@ export function AIConsultantModal({
         ai_referenced_products: data.ai_referenced_products || [],
         products: finalProducts,
       }
-      setAIResult(aiResultData)
       onAIResult?.(aiResultData)
 
       const assistantMsg: Message = {

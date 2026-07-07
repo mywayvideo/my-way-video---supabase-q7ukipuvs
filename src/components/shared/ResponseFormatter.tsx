@@ -132,9 +132,7 @@ export function ResponseFormatter({
                 <h3 className="text-lg font-bold mt-4 mb-2 text-green-400">{children}</h3>
               ),
               p: ({ children }) => (
-                <p className="mb-4 last:mb-0 text-white/90 leading-relaxed whitespace-pre-wrap">
-                  {children}
-                </p>
+                <p className="mb-4 last:mb-0 text-white/90 leading-relaxed">{children}</p>
               ),
               li: ({ children }) => (
                 <li className="mb-1 leading-normal text-white/90">{children}</li>

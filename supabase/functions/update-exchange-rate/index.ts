@@ -3,7 +3,6 @@ import { createClient } from 'jsr:@supabase/supabase-js@2'
 import { corsHeaders } from '../_shared/cors.ts'
 
 Deno.serve(async (req: Request) => {
-  // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
@@ -19,31 +18,36 @@ Deno.serve(async (req: Request) => {
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? ''
     const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? ''
+    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
 
-    // Initialize the Supabase client with the user's JWT
-    const supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
-      global: {
-        headers: { Authorization: authHeader },
-      },
-    })
+    let supabaseClient
+    let isServiceRole = false
 
-    // Verify admin status using the database function
-    const { data: isAdmin, error: adminError } = await supabaseClient.rpc('is_admin')
-
-    if (adminError || !isAdmin) {
-      return new Response(JSON.stringify({ error: 'Unauthorized: Admin privileges required.' }), {
-        status: 403,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    if (serviceRoleKey && authHeader === `Bearer ${serviceRoleKey}`) {
+      isServiceRole = true
+      supabaseClient = createClient(supabaseUrl, serviceRoleKey)
+    } else {
+      supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
+        global: {
+          headers: { Authorization: authHeader },
+        },
       })
+
+      const { data: isAdmin, error: adminError } = await supabaseClient.rpc('is_admin')
+
+      if (adminError || !isAdmin) {
+        return new Response(JSON.stringify({ error: 'Unauthorized: Admin privileges required.' }), {
+          status: 403,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
+      }
     }
 
-    // Retrieve the external API key
     const apiKey = Deno.env.get('OPENEXCHANGERATES_API_KEY')
     if (!apiKey) {
       throw new Error('Missing OPENEXCHANGERATES_API_KEY secret')
     }
 
-    // Fetch the latest exchange rates
     const response = await fetch(`https://openexchangerates.org/api/latest.json?app_id=${apiKey}`)
     if (!response.ok) {
       throw new Error(`OpenExchangeRates API error: ${response.statusText}`)
@@ -56,10 +60,13 @@ Deno.serve(async (req: Request) => {
       throw new Error('BRL rate not found in API response')
     }
 
-    const { data: userResponse } = await supabaseClient.auth.getUser()
-    const userId = userResponse.user?.id
+    let userId: string | null = null
 
-    // Update price_settings
+    if (!isServiceRole) {
+      const { data: userResponse } = await supabaseClient.auth.getUser()
+      userId = userResponse.user?.id ?? null
+    }
+
     const { data: priceSettings } = await supabaseClient
       .from('price_settings')
       .select('id')
@@ -77,7 +84,6 @@ Deno.serve(async (req: Request) => {
         .eq('id', priceSettings.id)
     }
 
-    // Update pricing_settings
     const { data: pricingSettings } = await supabaseClient
       .from('pricing_settings')
       .select('id')
@@ -94,7 +100,6 @@ Deno.serve(async (req: Request) => {
         .eq('id', pricingSettings.id)
     }
 
-    // Update exchange_rate table
     const { data: exchangeRate } = await supabaseClient
       .from('exchange_rate')
       .select('id')

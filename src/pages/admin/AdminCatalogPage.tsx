@@ -95,7 +95,7 @@ export default function AdminCatalogPage() {
   const [products, setProducts] = useState<Product[]>([])
   const [manufacturers, setManufacturers] = useState<Manufacturer[]>([])
   const [search, setSearch] = useState('')
-  const debouncedSearch = useDebounce(search, 500)
+  const debouncedSearch = useDebounce(search, 300)
   const [filterNoImage, setFilterNoImage] = useState(false)
 
   const [isProcessingCSV, setIsProcessingCSV] = useState(false)
@@ -118,8 +118,19 @@ export default function AdminCatalogPage() {
   const [showExportModal, setShowExportModal] = useState(false)
   const [selectedExportFields, setSelectedExportFields] = useState<string[]>(ALL_EXPORT_FIELDS)
 
-  const fetchProductsData = async () => {
+  const fetchProductsData = async (searchTerm?: string) => {
     let pQuery = supabase.from('products').select('*, manufacturer:manufacturers(*)')
+
+    if (searchTerm && searchTerm.trim()) {
+      const safeTerm = searchTerm.trim().replace(/,/g, ' ')
+      pQuery = pQuery.or(
+        `name.ilike.%${safeTerm}%,sku.ilike.%${safeTerm}%,description.ilike.%${safeTerm}%`,
+      )
+    }
+
+    if (filterNoImage) {
+      pQuery = pQuery.or('image_url.is.null,image_url.eq.')
+    }
 
     if (sortColumn !== 'brand') {
       pQuery = pQuery.order(sortColumn, { ascending: sortDirection === 'asc' })
@@ -149,7 +160,7 @@ export default function AdminCatalogPage() {
 
   const fetchData = async () => {
     await fetchOtherData()
-    await fetchProductsData()
+    await fetchProductsData(debouncedSearch)
   }
 
   useEffect(() => {
@@ -157,8 +168,8 @@ export default function AdminCatalogPage() {
   }, [user])
 
   useEffect(() => {
-    if (user) fetchProductsData()
-  }, [user, sortColumn, sortDirection])
+    if (user) fetchProductsData(debouncedSearch)
+  }, [user, sortColumn, sortDirection, debouncedSearch, filterNoImage])
 
   useEffect(() => {
     const pos = sessionStorage.getItem('admin-products-scroll-position')
@@ -185,13 +196,7 @@ export default function AdminCatalogPage() {
 
   const noImageCount = products.filter((p) => !p.image_url || p.image_url.trim() === '').length
 
-  const filteredProducts = products.filter((p) => {
-    const matchesSearch =
-      p.name.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
-      (p.sku && p.sku.toLowerCase().includes(debouncedSearch.toLowerCase()))
-    const matchesNoImage = filterNoImage ? !p.image_url || p.image_url.trim() === '' : true
-    return matchesSearch && matchesNoImage
-  })
+  const filteredProducts = products
 
   const isAllVisibleSelected =
     filteredProducts.length > 0 && filteredProducts.every((p) => selectedProductIds.includes(p.id))

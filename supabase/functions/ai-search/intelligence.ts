@@ -114,6 +114,15 @@ function buildSystemPrompt(context: GenerateContext): string {
   if (context.manufacturerList) {
     prompt += `\n\nFabricantes disponíveis: ${context.manufacturerList}`
   }
+  prompt += '\n\nREGRAS DE PREÇOS E COTAÇÃO:'
+  prompt += '\n- Priorize sempre o preço em USD (FOB Miami) quando o valor for maior que 0.'
+  prompt +=
+    '\n- Se o preço USD for 0 ou nulo, NÃO invente ou alucine um preço. Informe que o preço está indisponível.'
+  prompt +=
+    '\n- O preço nacionalizado (price_nationalized_sales) só deve ser mencionado se o usuário perguntar explicitamente sobre preços no Brasil ou em reais.'
+  prompt +=
+    '\n- Use price_nationalized_currency para associar o símbolo correto (USD/BRL) ao preço nacionalizado.'
+  prompt += '\n- NUNCA mencione custos internos, preços de custo ou margens de lucro.'
   if (context.institutionalContext) {
     prompt += `\n\nInformações institucionais:\n${context.institutionalContext}`
   }

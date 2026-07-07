@@ -116,7 +116,7 @@ Deno.serve(async (req: Request) => {
       const { data: product, error: productError } = await supabase
         .from('products')
         .select(
-          'id, name, sku, category, description, technical_info, image_url, manufacturer_id, manufacturers(name), price_usd, price_brl, price_cost, price_cost_rebate, price_nationalized_cost, price_nationalized_sales, price_usa_rebate',
+          'id, name, sku, category, description, technical_info, image_url, manufacturer_id, manufacturers(name), price_usd, price_nationalized_sales, price_nationalized_currency, price_usa_rebate',
         )
         .eq('id', lastReferencedProductId)
         .maybeSingle()
@@ -431,7 +431,7 @@ Deno.serve(async (req: Request) => {
         const { data: groundedProducts } = await supabase
           .from('products')
           .select(
-            'id, name, price_usd, price_brl, price_nationalized_sales, price_nationalized_currency, image_url, category, description, technical_info, sku, weight, is_discontinued, price_usa_rebate, date_rebate, manufacturer_id, manufacturer:manufacturers(name)',
+            'id, name, price_usd, price_nationalized_sales, price_nationalized_currency, image_url, category, description, technical_info, sku, weight, is_discontinued, price_usa_rebate, date_rebate, manufacturer_id, manufacturer:manufacturers(name)',
           )
           .in('id', result.referenced_internal_products)
         if (groundedProducts) {

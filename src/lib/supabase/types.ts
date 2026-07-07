@@ -1900,6 +1900,7 @@ export type Database = {
       show_limit: { Args: never; Returns: number }
       show_trgm: { Args: { '': string }; Returns: string[] }
       sync_current_user_profile: { Args: never; Returns: string }
+      trigger_exchange_rate_update: { Args: never; Returns: undefined }
     }
     Enums: {
       [_ in never]: never

@@ -62,6 +62,8 @@ import { useDebounce } from '@/hooks/use-debounce'
 import { BulkReviewModal } from '@/components/admin/BulkReviewModal'
 import { productService } from '@/services/productService'
 
+const PAGE_SIZE = 50
+
 const ALL_EXPORT_FIELDS = [
   'id',
   'name',
@@ -114,12 +116,16 @@ export default function AdminCatalogPage() {
 
   const [sortColumn, setSortColumn] = useState<string>('created_at')
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc')
+  const [page, setPage] = useState(1)
+  const [totalCount, setTotalCount] = useState(0)
 
   const [showExportModal, setShowExportModal] = useState(false)
   const [selectedExportFields, setSelectedExportFields] = useState<string[]>(ALL_EXPORT_FIELDS)
 
   const fetchProductsData = async (searchTerm?: string) => {
-    let pQuery = supabase.from('products').select('*, manufacturer:manufacturers(*)')
+    let pQuery = supabase
+      .from('products')
+      .select('*, manufacturer:manufacturers(*)', { count: 'exact' })
 
     if (searchTerm && searchTerm.trim()) {
       const safeTerm = searchTerm.trim().replace(/,/g, ' ')
@@ -138,7 +144,11 @@ export default function AdminCatalogPage() {
       pQuery = pQuery.order('created_at', { ascending: false })
     }
 
-    const { data: pData } = await pQuery
+    const from = (page - 1) * PAGE_SIZE
+    const to = from + PAGE_SIZE - 1
+    pQuery = pQuery.range(from, to)
+
+    const { data: pData, count } = await pQuery
     if (pData) {
       if (sortColumn === 'brand') {
         pData.sort((a, b) => {
@@ -148,6 +158,9 @@ export default function AdminCatalogPage() {
         })
       }
       setProducts(pData)
+    }
+    if (count !== null && count !== undefined) {
+      setTotalCount(count)
     }
   }
 
@@ -168,8 +181,12 @@ export default function AdminCatalogPage() {
   }, [user])
 
   useEffect(() => {
+    setPage(1)
+  }, [sortColumn, sortDirection, debouncedSearch, filterNoImage])
+
+  useEffect(() => {
     if (user) fetchProductsData(debouncedSearch)
-  }, [user, sortColumn, sortDirection, debouncedSearch, filterNoImage])
+  }, [user, sortColumn, sortDirection, debouncedSearch, filterNoImage, page])
 
   useEffect(() => {
     const pos = sessionStorage.getItem('admin-products-scroll-position')
@@ -195,6 +212,8 @@ export default function AdminCatalogPage() {
   if (!user) return <Navigate to="/login" replace />
 
   const noImageCount = products.filter((p) => !p.image_url || p.image_url.trim() === '').length
+
+  const totalPages = Math.ceil(totalCount / PAGE_SIZE)
 
   const filteredProducts = products
 
@@ -775,6 +794,32 @@ export default function AdminCatalogPage() {
               </TableBody>
             </Table>
           </div>
+
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between border-t border-border/50 p-4">
+              <span className="text-sm text-muted-foreground">
+                Página {page} de {totalPages} ({totalCount} itens)
+              </span>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page === 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                >
+                  Anterior
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page === totalPages}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                >
+                  Próxima
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
 
         <Dialog open={showExportModal} onOpenChange={setShowExportModal}>

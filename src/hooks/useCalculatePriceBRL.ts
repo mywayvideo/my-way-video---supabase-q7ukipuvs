@@ -1,79 +1,77 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase/client'
-import { calculatePriceBRL, PriceSettings } from '@/services/priceBrlService'
+import {
+  calculatePriceBRL,
+  type PriceSettings,
+  type ExchangeRateSettings,
+} from '@/services/priceBrlService'
 
-let cachedSettings: PriceSettings | null = null
-let fetchPromise: Promise<PriceSettings | null> | null = null
+let cachedPriceSettings: PriceSettings | null = null
+let cachedExchangeRate: ExchangeRateSettings | null = null
+let fetchPromise: Promise<void> | null = null
 
 export function useCalculatePriceBRL(
   priceUsd: number | null | undefined,
   weight: number | null | undefined,
   discountPercentage: number | null | undefined,
 ) {
-  const [settings, setSettings] = useState<PriceSettings | null>(cachedSettings)
-  const [loading, setLoading] = useState(!cachedSettings)
+  const [priceSettings, setPriceSettings] = useState<PriceSettings | null>(cachedPriceSettings)
+  const [exchangeRate, setExchangeRate] = useState<ExchangeRateSettings | null>(cachedExchangeRate)
+  const [loading, setLoading] = useState(!cachedPriceSettings || !cachedExchangeRate)
 
   useEffect(() => {
-    if (cachedSettings) {
-      setSettings(cachedSettings)
+    if (cachedPriceSettings && cachedExchangeRate) {
+      setPriceSettings(cachedPriceSettings)
+      setExchangeRate(cachedExchangeRate)
       setLoading(false)
       return
     }
 
     if (!fetchPromise) {
-      fetchPromise = supabase
-      Promise.all([
+      fetchPromise = Promise.all([
         supabase
           .from('price_settings')
-          .select('exchange_rate, exchange_spread')
+          .select('markup, freight_per_kg_usd, weight_margin')
           .limit(1)
           .maybeSingle(),
         supabase
-          .from('app_settings')
-          .select('setting_key, setting_value, setting_value_numeric')
-          .in('setting_key', [
-            'shipping_sao_paulo_price_per_kg',
-            'shipping_sao_paulo_percentage_value',
-            'shipping_sao_paulo_additional_weight_kg',
-          ]),
+          .from('exchange_rate')
+          .select('usd_to_brl, spread_percentage')
+          .limit(1)
+          .maybeSingle(),
       ])
-        .then(([{ data: priceSettings }, { data: appSettings }]) => {
-          let price_per_kg = 0
-          let percentage_value = 0
-          let additional_weight_kg = 0.5
-
-          appSettings?.forEach((setting) => {
-            const val = setting.setting_value_numeric ?? Number(setting.setting_value)
-            if (setting.setting_key === 'shipping_sao_paulo_price_per_kg')
-              price_per_kg = isNaN(val) ? 0 : val
-            if (setting.setting_key === 'shipping_sao_paulo_percentage_value')
-              percentage_value = isNaN(val) ? 0 : val
-            if (setting.setting_key === 'shipping_sao_paulo_additional_weight_kg')
-              additional_weight_kg = isNaN(val) ? 0.5 : val
-          })
-
-          cachedSettings = {
-            exchange_rate: Number(priceSettings?.exchange_rate) || 5.0,
-            exchange_spread: Number(priceSettings?.exchange_spread) || 0,
-            price_per_kg,
-            percentage_value,
-            additional_weight_kg,
+        .then(([psRes, erRes]) => {
+          if (psRes.data) {
+            cachedPriceSettings = {
+              markup: Number(psRes.data.markup) || 0,
+              freight_per_kg_usd: Number(psRes.data.freight_per_kg_usd) || 0,
+              weight_margin: Number(psRes.data.weight_margin) || 0,
+            }
           }
-          return cachedSettings
+          if (erRes.data) {
+            cachedExchangeRate = {
+              usd_to_brl: Number(erRes.data.usd_to_brl) || 0,
+              spread_percentage: Number(erRes.data.spread_percentage) || 0,
+            }
+          }
         })
-        .catch((err) => {
-          console.error(err)
-          return null
-        })
+        .catch(() => {})
     }
 
-    fetchPromise.then((res) => {
-      setSettings(res)
+    fetchPromise.then(() => {
+      setPriceSettings(cachedPriceSettings)
+      setExchangeRate(cachedExchangeRate)
       setLoading(false)
     })
   }, [])
 
-  const calculatedPrice = calculatePriceBRL(priceUsd, weight, discountPercentage, settings)
+  const calculatedPrice = calculatePriceBRL(
+    priceUsd,
+    weight,
+    discountPercentage,
+    priceSettings,
+    exchangeRate,
+  )
 
   return { calculatedPrice, loading }
 }

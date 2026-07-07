@@ -1,4 +1,10 @@
 import { calculateFinalPrice } from './pricing'
+import {
+  calculateTotalUSDFromValues,
+  calculateBRLFromUSD,
+  type PriceSettingsData,
+  type ExchangeRateData,
+} from './pricing-engine'
 
 export type Destination = 'brasil' | 'usa'
 
@@ -7,8 +13,8 @@ export const safeNum = (val: any) => parseFloat(String(val).replace(/[^\d.-]/g, 
 export function getEligibilityAndPrice(
   product: any,
   destination: Destination,
-  exchangeRate: number,
-  shippingSettings: { pricePerKg: number; percentageValue: number; additionalWeightKg: number },
+  exchangeRate: ExchangeRateData | null,
+  priceSettings: PriceSettingsData | null,
 ) {
   let eligible = false
   let price = 0
@@ -23,26 +29,22 @@ export function getEligibilityAndPrice(
   if (destination === 'brasil') {
     if (price_nationalized_sales > 0) {
       eligible = true
-      currency = product?.price_nationalized_currency || 'BRL'
-      price =
-        currency === 'USD' ? price_nationalized_sales * exchangeRate : price_nationalized_sales
-      currency = 'BRL' // After conversion, it's always BRL
+      currency = 'BRL'
       rule = 'A'
-    } else if (price_usa > 0 && weight > 0) {
+      const natCurrency = product?.price_nationalized_currency || 'BRL'
+      if (natCurrency === 'USD' && exchangeRate) {
+        price = calculateBRLFromUSD(price_nationalized_sales, exchangeRate)
+      } else if (natCurrency === 'USD') {
+        price = 0
+      } else {
+        price = price_nationalized_sales
+      }
+    } else if (price_usa > 0 && weight > 0 && priceSettings && exchangeRate) {
       eligible = true
       currency = 'BRL'
       rule = 'B'
-      const pricePerKg = safeNum(shippingSettings?.pricePerKg)
-      const percentageValue = safeNum(shippingSettings?.percentageValue)
-      const additionalWeightKg = safeNum(shippingSettings?.additionalWeightKg)
-
-      const weight_kg = weight / 2.204
-      const total_weight = weight_kg + additionalWeightKg
-      const freight_usd = total_weight * pricePerKg
-      const percentage_charge_usd = (price_usa * percentageValue) / 100
-
-      const total_usd = price_usa + freight_usd + percentage_charge_usd
-      price = total_usd * exchangeRate
+      const totalUSD = calculateTotalUSDFromValues(price_usa, weight, priceSettings)
+      price = calculateBRLFromUSD(totalUSD, exchangeRate)
     } else {
       eligible = false
       reason = 'Indisponível para o destino'

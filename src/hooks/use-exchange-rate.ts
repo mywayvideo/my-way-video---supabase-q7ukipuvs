@@ -2,34 +2,35 @@ import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase/client'
 
 let cachedRate: number | null = null
-let fetchPromise: Promise<number> | null = null
+let fetchPromise: Promise<number | null> | null = null
 
 export function useExchangeRate() {
-  const [rate, setRate] = useState<number>(cachedRate || 5)
+  const [rate, setRate] = useState<number>(cachedRate ?? 0)
 
   useEffect(() => {
-    if (cachedRate) {
+    if (cachedRate !== null) {
       setRate(cachedRate)
       return
     }
 
     if (!fetchPromise) {
       fetchPromise = supabase
-        .from('price_settings')
-        .select('exchange_rate, exchange_spread')
+        .from('exchange_rate')
+        .select('usd_to_brl, spread_percentage')
         .limit(1)
         .maybeSingle()
         .then(({ data }) => {
           if (data) {
-            const val = (data.exchange_rate || 0) + (data.exchange_spread || 0)
+            const val = Number(data.usd_to_brl) * (1 + Number(data.spread_percentage) / 100)
             cachedRate = val
             return val
           }
-          return 5
+          return null
         })
+        .catch(() => null)
     }
 
-    fetchPromise.then((val) => setRate(val))
+    fetchPromise.then((val) => setRate(val ?? 0))
   }, [])
 
   return rate

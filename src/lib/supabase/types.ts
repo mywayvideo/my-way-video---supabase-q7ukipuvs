@@ -1897,6 +1897,8 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      show_limit: { Args: never; Returns: number }
+      show_trgm: { Args: { '': string }; Returns: string[] }
       sync_current_user_profile: { Args: never; Returns: string }
     }
     Enums: {

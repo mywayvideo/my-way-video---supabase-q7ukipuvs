@@ -1,6 +1,12 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase/client'
 import { calculateFinalPrice } from '@/utils/pricing'
+import {
+  calculateTotalUSDFromValues,
+  calculateBRLFromUSD,
+  type PriceSettingsData,
+  type ExchangeRateData,
+} from '@/utils/pricing-engine'
 
 export interface PricingConfig {
   exchange_rate: number
@@ -15,67 +21,61 @@ interface PriceDisplay {
   currency: string
 }
 
+let cachedPriceSettings: PriceSettingsData | null = null
+let cachedExchangeRate: ExchangeRateData | null = null
+let fetchPromise: Promise<void> | null = null
+
 export function usePricing(product: any) {
-  const [config, setConfig] = useState<PricingConfig | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
+  const [priceSettings, setPriceSettings] = useState<PriceSettingsData | null>(cachedPriceSettings)
+  const [exchangeRate, setExchangeRate] = useState<ExchangeRateData | null>(cachedExchangeRate)
+  const [isLoading, setIsLoading] = useState(!cachedPriceSettings || !cachedExchangeRate)
 
   useEffect(() => {
-    async function fetchConfig() {
-      try {
-        const { data: priceSettings } = await supabase
-          .from('price_settings')
-          .select('exchange_rate, exchange_spread')
-          .limit(1)
-          .maybeSingle()
-
-        const { data: appSettings } = await supabase
-          .from('app_settings')
-          .select('setting_key, setting_value, setting_value_numeric')
-          .in('setting_key', [
-            'shipping_sao_paulo_price_per_kg',
-            'shipping_sao_paulo_percentage_value',
-            'shipping_sao_paulo_additional_weight_kg',
-          ])
-
-        let pricePerKg = 0
-        let percentageValue = 0
-        let additionalWeightKg = 0.5
-
-        appSettings?.forEach((setting) => {
-          const val = setting.setting_value_numeric ?? Number(setting.setting_value)
-          if (setting.setting_key === 'shipping_sao_paulo_price_per_kg')
-            pricePerKg = isNaN(val) ? 0 : val
-          if (setting.setting_key === 'shipping_sao_paulo_percentage_value')
-            percentageValue = isNaN(val) ? 0 : val
-          if (setting.setting_key === 'shipping_sao_paulo_additional_weight_kg')
-            additionalWeightKg = isNaN(val) ? 0.5 : val
-        })
-
-        const exchange_rate =
-          (Number(priceSettings?.exchange_rate) || 0) +
-          (Number(priceSettings?.exchange_spread) || 0)
-
-        setConfig({
-          exchange_rate,
-          spread_percentage: 0,
-          weight_factor: pricePerKg,
-          fixed_import_fee: percentageValue,
-          additionalWeightKg,
-        } as any)
-      } catch (err) {
-        console.error('Error fetching config:', err)
-        setConfig({
-          exchange_rate: 5.0,
-          spread_percentage: 0,
-          weight_factor: 0,
-          fixed_import_fee: 0,
-          additionalWeightKg: 0.5,
-        } as any)
-      } finally {
-        setIsLoading(false)
-      }
+    if (cachedPriceSettings && cachedExchangeRate) {
+      setPriceSettings(cachedPriceSettings)
+      setExchangeRate(cachedExchangeRate)
+      setIsLoading(false)
+      return
     }
-    fetchConfig()
+
+    if (!fetchPromise) {
+      fetchPromise = Promise.all([
+        supabase
+          .from('price_settings')
+          .select('markup, freight_per_kg_usd, weight_margin, exchange_rate, exchange_spread')
+          .limit(1)
+          .maybeSingle(),
+        supabase
+          .from('exchange_rate')
+          .select('usd_to_brl, spread_percentage')
+          .limit(1)
+          .maybeSingle(),
+      ])
+        .then(([psRes, erRes]) => {
+          if (psRes.data) {
+            cachedPriceSettings = {
+              markup: Number(psRes.data.markup) || 0,
+              freight_per_kg_usd: Number(psRes.data.freight_per_kg_usd) || 0,
+              weight_margin: Number(psRes.data.weight_margin) || 0,
+              exchange_rate: Number(psRes.data.exchange_rate) || 0,
+              exchange_spread: Number(psRes.data.exchange_spread) || 0,
+            }
+          }
+          if (erRes.data) {
+            cachedExchangeRate = {
+              usd_to_brl: Number(erRes.data.usd_to_brl) || 0,
+              spread_percentage: Number(erRes.data.spread_percentage) || 0,
+            }
+          }
+        })
+        .catch(() => {})
+    }
+
+    fetchPromise.then(() => {
+      setPriceSettings(cachedPriceSettings)
+      setExchangeRate(cachedExchangeRate)
+      setIsLoading(false)
+    })
   }, [])
 
   if (!product) {
@@ -87,22 +87,11 @@ export function usePricing(product: any) {
   const priceNationalizedCurrency = product.price_nationalized_currency || 'BRL'
   const weight = Number(product.weight) || 0
 
-  const exchangeRate = Number(config?.exchange_rate) || 5.0
-  const pricePerKg = Number(config?.weight_factor) || 0
-  const percentageValue = Number(config?.fixed_import_fee) || 0
-  const additionalWeightKg = Number((config as any)?.additionalWeightKg) || 0.5
-
-  const calculateBRL = (baseUsd: number, weightLb: number = 0) => {
-    if (!exchangeRate) return 0
-    if (weightLb <= 0) return 0
-
-    const weight_kg = weightLb / 2.204
-    const total_weight_kg = weight_kg + additionalWeightKg
-    const freight_usd = total_weight_kg * pricePerKg
-    const percentage_charge = (baseUsd * percentageValue) / 100
-    const total_usd = baseUsd + freight_usd + percentage_charge
-
-    return total_usd * exchangeRate
+  const calculateBRL = (baseUsd: number, weightLb: number) => {
+    if (!priceSettings || !exchangeRate || baseUsd <= 0 || weightLb <= 0) return 0
+    const totalUSD = calculateTotalUSDFromValues(baseUsd, weightLb, priceSettings)
+    if (totalUSD <= 0) return 0
+    return calculateBRLFromUSD(totalUSD, exchangeRate)
   }
 
   let primaryPrice: PriceDisplay | null = null
@@ -113,30 +102,18 @@ export function usePricing(product: any) {
   if (hasNationalized) {
     let nationalizedVal = 0
     if (priceNationalizedCurrency === 'USD') {
-      nationalizedVal = calculateBRL(priceNationalizedSales, 0)
+      nationalizedVal = exchangeRate ? calculateBRLFromUSD(priceNationalizedSales, exchangeRate) : 0
     } else {
       nationalizedVal = priceNationalizedSales
     }
 
-    primaryPrice = {
-      label: 'Brasil',
-      value: nationalizedVal,
-      currency: 'BRL',
-    }
+    primaryPrice = { label: 'Brasil', value: nationalizedVal, currency: 'BRL' }
 
     if (baseUsaPrice > 0) {
-      secondaryPrice = {
-        label: 'USA',
-        value: baseUsaPrice,
-        currency: 'USD',
-      }
+      secondaryPrice = { label: 'USA', value: baseUsaPrice, currency: 'USD' }
     }
   } else if (baseUsaPrice > 0) {
-    primaryPrice = {
-      label: 'USA',
-      value: baseUsaPrice,
-      currency: 'USD',
-    }
+    primaryPrice = { label: 'USA', value: baseUsaPrice, currency: 'USD' }
     if (weight > 0) {
       secondaryPrice = {
         label: 'Brasil',

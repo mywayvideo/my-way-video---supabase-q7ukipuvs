@@ -35,7 +35,7 @@ import { AIConsultantModal } from '@/components/AIConsultantModal'
 import { ImageWithFallback } from '@/components/ImageWithFallback'
 import { ProductPrice } from '@/components/ProductPrice'
 import { useProductDiscount } from '@/hooks/useProductDiscount'
-import { useAppSettingsRealtime } from '@/hooks/useAppSettingsRealtime'
+import { type PriceSettingsData, type ExchangeRateData } from '@/utils/pricing-engine'
 import { useFavorites } from '@/hooks/useFavorites'
 import { useHeartAnimation } from '@/hooks/useHeartAnimation'
 import { useAuthState } from '@/hooks/useAuthState'
@@ -149,33 +149,54 @@ export default function Product() {
 
   const effectiveDiscountPercentage = discountPercentage || 0
 
-  const {
-    pricePerKg,
-    percentageValue,
-    additionalWeightKg,
-    isLoading,
-    error: settingsError,
-  } = useAppSettingsRealtime()
+  const [priceSettings, setPriceSettings] = useState<PriceSettingsData | null>(null)
+  const [exchangeRateData, setExchangeRateData] = useState<ExchangeRateData | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [settingsError, setSettingsError] = useState<string | null>(null)
 
   useEffect(() => {
-    console.log('App settings updated:', { pricePerKg, percentageValue, additionalWeightKg })
-  }, [pricePerKg, percentageValue, additionalWeightKg])
+    const fetchSettings = async () => {
+      try {
+        const [psRes, erRes] = await Promise.all([
+          supabase
+            .from('price_settings')
+            .select('markup, freight_per_kg_usd, weight_margin, exchange_rate, exchange_spread')
+            .limit(1)
+            .maybeSingle(),
+          supabase
+            .from('exchange_rate')
+            .select('usd_to_brl, spread_percentage')
+            .limit(1)
+            .maybeSingle(),
+        ])
 
-  const [exchangeRate, setExchangeRate] = useState<number>(0)
-
-  useEffect(() => {
-    const fetchExchange = async () => {
-      const { data } = await supabase
-        .from('price_settings')
-        .select('exchange_rate, exchange_spread')
-        .limit(1)
-        .maybeSingle()
-      if (data) {
-        setExchangeRate((data.exchange_rate || 0) + (data.exchange_spread || 0))
+        if (psRes.data) {
+          setPriceSettings({
+            markup: Number(psRes.data.markup) || 0,
+            freight_per_kg_usd: Number(psRes.data.freight_per_kg_usd) || 0,
+            weight_margin: Number(psRes.data.weight_margin) || 0,
+            exchange_rate: Number(psRes.data.exchange_rate) || 0,
+            exchange_spread: Number(psRes.data.exchange_spread) || 0,
+          })
+        }
+        if (erRes.data) {
+          setExchangeRateData({
+            usd_to_brl: Number(erRes.data.usd_to_brl) || 0,
+            spread_percentage: Number(erRes.data.spread_percentage) || 0,
+          })
+        }
+      } catch {
+        setSettingsError('Erro ao carregar configuracoes de preco.')
+      } finally {
+        setIsLoading(false)
       }
     }
-    fetchExchange()
+    fetchSettings()
   }, [])
+
+  const exchangeRate = exchangeRateData
+    ? exchangeRateData.usd_to_brl * (1 + exchangeRateData.spread_percentage / 100)
+    : 0
 
   const hasNationalizedPrice = (product?.price_nationalized_sales || 0) > 0
   const hasUsaPrice = product
@@ -185,15 +206,13 @@ export default function Product() {
 
   const calculatePriceBRL = useCallback(
     (priceUsd: number, weightLb: number) => {
-      if (!priceUsd || exchangeRate === 0) return null
+      if (!priceUsd || exchangeRate === 0 || !priceSettings) return null
 
       if (!weightLb || weightLb <= 0) return null
 
-      const weight_kg = weightLb / 2.204
-      const total_weight_kg = weight_kg + additionalWeightKg
-      const freight_usd = total_weight_kg * pricePerKg
-      const percentage_charge = (priceUsd * percentageValue) / 100
-      const total_usd = priceUsd + freight_usd + percentage_charge
+      const weight_kg = (weightLb + priceSettings.weight_margin) / 2.20462
+      const freight_usd = weight_kg * priceSettings.freight_per_kg_usd
+      const total_usd = (priceUsd + freight_usd) / priceSettings.markup
 
       const total_brl = total_usd * exchangeRate
       const freight_brl = freight_usd * exchangeRate
@@ -201,7 +220,7 @@ export default function Product() {
 
       return { total_brl, freight_brl, product_brl }
     },
-    [pricePerKg, additionalWeightKg, percentageValue, exchangeRate],
+    [priceSettings, exchangeRate],
   )
 
   const priceBrlResult = useMemo(() => {

@@ -20,7 +20,7 @@ Deno.serve(async (req: Request) => {
     if (bodyText) {
       try {
         body = JSON.parse(bodyText)
-      } catch (e) {
+      } catch (_e) {
         // Ignore parse error
       }
     }
@@ -43,43 +43,48 @@ Deno.serve(async (req: Request) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || ''
     const supabase = createClient(supabaseUrl, supabaseKey)
 
-    const { data: priceSettings } = await supabase
+    const { data: priceSettings, error: psError } = await supabase
       .from('price_settings')
-      .select('exchange_rate, exchange_spread')
+      .select('markup, freight_per_kg_usd, weight_margin')
       .limit(1)
       .maybeSingle()
-    const { data: appSettings } = await supabase
-      .from('app_settings')
-      .select('setting_key, setting_value, setting_value_numeric')
-      .in('setting_key', [
-        'shipping_sao_paulo_price_per_kg',
-        'shipping_sao_paulo_percentage_value',
-        'shipping_sao_paulo_additional_weight_kg',
-      ])
 
-    let preco_por_kg = 0
-    let percentual = 0
-    let peso_adicional = 0.5
+    if (psError || !priceSettings) {
+      return new Response(JSON.stringify({ error: 'Configuracoes de preco nao encontradas.' }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
 
-    appSettings?.forEach((setting: any) => {
-      const val = setting.setting_value_numeric ?? Number(setting.setting_value)
-      if (setting.setting_key === 'shipping_sao_paulo_price_per_kg')
-        preco_por_kg = isNaN(val) ? 0 : val
-      if (setting.setting_key === 'shipping_sao_paulo_percentage_value')
-        percentual = isNaN(val) ? 0 : val
-      if (setting.setting_key === 'shipping_sao_paulo_additional_weight_kg')
-        peso_adicional = isNaN(val) ? 0.5 : val
-    })
+    const markup = Number(priceSettings.markup) || 0
+    const freightPerKgUsd = Number(priceSettings.freight_per_kg_usd) || 0
+    const weightMargin = Number(priceSettings.weight_margin) || 0
 
-    const weight_kg = weight / 2.204
-    const total_weight = weight_kg + peso_adicional
-    const frete = total_weight * preco_por_kg
-    const taxa = (price_cost * percentual) / 100
+    if (markup <= 0 || freightPerKgUsd <= 0) {
+      return new Response(JSON.stringify({ error: 'Configuracoes de preco invalidas.' }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
 
-    const total_usd = price_cost + frete + taxa
-    const price_brl = Math.round(total_usd * 100) / 100
+    const weight_kg = (weight + weightMargin) / 2.20462
+    const shipping_cost_usd = weight_kg * freightPerKgUsd
+    const total_usd = (price_cost + shipping_cost_usd) / markup
 
-    return new Response(JSON.stringify({ price_brl }), {
+    const { data: exchangeRateData } = await supabase
+      .from('exchange_rate')
+      .select('usd_to_brl, spread_percentage')
+      .limit(1)
+      .maybeSingle()
+
+    let price_brl: number | null = null
+    if (exchangeRateData) {
+      const usdToBrl = Number(exchangeRateData.usd_to_brl) || 0
+      const spreadPercentage = Number(exchangeRateData.spread_percentage) || 0
+      price_brl = Math.round(total_usd * (usdToBrl * (1 + spreadPercentage / 100)) * 100) / 100
+    }
+
+    return new Response(JSON.stringify({ price_brl, total_usd }), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })

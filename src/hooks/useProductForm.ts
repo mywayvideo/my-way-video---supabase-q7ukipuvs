@@ -6,6 +6,7 @@ import { z } from 'zod'
 import { useToast } from '@/hooks/use-toast'
 import { useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase/client'
+import { calculateTotalUSDFromValues } from '@/utils/pricing-engine'
 
 const productSchema = z.object({
   name: z.string().min(1, 'Nome é obrigatório'),
@@ -217,37 +218,56 @@ export function useProductForm(props?: UseProductFormProps) {
     }
   }, [routeId, initialDataStr, form, navigate, toast])
 
-  const price_cost = form.watch('price_cost')
+  const price_usa = form.watch('price_usa')
   const weight = form.watch('weight')
-  const price_cost_rebate = form.watch('price_cost_rebate')
+  const price_usa_rebate = form.watch('price_usa_rebate')
   const date_rebate = form.watch('date_rebate')
 
   useEffect(() => {
     const updateBrl = async () => {
-      let effectiveCost = Number(price_cost) || 0
-      const rebateCost = Number(price_cost_rebate) || 0
+      const basePrice = Number(price_usa) || 0
+      const rebatePrice = Number(price_usa_rebate) || 0
 
-      if (rebateCost > 0) {
+      let effectivePrice = basePrice
+      if (rebatePrice > 0) {
         if (!date_rebate) {
-          effectiveCost = rebateCost
+          effectivePrice = rebatePrice
         } else {
           const rebateDate = new Date(date_rebate)
           if (rebateDate >= new Date()) {
-            effectiveCost = rebateCost
+            effectivePrice = rebatePrice
           }
         }
       }
 
       const w = Number(weight) || 0
 
-      if (effectiveCost > 0) {
-        // "MUST store the sum of (Price Cost + Shipping + Taxes) ALWAYS in USD."
-        form.setValue('price_brl', effectiveCost, { shouldDirty: true })
+      if (effectivePrice > 0 && w > 0) {
+        try {
+          const { data: settings } = await supabase
+            .from('price_settings')
+            .select('markup, freight_per_kg_usd, weight_margin')
+            .limit(1)
+            .maybeSingle()
+
+          if (settings) {
+            const totalUSD = calculateTotalUSDFromValues(effectivePrice, w, {
+              markup: Number(settings.markup) || 0,
+              freight_per_kg_usd: Number(settings.freight_per_kg_usd) || 0,
+              weight_margin: Number(settings.weight_margin) || 0,
+            })
+            if (totalUSD > 0) {
+              form.setValue('price_brl', totalUSD, { shouldDirty: true })
+            }
+          }
+        } catch {
+          // Gracefully handle missing settings without hardcoded fallbacks
+        }
       }
     }
     const debounce = setTimeout(updateBrl, 800)
     return () => clearTimeout(debounce)
-  }, [price_cost, price_cost_rebate, date_rebate, weight, form])
+  }, [price_usa, price_usa_rebate, date_rebate, weight, form])
 
   const handleExtractUrl = async (url: string) => {
     if (!url || !url.startsWith('http'))

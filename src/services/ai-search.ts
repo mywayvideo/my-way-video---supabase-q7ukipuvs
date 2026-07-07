@@ -1,29 +1,33 @@
-import { supabase } from '@/lib/supabase/client'
-
 export interface AISearchResponse {
   success: boolean
   response: string
-  data?: {
-    stock: any[]
-    pc: any[]
-    psc: any[]
-    mi: any[]
-  }
+  data?: any
   error?: string
 }
 
-export const performAISearch = async (query: string): Promise<AISearchResponse> => {
-  const { data, error } = await supabase.rpc('execute_ai_search_v3', {
-    search_term: query,
-  })
+export const performAISearch = async (query: string): Promise<{ data: any; error: any }> => {
+  try {
+    const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-search`
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+      },
+      body: JSON.stringify({ query }),
+    })
 
-  if (error) {
-    throw error
-  }
+    if (!response.ok) {
+      const errText = await response.text()
+      return {
+        data: null,
+        error: new Error(`Erro na busca: ${response.statusText} - ${errText}`),
+      }
+    }
 
-  return {
-    success: true,
-    response: 'Busca processada com sucesso',
-    data: data as any,
+    const data = await response.json()
+    return { data, error: null }
+  } catch (err: any) {
+    return { data: null, error: err }
   }
 }

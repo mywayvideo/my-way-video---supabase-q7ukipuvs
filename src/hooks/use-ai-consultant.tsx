@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useCallback, ReactNode } from 'rea
 
 export interface AIConsultantResult {
   referenced_internal_products?: any[]
+  ai_referenced_products?: any[]
   products?: any[]
 }
 

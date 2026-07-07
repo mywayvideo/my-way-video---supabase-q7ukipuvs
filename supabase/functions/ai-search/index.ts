@@ -336,8 +336,9 @@ Deno.serve(async (req: Request) => {
       const existingIds = Array.isArray(aiResult.referenced_internal_products)
         ? aiResult.referenced_internal_products
         : []
+      aiResult.ai_referenced_products = [...(aiResult.referenced_internal_products || [])]
+      const aiReferencedCount = aiResult.ai_referenced_count ?? existingIds.length
       const isPPMode = !!(contextualProductData?.id || lastReferencedProductId)
-
       if (isPPMode) {
         // PP Mode: keep ONLY AI-selected products, remove current product
         const currentProductId = lastReferencedProductId || contextualProductData?.id
@@ -411,7 +412,9 @@ Deno.serve(async (req: Request) => {
         content: aiResult.content,
         confidence_level: aiResult.confidence_level,
         referenced_internal_products: aiResult.referenced_internal_products,
+        ai_referenced_products: aiResult.ai_referenced_products,
         should_show_whatsapp_button: aiResult.should_show_whatsapp_button,
+        ai_referenced_count: aiReferencedCount,
       }
       if (typeof result.content === 'string') {
         result.content = result.content.trim()
@@ -429,11 +432,19 @@ Deno.serve(async (req: Request) => {
             'id, name, price_usd, price_brl, price_nationalized_sales, price_nationalized_currency, image_url, category, description, technical_info, sku, weight, is_discontinued, price_usa_rebate, date_rebate, manufacturer_id, manufacturer:manufacturers(name)',
           )
           .in('id', result.referenced_internal_products)
-        if (groundedProducts)
-          result.products = groundedProducts.map((p: any) => ({
-            ...p,
-            manufacturer: (p.manufacturer as any)?.name || (p as any).manufacturer_name || 'N/A',
-          }))
+        if (groundedProducts) {
+          const aiIdSet = new Set(existingIds)
+          result.products = groundedProducts
+            .map((p: any) => ({
+              ...p,
+              manufacturer: (p.manufacturer as any)?.name || (p as any).manufacturer_name || 'N/A',
+            }))
+            .sort((a: any, b: any) => {
+              const aIsAi = aiIdSet.has(a.id) ? 0 : 1
+              const bIsAi = aiIdSet.has(b.id) ? 0 : 1
+              return aIsAi - bIsAi
+            })
+        }
       }
       result.execution_id = execution_id
       return new Response(JSON.stringify(result), {
@@ -480,6 +491,7 @@ Deno.serve(async (req: Request) => {
           confidence_level: 'medium',
           referenced_internal_products: productIds,
           should_show_whatsapp_button: false,
+          ai_referenced_count: productIds.length,
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 },
       )
@@ -495,6 +507,7 @@ Deno.serve(async (req: Request) => {
           confidence_level: 'high',
           referenced_internal_products: [],
           should_show_whatsapp_button: false,
+          ai_referenced_count: 0,
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 },
       )

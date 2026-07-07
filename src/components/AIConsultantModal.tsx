@@ -217,6 +217,7 @@ export function AIConsultantModal({
         '[DEBUG_MODAL] data.referenced_internal_products:',
         data.referenced_internal_products,
       )
+      console.log('ai_referenced_products:', data.ai_referenced_products)
 
       // Busca produtos em múltiplos campos possíveis
       let finalProducts = data.products || data.response?.products || data.payload?.products || []
@@ -284,6 +285,7 @@ export function AIConsultantModal({
         referenced_internal_products: refIds.filter(
           (id: string) => id !== (activeProductId || productId),
         ),
+        ai_referenced_products: data.ai_referenced_products || [],
         products: finalProducts,
       })
 

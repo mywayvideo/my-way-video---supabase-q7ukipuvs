@@ -11,6 +11,7 @@ export interface AIResult {
   whatsapp_reason?: string
   is_intermediate?: boolean
   products?: any[]
+  ai_referenced_count?: number
 }
 
 const fetchProductDetails = async (ids: string[]): Promise<any[]> => {

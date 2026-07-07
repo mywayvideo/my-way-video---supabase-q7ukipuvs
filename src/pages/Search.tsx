@@ -48,9 +48,10 @@ export default function Search() {
           const { data, error } = await performAISearch(query)
           if (error) throw error
           if (data) {
-            const message = data.message
-            const referenced_internal_products = (data as any).referenced_internal_products || []
+            const message = data.content || data.message || ''
+            const referenced_internal_products = data.referenced_internal_products || []
             const confidence_level = data.confidence_level
+            const aiReferencedCount = data.ai_referenced_count || 0
 
             setAiResponse({
               message,
@@ -59,9 +60,12 @@ export default function Search() {
               should_show_whatsapp_button: data.should_show_whatsapp_button,
               whatsapp_reason: data.whatsapp_reason,
               type: data.type,
+              ai_referenced_count: aiReferencedCount,
             })
 
-            if (referenced_internal_products.length > 0) {
+            if (data.products && data.products.length > 0) {
+              setProducts(data.products)
+            } else if (referenced_internal_products.length > 0) {
               if (typeof referenced_internal_products[0] === 'object') {
                 setProducts(referenced_internal_products)
               } else {
@@ -184,21 +188,50 @@ export default function Search() {
 
       {!loading && products.length > 0 && (
         <div className="animate-in fade-in slide-in-from-bottom-4 mt-12">
-          {searchType === 'ai' && (
-            <h2 className="text-xl font-semibold mb-6 flex items-center gap-2">
-              <Sparkles className="w-5 h-5 text-accent" /> Equipamentos Recomendados
-            </h2>
+          {searchType === 'ai' &&
+          aiResponse?.ai_referenced_count &&
+          aiResponse.ai_referenced_count > 0 ? (
+            <>
+              <h2 className="text-xl font-semibold mb-6 flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-accent" /> Produtos mencionados pela IA
+              </h2>
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 lg:gap-6">
+                {products.slice(0, aiResponse.ai_referenced_count).map((p) => (
+                  <ProductCard key={p.id} product={p} />
+                ))}
+              </div>
+              {products.length > aiResponse.ai_referenced_count && (
+                <>
+                  <h2 className="text-xl font-semibold mb-6 mt-8 flex items-center gap-2">
+                    <Database className="w-5 h-5 text-primary" /> Produtos que possam interessar
+                  </h2>
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 lg:gap-6">
+                    {products.slice(aiResponse.ai_referenced_count).map((p) => (
+                      <ProductCard key={p.id} product={p} />
+                    ))}
+                  </div>
+                </>
+              )}
+            </>
+          ) : (
+            <>
+              {searchType === 'ai' && (
+                <h2 className="text-xl font-semibold mb-6 flex items-center gap-2">
+                  <Sparkles className="w-5 h-5 text-accent" /> Equipamentos Recomendados
+                </h2>
+              )}
+              {searchType === 'database' && (
+                <h2 className="text-xl font-semibold mb-6 flex items-center gap-2">
+                  <Database className="w-5 h-5 text-primary" /> Resultados Encontrados
+                </h2>
+              )}
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 lg:gap-6">
+                {products.map((p) => (
+                  <ProductCard key={p.id} product={p} />
+                ))}
+              </div>
+            </>
           )}
-          {searchType === 'database' && (
-            <h2 className="text-xl font-semibold mb-6 flex items-center gap-2">
-              <Database className="w-5 h-5 text-primary" /> Resultados Encontrados
-            </h2>
-          )}
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 lg:gap-6">
-            {products.map((p) => (
-              <ProductCard key={p.id} product={p} />
-            ))}
-          </div>
         </div>
       )}
 

@@ -131,7 +131,6 @@ export default function Product() {
   // Related Products State
   const [relatedProducts, setRelatedProducts] = useState<any[]>([])
   const [isLoadingRelated, setIsLoadingRelated] = useState(false)
-  const [hasFetchedRelated, setHasFetchedRelated] = useState(false)
 
   // BRL Pricing Modal State
   const [isBrlModalOpen, setIsBrlModalOpen] = useState(false)
@@ -289,86 +288,18 @@ export default function Product() {
 
   useEffect(() => {
     if (!product) return
-    if (hasFetchedRelated) return
 
-    let isMounted = true
-
-    const fetchRelated = async () => {
-      setIsLoadingRelated(true)
-      try {
-        let manualIds = product.manual_related_ids || []
-        let aiIds = product.ai_related_ids || []
-
-        if ((!aiIds || aiIds.length === 0) && !product.is_discontinued) {
-          const { data, error } = await supabase.functions.invoke('generate-related-products', {
-            body: { productId: product.id },
-          })
-
-          if (!error && data && data.success && data.ai_related_ids) {
-            aiIds = data.ai_related_ids
-          }
-        }
-
-        const allIds = Array.from(new Set([...manualIds, ...aiIds])).filter(
-          (id) => id !== product.id,
-        )
-
-        if (allIds.length === 0) {
-          if (isMounted) {
-            setRelatedProducts([])
-            setIsLoadingRelated(false)
-            setHasFetchedRelated(true)
-          }
-          return
-        }
-
-        const { data: relatedData } = await supabase
-          .from('products')
-          .select('*, manufacturer:manufacturers(*)')
-          .in('id', allIds)
-          .eq('is_discontinued', false)
-
-        if (relatedData && isMounted) {
-          const manualProducts = relatedData.filter((p: any) => manualIds.includes(p.id))
-          const aiProducts = relatedData.filter(
-            (p: any) => aiIds.includes(p.id) && !manualIds.includes(p.id),
-          )
-
-          let combined = [...manualProducts, ...aiProducts]
-
-          for (let i = combined.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1))
-            ;[combined[i], combined[j]] = [combined[j], combined[i]]
-          }
-
-          setRelatedProducts(combined.slice(0, 6))
-        }
-      } catch (e) {
-        console.error('Error fetching related products:', e)
-      } finally {
-        if (isMounted) {
-          setIsLoadingRelated(false)
-          setHasFetchedRelated(true)
-        }
-      }
-    }
-
-    fetchRelated()
-
-    return () => {
-      isMounted = false
-    }
-  }, [product, hasFetchedRelated])
-
-  useEffect(() => {
-    if (!product) return
-
-    const aiRefIds = (aiResult?.referenced_internal_products || [])
+    const aiRefIds = (aiResult?.ai_referenced_products || [])
       .map((item: any) => (typeof item === 'object' && item !== null ? item.id : item))
       .filter((id: any): id is string => typeof id === 'string' && id.trim() !== '')
       .filter((id: string) => id !== product.id)
 
-    if (aiRefIds.length === 0) return
+    console.log('[Product] aiResult changed:', JSON.stringify(aiResult?.ai_referenced_products))
+
+    if (aiRefIds.length === 0) {
+      setRelatedProducts([])
+      return
+    }
 
     let aiMounted = true
     setIsLoadingRelated(true)
@@ -410,7 +341,6 @@ export default function Product() {
     setIsTechnicalInfoOpen(false)
     setIsAiChatOpen(false)
     setRelatedProducts([])
-    setHasFetchedRelated(false)
     setIsLoadingRelated(false)
     clearAIResult()
 

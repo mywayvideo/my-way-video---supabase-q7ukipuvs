@@ -1,7 +1,7 @@
 {
   "_versions": {
-    "apply-discount-coupon": 35,
-    "calculate-price-brl": 34,
+    "apply-discount-coupon": 36,
+    "calculate-price-brl": 35,
     "calculate-shipping": 37,
     "call-ai-agent": 38,
     "cancel-stripe-charge": 36,

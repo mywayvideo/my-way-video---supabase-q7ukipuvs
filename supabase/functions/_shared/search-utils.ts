@@ -1,17 +1,108 @@
+import { createClient } from 'npm:@supabase/supabase-js'
+
+const STOP_WORDS = new Set([
+  'de',
+  'da',
+  'do',
+  'das',
+  'dos',
+  'a',
+  'o',
+  'as',
+  'os',
+  'e',
+  'ou',
+  'um',
+  'uma',
+  'uns',
+  'umas',
+  'para',
+  'com',
+  'sem',
+  'em',
+  'no',
+  'na',
+  'nos',
+  'nas',
+  'por',
+  'que',
+  'qual',
+  'quais',
+  'me',
+  'meu',
+  'minha',
+  'meus',
+  'minhas',
+  'seu',
+  'sua',
+  'seus',
+  'suas',
+  'the',
+  'a',
+  'an',
+  'is',
+  'are',
+  'was',
+  'were',
+  'be',
+  'been',
+  'and',
+  'or',
+  'but',
+  'in',
+  'on',
+  'at',
+  'to',
+  'for',
+  'of',
+  'with',
+  'by',
+])
+
+const GENERIC_WORDS = new Set([
+  'produto',
+  'produtos',
+  'equipamento',
+  'equipamentos',
+  'buscar',
+  'pesquisar',
+  'procurar',
+  'quero',
+  'preciso',
+  'gostaria',
+  'ache',
+  'encontre',
+  'mostrar',
+  'ver',
+  'camera',
+  'câmera',
+  'cameras',
+  'câmeras',
+  'bom',
+  'boa',
+  'melhor',
+  'barato',
+  'barata',
+  'preço',
+  'valor',
+  'custo',
+  'quanto',
+  'qual',
+])
+
 export function sanitizeInput(input: string): string {
-  return input.slice(0, 2000).trim()
+  return input.trim().replace(/[<>]/g, '').replace(/\s+/g, ' ').slice(0, 1000)
 }
 
 export function isInstitutionalQuery(query: string): boolean {
   const institutionalKeywords = [
     'empresa',
-    'sobre',
     'contato',
     'endereço',
     'telefone',
     'email',
-    'horário',
-    'funcionamento',
+    'sobre',
+    'quem somos',
     'política',
     'termos',
     'privacidade',
@@ -21,271 +112,96 @@ export function isInstitutionalQuery(query: string): boolean {
     'frete',
     'entrega',
     'pagamento',
-    'quemsomos',
-    'quem somos',
-    'história',
-    'missão',
-    'visão',
+    'formar',
+    'como comprar',
+    'ajuda',
   ]
   const lower = query.toLowerCase()
   return institutionalKeywords.some((kw) => lower.includes(kw))
 }
 
-export function checkKeywordRelevance(
-  query: string,
-  keywords: Array<{ keyword: string; weight: number; is_blocking: boolean }>,
-): { isBlocked: boolean; relevanceScore: number } {
+export function checkKeywordRelevance(query: string, keywords: string[]): boolean {
   const lower = query.toLowerCase()
-  let relevanceScore = 0
-  let isBlocked = false
-  for (const kw of keywords) {
-    if (!kw?.keyword) continue
-    const kwLower = kw.keyword.toLowerCase()
-    if (lower.includes(kwLower)) {
-      if (kw.is_blocking) {
-        isBlocked = true
+  return keywords.some((kw) => lower.includes(kw.toLowerCase()))
+}
+
+export function extractProducts(text: string): Array<{ name: string; description?: string }> {
+  const products: Array<{ name: string; description?: string }> = []
+  const lines = text.split('\n')
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (trimmed.startsWith('-') || trimmed.startsWith('*') || /^\d+\./.test(trimmed)) {
+      const name = trimmed.replace(/^[-*]\s*|^\d+\.\s*/, '').trim()
+      if (name.length > 3) {
+        products.push({ name })
       }
-      relevanceScore += kw.weight || 1
     }
   }
-  return { isBlocked, relevanceScore }
+  return products
 }
 
-export function extractProducts(data: any): any[] {
-  if (!data) return []
-  if (Array.isArray(data)) return data
-  if (Array.isArray(data?.stock)) return data.stock
-  if (Array.isArray(data?.data)) return data.data
-  if (Array.isArray(data?.products)) return data.products
-  if (Array.isArray(data?.items)) return data.items
-  if (Array.isArray(data?.results)) return data.results
-
-  const values = Object.values(data)
-  const allObjects = values.every((v) => v && typeof v === 'object' && !Array.isArray(v))
-  if (allObjects && values.length > 0) {
-    const productLike = values.filter((v: any) => v && typeof v === 'object' && v.id) as any[]
-    if (productLike.length > 0) return productLike
-  }
-
-  return []
+export function buildProductContext(products: any[]): string {
+  if (!products || products.length === 0) return ''
+  const lines = products.map((p, i) => {
+    const name = p.name || ''
+    const price = p.price_brl ? ` - R$ ${p.price_brl}` : ''
+    const stock = p.stock !== undefined ? ` (estoque: ${p.stock})` : ''
+    return `${i + 1}. ${name}${price}${stock}`
+  })
+  return `Produtos encontrados:\n${lines.join('\n')}`
 }
 
-export function buildProductContext(products: any[]): any[] {
-  if (!Array.isArray(products)) return []
-  return products.map((p: any) => ({
-    id: p.id,
-    name: p.name || p.title || '',
-    sku: p.sku || '',
-    category: p.category || '',
-    description: p.description || '',
-    technical_info: p.technical_info || null,
-    image_url: p.image_url || '',
-    manufacturer: p.manufacturer || p.manufacturer_name || 'N/A',
-    price_usd: p.price_usd ?? null,
-    price_nationalized_sales: p.price_nationalized_sales ?? null,
-    price_nationalized_currency: p.price_nationalized_currency ?? null,
-    price_usa_rebate: p.price_usa_rebate ?? null,
-    weight: p.weight ?? null,
-    is_discontinued: p.is_discontinued ?? false,
-  }))
-}
-
-export function mergeProductResults(products: any[]): any[] {
+export function mergeProductResults(...arrays: any[][]): any[] {
   const seen = new Set<string>()
   const merged: any[] = []
-  for (const p of products) {
-    if (!p?.id || seen.has(p.id)) continue
-    seen.add(p.id)
-    merged.push(p)
+  for (const arr of arrays) {
+    if (!arr) continue
+    for (const item of arr) {
+      if (!item) continue
+      const id = item.id || item.name || JSON.stringify(item)
+      if (!seen.has(id)) {
+        seen.add(id)
+        merged.push(item)
+      }
+    }
   }
   return merged
 }
 
-const STOP_AND_GENERIC_WORDS = new Set([
-  'ela',
-  'ele',
-  'este',
-  'esta',
-  'esse',
-  'essa',
-  'isto',
-  'isso',
-  'a',
-  'o',
-  'as',
-  'os',
-  'um',
-  'uma',
-  'uns',
-  'umas',
-  'it',
-  'this',
-  'that',
-  'these',
-  'those',
-  'the',
-  'an',
-  'compare',
-  'comparar',
-  'with',
-  'com',
-  'de',
-  'da',
-  'do',
-  'das',
-  'dos',
-  'câmera',
-  'camera',
-  'lente',
-  'microfone',
-  'microfones',
-  'tripé',
-  'tripés',
-  'monitor',
-  'monitores',
-  'iluminação',
-  'battery',
-  'bateria',
-  'audio',
-  'áudio',
-  'video',
-  'vídeo',
-  'cable',
-  'tripod',
-  'lens',
-  'light',
-  'card',
-  'case',
-  'bag',
-  'mount',
-  'plate',
-  'grip',
-  'head',
-  'stand',
-  'boom',
-  'clamp',
-  'filter',
-  'recorder',
-  'switcher',
-  'converter',
-  'adapter',
-  'ptz',
-  '4k',
-  'hdmi',
-  'sdi',
-  'ndi',
-])
-
-export async function extractEntities(query: string, _apiKey: string): Promise<string[]> {
-  let trimmed = query.trim()
-  if (trimmed.length === 0) return []
-
-  // NEVER include "compare" in the search term
-  trimmed = trimmed.replace(/\bcompare\b/gi, '').trim()
-
-  // NEVER include punctuation like periods or commas (preserve hyphens in model names)
-  trimmed = trimmed
-    .replace(/[.,;:!?]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-
-  // Comparison query detection: split on "com a" or "com o" to extract multiple entities
-  // e.g., "sony fx3 com a Canon eos c50" → ["sony fx3", "Canon eos c50"]
-  const compareParts = trimmed.split(/\s+com\s+(?:a|o)\s+/i)
-  if (compareParts.length >= 2) {
-    const entities: string[] = []
-    for (const part of compareParts) {
-      const words = part.split(/\s+/).filter((w) => !STOP_AND_GENERIC_WORDS.has(w.toLowerCase()))
-      const result = words.join(' ').trim()
-      if (result.length > 0) entities.push(result)
-    }
-    if (entities.length > 0) {
-      console.log(
-        `[extractEntities] comparison query detected, extracted entities=${JSON.stringify(entities)}`,
-      )
-      return Array.from(new Set(entities))
-    }
-  }
-
-  // NEVER include generic words — extract ONLY manufacturer and model name
-  const words = trimmed.split(/\s+/)
-  const filteredWords = words.filter((w) => !STOP_AND_GENERIC_WORDS.has(w.toLowerCase()))
-
-  if (filteredWords.length === 0) return []
-
-  const result = filteredWords.join(' ').trim()
-  if (result.length === 0) return []
-
-  // Preserve original case for manufacturer/model names
-  return Array.from(new Set([result]))
+export function extractEntities(query: string): string[] {
+  const cleaned = removeStopWords(query)
+  const words = cleaned.split(/\s+/).filter((w) => w.length > 2)
+  return [...new Set(words)]
 }
 
-export function removeStopWords(query: string, stopWords: string[]): string {
-  if (!Array.isArray(stopWords) || stopWords.length === 0) return query
-  const stopSet = new Set(stopWords.map((w) => w.toLowerCase().trim()))
-  const words = query.split(/\s+/).filter((w) => !stopSet.has(w.toLowerCase().trim()))
-  return words.join(' ').trim()
+export function removeStopWords(text: string): string {
+  const words = text.toLowerCase().split(/\s+/)
+  const filtered = words.filter((w) => !STOP_WORDS.has(w))
+  return filtered.join(' ').trim()
 }
 
 export async function searchAllEntities(
-  entities: string[],
-  fallbackQuery: string,
-  searchFn: (term: string) => Promise<any[]>,
-): Promise<{ products: any[]; searchCount: number }> {
-  const allProducts: any[] = []
-  const seenIds = new Set<string>()
-  let searchCount = 0
-  const terms = Array.from(new Set([...entities, fallbackQuery])).filter(
-    (t) => t && t.trim().length > 0,
-  )
-  for (const term of terms) {
-    try {
-      const results = await searchFn(term)
-      if (results.length > 0) {
-        searchCount++
-        for (const p of results) {
-          if (p?.id && !seenIds.has(p.id)) {
-            seenIds.add(p.id)
-            allProducts.push(p)
-          }
-        }
-      }
-    } catch (err) {
-      console.error(`[searchAllEntities] Error for term="${term}":`, err)
-    }
-  }
-  return { products: allProducts, searchCount }
-}
+  supabaseUrl: string,
+  supabaseKey: string,
+  query: string,
+  limit: number = 10,
+): Promise<any[]> {
+  const supabase = createClient(supabaseUrl, supabaseKey)
+  const terms = extractEntities(query)
+  if (terms.length === 0) return []
 
-export function extractFilters(originalQuery: string): { minZoom: number | null } {
-  const match = originalQuery.match(/(\d+)\s*x\s*(?:zoom|óptico|optico)?/i)
-  if (match) {
-    const value = parseInt(match[1], 10)
-    if (!isNaN(value) && value > 0) {
-      return { minZoom: value }
-    }
-  }
-  return { minZoom: null }
-}
+  const orFilter = terms
+    .map((t) => `name.ilike.%${t}%,description.ilike.%${t}%,sku.ilike.%${t}%`)
+    .join(',')
 
-export function applyZoomFilter(
-  products: any[],
-  minZoom: number | null,
-): { filtered: any[]; wasFiltered: boolean } {
-  if (minZoom === null || products.length === 0) {
-    return { filtered: products, wasFiltered: false }
-  }
-  const zoomStr = `${minZoom}x`
-  const filtered = products.filter((p: any) => {
-    const name = (p.name || p.title || '').toLowerCase()
-    const description = (p.description || '').toLowerCase()
-    const specs =
-      typeof p.technical_info === 'string'
-        ? p.technical_info.toLowerCase()
-        : JSON.stringify(p.technical_info || {}).toLowerCase()
-    return name.includes(zoomStr) || description.includes(zoomStr) || specs.includes(zoomStr)
-  })
-  return { filtered, wasFiltered: true }
+  const { data, error } = await supabase
+    .from('products')
+    .select('id,name,sku,description,price_brl,price_usd,stock,image_url,category')
+    .or(orFilter)
+    .limit(limit)
+
+  if (error || !data) return []
+  return data
 }
 
 export function isTechnicalQuery(query: string): boolean {
@@ -294,378 +210,177 @@ export function isTechnicalQuery(query: string): boolean {
     'especificações',
     'spec',
     'specs',
-    'dimensão',
-    'dimensões',
-    'peso',
-    'voltagem',
-    'potência',
+    'sensor',
+    'resolution',
+    'resolução',
+    'pixels',
+    'iso',
+    'fps',
+    'frame rate',
+    'bitrate',
+    'codec',
+    'hdmI',
+    'sdi',
+    'xlr',
+    'phantom',
+    'frequency',
+    'frequência',
     'watt',
     'watts',
-    'resolução',
-    'sensor',
-    'lente',
-    'zoom',
-    'frequência',
-    'interface',
-    'conexão',
-    'porta',
-    'usb',
-    'hdmi',
-    'sdi',
-    'xdm',
-    'protocolo',
-    'compatível',
-    'compatibilidade',
-    'requisito',
-    'requisitos',
-    'manual',
-    'datasheet',
-    'manual do produto',
-    'característica',
-    'características',
-    'technical',
-    'técnico',
-    'técnica',
+    'impedância',
+    'impedance',
+    'sensibilidade',
+    'sensitivity',
+    'distorção',
+    'thd',
+    'snr',
+    'dynamic range',
+    'faixa dinâmica',
+    'peso',
+    'dimensões',
+    'consumo',
+    'power consumption',
+    'volts',
   ]
   const lower = query.toLowerCase()
   return technicalKeywords.some((kw) => lower.includes(kw))
 }
 
-const COMPARISON_ARTICLES = new Set([
-  'compare',
-  'comparar',
-  'a',
-  'o',
-  'as',
-  'os',
-  'de',
-  'da',
-  'do',
-  'das',
-  'dos',
-  'with',
-  'com',
-  'um',
-  'uma',
-  'para',
-  'por',
-  'sobre',
-])
+export function extractFilters(query: string): {
+  minPrice?: number
+  maxPrice?: number
+  category?: string
+} {
+  const filters: { minPrice?: number; maxPrice?: number; category?: string } = {}
+  const lower = query.toLowerCase()
 
-function cleanComparisonTerm(term: string): string {
-  let cleaned = term.trim()
-  cleaned = cleaned
-    .replace(/^[.,;:!?]+/, '')
-    .replace(/[.,;:!?]+$/, '')
-    .trim()
-  const words = cleaned.split(/\s+/).filter((w) => !COMPARISON_ARTICLES.has(w.toLowerCase()))
-  return words.join(' ').trim()
-}
+  const maxMatch = lower.match(/(?:até|max|máximo|máx)[:\s]+r?\$?\s*(\d+)/)
+  if (maxMatch) filters.maxPrice = parseFloat(maxMatch[1])
 
-export function detectComparison(query: string): { isComparison: boolean; terms: string[] } {
-  let cleaned = query.replace(/\bcompare\b/gi, '').trim()
-  cleaned = cleaned
-    .replace(/[.,;:!?]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
+  const minMatch = lower.match(/(?:a partir de|min|mínimo|mín)[:\s]+r?\$?\s*(\d+)/)
+  if (minMatch) filters.minPrice = parseFloat(minMatch[1])
 
-  const parts1 = cleaned.split(/\s+com\s+(?:a|o)\s+/i)
-  if (parts1.length >= 2) {
-    const terms = parts1.map((p) => cleanComparisonTerm(p)).filter((t) => t.length > 0)
-    if (terms.length >= 2 && terms[0].toLowerCase() !== terms[1].toLowerCase()) {
-      return { isComparison: true, terms: [terms[0], terms[1]] }
+  const categories = [
+    'camera',
+    'câmera',
+    'microfone',
+    'tripé',
+    'iluminação',
+    'lente',
+    'monitor',
+    'gravador',
+    'cabo',
+    'estúdio',
+  ]
+  for (const cat of categories) {
+    if (lower.includes(cat)) {
+      filters.category = cat
+      break
     }
   }
 
-  const vsMatch = cleaned.match(/^(.+?)\s+(?:vs\.?|versus)\s+(.+)$/i)
-  if (vsMatch) {
-    const term1 = cleanComparisonTerm(vsMatch[1])
-    const term2 = cleanComparisonTerm(vsMatch[2])
-    if (term1 && term2 && term1.toLowerCase() !== term2.toLowerCase()) {
-      return { isComparison: true, terms: [term1, term2] }
+  return filters
+}
+
+export function applyZoomFilter(
+  products: any[],
+  filters: { minPrice?: number; maxPrice?: number; category?: string },
+): any[] {
+  return products.filter((p) => {
+    if (
+      filters.minPrice !== undefined &&
+      p.price_brl !== undefined &&
+      p.price_brl < filters.minPrice
+    )
+      return false
+    if (
+      filters.maxPrice !== undefined &&
+      p.price_brl !== undefined &&
+      p.price_brl > filters.maxPrice
+    )
+      return false
+    if (filters.category && p.category) {
+      if (!p.category.toLowerCase().includes(filters.category.toLowerCase())) return false
     }
-  }
-
-  const eMatch = cleaned.match(/^(.+?)\s+e\s+(.+)$/i)
-  if (eMatch) {
-    const term1 = cleanComparisonTerm(eMatch[1])
-    const term2 = cleanComparisonTerm(eMatch[2])
-    if (term1.length >= 3 && term2.length >= 3 && term1.toLowerCase() !== term2.toLowerCase()) {
-      return { isComparison: true, terms: [term1, term2] }
-    }
-  }
-
-  return { isComparison: false, terms: [] }
-}
-
-const PT_EN_MAP: Record<string, string> = {
-  'zoom optico': 'optical zoom',
-  'zoom óptico': 'optical zoom',
-  'comprimento focal': 'focal length',
-  lente: 'lens',
-  lentes: 'lenses',
-  câmera: 'camera',
-  camera: 'camera',
-  cameras: 'cameras',
-  câmeras: 'cameras',
-  microfone: 'microphone',
-  microfones: 'microphones',
-  iluminação: 'lighting',
-  iluminacao: 'lighting',
-  tripé: 'tripod',
-  tripe: 'tripod',
-  bateria: 'battery',
-  baterias: 'batteries',
-  cabo: 'cable',
-  cabos: 'cables',
-  tela: 'screen',
-  gravador: 'recorder',
-  gravadores: 'recorders',
-  som: 'audio',
-  áudio: 'audio',
-  audio: 'audio',
-  vídeo: 'video',
-  video: 'video',
-  resolução: 'resolution',
-  resolucao: 'resolution',
-  potência: 'power',
-  potencia: 'power',
-  voltagem: 'voltage',
-  dimensões: 'dimensions',
-  dimensao: 'dimension',
-  dimensão: 'dimension',
-  peso: 'weight',
-  conexão: 'connection',
-  conexao: 'connection',
-  porta: 'port',
-  portas: 'ports',
-  compatível: 'compatible',
-  compativel: 'compatible',
-  compatibilidade: 'compatibility',
-  'sem fio': 'wireless',
-  estabilização: 'stabilization',
-  estabilizacao: 'stabilization',
-}
-
-export function translateToEnglish(query: string): string {
-  let result = query
-  const keys = Object.keys(PT_EN_MAP).sort((a, b) => b.length - a.length)
-  for (const pt of keys) {
-    const regex = new RegExp(`\\b${pt}\\b`, 'gi')
-    result = result.replace(regex, PT_EN_MAP[pt])
-  }
-  return result.trim()
-}
-
-const PT_GENERIC_STOP_WORDS_SET = new Set([
-  'com',
-  'para',
-  'por',
-  'sobre',
-  'peso',
-  'cor',
-  'de',
-  'da',
-  'do',
-  'das',
-  'dos',
-  'a',
-  'o',
-  'as',
-  'os',
-  'um',
-  'uma',
-  'uns',
-  'umas',
-  'no',
-  'na',
-  'nos',
-  'nas',
-  'em',
-  'que',
-  'qual',
-  'quais',
-  'este',
-  'esta',
-  'esse',
-  'essa',
-  'isto',
-  'isso',
-  'ele',
-  'ela',
-  'eles',
-  'elas',
-])
-
-export function cleanPortugueseGenericWords(query: string): string {
-  const words = query.split(/\s+/).filter((w) => !PT_GENERIC_STOP_WORDS_SET.has(w.toLowerCase()))
-  return words.join(' ').trim()
-}
-
-const CATEGORY_TERMS_SET = new Set([
-  'camera',
-  'cameras',
-  'câmera',
-  'câmeras',
-  'lens',
-  'lenses',
-  'lente',
-  'lentes',
-  'microphone',
-  'microphones',
-  'microfone',
-  'microfones',
-  'tripod',
-  'tripods',
-  'tripé',
-  'tripés',
-  'tripe',
-  'monitor',
-  'monitors',
-  'monitores',
-  'light',
-  'lights',
-  'iluminação',
-  'iluminacao',
-  'ptz',
-  '4k',
-  '8k',
-  'hd',
-  'hdmi',
-  'sdi',
-  'ndi',
-  'audio',
-  'áudio',
-  'video',
-  'vídeo',
-  'recorder',
-  'recorders',
-  'gravador',
-  'gravadores',
-  'switcher',
-  'switchers',
-  'converter',
-  'converters',
-  'wireless',
-  'optical',
-  'zoom',
-  'battery',
-  'batteries',
-  'bateria',
-  'baterias',
-  'cable',
-  'cabos',
-  'cabo',
-  'cables',
-  'case',
-  'bag',
-  'bolsa',
-  'estojo',
-  'adapter',
-  'adaptador',
-  'mount',
-  'suporte',
-  'grip',
-  'strap',
-  'cap',
-  'cover',
-  'card',
-  'cartão',
-  'memory',
-  'memória',
-  'headphone',
-  'screen',
-  'protector',
-  'teleconverter',
-  'wind',
-  'sony',
-  'canon',
-  'panasonic',
-  'blackmagic',
-  'datavideo',
-  'sennheiser',
-  'rode',
-  'shure',
-  'manfrotto',
-  'atomos',
-  'smallrig',
-  'dji',
-])
-
-export function simplifyToCategoryAndNumbers(query: string): string {
-  const words = query.split(/\s+/)
-  const filtered = words.filter((w) => {
-    const lower = w.toLowerCase()
-    return CATEGORY_TERMS_SET.has(lower) || /^\d+$/.test(w) || /^\d+[a-z]*$/i.test(w)
+    return true
   })
-  return filtered.join(' ').trim()
+}
+
+export function detectComparison(query: string): boolean {
+  const comparisonKeywords = [
+    'vs',
+    'versus',
+    'ou',
+    'comparar',
+    'comparação',
+    'diferença',
+    'diferenças',
+    'melhor que',
+    'pior que',
+    'qual é melhor',
+    'compara',
+  ]
+  const lower = query.toLowerCase()
+  return comparisonKeywords.some((kw) => lower.includes(kw))
 }
 
 export function generateFallbackTerms(query: string): string[] {
-  const terms: string[] = []
+  const cleaned = removeStopWords(query)
+  const words = cleaned.split(/\s+/).filter((w) => w.length > 2)
+  if (words.length === 0) return []
+  if (words.length === 1) return [words[0]]
 
-  const translated = translateToEnglish(query)
-  if (translated && translated.toLowerCase() !== query.toLowerCase()) {
-    terms.push(translated)
+  const terms: string[] = [words.join(' ')]
+  for (let i = 0; i < words.length; i++) {
+    for (let j = i + 1; j < words.length; j++) {
+      terms.push(`${words[i]} ${words[j]}`)
+    }
   }
-
-  const cleaned = cleanPortugueseGenericWords(query)
-  if (cleaned && cleaned.toLowerCase() !== query.toLowerCase() && !terms.includes(cleaned)) {
-    terms.push(cleaned)
-  }
-
-  const simplified = simplifyToCategoryAndNumbers(query)
-  if (simplified && simplified.length > 0 && !terms.includes(simplified)) {
-    terms.push(simplified)
-  }
-
-  return terms
+  return [...new Set(terms)].slice(0, 10)
 }
 
-const ACCESSORY_KEYWORDS_LIST = [
-  'memory',
-  'card',
-  'battery',
-  'bateria',
-  'cable',
-  'cabo',
-  'adapter',
-  'adaptador',
-  'mount',
-  'suporte',
-  'case',
-  'estojo',
-  'bag',
-  'bolsa',
-  'grip',
-  'wind',
-  'screen',
-  'protector',
-  'cap',
-  'cover',
-  'carte',
-  'cartão',
-  'memória',
-  'teleconverter',
-  'converter',
-  'lens cap',
-  'strap',
-  'headphone',
-  'microphone',
-  'recorder',
-  'monitor',
-]
-
-export function isGenericSearch(entities: string[]): boolean {
-  return entities.some((e) => e.trim().split(/\s+/).length === 1)
+export function isGenericSearch(query: string): boolean {
+  const cleaned = query.toLowerCase().trim()
+  if (cleaned.length < 4) return true
+  const words = cleaned.split(/\s+/)
+  const nonGeneric = words.filter((w) => !GENERIC_WORDS.has(w))
+  return nonGeneric.length === 0
 }
 
-export function filterAccessories(products: any[]): { filtered: any[]; removedCount: number } {
-  const accessoryLower = ACCESSORY_KEYWORDS_LIST.map((k) => k.toLowerCase())
-  const nonAccessories = products.filter((p) => {
-    const name = (p.name || p.title || '').toLowerCase()
+export function filterAccessories(products: any[]): any[] {
+  const accessoryKeywords = [
+    'cabo',
+    'cable',
+    'adaptador',
+    'adapter',
+    'suporte',
+    'mount',
+    'capa',
+    'case',
+    'bag',
+    'mochila',
+    'bateria',
+    'battery',
+    'carregador',
+    'charger',
+    'filtro',
+    'filter',
+    'parafuso',
+    'screw',
+    'alça',
+    'strap',
+    'pelicula',
+    'protetor',
+  ]
+  return products.filter((p) => {
+    const name = (p.name || '').toLowerCase()
     const category = (p.category || '').toLowerCase()
-    return !accessoryLower.some((kw) => name.includes(kw) || category.includes(kw))
+    return !accessoryKeywords.some((kw) => name.includes(kw) || category.includes(kw))
   })
-  return { filtered: nonAccessories, removedCount: products.length - nonAccessories.length }
+}
+
+export function cleanPortugueseGenericWords(query: string): string {
+  const words = query.toLowerCase().split(/\s+/)
+  const filtered = words.filter((w) => !GENERIC_WORDS.has(w))
+  return filtered.join(' ').trim()
 }

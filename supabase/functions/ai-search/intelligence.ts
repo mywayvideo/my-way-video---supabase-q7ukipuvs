@@ -247,6 +247,7 @@ function parseAIResponse(content: string, context: GenerateContext): any {
     content: cleanedContent,
     confidence_level: confidenceLevel,
     referenced_internal_products: mergedIds,
+    ai_referenced_products: productIds,
     should_show_whatsapp_button: shouldShowWhatsApp,
   }
 }

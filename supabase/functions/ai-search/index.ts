@@ -24,10 +24,39 @@ import {
   generateFallbackTerms,
   isGenericSearch,
   filterAccessories,
+  cleanPortugueseGenericWords,
 } from '../_shared/search-utils.ts'
 
 const OUT_OF_SCOPE_MESSAGE =
   'Desculpe, só posso responder perguntas relacionadas com o nosso catálogo de produtos e serviços.'
+
+const HP_GENERIC_FILTER_WORDS = new Set([
+  'camera',
+  'câmera',
+  'cameras',
+  'câmeras',
+  'produto',
+  'produtos',
+  'equipamento',
+  'equipamentos',
+  'buscar',
+  'pesquisar',
+  'procurar',
+  'quero',
+  'preciso',
+  'gostaria',
+  'ache',
+  'encontre',
+  'mostrar',
+  'ver',
+])
+
+function generalizeForHpSearch(query: string): string {
+  const cleaned = cleanPortugueseGenericWords(query)
+  const words = cleaned.split(/\s+/).filter((w) => !HP_GENERIC_FILTER_WORDS.has(w.toLowerCase()))
+  const result = words.join(' ').trim()
+  return result.length > 0 ? result : query
+}
 
 function logCascade(stage: string, type: string, matched: boolean, query: string, extra?: string) {
   const ts = new Date().toISOString()
@@ -66,9 +95,10 @@ Deno.serve(async (req: Request) => {
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
     const isHPMode = !lastReferencedProductId
+    const secondarySearchTerm = isHPMode ? generalizeForHpSearch(query) : query
     const searchPromise: Promise<any[]> = isHPMode
       ? supabase
-          .rpc('search_products_v2', { search_term: query, boost_multiplier: 1.0 })
+          .rpc('search_products_v2', { search_term: secondarySearchTerm, boost_multiplier: 1.0 })
           .then(({ data }: any) => (Array.isArray(data) ? data : []))
       : Promise.resolve([])
 
@@ -343,8 +373,10 @@ Deno.serve(async (req: Request) => {
       const existingIds = Array.isArray(aiResult.referenced_internal_products)
         ? aiResult.referenced_internal_products
         : []
-      const aiReferencedProducts = [...existingIds]
-      const aiReferencedCount = aiResult.ai_referenced_count ?? existingIds.length
+      const aiReferencedProducts = Array.isArray(aiResult.ai_referenced_products)
+        ? [...aiResult.ai_referenced_products]
+        : [...existingIds]
+      const aiReferencedCount = aiReferencedProducts.length
       const isPPMode = !!(contextualProductData?.id || lastReferencedProductId)
       let referencedInternalProducts: string[]
       if (isPPMode) {

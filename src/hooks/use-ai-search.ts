@@ -102,9 +102,24 @@ export function useAiSearch() {
           .map((item: any) => (typeof item === 'object' && item !== null ? item.id : item))
           .filter(Boolean)
 
+        const aiRefIds = Array.isArray(data.ai_referenced_products)
+          ? data.ai_referenced_products.filter((id: any) => typeof id === 'string')
+          : []
+
+        const fullSearchIds = Array.isArray(data.full_search_results)
+          ? data.full_search_results.map((p: any) => p?.id).filter(Boolean)
+          : []
+
+        const allIds = Array.from(new Set([...refIds, ...aiRefIds, ...fullSearchIds]))
+
         let enrichedProducts = data.products || []
-        if (enrichedProducts.length === 0 && refIds.length > 0) {
-          enrichedProducts = await fetchProductDetails(refIds)
+        if (allIds.length > 0) {
+          const fetched = await fetchProductDetails(allIds)
+          if (fetched.length > 0) {
+            const fetchedIds = new Set(fetched.map((p: any) => p.id))
+            const existing = enrichedProducts.filter((p: any) => !fetchedIds.has(p.id))
+            enrichedProducts = [...fetched, ...existing]
+          }
         }
 
         // Ensure manufacturer mapping matches what frontend expects
@@ -123,6 +138,8 @@ export function useAiSearch() {
           ...data,
           content: contentStr,
           referenced_internal_products: enrichedProducts.length > 0 ? enrichedProducts : refIds,
+          ai_referenced_products: aiRefIds,
+          full_search_results: data.full_search_results || [],
           products: enrichedProducts,
         })
       } catch (err: any) {

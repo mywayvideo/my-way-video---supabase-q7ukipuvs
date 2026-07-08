@@ -26,11 +26,11 @@ export function HPProductSections({
       {section1Products.length > 0 && (
         <div>
           <div className="flex items-center gap-3 mb-5">
-            <div className="w-8 h-px bg-green-900/30" />
+            <span className="w-8 h-[1px] bg-green-900/50" />
             <h3 className="text-xs font-bold tracking-widest text-zinc-500 uppercase">
               Produtos Mencionados
             </h3>
-            <div className="flex-1 h-px bg-green-900/30" />
+            <span className="flex-1 h-[1px] bg-green-900/30" />
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {section1Products.map((p) => (
@@ -43,11 +43,11 @@ export function HPProductSections({
       {section2Products.length > 0 && (
         <div>
           <div className="flex items-center gap-3 mb-5">
-            <div className="w-8 h-px bg-green-900/30" />
+            <span className="w-8 h-[1px] bg-green-900/50" />
             <h3 className="text-xs font-bold tracking-widest text-zinc-500 uppercase">
               Mais resultados para sua busca
             </h3>
-            <div className="flex-1 h-px bg-green-900/30" />
+            <span className="flex-1 h-[1px] bg-green-900/30" />
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {section2Products.map((p) => (

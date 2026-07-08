@@ -419,7 +419,7 @@ Deno.serve(async (req: Request) => {
           )
           .in('id', result.referenced_internal_products)
         if (groundedProducts) {
-          const aiIdSet = new Set(existingIds)
+          const aiIdSet = new Set(aiReferencedProducts)
           result.products = groundedProducts
             .map((p: any) => ({
               ...p,

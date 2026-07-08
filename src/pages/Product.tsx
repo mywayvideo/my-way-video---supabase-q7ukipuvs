@@ -311,7 +311,6 @@ export default function Product() {
     const filteredIds = (localAIResult?.ai_referenced_products || [])
       .map((item: any) => (typeof item === 'object' && item !== null ? item.id : item))
       .filter((id: any): id is string => typeof id === 'string' && id.trim() !== '')
-      .filter((id: string) => id !== product.id)
 
     if (filteredIds.length === 0) {
       setRelatedProducts([])

@@ -233,11 +233,7 @@ function parseAIResponse(content: string, context: GenerateContext): any {
   }
   const cleanedContent = content.replace(idRegex, '').trim()
 
-  const referencedProducts = context.products || []
-  const contextProductIds = referencedProducts.map((p: any) => p.id).filter(Boolean)
-  const mergedIds = Array.from(new Set([...productIds, ...contextProductIds]))
-
-  const hasProductMatch = mergedIds.length > 0
+  const hasProductMatch = productIds.length > 0
   const confidenceLevel = hasProductMatch ? 'high' : 'medium'
 
   const shouldShowWhatsApp =
@@ -246,7 +242,7 @@ function parseAIResponse(content: string, context: GenerateContext): any {
   return {
     content: cleanedContent,
     confidence_level: confidenceLevel,
-    referenced_internal_products: mergedIds,
+    referenced_internal_products: productIds,
     ai_referenced_products: productIds,
     should_show_whatsapp_button: shouldShowWhatsApp,
   }

@@ -370,69 +370,13 @@ Deno.serve(async (req: Request) => {
     const level1Context = level1Products.length > 0 ? buildProductContext(level1Products) : []
 
     async function persistAndReturn(aiResult: any, type: string): Promise<Response> {
-      const existingIds = Array.isArray(aiResult.referenced_internal_products)
+      const referencedInternalProducts = Array.isArray(aiResult.referenced_internal_products)
         ? aiResult.referenced_internal_products
         : []
       const aiReferencedProducts = Array.isArray(aiResult.ai_referenced_products)
         ? [...aiResult.ai_referenced_products]
-        : [...existingIds]
+        : [...referencedInternalProducts]
       const aiReferencedCount = aiReferencedProducts.length
-      const isPPMode = !!(contextualProductData?.id || lastReferencedProductId)
-      let referencedInternalProducts: string[]
-      if (isPPMode) {
-        const currentProductId = lastReferencedProductId || contextualProductData?.id
-        referencedInternalProducts = existingIds.filter((id: string) => id !== currentProductId)
-        console.log(
-          `[ai-search] PP MODE: ${existingIds.length} IA choices → ${referencedInternalProducts.length} after removing currentProduct`,
-        )
-      } else {
-        // HP Mode: expand with all search products (excluding accessories)
-        const accessoryKeywords = [
-          'memory',
-          'card',
-          'battery',
-          'bateria',
-          'cable',
-          'cabo',
-          'adapter',
-          'adaptador',
-          'mount',
-          'suporte',
-          'case',
-          'estojo',
-          'bag',
-          'bolsa',
-          'grip',
-          'wind',
-          'screen',
-          'protector',
-          'cap',
-          'cover',
-          'carte',
-          'cartão',
-          'memória',
-          'teleconverter',
-          'converter',
-          'lens cap',
-          'strap',
-          'headphone',
-          'microphone',
-          'recorder',
-          'monitor',
-        ]
-        const accessoryLower = accessoryKeywords.map((k) => k.toLowerCase())
-        const filteredProducts = level1Products.filter((p: any) => {
-          const name = (p.name || p.title || '').toLowerCase()
-          const category = (p.category || '').toLowerCase()
-          return !accessoryLower.some((kw) => name.includes(kw) || category.includes(kw))
-        })
-        const allProductIds = filteredProducts.map((p: any) => p.id).filter(Boolean)
-        const mergedIdSet = new Set<string>([...existingIds, ...allProductIds])
-        referencedInternalProducts = Array.from(mergedIdSet)
-        console.log(
-          `[ai-search] HP MODE: expanded from ${existingIds.length} to ${referencedInternalProducts.length} products`,
-        )
-      }
       if (session_id) {
         await supabase
           .from('chat_messages')
@@ -456,7 +400,7 @@ Deno.serve(async (req: Request) => {
         ai_referenced_products: aiReferencedProducts,
         should_show_whatsapp_button: aiResult.should_show_whatsapp_button,
         ai_referenced_count: aiReferencedCount,
-        full_search_results: isPPMode ? [] : await searchPromise,
+        full_search_results: isHPMode ? await searchPromise : [],
       }
       if (typeof result.content === 'string') {
         result.content = result.content.trim()

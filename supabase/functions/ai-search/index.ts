@@ -371,11 +371,25 @@ Deno.serve(async (req: Request) => {
 
     async function persistAndReturn(aiResult: any, type: string): Promise<Response> {
       const referencedInternalProducts = Array.isArray(aiResult.referenced_internal_products)
-        ? aiResult.referenced_internal_products
+        ? [...aiResult.referenced_internal_products]
         : []
-      const aiReferencedProducts = Array.isArray(aiResult.ai_referenced_products)
+      let aiReferencedProducts = Array.isArray(aiResult.ai_referenced_products)
         ? [...aiResult.ai_referenced_products]
         : [...referencedInternalProducts]
+
+      if (
+        lastReferencedProductId &&
+        referencedInternalProducts.length === 0 &&
+        level1Context.length > 0
+      ) {
+        const contextIds = level1Context
+          .map((p: any) => p?.id)
+          .filter((id: any) => id != null) as string[]
+        referencedInternalProducts.push(...contextIds)
+        aiReferencedProducts.push(...contextIds)
+        console.log(`[ai-search] PP FALLBACK: ${contextIds.length} produtos do contexto via search`)
+      }
+
       const aiReferencedCount = aiReferencedProducts.length
       if (session_id) {
         await supabase

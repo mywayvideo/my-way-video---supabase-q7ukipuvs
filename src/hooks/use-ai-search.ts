@@ -12,6 +12,8 @@ export interface AIResult {
   is_intermediate?: boolean
   products?: any[]
   ai_referenced_count?: number
+  ai_referenced_products?: string[]
+  full_search_results?: any[]
 }
 
 const fetchProductDetails = async (ids: string[]): Promise<any[]> => {

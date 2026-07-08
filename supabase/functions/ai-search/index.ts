@@ -65,6 +65,13 @@ Deno.serve(async (req: Request) => {
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
+    const isHPMode = !lastReferencedProductId
+    const searchPromise: Promise<any[]> = isHPMode
+      ? supabase
+          .rpc('search_products_v2', { search_term: query, boost_multiplier: 1.0 })
+          .then(({ data }: any) => (Array.isArray(data) ? data : []))
+      : Promise.resolve([])
+
     let history: any[] = []
     if (session_id) {
       const { data: histRows } = await supabase
@@ -417,6 +424,7 @@ Deno.serve(async (req: Request) => {
         ai_referenced_products: aiReferencedProducts,
         should_show_whatsapp_button: aiResult.should_show_whatsapp_button,
         ai_referenced_count: aiReferencedCount,
+        full_search_results: isPPMode ? [] : await searchPromise,
       }
       if (typeof result.content === 'string') {
         result.content = result.content.trim()
@@ -486,7 +494,8 @@ Deno.serve(async (req: Request) => {
       return CATEGORY_KEYWORDS.some((kw) => lower.includes(kw))
     }
 
-    function categoryResponse(productIds: string[]): Response {
+    async function categoryResponse(productIds: string[]): Promise<Response> {
+      const fullSearchResults = isHPMode ? await searchPromise : []
       return new Response(
         JSON.stringify({
           content: `Encontrei alguns produtos no catálogo relacionados a "${query}".`,
@@ -494,15 +503,17 @@ Deno.serve(async (req: Request) => {
           referenced_internal_products: productIds,
           should_show_whatsapp_button: false,
           ai_referenced_count: productIds.length,
+          full_search_results: fullSearchResults,
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 },
       )
     }
 
-    function outOfScopeResponse(): Response {
+    async function outOfScopeResponse(): Promise<Response> {
       if (isCategoryQuery(query) && level1Context.length > 0) {
         return categoryResponse(level1Context.map((p) => p.id).filter(Boolean))
       }
+      const fullSearchResults = isHPMode ? await searchPromise : []
       return new Response(
         JSON.stringify({
           content: OUT_OF_SCOPE_MESSAGE,
@@ -510,6 +521,7 @@ Deno.serve(async (req: Request) => {
           referenced_internal_products: [],
           should_show_whatsapp_button: false,
           ai_referenced_count: 0,
+          full_search_results: fullSearchResults,
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 },
       )

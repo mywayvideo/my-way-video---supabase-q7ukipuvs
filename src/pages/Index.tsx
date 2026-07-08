@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Sparkles, Search as SearchIcon, X, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { supabase } from '@/lib/supabase/client'
@@ -6,12 +6,14 @@ import { ProductCard } from '@/components/ProductCard'
 import { cn } from '@/lib/utils'
 import { useAiSearch } from '@/hooks/use-ai-search'
 import { AISearchResults } from '@/components/AISearchResults'
+import { HPProductSections } from '@/components/HPProductSections'
 import { SEO } from '@/components/SEO'
 
 export default function Index() {
   const [query, setQuery] = useState('')
   const [featuredProducts, setFeaturedProducts] = useState<any[]>([])
   const [aiProducts, setAiProducts] = useState<any[]>([])
+  const [section2Products, setSection2Products] = useState<any[]>([])
   const { search, isLoading, results, error, clearResults } = useAiSearch()
 
   useEffect(() => {
@@ -51,13 +53,72 @@ export default function Index() {
     fetchReferencedProducts()
   }, [results])
 
+  useEffect(() => {
+    const fetchSection2Products = async () => {
+      if (
+        !results?.full_search_results ||
+        !Array.isArray(results.full_search_results) ||
+        results.full_search_results.length === 0
+      ) {
+        setSection2Products([])
+        return
+      }
+
+      const section2Ids = results.full_search_results
+        .map((p: any) => p?.id)
+        .filter((id: any) => typeof id === 'string' && id.trim() !== '')
+
+      if (section2Ids.length === 0) {
+        setSection2Products(results.full_search_results)
+        return
+      }
+
+      const { data: complementary } = await supabase
+        .from('products')
+        .select('id, image_url, weight, technical_info, is_discontinued')
+        .in('id', section2Ids)
+
+      if (complementary) {
+        const compMap = new Map(complementary.map((p: any) => [p.id, p]))
+        const merged = results.full_search_results.map((p: any) => ({
+          ...p,
+          ...compMap.get(p.id),
+        }))
+        setSection2Products(merged)
+      } else {
+        setSection2Products(results.full_search_results)
+      }
+    }
+
+    fetchSection2Products()
+  }, [results?.full_search_results])
+
+  const section1Ids = useMemo(() => {
+    const aiRefs = (results?.ai_referenced_products || []) as any[]
+    return aiRefs
+      .map((item: any) => (typeof item === 'object' && item !== null ? item.id : item))
+      .filter((id: any) => typeof id === 'string' && id.trim() !== '')
+  }, [results?.ai_referenced_products])
+
+  const allProductsData = useMemo(() => {
+    const merged = [...aiProducts]
+    for (const sp of section2Products) {
+      if (sp?.id && !merged.some((mp) => mp.id === sp.id)) {
+        merged.push(sp)
+      }
+    }
+    return merged
+  }, [aiProducts, section2Products])
+
   const enrichedResults = results
     ? {
         ...results,
-        stock: results.stock?.length ? results.stock : aiProducts,
+        referenced_internal_products: [],
+        products: [],
+        stock: [],
         search_results: {
           ...(results.search_results || {}),
-          stock: results.search_results?.stock?.length ? results.search_results.stock : aiProducts,
+          stock: [],
         },
       }
     : null
@@ -183,6 +244,16 @@ export default function Index() {
           )}
         </div>
       </section>
+
+      {!isLoading && results && (section1Ids.length > 0 || section2Products.length > 0) && (
+        <section className="container mx-auto px-4 pb-16">
+          <HPProductSections
+            section1Ids={section1Ids}
+            section2Results={section2Products}
+            allProductsData={allProductsData}
+          />
+        </section>
+      )}
 
       {/* Featured Products */}
       {featuredProducts.length > 0 && !enrichedResults && !isLoading && (

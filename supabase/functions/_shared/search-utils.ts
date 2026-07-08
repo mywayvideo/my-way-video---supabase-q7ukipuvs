@@ -1,5 +1,3 @@
-import { createClient } from 'npm:@supabase/supabase-js'
-
 const STOP_WORDS = new Set([
   'de',
   'da',
@@ -38,7 +36,6 @@ const STOP_WORDS = new Set([
   'seus',
   'suas',
   'the',
-  'a',
   'an',
   'is',
   'are',
@@ -120,35 +117,76 @@ export function isInstitutionalQuery(query: string): boolean {
   return institutionalKeywords.some((kw) => lower.includes(kw))
 }
 
-export function checkKeywordRelevance(query: string, keywords: string[]): boolean {
+export function checkKeywordRelevance(
+  query: string,
+  keywords: Array<{ keyword: string; weight?: number; is_blocking?: boolean }>,
+): { isBlocked: boolean; relevanceScore: number } {
   const lower = query.toLowerCase()
-  return keywords.some((kw) => lower.includes(kw.toLowerCase()))
-}
+  let relevanceScore = 0
+  let isBlocked = false
 
-export function extractProducts(text: string): Array<{ name: string; description?: string }> {
-  const products: Array<{ name: string; description?: string }> = []
-  const lines = text.split('\n')
-  for (const line of lines) {
-    const trimmed = line.trim()
-    if (trimmed.startsWith('-') || trimmed.startsWith('*') || /^\d+\./.test(trimmed)) {
-      const name = trimmed.replace(/^[-*]\s*|^\d+\.\s*/, '').trim()
-      if (name.length > 3) {
-        products.push({ name })
-      }
+  for (const kw of keywords) {
+    const kwText = (kw.keyword || '').toLowerCase()
+    if (!kwText) continue
+    if (lower.includes(kwText)) {
+      relevanceScore += kw.weight ?? 1.0
+      if (kw.is_blocking) isBlocked = true
     }
   }
-  return products
+
+  return { isBlocked, relevanceScore }
 }
 
-export function buildProductContext(products: any[]): string {
-  if (!products || products.length === 0) return ''
-  const lines = products.map((p, i) => {
-    const name = p.name || ''
-    const price = p.price_brl ? ` - R$ ${p.price_brl}` : ''
-    const stock = p.stock !== undefined ? ` (estoque: ${p.stock})` : ''
-    return `${i + 1}. ${name}${price}${stock}`
-  })
-  return `Produtos encontrados:\n${lines.join('\n')}`
+export function extractProducts(rpcData: any): any[] {
+  if (!rpcData) return []
+
+  if (Array.isArray(rpcData)) {
+    return rpcData.filter((p: any) => p && p.id)
+  }
+
+  if (typeof rpcData === 'object') {
+    for (const key of ['stock', 'products', 'results', 'data', 'items']) {
+      if (Array.isArray((rpcData as any)[key])) {
+        return (rpcData as any)[key].filter((p: any) => p && p.id)
+      }
+    }
+    if ((rpcData as any).id) return [rpcData]
+  }
+
+  if (typeof rpcData === 'string') {
+    try {
+      return extractProducts(JSON.parse(rpcData))
+    } catch {
+      return []
+    }
+  }
+
+  return []
+}
+
+export function buildProductContext(products: any[]): any[] {
+  if (!products || products.length === 0) return []
+
+  return products.map((p: any) => ({
+    id: p.id,
+    name: p.name || p.title || '',
+    sku: p.sku || '',
+    category: p.category || '',
+    description: p.description || '',
+    price_usd: p.price_usd || 0,
+    price_brl: p.price_brl || 0,
+    price_nationalized_sales: p.price_nationalized_sales || 0,
+    price_nationalized_currency: p.price_nationalized_currency || '',
+    stock: p.stock ?? 0,
+    image_url: p.image_url || '',
+    weight: p.weight || 0,
+    manufacturer:
+      typeof p.manufacturer === 'object' && p.manufacturer
+        ? p.manufacturer.name
+        : p.manufacturer || '',
+    technical_info: p.technical_info || '',
+    is_discontinued: p.is_discontinued || false,
+  }))
 }
 
 export function mergeProductResults(...arrays: any[][]): any[] {
@@ -168,40 +206,76 @@ export function mergeProductResults(...arrays: any[][]): any[] {
   return merged
 }
 
-export function extractEntities(query: string): string[] {
+export async function extractEntities(query: string, _openaiKey?: string): Promise<string[]> {
   const cleaned = removeStopWords(query)
   const words = cleaned.split(/\s+/).filter((w) => w.length > 2)
+
+  if (words.length === 0) {
+    const rawWords = query
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((w) => w.length > 2)
+    return [...new Set(rawWords)]
+  }
+
   return [...new Set(words)]
 }
 
-export function removeStopWords(text: string): string {
+export function removeStopWords(text: string, customStopWords?: string[]): string {
+  const allStopWords = new Set(STOP_WORDS)
+  if (customStopWords && Array.isArray(customStopWords)) {
+    for (const w of customStopWords) allStopWords.add(w.toLowerCase())
+  }
   const words = text.toLowerCase().split(/\s+/)
-  const filtered = words.filter((w) => !STOP_WORDS.has(w))
+  const filtered = words.filter((w) => !allStopWords.has(w))
   return filtered.join(' ').trim()
 }
 
 export async function searchAllEntities(
-  supabaseUrl: string,
-  supabaseKey: string,
-  query: string,
-  limit: number = 10,
-): Promise<any[]> {
-  const supabase = createClient(supabaseUrl, supabaseKey)
-  const terms = extractEntities(query)
-  if (terms.length === 0) return []
+  entities: string[],
+  fallbackQuery: string,
+  searchFn: (term: string) => Promise<any[]>,
+): Promise<{ products: any[]; searchCount: number }> {
+  const seenIds = new Set<string>()
+  const allProducts: any[] = []
+  let searchCount = 0
 
-  const orFilter = terms
-    .map((t) => `name.ilike.%${t}%,description.ilike.%${t}%,sku.ilike.%${t}%`)
-    .join(',')
+  for (const entity of entities) {
+    if (!entity || entity.trim().length === 0) continue
+    try {
+      const results = await searchFn(entity)
+      if (results && results.length > 0) {
+        searchCount++
+        for (const p of results) {
+          if (p?.id && !seenIds.has(p.id)) {
+            seenIds.add(p.id)
+            allProducts.push(p)
+          }
+        }
+      }
+    } catch (err) {
+      console.error(`[searchAllEntities] Error for "${entity}":`, err)
+    }
+  }
 
-  const { data, error } = await supabase
-    .from('products')
-    .select('id,name,sku,description,price_brl,price_usd,stock,image_url,category')
-    .or(orFilter)
-    .limit(limit)
+  if (allProducts.length === 0 && fallbackQuery && fallbackQuery.trim().length > 0) {
+    try {
+      const results = await searchFn(fallbackQuery)
+      if (results && results.length > 0) {
+        searchCount++
+        for (const p of results) {
+          if (p?.id && !seenIds.has(p.id)) {
+            seenIds.add(p.id)
+            allProducts.push(p)
+          }
+        }
+      }
+    } catch (err) {
+      console.error(`[searchAllEntities] Fallback error for "${fallbackQuery}":`, err)
+    }
+  }
 
-  if (error || !data) return []
-  return data
+  return { products: allProducts, searchCount }
 }
 
 export function isTechnicalQuery(query: string): boolean {
@@ -219,7 +293,7 @@ export function isTechnicalQuery(query: string): boolean {
     'frame rate',
     'bitrate',
     'codec',
-    'hdmI',
+    'hdmi',
     'sdi',
     'xlr',
     'phantom',
@@ -241,18 +315,41 @@ export function isTechnicalQuery(query: string): boolean {
     'consumo',
     'power consumption',
     'volts',
+    'tamanho do sensor',
+    'tamanho',
+    'pesa',
+    'quanto pesa',
   ]
   const lower = query.toLowerCase()
   return technicalKeywords.some((kw) => lower.includes(kw))
 }
 
 export function extractFilters(query: string): {
+  minZoom: number | null
   minPrice?: number
   maxPrice?: number
   category?: string
 } {
-  const filters: { minPrice?: number; maxPrice?: number; category?: string } = {}
+  const filters: {
+    minZoom: number | null
+    minPrice?: number
+    maxPrice?: number
+    category?: string
+  } = {
+    minZoom: null,
+  }
   const lower = query.toLowerCase()
+
+  const zoomMatch =
+    lower.match(/(\d+)\s*x\s*(?:zoom|óptico|optical)/) ||
+    lower.match(/(?:zoom|óptico|optical)\s*(\d+)\s*x/) ||
+    lower.match(/(\d+)\s*x(?:\s*(?:zoom|óptico|optical))?/)
+  if (
+    zoomMatch &&
+    (lower.includes('zoom') || lower.includes('óptico') || lower.includes('optical'))
+  ) {
+    filters.minZoom = parseInt(zoomMatch[1], 10)
+  }
 
   const maxMatch = lower.match(/(?:até|max|máximo|máx)[:\s]+r?\$?\s*(\d+)/)
   if (maxMatch) filters.maxPrice = parseFloat(maxMatch[1])
@@ -260,68 +357,89 @@ export function extractFilters(query: string): {
   const minMatch = lower.match(/(?:a partir de|min|mínimo|mín)[:\s]+r?\$?\s*(\d+)/)
   if (minMatch) filters.minPrice = parseFloat(minMatch[1])
 
-  const categories = [
-    'camera',
-    'câmera',
-    'microfone',
-    'tripé',
-    'iluminação',
-    'lente',
-    'monitor',
-    'gravador',
-    'cabo',
-    'estúdio',
-  ]
-  for (const cat of categories) {
-    if (lower.includes(cat)) {
-      filters.category = cat
-      break
-    }
-  }
-
   return filters
 }
 
 export function applyZoomFilter(
   products: any[],
-  filters: { minPrice?: number; maxPrice?: number; category?: string },
-): any[] {
-  return products.filter((p) => {
-    if (
-      filters.minPrice !== undefined &&
-      p.price_brl !== undefined &&
-      p.price_brl < filters.minPrice
-    )
-      return false
-    if (
-      filters.maxPrice !== undefined &&
-      p.price_brl !== undefined &&
-      p.price_brl > filters.maxPrice
-    )
-      return false
-    if (filters.category && p.category) {
-      if (!p.category.toLowerCase().includes(filters.category.toLowerCase())) return false
+  minZoom: number,
+): { filtered: any[]; wasFiltered: boolean } {
+  const filtered = products.filter((p: any) => {
+    const techInfo = (p.technical_info || '').toLowerCase()
+    const desc = (p.description || '').toLowerCase()
+    const name = (p.name || '').toLowerCase()
+    const combined = `${name} ${desc} ${techInfo}`
+
+    const zoomMatch = combined.match(/(\d+)\s*x/)
+    if (zoomMatch) {
+      return parseInt(zoomMatch[1], 10) >= minZoom
     }
     return true
   })
+
+  return { filtered, wasFiltered: filtered.length < products.length }
 }
 
-export function detectComparison(query: string): boolean {
-  const comparisonKeywords = [
-    'vs',
-    'versus',
-    'ou',
-    'comparar',
-    'comparação',
-    'diferença',
-    'diferenças',
-    'melhor que',
-    'pior que',
-    'qual é melhor',
-    'compara',
-  ]
+export function detectComparison(query: string): { isComparison: boolean; terms: string[] } {
   const lower = query.toLowerCase()
-  return comparisonKeywords.some((kw) => lower.includes(kw))
+
+  const comparisonPatterns = [
+    /\bvs\.?\b/,
+    /\bversus\b/,
+    /\bcomparar\b/,
+    /\bcomparação\b/,
+    /\bdiferença\b/,
+    /\bdiferenças\b/,
+    /\bmelhor que\b/,
+    /\bpior que\b/,
+    /\bqual é melhor\b/,
+    /\bcompara\b/,
+  ]
+
+  const compareMatch = lower.match(/(?:com a|com o)\s+(.+)/i)
+  const hasPattern = comparisonPatterns.some((pattern) => pattern.test(lower))
+
+  if (hasPattern || compareMatch) {
+    const terms: string[] = []
+
+    const vsSplit = lower.split(/\bvs\.?\b|\bversus\b/i)
+    if (vsSplit.length > 1) {
+      for (const part of vsSplit) {
+        const trimmed = part
+          .trim()
+          .replace(/[.,;:!?\s]+$/, '')
+          .trim()
+        if (trimmed.length > 0) terms.push(trimmed)
+      }
+    }
+
+    if (terms.length === 0) {
+      const eSplit = lower.split(/\be\b/i)
+      if (eSplit.length > 1) {
+        for (const part of eSplit) {
+          const trimmed = part
+            .trim()
+            .replace(/[.,;:!?\s]+$/, '')
+            .trim()
+          if (trimmed.length > 0) terms.push(trimmed)
+        }
+      }
+    }
+
+    if (terms.length === 0 && compareMatch && compareMatch[1]) {
+      const extracted = compareMatch[1]
+        .trim()
+        .replace(/[.,;:!?\s]+$/, '')
+        .trim()
+      if (extracted.length > 0) terms.push(extracted)
+    }
+
+    if (terms.length === 0) terms.push(query.trim())
+
+    return { isComparison: true, terms }
+  }
+
+  return { isComparison: false, terms: [query] }
 }
 
 export function generateFallbackTerms(query: string): string[] {
@@ -339,15 +457,21 @@ export function generateFallbackTerms(query: string): string[] {
   return [...new Set(terms)].slice(0, 10)
 }
 
-export function isGenericSearch(query: string): boolean {
-  const cleaned = query.toLowerCase().trim()
-  if (cleaned.length < 4) return true
-  const words = cleaned.split(/\s+/)
-  const nonGeneric = words.filter((w) => !GENERIC_WORDS.has(w))
-  return nonGeneric.length === 0
+export function isGenericSearch(entities: string[]): boolean {
+  if (!entities || entities.length === 0) return true
+
+  for (const entity of entities) {
+    const cleaned = entity.toLowerCase().trim()
+    if (cleaned.length < 4) continue
+    const words = cleaned.split(/\s+/)
+    const nonGeneric = words.filter((w) => !GENERIC_WORDS.has(w))
+    if (nonGeneric.length > 0) return false
+  }
+
+  return true
 }
 
-export function filterAccessories(products: any[]): any[] {
+export function filterAccessories(products: any[]): { filtered: any[]; removedCount: number } {
   const accessoryKeywords = [
     'cabo',
     'cable',
@@ -372,11 +496,14 @@ export function filterAccessories(products: any[]): any[] {
     'pelicula',
     'protetor',
   ]
-  return products.filter((p) => {
+
+  const filtered = products.filter((p: any) => {
     const name = (p.name || '').toLowerCase()
     const category = (p.category || '').toLowerCase()
     return !accessoryKeywords.some((kw) => name.includes(kw) || category.includes(kw))
   })
+
+  return { filtered, removedCount: products.length - filtered.length }
 }
 
 export function cleanPortugueseGenericWords(query: string): string {

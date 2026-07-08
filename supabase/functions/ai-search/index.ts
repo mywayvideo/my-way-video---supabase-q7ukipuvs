@@ -6,7 +6,7 @@ const corsHeaders = {
   'Access-Control-Allow-Headers':
     'authorization, x-client-info, x-supabase-client-platform, apikey, content-type',
 }
-import { getActiveAgents, generateResponse } from '../_shared/intelligence.ts'
+import { getActiveAgents, generateResponse } from './intelligence.ts'
 import {
   sanitizeInput,
   isInstitutionalQuery,

@@ -283,13 +283,21 @@ export function extractProducts(rpcData: any): any[] {
 export function buildProductContext(products: any[]): any[] {
   if (!products || products.length === 0) return []
   return products.slice(0, 10).map((p) => {
-    const product: any = { id: p.id || '', name: p.name || p.title || 'N/A' }
-    if (p.price_brl) product.price_brl = p.price_brl
-    if (p.price_usd) product.price_usd = p.price_usd
-    if (p.price_nationalized_sales) product.price_nationalized_sales = p.price_nationalized_sales
-    if (p.price_nationalized_currency)
-      product.price_nationalized_currency = p.price_nationalized_currency
-    if (p.stock !== undefined && p.stock !== null) product.stock = p.stock
+    const product: any = {
+      id: p.id || '',
+      name: p.name || p.title || 'N/A',
+    }
+    // price_usd SEMPRE — preço FOB Miami (prioritário)
+    if (p.price_usd && p.price_usd > 0) {
+      product.price_usd = p.price_usd
+    }
+    // price_nationalized_sales + currency — preço SP (se existir)
+    if (p.price_nationalized_sales && p.price_nationalized_sales > 0) {
+      product.price_nationalized_sales = p.price_nationalized_sales
+      product.price_nationalized_currency = p.price_nationalized_currency || 'USD'
+    }
+    // price_brl NUNCA — uso interno
+    // stock NUNCA — uso interno
     if (p.sku) product.sku = p.sku
     if (p.category) product.category = p.category
     if (p.description) product.description = p.description.slice(0, 200)
@@ -396,8 +404,9 @@ export async function searchAllEntities(
       /* continue */
     }
   }
-
-  return { products: merged, searchCount }
+  // Garantir diversidade de fabricantes no resultado final
+  const diversified = diversifyByBrand(merged)
+  return { products: diversified, searchCount }
 }
 
 export function isTechnicalQuery(query: string): boolean {
@@ -518,6 +527,58 @@ export function filterAccessories(products: any[]): { filtered: any[]; removedCo
     else main.push(product)
   }
   return { filtered: main, removedCount: accessories.length }
+}
+
+function diversifyByBrand(products: any[], maxPerBrand: number = 2): any[] {
+  if (!products || products.length === 0) return []
+  const brandGroups: Record<string, any[]> = {}
+  const noBrand: any[] = []
+  for (const p of products) {
+    const name = (p.name || '').toLowerCase()
+    let assigned = false
+    for (const brand of BRAND_NAMES) {
+      if (name.includes(brand)) {
+        if (!brandGroups[brand]) brandGroups[brand] = []
+        brandGroups[brand].push(p)
+        assigned = true
+        break
+      }
+    }
+    if (!assigned) noBrand.push(p)
+  }
+  const result: any[] = []
+  const seen = new Set<string>()
+  const brands = Object.keys(brandGroups).sort()
+  for (let i = 0; i < maxPerBrand; i++) {
+    for (const brand of brands) {
+      if (i < brandGroups[brand].length) {
+        const p = brandGroups[brand][i]
+        const key = p.id || p.name?.toLowerCase()
+        if (key && !seen.has(key)) {
+          seen.add(key)
+          result.push(p)
+        }
+      }
+    }
+  }
+  for (const p of noBrand) {
+    const key = p.id || p.name?.toLowerCase()
+    if (key && !seen.has(key)) {
+      seen.add(key)
+      result.push(p)
+    }
+  }
+  for (const brand of brands) {
+    for (let i = maxPerBrand; i < brandGroups[brand].length; i++) {
+      const p = brandGroups[brand][i]
+      const key = p.id || p.name?.toLowerCase()
+      if (key && !seen.has(key)) {
+        seen.add(key)
+        result.push(p)
+      }
+    }
+  }
+  return result
 }
 
 export function cleanPortugueseGenericWords(query: string): string {

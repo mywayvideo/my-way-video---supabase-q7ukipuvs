@@ -241,7 +241,7 @@ const BRAND_NAMES = [
 
 export function sanitizeInput(input: string): string {
   if (!input || typeof input !== 'string') return ''
-  return input.trim().replace(/[<>]/g, '').replace(/\s+/g, ' ').slice(0, 500)
+  return input.trim().replace(/[&lt;>]/g, '').replace(/\s+/g, ' ').slice(0, 500)
 }
 
 export function isInstitutionalQuery(query: string): boolean {
@@ -287,8 +287,7 @@ export function buildProductContext(products: any[]): any[] {
     if (p.price_brl) product.price_brl = p.price_brl
     if (p.price_usd) product.price_usd = p.price_usd
     if (p.price_nationalized_sales) product.price_nationalized_sales = p.price_nationalized_sales
-    if (p.price_nationalized_currency)
-      product.price_nationalized_currency = p.price_nationalized_currency
+    if (p.price_nationalized_currency) product.price_nationalized_currency = p.price_nationalized_currency
     if (p.stock !== undefined && p.stock !== null) product.stock = p.stock
     if (p.sku) product.sku = p.sku
     if (p.category) product.category = p.category
@@ -334,10 +333,10 @@ export async function extractEntities(query: string, openaiKey: string): Promise
   const words = cleaned.split(/\s+/).filter((w) => w.length > 2)
   if (words.length === 0) return [sanitizeInput(query)]
   const entities: string[] = []
-  for (let i = 0; i < words.length; i++) {
+  for (let i = 0; i &lt; words.length; i++) {
     entities.push(words[i])
-    if (i < words.length - 1) entities.push(`${words[i]} ${words[i + 1]}`)
-    if (i < words.length - 2) entities.push(`${words[i]} ${words[i + 1]} ${words[i + 2]}`)
+    if (i &lt; words.length - 1) entities.push(`${words[i]} ${words[i + 1]}`)
+    if (i &lt; words.length - 2) entities.push(`${words[i]} ${words[i + 1]} ${words[i + 2]}`)
   }
   return [...new Set(entities)]
 }
@@ -345,14 +344,14 @@ export async function extractEntities(query: string, openaiKey: string): Promise
 export async function searchAllEntities(
   entities: string[],
   query: string,
-  searchFn: Function,
-): Promise<{ products: any[]; searchCount: number }> {
+  searchFn: (term: string) => Promise<any[]>,
+): Promise&lt;{ products: any[]; searchCount: number }> {
   if (!entities || entities.length === 0) return { products: [], searchCount: 0 }
   const seen = new Set<string>()
   const merged: any[] = []
   let searchCount = 0
   for (const entity of entities) {
-    if (!entity || entity.length < 3) continue
+    if (!entity || entity.length &lt; 3) continue
     try {
       const results = await searchFn(entity)
       if (results && results.length > 0) {
@@ -445,7 +444,7 @@ export function applyZoomFilter(
     const zoomMatch = text.match(/(\d+)\s*x\s*(?:zoom|óptico|optico)/)
     return zoomMatch && parseInt(zoomMatch[1], 10) >= minZoom
   })
-  return { filtered, wasFiltered: filtered.length < (products?.length || 0) }
+  return { filtered, wasFiltered: filtered.length &lt; (products?.length || 0) }
 }
 
 export function detectComparison(query: string): { isComparison: boolean; terms: string[] } {

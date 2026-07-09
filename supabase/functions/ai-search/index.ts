@@ -82,6 +82,8 @@ Deno.serve(async (req: Request) => {
     let query = sanitizeInput(body?.query || '')
     const session_id = typeof body?.session_id === 'string' ? body.session_id : null
     const lastReferencedProductId = body?.currentProductId || null
+    const productPagePrompt =
+      typeof body?.productPagePrompt === 'string' ? body.productPagePrompt : null
     const openaiKey = Deno.env.get('OPENAI_API_KEY') ?? ''
     const execution_id = crypto.randomUUID()
     console.log(`[ai-search][execution] execution_id=${execution_id} query="${query}"`)
@@ -169,6 +171,15 @@ Deno.serve(async (req: Request) => {
         }
       }
     }
+
+    const currentProductContext = contextualProductData
+      ? {
+          id: (contextualProductData.id as string) || lastReferencedProductId || '',
+          name: (contextualProductData.name as string) || '',
+          manufacturer: (contextualProductData.manufacturer as string) || '',
+          category: (contextualProductData.category as string) || '',
+        }
+      : null
 
     // Pronoun Resolution — replace demonstrative pronouns with actual product name on Product Page
     if (contextualProductData && (contextualProductData.id || lastReferencedProductId)) {
@@ -532,6 +543,8 @@ Deno.serve(async (req: Request) => {
           history,
           currentProductId: lastReferencedProductId,
           contextualProductData,
+          productPagePrompt: productPagePrompt || undefined,
+          currentProductContext: currentProductContext || undefined,
         },
         undefined,
         supabase,
@@ -564,6 +577,8 @@ Deno.serve(async (req: Request) => {
           history,
           currentProductId: lastReferencedProductId,
           contextualProductData,
+          productPagePrompt: productPagePrompt || undefined,
+          currentProductContext: currentProductContext || undefined,
         },
         undefined,
         supabase,
@@ -645,6 +660,8 @@ Deno.serve(async (req: Request) => {
       agentSettings,
       aiSettings,
       institutionalContext,
+      productPagePrompt: productPagePrompt || undefined,
+      currentProductContext: currentProductContext || undefined,
     }
     const aiResultF = await generateResponse(query, unifiedData, undefined, supabase)
     return await persistAndReturn(aiResultF, 'general')

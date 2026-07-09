@@ -29,6 +29,13 @@ interface GenerateContext {
   currentProductId?: string | null
   contextualProductData?: any
   institutionalContext?: string
+  productPagePrompt?: string
+  currentProductContext?: {
+    id?: string
+    name?: string
+    manufacturer?: string
+    category?: string
+  }
 }
 
 export async function generateResponse(
@@ -94,6 +101,7 @@ export async function generateResponse(
 }
 
 function buildSystemPrompt(context: GenerateContext): string {
+  console.log(`[intelligence] productPagePrompt presente: ${!!context.productPagePrompt}`)
   const agentSettings = context.agentSettings
   const aiSettings = context.aiSettings
   let prompt = agentSettings?.system_prompt || aiSettings?.system_prompt_template || ''
@@ -126,6 +134,14 @@ function buildSystemPrompt(context: GenerateContext): string {
   if (context.institutionalContext) {
     prompt += `\n\nInformações institucionais:\n${context.institutionalContext}`
   }
+  if (context.productPagePrompt && context.currentProductContext) {
+    const resolved = context.productPagePrompt
+      .replace(/\{\{productName\}\}/g, context.currentProductContext.name || '')
+      .replace(/\{\{manufacturer\}\}/g, context.currentProductContext.manufacturer || '')
+      .replace(/\{\{category\}\}/g, context.currentProductContext.category || '')
+      .replace(/\{\{currentProductId\}\}/g, context.currentProductContext.id || '')
+    prompt += `\n\n### INSTRUÇÕES DA PÁGINA DO PRODUTO\n${resolved}`
+  }
   return prompt
 }
 
@@ -142,10 +158,6 @@ function buildMessages(query: string, context: GenerateContext, systemPrompt: st
   if (context.products && context.products.length > 0) {
     userContent += '\n\nProdutos relevantes do catálogo:\n'
     userContent += JSON.stringify(context.products, null, 2)
-  }
-  if (context.contextualProductData) {
-    userContent += '\n\nProduto atualmente em contexto:\n'
-    userContent += JSON.stringify(context.contextualProductData, null, 2)
   }
   messages.push({ role: 'user', content: userContent })
   return messages

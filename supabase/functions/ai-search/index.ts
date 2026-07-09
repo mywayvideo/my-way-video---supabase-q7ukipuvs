@@ -25,7 +25,7 @@ import {
   isGenericSearch,
   filterAccessories,
   cleanPortugueseGenericWords,
-} from '../_shared/search-utils.ts'
+} from './search-utils.ts'
 
 const OUT_OF_SCOPE_MESSAGE =
   'Desculpe, só posso responder perguntas relacionadas com o nosso catálogo de produtos e serviços.'

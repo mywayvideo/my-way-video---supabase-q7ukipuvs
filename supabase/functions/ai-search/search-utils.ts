@@ -351,13 +351,19 @@ export async function searchAllEntities(
   const seen = new Set<string>()
   const merged: any[] = []
   let searchCount = 0
-  for (const entity of entities) {
+
+  // Sort entities by length descending (most specific first)
+  const sortedEntities = [...entities].sort((a, b) => b.length - a.length)
+
+  for (const entity of sortedEntities) {
     if (!entity || entity.length < 3) continue
     try {
       const results = await searchFn(entity)
       if (results && results.length > 0) {
         searchCount++
-        for (const product of results) {
+        // Take at most 5 per entity to ensure diverse results across entities
+        const limited = results.slice(0, 5)
+        for (const product of limited) {
           if (!product) continue
           const key = product.id || product.name?.toLowerCase()
           if (key && !seen.has(key)) {
@@ -370,12 +376,14 @@ export async function searchAllEntities(
       /* continue */
     }
   }
+
+  // Fallback: if no products found, try the original query
   if (merged.length === 0 && query && query.trim().length > 0) {
     try {
       const results = await searchFn(query)
       if (results && results.length > 0) {
         searchCount++
-        for (const product of results) {
+        for (const product of results.slice(0, 10)) {
           if (!product) continue
           const key = product.id || product.name?.toLowerCase()
           if (key && !seen.has(key)) {
@@ -388,6 +396,7 @@ export async function searchAllEntities(
       /* continue */
     }
   }
+
   return { products: merged, searchCount }
 }
 

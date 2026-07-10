@@ -285,8 +285,7 @@ export function buildProductContext(products: any[], includeNationalized: boolea
   return products.slice(0, 10).map((p) => {
     const product: any = {
       id: p.id || '',
-      name: p.name || p.title || 'N/A',
-      product_tag: `[PRODUCT:${p.id || ''}]`,
+      name: `[PRODUCT:${p.id || ''}] ${p.name || p.title || 'N/A'}`,
     }
     // price_usd SEMPRE — preço FOB Miami (prioritário)
     if (p.price_usd && p.price_usd > 0) {

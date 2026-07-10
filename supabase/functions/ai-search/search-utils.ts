@@ -343,7 +343,7 @@ export function removeStopWords(text: string, stopWords: string[] = []): string 
 
 export async function extractEntities(query: string, openaiKey: string): Promise<string[]> {
   const cleaned = removeStopWords(sanitizeInput(query))
-  const words = cleaned.split(/\s+/).filter((w) => w.length > 2)
+  const words = cleaned.split(/\s+/).filter((w) => w.length > 1)
   if (words.length === 0) return [sanitizeInput(query)]
   const entities: string[] = []
   for (let i = 0; i < words.length; i++) {

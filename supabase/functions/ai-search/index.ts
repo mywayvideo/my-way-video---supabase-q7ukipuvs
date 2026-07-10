@@ -51,6 +51,11 @@ const HP_GENERIC_FILTER_WORDS = new Set([
   'ver',
 ])
 
+const queryMentionsBrazil =
+  /(?:brasil|brazil|sp|são paulo|entreg[ae]|frete|prazo|receber|nacional|nacionalizado|nacionalizados|nacionalizada|nacionalizadas|nacionalizad[oa]s|nota fiscal|nf|importado|dolar|real|reais|brl|usd|moeda|cotação|cotacao|conversão|conversao|preço no brasil|preco no brasil|preço brasil|preco brasil|entregar|entrega brasil|preço final|preco final|preço nacional|preco nacional|preço internac|preco internac)/i.test(
+    query,
+  )
+
 function generalizeForHpSearch(query: string): string {
   const cleaned = cleanPortugueseGenericWords(query)
   const words = cleaned.split(/\s+/).filter((w) => !HP_GENERIC_FILTER_WORDS.has(w.toLowerCase()))
@@ -120,6 +125,9 @@ Deno.serve(async (req: Request) => {
       .from('ai_agent_settings')
       .select('*')
       .maybeSingle()
+    console.log(
+      `[ai-search] agentSettings found=${!!agentSettings} system_prompt_length=${(agentSettings?.system_prompt || '').length} settings_keys=${agentSettings ? Object.keys(agentSettings).join(',') : 'null'}`,
+    )
     const { data: aiSettings } = await supabase.from('ai_settings').select('*').maybeSingle()
     const { data: globalSettings } = await supabase.from('settings').select('key, value')
     const { data: companyInfoRows } = await supabase.from('company_info').select('content, type')
@@ -378,7 +386,8 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    const level1Context = level1Products.length > 0 ? buildProductContext(level1Products) : []
+    const level1Context =
+      level1Products.length > 0 ? buildProductContext(level1Products, queryMentionsBrazil) : []
 
     async function persistAndReturn(aiResult: any, type: string): Promise<Response> {
       const referencedInternalProducts = Array.isArray(aiResult.referenced_internal_products)
@@ -531,7 +540,7 @@ Deno.serve(async (req: Request) => {
     // Technical Intent — bypass all cascade stages and answer directly from product context
     if (skipSearch) {
       const technicalProducts = contextualProductData
-        ? buildProductContext([contextualProductData])
+        ? buildProductContext([contextualProductData], queryMentionsBrazil)
         : []
       const aiResult = await generateResponse(
         query,

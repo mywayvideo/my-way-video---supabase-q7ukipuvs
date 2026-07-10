@@ -280,24 +280,28 @@ export function extractProducts(rpcData: any): any[] {
   return []
 }
 
-export function buildProductContext(products: any[]): any[] {
+export function buildProductContext(products: any[], includeNationalized: boolean = false): any[] {
   if (!products || products.length === 0) return []
   return products.slice(0, 10).map((p) => {
     const product: any = {
       id: p.id || '',
       name: p.name || p.title || 'N/A',
+      product_tag: `[PRODUCT:${p.id || ''}]`,
     }
     // price_usd SEMPRE — preço FOB Miami (prioritário)
     if (p.price_usd && p.price_usd > 0) {
       product.price_usd = p.price_usd
     }
-    // price_nationalized_sales + currency — preço SP (se existir)
-    if (p.price_nationalized_sales && p.price_nationalized_sales > 0) {
-      product.price_nationalized_sales = p.price_nationalized_sales
-      product.price_nationalized_currency = p.price_nationalized_currency || 'USD'
+    // price_nationalized_sales + currency — SOMENTE se includeNationalized=true
+    // (usuário perguntou sobre preço no Brasil)
+    if (includeNationalized) {
+      if (p.price_nationalized_sales && p.price_nationalized_sales > 0) {
+        product.price_nationalized_sales = p.price_nationalized_sales
+        product.price_nationalized_currency = p.price_nationalized_currency || 'USD'
+      }
     }
-    // price_brl NUNCA — uso interno
-    // stock NUNCA — uso interno
+    // price_brl — NUNCA (uso interno)
+    // stock — NUNCA (uso interno)
     if (p.sku) product.sku = p.sku
     if (p.category) product.category = p.category
     if (p.description) product.description = p.description.slice(0, 200)
@@ -359,17 +363,13 @@ export async function searchAllEntities(
   const seen = new Set<string>()
   const merged: any[] = []
   let searchCount = 0
-
-  // Sort entities by length descending (most specific first)
   const sortedEntities = [...entities].sort((a, b) => b.length - a.length)
-
   for (const entity of sortedEntities) {
     if (!entity || entity.length < 3) continue
     try {
       const results = await searchFn(entity)
       if (results && results.length > 0) {
         searchCount++
-        // Take at most 5 per entity to ensure diverse results across entities
         const limited = results.slice(0, 5)
         for (const product of limited) {
           if (!product) continue
@@ -384,8 +384,6 @@ export async function searchAllEntities(
       /* continue */
     }
   }
-
-  // Fallback: if no products found, try the original query
   if (merged.length === 0 && query && query.trim().length > 0) {
     try {
       const results = await searchFn(query)
@@ -404,7 +402,8 @@ export async function searchAllEntities(
       /* continue */
     }
   }
-  // Garantir diversidade de fabricantes no resultado final
+  // HP: diversificar fabricantes para resposta rica
+  // PP: também se beneficia, mas se for 1 produto só, mantém ele
   const diversified = diversifyByBrand(merged)
   return { products: diversified, searchCount }
 }

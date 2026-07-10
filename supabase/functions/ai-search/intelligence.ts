@@ -102,6 +102,9 @@ export async function generateResponse(
 
 function buildSystemPrompt(context: GenerateContext): string {
   console.log(`[intelligence] productPagePrompt presente: ${!!context.productPagePrompt}`)
+  console.log(
+    `[intelligence] agentSettings present=${!!context.agentSettings} system_prompt_length=${(context.agentSettings?.system_prompt || '').length}`,
+  )
   const agentSettings = context.agentSettings
   const aiSettings = context.aiSettings
   let prompt = agentSettings?.system_prompt || aiSettings?.system_prompt_template || ''

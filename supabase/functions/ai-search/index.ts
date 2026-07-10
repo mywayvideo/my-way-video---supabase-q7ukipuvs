@@ -51,11 +51,6 @@ const HP_GENERIC_FILTER_WORDS = new Set([
   'ver',
 ])
 
-const queryMentionsBrazil =
-  /(?:brasil|brazil|sp|são paulo|entreg[ae]|frete|prazo|receber|nacional|nacionalizado|nacionalizados|nacionalizada|nacionalizadas|nacionalizad[oa]s|nota fiscal|nf|importado|dolar|real|reais|brl|usd|moeda|cotação|cotacao|conversão|conversao|preço no brasil|preco no brasil|preço brasil|preco brasil|entregar|entrega brasil|preço final|preco final|preço nacional|preco nacional|preço internac|preco internac)/i.test(
-    query,
-  )
-
 function generalizeForHpSearch(query: string): string {
   const cleaned = cleanPortugueseGenericWords(query)
   const words = cleaned.split(/\s+/).filter((w) => !HP_GENERIC_FILTER_WORDS.has(w.toLowerCase()))
@@ -86,6 +81,10 @@ Deno.serve(async (req: Request) => {
 
     let query = sanitizeInput(body?.query || '')
     const session_id = typeof body?.session_id === 'string' ? body.session_id : null
+    const queryMentionsBrazil =
+      /(?:brasil|brazil|sp|são paulo|entreg[ae]|frete|prazo|receber|nacional|nacionalizado|nacionalizados|nacionalizada|nacionalizadas|nacionalizad[oa]s|nota fiscal|nf|importado|dolar|real|reais|brl|usd|moeda|cotação|cotacao|conversão|conversao|preço no brasil|preco no brasil|preço brasil|preco brasil|entregar|entrega brasil|preço final|preco final|preço nacional|preco nacional|preço internac|preco internac)/i.test(
+        query,
+      )
     const lastReferencedProductId = body?.currentProductId || null
     const productPagePrompt =
       typeof body?.productPagePrompt === 'string' ? body.productPagePrompt : null

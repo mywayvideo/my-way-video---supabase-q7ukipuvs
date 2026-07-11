@@ -137,6 +137,11 @@ function buildSystemPrompt(context: GenerateContext): string {
   if (context.institutionalContext) {
     prompt += `\n\nInformações institucionais:\n${context.institutionalContext}`
   }
+  // Garantir que a IA use o preço do produto atual quando disponível
+  if (context.contextualProductData?.price_usd > 0) {
+    prompt +=
+      '\n\nO produto atual da página tem preço disponível em USD. Use esse preço nas suas respostas sobre ele.'
+  }
   if (context.productPagePrompt && context.currentProductContext) {
     const resolved = context.productPagePrompt
       .replace(/\{\{productName\}\}/g, context.currentProductContext.name || '')
@@ -162,6 +167,24 @@ function buildMessages(query: string, context: GenerateContext, systemPrompt: st
     userContent += '\n\nProdutos relevantes do catálogo:\n'
     userContent += JSON.stringify(context.products, null, 2)
   }
+
+  // Incluir dados do produto atual separadamente para a IA saber qual é o produto da página
+  if (context.contextualProductData) {
+    userContent += '\n\nProduto atual da página:\n'
+    userContent += JSON.stringify(
+      {
+        id: context.contextualProductData.id,
+        name: context.contextualProductData.name,
+        price_usd: context.contextualProductData.price_usd,
+        manufacturer: context.contextualProductData.manufacturer,
+      },
+      null,
+      2,
+    )
+    userContent +=
+      '\n(Produto atual da página - NÃO incluir nos produtos referenciados, a menos que o usuário pergunte especificamente sobre ele)'
+  }
+
   messages.push({ role: 'user', content: userContent })
   return messages
 }

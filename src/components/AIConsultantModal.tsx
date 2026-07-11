@@ -301,9 +301,7 @@ export function AIConsultantModal({
       }
 
       const aiResultData: AIConsultantResult = {
-        referenced_internal_products: refIds.filter(
-          (id: string) => id !== (activeProductId || productId),
-        ),
+        referenced_internal_products: refIds,
         ai_referenced_products: data.ai_referenced_products || [],
         products: finalProducts,
       }

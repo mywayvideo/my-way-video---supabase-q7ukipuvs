@@ -413,6 +413,17 @@ Deno.serve(async (req: Request) => {
         )
       }
 
+      console.log(
+        `[ai-search] PP products in result:`,
+        JSON.stringify(
+          (result.products || []).map((p) => ({
+            id: p.id,
+            image: !!p.image_url,
+            price: p.price_usd,
+          })),
+        ),
+      )
+
       const aiReferencedCount = aiReferencedProducts.length
       if (session_id) {
         await supabase

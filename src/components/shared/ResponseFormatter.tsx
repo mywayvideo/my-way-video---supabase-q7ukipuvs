@@ -172,25 +172,52 @@ export function ResponseFormatter({
         </div>
       )}
 
-      {/* 2. Mentioned Product Cards (filtered if on a product page) */}
+      {/* 2. Product Cards Section — PP vs HP */}
       {finalProducts && finalProducts.length > 0 && (
         <div className="order-2 mt-8 animate-fade-in-up">
-          <h3 className="text-xs font-bold tracking-widest text-zinc-500 uppercase mb-4 flex items-center gap-3">
-            <span className="w-8 h-[1px] bg-green-900/50" />
-            Produtos Relacionados MY WAY
-            <span className="flex-1 h-[1px] bg-green-900/30" />
-          </h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {finalProducts.map((p: any) => (
-              <div
-                key={p.id}
-                onClick={onProductClick}
-                className={onProductClick ? 'cursor-pointer' : ''}
-              >
-                <ProductCard product={p} />
+          {/* PP: "Produtos Referenciados" — produto origem incluso */}
+          {isProductRoute && (
+            <>
+              <h3 className="text-xs font-bold tracking-widest text-zinc-500 uppercase mb-4 flex items-center gap-3">
+                <span className="w-8 h-[1px] bg-green-900/50" />
+                Produtos Referenciados
+                <span className="flex-1 h-[1px] bg-green-900/30" />
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {finalProducts.map((p: any) => (
+                  <div
+                    key={p.id}
+                    onClick={onProductClick}
+                    className={onProductClick ? 'cursor-pointer' : ''}
+                  >
+                    <ProductCard product={p} />
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            </>
+          )}
+
+          {/* HP: "Produtos Relacionados" — NUNCA aparece na PP */}
+          {!isProductRoute && (
+            <>
+              <h3 className="text-xs font-bold tracking-widest text-zinc-500 uppercase mb-4 flex items-center gap-3">
+                <span className="w-8 h-[1px] bg-green-900/50" />
+                Produtos Relacionados MY WAY
+                <span className="flex-1 h-[1px] bg-green-900/30" />
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {finalProducts.map((p: any) => (
+                  <div
+                    key={p.id}
+                    onClick={onProductClick}
+                    className={onProductClick ? 'cursor-pointer' : ''}
+                  >
+                    <ProductCard product={p} />
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       )}
 

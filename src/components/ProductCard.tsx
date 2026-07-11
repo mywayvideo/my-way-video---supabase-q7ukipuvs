@@ -21,6 +21,21 @@ export function ProductCard({
   isFavoritesPage?: boolean
   onRemove?: (id: string) => void
 }) {
+  console.log(
+    '[ProductCard] render called:',
+    product?.id,
+    product?.name,
+    'image_url:',
+    product?.image_url,
+    'price:',
+    product?.price_usd,
+  )
+  if (product?.image_url) {
+    const img = new Image()
+    img.onload = () => console.log('[ProductCard] IMAGE LOADED:', product.id, product.image_url)
+    img.onerror = () => console.log('[ProductCard] IMAGE FAILED:', product.id, product.image_url)
+    img.src = product.image_url
+  }
   const [showQtyModal, setShowQtyModal] = useState(false)
   const { isSearchActive, searchQuery } = useSearchState()
   const { isFavorite, addFavorite, removeFavorite } = useFavorites()

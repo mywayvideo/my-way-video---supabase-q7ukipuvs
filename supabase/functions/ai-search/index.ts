@@ -413,6 +413,20 @@ Deno.serve(async (req: Request) => {
         )
       }
 
+      // 🔥 MOVIDO PARA CÁ: garante que o produto atual da página esteja na lista
+      if (
+        lastReferencedProductId &&
+        !referencedInternalProducts.includes(lastReferencedProductId)
+      ) {
+        referencedInternalProducts.push(lastReferencedProductId)
+        if (!aiReferencedProducts.includes(lastReferencedProductId)) {
+          aiReferencedProducts.push(lastReferencedProductId)
+        }
+        console.log(
+          `[ai-search] PP added current product (${lastReferencedProductId}) to referenced list`,
+        )
+      }
+
       const aiReferencedCount = aiReferencedProducts.length
       if (session_id) {
         await supabase
@@ -430,7 +444,7 @@ Deno.serve(async (req: Request) => {
           type,
         })
       }
-      // PP NUNCA envia full_search_results (evita "Produtos Relacionados MY WAY")
+      // PP NUNCA envia full_search_results
       const fullSearchResults = isHPMode ? await searchPromise : []
       console.log(
         `[ai-search] response: mode=${isHPMode ? 'HP' : 'PP'} full_search_results=${fullSearchResults.length} referenced=${referencedInternalProducts.length}`,
@@ -447,7 +461,6 @@ Deno.serve(async (req: Request) => {
       }
       if (typeof result.content === 'string') {
         result.content = result.content.trim()
-        // Extrai markdown de resposta JSON-wrapped (ex: {"content":"## markdown..."})
         if (result.content.startsWith('{') && result.content.includes('"content"')) {
           try {
             const parsed = JSON.parse(result.content)
@@ -455,9 +468,7 @@ Deno.serve(async (req: Request) => {
               result.content = parsed.content.trim()
               console.log(`[ai-search] extracted content from JSON-wrapped response`)
             }
-          } catch {
-            // não é JSON válido, mantém como está
-          }
+          } catch {}
         }
         if (
           lastReferencedProductId &&

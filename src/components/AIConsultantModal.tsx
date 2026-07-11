@@ -51,6 +51,7 @@ interface Message {
   role: 'user' | 'assistant'
   content: string
   products?: Product[]
+  referenced_internal_products?: string[]
   should_show_whatsapp_button?: boolean
   tier?: number
 }
@@ -312,6 +313,7 @@ export function AIConsultantModal({
         role: 'assistant',
         content: data.content || 'Desculpe, não consegui processar sua requisição.',
         products: finalProducts,
+        referenced_internal_products: data.referenced_internal_products || [],
         should_show_whatsapp_button: data.should_show_whatsapp_button,
         tier: data.tier || 1,
       }
@@ -404,6 +406,7 @@ export function AIConsultantModal({
                     <ResponseFormatter
                       content={msg.content}
                       products={msg.products}
+                      referenced_internal_products={msg.referenced_internal_products}
                       currentProductId={activeProductId}
                       showWhatsApp={
                         msg.id !== '1' &&

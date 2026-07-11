@@ -441,7 +441,7 @@ Deno.serve(async (req: Request) => {
         confidence_level: aiResult.confidence_level,
         referenced_internal_products: referencedInternalProducts,
         ai_referenced_products: aiReferencedProducts,
-        should_show_whatsapp_button: shouldShowWhatsApp,
+        should_show_whatsapp_button: aiResult.should_show_whatsapp_button,
         ai_referenced_count: aiReferencedCount,
         full_search_results: fullSearchResults,
       }

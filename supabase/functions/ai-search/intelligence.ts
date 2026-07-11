@@ -177,7 +177,7 @@ async function callOpenAI(apiKey: string, model: string, messages: any[]): Promi
       model,
       messages,
       temperature: 0.3,
-      max_tokens: 2000,
+      max_tokens: 4000,
     }),
   })
   if (!resp.ok) {
@@ -199,7 +199,7 @@ async function callDeepSeek(apiKey: string, model: string, messages: any[]): Pro
       model,
       messages,
       temperature: 0.3,
-      max_tokens: 2000,
+      max_tokens: 4000,
     }),
   })
   if (!resp.ok) {
@@ -228,7 +228,7 @@ async function callAnthropic(
       model,
       system: systemPrompt,
       messages: userMessages,
-      max_tokens: 2000,
+      max_tokens: 4000,
     }),
   })
   if (!resp.ok) {

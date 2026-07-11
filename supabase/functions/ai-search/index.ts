@@ -396,17 +396,21 @@ Deno.serve(async (req: Request) => {
         ? [...aiResult.ai_referenced_products]
         : [...referencedInternalProducts]
 
-      if (
-        lastReferencedProductId &&
-        referencedInternalProducts.length === 0 &&
-        level1Context.length > 0
-      ) {
+      if (lastReferencedProductId && level1Context.length > 0) {
         const contextIds = level1Context
           .map((p: any) => p?.id)
           .filter((id: any) => id != null) as string[]
-        referencedInternalProducts.push(...contextIds)
-        aiReferencedProducts.push(...contextIds)
-        console.log(`[ai-search] PP FALLBACK: ${contextIds.length} produtos do contexto via search`)
+        for (const id of contextIds) {
+          if (!referencedInternalProducts.includes(id)) {
+            referencedInternalProducts.push(id)
+            if (!aiReferencedProducts.includes(id)) {
+              aiReferencedProducts.push(id)
+            }
+          }
+        }
+        console.log(
+          `[ai-search] PP context merged: ${contextIds.length} IDs (${referencedInternalProducts.length} total)`,
+        )
       }
 
       const aiReferencedCount = aiReferencedProducts.length
@@ -426,14 +430,20 @@ Deno.serve(async (req: Request) => {
           type,
         })
       }
+      // PP NUNCA envia full_search_results (evita "Produtos Relacionados MY WAY")
+      const fullSearchResults = isHPMode ? await searchPromise : []
+      console.log(
+        `[ai-search] response: mode=${isHPMode ? 'HP' : 'PP'} full_search_results=${fullSearchResults.length} referenced=${referencedInternalProducts.length}`,
+      )
+
       const result: any = {
         content: aiResult.content,
         confidence_level: aiResult.confidence_level,
         referenced_internal_products: referencedInternalProducts,
         ai_referenced_products: aiReferencedProducts,
-        should_show_whatsapp_button: aiResult.should_show_whatsapp_button,
+        should_show_whatsapp_button: shouldShowWhatsApp,
         ai_referenced_count: aiReferencedCount,
-        full_search_results: isHPMode ? await searchPromise : [],
+        full_search_results: fullSearchResults,
       }
       if (typeof result.content === 'string') {
         result.content = result.content.trim()
@@ -452,6 +462,11 @@ Deno.serve(async (req: Request) => {
           )
           .in('id', result.referenced_internal_products)
         if (groundedProducts) {
+          for (const gp of groundedProducts) {
+            console.log(
+              `[ai-search] groundedProduct id=${gp.id} price_usd=${gp.price_usd} image_url=${gp.image_url ? '✓' : '✗'}`,
+            )
+          }
           const aiIdSet = new Set(aiReferencedProducts)
           result.products = groundedProducts
             .map((p: any) => ({

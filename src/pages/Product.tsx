@@ -305,47 +305,103 @@ export default function Product() {
     }
   }, [authUser, isAuthLoading])
 
+  // EFEITO 1 — Produtos da mesma categoria (carga inicial)
   useEffect(() => {
     if (!product) return
+    let mounted = true
+    const fetchRelatedByCategory = async () => {
+      try {
+        setIsLoadingRelated(true)
+        const { data } = await supabase
+          .from('products')
+          .select('*, manufacturer:manufacturers(*)')
+          .eq('category', product.category)
+          .neq('id', product.id)
+          .eq('is_discontinued', false)
+          .limit(8)
+        if (data && mounted) {
+          setRelatedProducts(data)
+        }
+      } catch (e) {
+        console.error('Error fetching related products:', e)
+      } finally {
+        if (mounted) setIsLoadingRelated(false)
+      }
+    }
+    fetchRelatedByCategory()
+    return () => {
+      mounted = false
+    }
+  }, [product])
 
-    const filteredIds = (localAIResult?.ai_referenced_products || [])
+  // EFEITO 2 — Produtos referenciados pela IA (substitui quando a IA responde)
+  useEffect(() => {
+    if (!localAIResult?.ai_referenced_products?.length) return
+    if (!product) return
+    let mounted = true
+    const filteredIds = (localAIResult.ai_referenced_products || [])
       .map((item: any) => (typeof item === 'object' && item !== null ? item.id : item))
       .filter((id: any): id is string => typeof id === 'string' && id.trim() !== '')
-
-    if (filteredIds.length === 0) {
-      setRelatedProducts([])
-      return
-    }
-
-    let aiMounted = true
-    setIsLoadingRelated(true)
-
-    const fetchAIReferencedProducts = async () => {
+    if (filteredIds.length === 0) return
+    const fetchAIReferenced = async () => {
       try {
-        const { data: aiRelatedData } = await supabase
+        setIsLoadingRelated(true)
+        const { data } = await supabase
           .from('products')
           .select('*, manufacturer:manufacturers(*)')
           .in('id', filteredIds)
           .eq('is_discontinued', false)
-
-        if (aiRelatedData && aiMounted) {
-          setRelatedProducts(aiRelatedData)
+        if (data && mounted) {
+          setRelatedProducts(data)
         }
       } catch (e) {
         console.error('Error fetching AI-referenced products:', e)
       } finally {
-        if (aiMounted) {
-          setIsLoadingRelated(false)
-        }
+        if (mounted) setIsLoadingRelated(false)
       }
     }
-
-    fetchAIReferencedProducts()
-
+    fetchAIReferenced()
     return () => {
-      aiMounted = false
+      mounted = false
     }
   }, [localAIResult, product])
+
+  // EFEITO 3 — Quando o modal fechar, restaurar produtos da mesma categoria
+  useEffect(() => {
+    if (!product) return
+
+    // Só executa quando o modal acabou de fechar (estava aberto e agora está fechado)
+    // e quando já houve uma resposta da IA (para não rodar na carga inicial)
+    if (!isAiChatOpen && localAIResult) {
+      let mounted = true
+
+      const restoreRelatedByCategory = async () => {
+        try {
+          setIsLoadingRelated(true)
+          const { data } = await supabase
+            .from('products')
+            .select('*, manufacturer:manufacturers(*)')
+            .eq('category', product.category)
+            .neq('id', product.id)
+            .eq('is_discontinued', false)
+            .limit(8)
+
+          if (data && mounted) {
+            setRelatedProducts(data)
+          }
+        } catch (e) {
+          console.error('Error restoring related products:', e)
+        } finally {
+          if (mounted) setIsLoadingRelated(false)
+        }
+      }
+
+      restoreRelatedByCategory()
+      return () => {
+        mounted = false
+      }
+    }
+  }, [isAiChatOpen, product, localAIResult])
 
   useEffect(() => {
     window.scrollTo(0, 0)

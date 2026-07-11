@@ -413,17 +413,6 @@ Deno.serve(async (req: Request) => {
         )
       }
 
-      console.log(
-        `[ai-search] PP products in result:`,
-        JSON.stringify(
-          (result.products || []).map((p) => ({
-            id: p.id,
-            image: !!p.image_url,
-            price: p.price_usd,
-          })),
-        ),
-      )
-
       const aiReferencedCount = aiReferencedProducts.length
       if (session_id) {
         await supabase
@@ -484,13 +473,6 @@ Deno.serve(async (req: Request) => {
               const bIsAi = aiIdSet.has(b.id) ? 0 : 1
               return aIsAi - bIsAi
             })
-          // PP: filtra o produto atual para não aparecer em "Produtos Relacionados"
-          if (lastReferencedProductId) {
-            result.products = result.products.filter((p: any) => p.id !== lastReferencedProductId)
-            console.log(
-              `[ai-search] PP filtered out current product (${lastReferencedProductId}), remaining products=${result.products.length}`,
-            )
-          }
         }
       }
       result.execution_id = execution_id

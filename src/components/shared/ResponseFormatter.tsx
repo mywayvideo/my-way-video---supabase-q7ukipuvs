@@ -87,6 +87,21 @@ export function ResponseFormatter({
   const hasWhatsAppTrigger =
     showWhatsApp || /<WhatsAppButton/i.test(content || '') || /\[WHATSAPP/i.test(content || '')
 
+  console.log('[RF] isProductRoute:', isProductRoute)
+  console.log('[RF] products count:', products?.length)
+  console.log('[RF] referenced_internal_products:', referenced_internal_products)
+  console.log(
+    '[RF] finalProducts:',
+    finalProducts.map((p) => ({ id: p.id, name: p.name, hasImage: !!p.image_url })),
+  )
+
+  console.log(
+    '[RF] filtered PP products:',
+    finalProducts
+      .filter((p: any) => !isProductRoute || referenced_internal_products?.includes(p.id))
+      .map((p) => ({ id: p.id, name: p.name, hasImage: !!p.image_url })),
+  )
+
   return (
     <div className="flex flex-col space-y-6 w-full max-w-full overflow-hidden">
       {/* 1. AI Text/Markdown Response */}
@@ -185,9 +200,15 @@ export function ResponseFormatter({
               </h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {finalProducts
-                  .filter(
-                    (p: any) => !isProductRoute || referenced_internal_products?.includes(p.id),
-                  )
+                  .filter((p: any) => {
+                    // PP: mostra o produto atual + os produtos que a IA referenciou por ID
+                    if (!isProductRoute) return true // HP: mostra todos
+                    if (!referenced_internal_products) return false // PP sem referências: não mostra nada
+                    return (
+                      referenced_internal_products.includes(p.id) ||
+                      p.id === (activeProductId || currentProductId)
+                    )
+                  })
                   .map((p: any) => (
                     <div
                       key={p.id}

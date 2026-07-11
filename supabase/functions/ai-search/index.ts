@@ -462,11 +462,6 @@ Deno.serve(async (req: Request) => {
           )
           .in('id', result.referenced_internal_products)
         if (groundedProducts) {
-          for (const gp of groundedProducts) {
-            console.log(
-              `[ai-search] groundedProduct id=${gp.id} price_usd=${gp.price_usd} image_url=${gp.image_url ? '✓' : '✗'}`,
-            )
-          }
           const aiIdSet = new Set(aiReferencedProducts)
           result.products = groundedProducts
             .map((p: any) => ({
@@ -478,6 +473,13 @@ Deno.serve(async (req: Request) => {
               const bIsAi = aiIdSet.has(b.id) ? 0 : 1
               return aIsAi - bIsAi
             })
+          // PP: filtra o produto atual para não aparecer em "Produtos Relacionados"
+          if (lastReferencedProductId) {
+            result.products = result.products.filter((p: any) => p.id !== lastReferencedProductId)
+            console.log(
+              `[ai-search] PP filtered out current product (${lastReferencedProductId}), remaining products=${result.products.length}`,
+            )
+          }
         }
       }
       result.execution_id = execution_id

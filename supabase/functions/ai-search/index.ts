@@ -447,6 +447,18 @@ Deno.serve(async (req: Request) => {
       }
       if (typeof result.content === 'string') {
         result.content = result.content.trim()
+        // Extrai markdown de resposta JSON-wrapped (ex: {"content":"## markdown..."})
+        if (result.content.startsWith('{') && result.content.includes('"content"')) {
+          try {
+            const parsed = JSON.parse(result.content)
+            if (parsed && typeof parsed.content === 'string') {
+              result.content = parsed.content.trim()
+              console.log(`[ai-search] extracted content from JSON-wrapped response`)
+            }
+          } catch {
+            // não é JSON válido, mantém como está
+          }
+        }
         if (
           lastReferencedProductId &&
           globalSettingsMap['transparency_note'] &&

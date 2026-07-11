@@ -184,15 +184,19 @@ export function ResponseFormatter({
                 <span className="flex-1 h-[1px] bg-green-900/30" />
               </h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {finalProducts.map((p: any) => (
-                  <div
-                    key={p.id}
-                    onClick={onProductClick}
-                    className={onProductClick ? 'cursor-pointer' : ''}
-                  >
-                    <ProductCard product={p} />
-                  </div>
-                ))}
+                {finalProducts
+                  .filter(
+                    (p: any) => !isProductRoute || referenced_internal_products?.includes(p.id),
+                  )
+                  .map((p: any) => (
+                    <div
+                      key={p.id}
+                      onClick={onProductClick}
+                      className={onProductClick ? 'cursor-pointer' : ''}
+                    >
+                      <ProductCard product={p} />
+                    </div>
+                  ))}
               </div>
             </>
           )}

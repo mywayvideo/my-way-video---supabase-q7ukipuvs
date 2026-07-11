@@ -270,12 +270,6 @@ export function AIConsultantModal({
           (typeof p.manufacturer === 'string' ? p.manufacturer : null),
       }))
 
-      // Filter out the current product from being suggested
-      const excludeId = activeProductId || productId
-      if (excludeId) {
-        finalProducts = finalProducts.filter((p: any) => p.id !== excludeId)
-      }
-
       // Cálculo de preço final por cliente
       if (user && finalProducts.length > 0) {
         try {
@@ -313,7 +307,7 @@ export function AIConsultantModal({
         role: 'assistant',
         content: data.content || 'Desculpe, não consegui processar sua requisição.',
         products: finalProducts,
-        referenced_internal_products: data.referenced_internal_products || [],
+        referenced_internal_products: data.referenced_internal_products || refIds, // ← ADICIONE
         should_show_whatsapp_button: data.should_show_whatsapp_button,
         tier: data.tier || 1,
       }

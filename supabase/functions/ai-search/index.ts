@@ -410,19 +410,8 @@ Deno.serve(async (req: Request) => {
         )
       }
 
-      // 🔥 MOVIDO PARA CÁ: garante que o produto atual da página esteja na lista
-      if (
-        lastReferencedProductId &&
-        !referencedInternalProducts.includes(lastReferencedProductId)
-      ) {
-        referencedInternalProducts.push(lastReferencedProductId)
-        if (!aiReferencedProducts.includes(lastReferencedProductId)) {
-          aiReferencedProducts.push(lastReferencedProductId)
-        }
-        console.log(
-          `[ai-search] PP added current product (${lastReferencedProductId}) to referenced list`,
-        )
-      }
+      // Cards exibem apenas produtos referenciados pela IA no texto.
+      // O produto atual da página não é incluído — o usuário já está na página dele.
 
       const aiReferencedCount = aiReferencedProducts.length
       if (session_id) {

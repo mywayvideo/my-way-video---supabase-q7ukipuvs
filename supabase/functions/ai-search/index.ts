@@ -665,15 +665,39 @@ Deno.serve(async (req: Request) => {
         )
       }
 
+      // === PÓS-PROCESSAMENTO: força a imagem correta do produto atual ===
+      if (aiResult?.content && contextualProductData?.image_url) {
+        const productName = String(contextualProductData.name || '').replace(/[.*+?^${}()|[\]\]/g, '\$&')
+        const correctImageMd = '![' + (contextualProductData.name || '') + '](' + contextualProductData.image_url + ')'
+        
+        // 1. Substitui qualquer imagem do produto atual que use URL errada
+        const imgPattern = new RegExp('!\[' + productName + '\]\(.*?\)', 'gi')
+        aiResult.content = aiResult.content.replace(imgPattern, (match: string) => {
+          if (!match.includes(contextualProductData.image_url)) {
+            return correctImageMd
+          }
+          return match
+        })
+        
+        // 2. Garante que a imagem correta existe na seção "Análise por Produto"
+        const analysisMarker = '### Análise por Produto:'
+        if (aiResult.content.includes(analysisMarker) &&
+            !aiResult.content.includes('](' + contextualProductData.image_url + ')')) {
+          aiResult.content = aiResult.content.replace(
+            analysisMarker,
+            analysisMarker + '\n\n' + correctImageMd + '\n'
+          )
+        }
+      }
       // Varre o conteúdo da resposta procurando padrões [PRODUCT:uuid]
       // e adiciona aos arrays caso a IA tenha esquecido de incluir
-      // === SCANNER DE UUID NO TEXTO (reforço para search_products) ===
+      // === SCANNER DE UUID NO TEXTO - VERSÃO ENDURECIDA ===
       if (aiResult.content && typeof aiResult.content === 'string') {
         const uuidPattern = /\[PRODUCT:\s*([a-f0-9-]{36})\]/gi
         let match
         let foundCount = 0
-
-        // Constrói um Set com todos os UUIDs VÁLIDOS do contexto original
+        
+        // Constrói um Set com TODOS os UUIDs VÁLIDOS do contexto original
         const validUuids = new Set<string>()
         if (lastReferencedProductId) validUuids.add(lastReferencedProductId.toLowerCase())
         if (level1Context?.length) {
@@ -682,18 +706,37 @@ Deno.serve(async (req: Request) => {
           }
         }
 
+        // LOG: mostra quantos UUIDs válidos existem
+        console.log(`[ai-search] PP UUID scanner: ${validUuids.size} valid UUIDs in context`)
+        
+        let rejectedCount = 0
         while ((match = uuidPattern.exec(aiResult.content)) !== null) {
           const foundUuid = match[1].toLowerCase()
-          // SÓ aceita UUID que exista no contexto original (level1Context ou currentProduct)
-          if (validUuids.has(foundUuid) && foundUuid !== lastReferencedProductId) {
+          
+          if (!validUuids.has(foundUuid)) {
+            // REJEITA: UUID não está no contexto original → remove do texto
+            rejectedCount++
+            aiResult.content = aiResult.content.replace(match[0], '')
+            console.log(`[ai-search] PP UUID scanner: REJECTED UUID ${foundUuid} (not in valid set)`)
+            continue
+          }
+          
+          if (foundUuid !== lastReferencedProductId) {
             foundCount++
             if (!referencedInternalProducts.includes(foundUuid))
               referencedInternalProducts.push(foundUuid)
-            if (!aiReferencedProducts.includes(foundUuid)) aiReferencedProducts.push(foundUuid)
+            if (!aiReferencedProducts.includes(foundUuid))
+              aiReferencedProducts.push(foundUuid)
           }
         }
+        
         if (foundCount > 0) {
-          console.log(`[ai-search] PP UUID scanner: found ${foundCount} VALID products in text`)
+          console.log(`[ai-search] PP UUID scanner: accepted ${foundCount} products, rejected ${rejectedCount}`)
+        } else if (rejectedCount > 0) {
+          console.log(`[ai-search] PP UUID scanner: rejected ${rejectedCount} products (all invalid)`)
+          // Se rejeitou tudo, garante que o array fique vazio
+          aiReferencedProducts = []
+          referencedInternalProducts = []
         }
       }
 

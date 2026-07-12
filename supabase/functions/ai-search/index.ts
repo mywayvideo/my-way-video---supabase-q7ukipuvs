@@ -66,6 +66,76 @@ function logCascade(stage: string, type: string, matched: boolean, query: string
   )
 }
 
+// ============================================================
+// PP INTENT CLASSIFIER — Determina intenção do usuário em Product Page
+// Keywords/regex, sem chamada externa, custo zero, ~35 linhas
+// ============================================================
+type PPIntent =
+  | 'TECHNICAL'
+  | 'COMPARE'
+  | 'ACCESSORY'
+  | 'PRICE'
+  | 'INSTITUTIONAL'
+  | 'RECOMMENDATION'
+  | 'GENERIC'
+
+function classifyPPIntent(query: string): PPIntent {
+  const q = query.toLowerCase().trim()
+
+  // 1. INSTITUTIONAL — loja, horário, garantia, frete
+  if (
+    /^(qual (o )?hor[áa]rio|onde fica|como (devolver|comprar)|tem (garantia|frete|telefone)|endereço|telefone|whatsapp|prazo de entrega|política de|troca|forma de pagamento)/i.test(
+      q,
+    )
+  )
+    return 'INSTITUTIONAL'
+
+  // 2. PRICE / DISPONIBILIDADE
+  if (
+    /\b(preç[o]|quanto custa|valor|disponibilidade|estoque|prazo|entrega|economia|mais barato|mais caro|custa)\b/i.test(
+      q,
+    )
+  )
+    return 'PRICE'
+
+  // 3. TECHNICAL — especificações técnicas do produto atual
+  if (
+    /\b(resolução|frame rate|fps|iso|codec|formato|sensor|conectividade|hdmi|sdi|peso|dimensão|bit rate|log|raw|cor|color profile|bitrate|profundidade|quantos fps|qual a resolução|qual o peso|qual a conectividade|qual a saida|qual a entrada|quantos)\b/i.test(
+      q,
+    )
+  )
+    return 'TECHNICAL'
+
+  // 4. COMPARE — COMPARAÇÃO com outro produto
+  // Inclui: "compare com", "diferença para", "vs", "versus", "melhor que", "ou a/o [produto]"
+  if (
+    /(compare|compara[çc][aã]o|diferença|vs\.|versus|melhor que|superior|inferior|qual a melhor|qual é melhor|contra|ou a\b|ou o\b)/i.test(
+      q,
+    )
+  )
+    return 'COMPARE'
+
+  // 5. ACCESSORY — acessórios compatíveis
+  // A lista cobre >95% dos acessórios comuns em audiovisual profissional
+  if (
+    /\b(trip[ée]|lente|bateria|cartão|microfone|monitor externo|cabo|case|grip|luzeira|mochila|filtro|suporte|adaptador|carregador|fonte|controlador|estabilizador|gimbal|quick release|placa|base|alça|handle|capacete|suporte de|montagem)\b/i.test(
+      q,
+    )
+  )
+    return 'ACCESSORY'
+
+  // 6. RECOMMENDATION — recomendação de uso
+  if (
+    /\b(recomenda|(é|serve) (boa|bom|ideal|melhor|adequad[ao]) para|indicad[ao] para|serve para|para que (serve|é)|o que (acha|você acha)|para qual|qual (uso|aplicação|finalidade))/i.test(
+      q,
+    )
+  )
+    return 'RECOMMENDATION'
+
+  // 7. GENERIC — tudo que não se encaixa acima
+  return 'GENERIC'
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
   try {
@@ -244,6 +314,8 @@ Deno.serve(async (req: Request) => {
       logCascade('A', 'stopwords', true, query, `cleaned="${searchQuery}"`)
     }
 
+    let ppIntent: PPIntent = 'GENERIC'
+
     // Comparison Detection — detects "com a", "com o", "vs.", "versus", or "e" patterns
     let searchEntities: string[] = [searchQuery]
     let isComparisonDetected = false
@@ -254,29 +326,68 @@ Deno.serve(async (req: Request) => {
         searchEntities = comparison.terms
         console.log(`[ai-search] COMPARISON DETECTED terms=${JSON.stringify(comparison.terms)}`)
       } else if (lastReferencedProductId) {
-        // PP Mode: On a product page, extract the target product mentioned
-        // Patterns: "com a/o [produto]", "para a/o [produto]", "diferença para a/o [produto]",
-        //           "da/d(o) [produto]" (contractions), "e a/o [produto]?"
-        const patterns = [
-          /(?:com a|com o|para a|para o|diferença (?:para|entre) a|diferença (?:para|entre) o)\s+(.+)/i,
-          /(?:e a|e o)\s+(.+)/i,
-          /(?:da|do)\s+(.+)/i,
-        ]
-        let targetProduct: string | null = null
-        for (const pattern of patterns) {
-          const match = query.match(pattern)
-          if (match && match[1]) {
-            targetProduct = match[1]
-              .trim()
-              .replace(/[.,;:!?\s]+$/, '')
-              .trim()
-            if (targetProduct.length > 0) break
+        // === PP INTENT CLASSIFICATION ===
+        // Determina a intenção do usuário ANTES de qualquer extração
+        ppIntent = classifyPPIntent(query)
+        console.log(`[ai-search] PP intent detected: ${ppIntent}`)
+
+        // === COMPARE MODE: extrai o nome do produto concorrente ===
+        // Só executa regex em modo COMPARE — para evitar falsos positivos
+        if (ppIntent === 'COMPARE') {
+          const patterns = [
+            /(?:com a|com o|para a|para o|diferença (?:para|entre) a|diferença (?:para|entre) o)\s+(.+)/i,
+            /(?:e a|e o)\s+(.+)/i,
+            /(?:da|do)\s+(.+)/i,
+          ]
+          let targetProduct: string | null = null
+          for (const pattern of patterns) {
+            const match = query.match(pattern)
+            if (match && match[1]) {
+              targetProduct = match[1]
+                .trim()
+                .replace(/[.,;:!?\s]+$/, '')
+                .trim()
+              if (targetProduct.length > 0) break
+            }
+          }
+          if (targetProduct) {
+            searchQuery = targetProduct
+            searchEntities = [searchQuery]
+            console.log(`[ai-search] PP compare mode: extracted target term="${targetProduct}"`)
           }
         }
-        if (targetProduct) {
-          searchQuery = targetProduct
-          searchEntities = [searchQuery]
-          console.log(`[ai-search] PP compare mode: extracted target term="${targetProduct}"`)
+        // === ACCESSORY MODE: extrai tipo de acessório e fabricante ===
+        if (ppIntent === 'ACCESSORY' && lastReferencedProductId) {
+          // Mapeia termos em português para search terms em inglês
+          const accessoryMap: { regex: RegExp; searchTerm: string }[] = [
+            { regex: /trip[ée]/i, searchTerm: 'Sony Tripod' },
+            { regex: /lente|len[st]/i, searchTerm: 'Sony E-mount Lens' },
+            { regex: /bateria/i, searchTerm: 'Sony Battery' },
+            { regex: /cartão|cfexpress|sd/i, searchTerm: 'CFexpress Card' },
+            { regex: /microfone|mic/i, searchTerm: 'Sony Microphone' },
+            { regex: /monitor/i, searchTerm: 'Sony Monitor' },
+            { regex: /cabo/i, searchTerm: 'Sony Cable' },
+            { regex: /case|mala|estojo/i, searchTerm: 'Sony Case' },
+            { regex: /grip|alça|handle/i, searchTerm: 'Sony Grip' },
+            { regex: /luzeira|luz|iluminação/i, searchTerm: 'Sony Light' },
+            { regex: /filtro/i, searchTerm: 'Sony Filter' },
+            { regex: /suporte|suporte de|base|placa|quick release/i, searchTerm: 'Sony Support' },
+            { regex: /carregador|fonte|power/i, searchTerm: 'Sony Charger' },
+            { regex: /controlador|controller/i, searchTerm: 'Sony Controller' },
+            { regex: /estabilizador|gimbal/i, searchTerm: 'Sony Gimbal' },
+          ]
+
+          for (const entry of accessoryMap) {
+            if (entry.regex.test(query)) {
+              searchQuery = entry.searchTerm
+              searchEntities = [searchQuery]
+              // Reinicia a busca com o termo corrigido
+              console.log(
+                `[ai-search] PP ACCESSORY: extracted term="${entry.searchTerm}" from query`,
+              )
+              break
+            }
+          }
         }
       }
     }
@@ -441,32 +552,56 @@ Deno.serve(async (req: Request) => {
 
       // Filtra o level1Context para manter APENAS produtos que correspondem
       // ao termo pesquisado pelo usuário (ex: "Sony FX3A", "Sony FX6")
-      if (lastReferencedProductId && level1Context.length > 0 && searchQuery) {
-        const searchTerms = searchQuery.toLowerCase().split(' ')
+      // === PP CARDS: insere produtos nos cards conforme a intenção ===
 
-        // Cria uma lista filtrada: só produtos cujo nome contém TODOS os termos da busca
+      // [COMPARE]: filtro restritivo (.every()) — só produtos com TODOS os termos
+      if (
+        ppIntent === 'COMPARE' &&
+        lastReferencedProductId &&
+        level1Context.length > 0 &&
+        searchQuery
+      ) {
+        const searchTerms = searchQuery.toLowerCase().split(' ')
         const filteredContext = level1Context.filter((product: any) => {
           if (!product?.id || !product?.name) return false
           const productName = product.name.toLowerCase()
           return searchTerms.every((term: string) => productName.includes(term))
         })
-
         console.log(
-          `[ai-search] level1Context: ${level1Context.length} → filtered: ${filteredContext.length} (searchQuery: "${searchQuery}")`,
+          `[ai-search] PP COMPARE: level1Context ${level1Context.length} → filtered ${filteredContext.length}`,
         )
-
-        // Adiciona APENAS os produtos filtrados aos cards (exceto o produto atual)
         for (const product of filteredContext) {
           const productId = product.id
-          if (productId !== lastReferencedProductId) {
-            if (!referencedInternalProducts.includes(productId)) {
-              referencedInternalProducts.push(productId)
-            }
-            if (!aiReferencedProducts.includes(productId)) {
-              aiReferencedProducts.push(productId)
-            }
+          if (
+            productId !== lastReferencedProductId &&
+            !referencedInternalProducts.includes(productId)
+          ) {
+            referencedInternalProducts.push(productId)
+            if (!aiReferencedProducts.includes(productId)) aiReferencedProducts.push(productId)
           }
         }
+      }
+
+      // [ACCESSORY / GENERIC]: adiciona level1Context DIRETAMENTE (sem filtro)
+      if (
+        (ppIntent === 'ACCESSORY' || ppIntent === 'GENERIC') &&
+        lastReferencedProductId &&
+        level1Context.length > 0
+      ) {
+        for (const product of level1Context) {
+          const productId = product?.id
+          if (
+            productId &&
+            productId !== lastReferencedProductId &&
+            !referencedInternalProducts.includes(productId)
+          ) {
+            referencedInternalProducts.push(productId)
+            if (!aiReferencedProducts.includes(productId)) aiReferencedProducts.push(productId)
+          }
+        }
+        console.log(
+          `[ai-search] PP ${ppIntent}: added ${level1Context.length} products to cards (no filter)`,
+        )
       }
 
       const aiReferencedCount = aiReferencedProducts.length

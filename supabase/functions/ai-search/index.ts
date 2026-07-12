@@ -667,7 +667,7 @@ Deno.serve(async (req: Request) => {
 
       // === PÓS-PROCESSAMENTO: força a imagem correta do produto atual ===
       if (aiResult?.content && contextualProductData?.image_url) {
-        const productName = String(contextualProductData.name || '').replace(/[.*+?^${}()|\[\]\]/g, '\$&')
+        const productName = String(contextualProductData.name || '').replace(/[.*+?^${}()|[\]\]/g, '\$&')
         const correctImageMd = '![' + (contextualProductData.name || '') + '](' + contextualProductData.image_url + ')'
         
         // 1. Substitui qualquer imagem do produto atual que use URL errada

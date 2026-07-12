@@ -410,23 +410,8 @@ Deno.serve(async (req: Request) => {
         )
       }
 
-      // Adiciona os produtos encontrados na busca (exceto o produto atual)
-      if (lastReferencedProductId && level1Context.length > 0) {
-        for (const product of level1Context) {
-          const productId = product?.id
-          if (productId && productId !== lastReferencedProductId) {
-            if (!referencedInternalProducts.includes(productId)) {
-              referencedInternalProducts.push(productId)
-            }
-            if (!aiReferencedProducts.includes(productId)) {
-              aiReferencedProducts.push(productId)
-            }
-          }
-        }
-        console.log(
-          `[ai-search] Added ${referencedInternalProducts.length} search products to cards (current product excluded)`,
-        )
-      }
+      // Cards exibem apenas produtos referenciados pela IA no texto.
+      // O produto atual da página não é incluído — o usuário já está na página dele.
 
       const aiReferencedCount = aiReferencedProducts.length
       if (session_id) {

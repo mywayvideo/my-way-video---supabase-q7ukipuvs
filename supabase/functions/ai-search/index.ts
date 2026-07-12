@@ -254,18 +254,29 @@ Deno.serve(async (req: Request) => {
         searchEntities = comparison.terms
         console.log(`[ai-search] COMPARISON DETECTED terms=${JSON.stringify(comparison.terms)}`)
       } else if (lastReferencedProductId) {
-        // PP Mode: On a product page, extract the target product mentioned after "com a" or "com o"
-        const compareMatch = query.match(/(?:com a|com o)\s+(.+)/i)
-        if (compareMatch && compareMatch[1]) {
-          const extracted = compareMatch[1]
-            .trim()
-            .replace(/[.,;:!?\s]+$/, '')
-            .trim()
-          if (extracted.length > 0) {
-            searchQuery = extracted
-            searchEntities = [searchQuery]
-            console.log(`[ai-search] PP compare mode: extracted target term="${extracted}"`)
+        // PP Mode: On a product page, extract the target product mentioned
+        // Patterns: "com a/o [produto]", "para a/o [produto]", "diferença para a/o [produto]",
+        //           "da/d(o) [produto]" (contractions), "e a/o [produto]?"
+        const patterns = [
+          /(?:com a|com o|para a|para o|diferença (?:para|entre) a|diferença (?:para|entre) o)\s+(.+)/i,
+          /(?:e a|e o)\s+(.+)/i,
+          /(?:da|do)\s+(.+)/i,
+        ]
+        let targetProduct: string | null = null
+        for (const pattern of patterns) {
+          const match = query.match(pattern)
+          if (match && match[1]) {
+            targetProduct = match[1]
+              .trim()
+              .replace(/[.,;:!?\s]+$/, '')
+              .trim()
+            if (targetProduct.length > 0) break
           }
+        }
+        if (targetProduct) {
+          searchQuery = targetProduct
+          searchEntities = [searchQuery]
+          console.log(`[ai-search] PP compare mode: extracted target term="${targetProduct}"`)
         }
       }
     }

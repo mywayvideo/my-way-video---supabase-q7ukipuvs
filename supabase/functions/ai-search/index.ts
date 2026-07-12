@@ -672,17 +672,28 @@ Deno.serve(async (req: Request) => {
         const uuidPattern = /\[PRODUCT:\s*([a-f0-9-]{36})\]/gi
         let match
         let foundCount = 0
+
+        // Constrói um Set com todos os UUIDs VÁLIDOS do contexto original
+        const validUuids = new Set<string>()
+        if (lastReferencedProductId) validUuids.add(lastReferencedProductId.toLowerCase())
+        if (level1Context?.length) {
+          for (const p of level1Context) {
+            if (p?.id) validUuids.add(p.id.toLowerCase())
+          }
+        }
+
         while ((match = uuidPattern.exec(aiResult.content)) !== null) {
-          foundCount++
           const foundUuid = match[1].toLowerCase()
-          if (foundUuid !== lastReferencedProductId) {
+          // SÓ aceita UUID que exista no contexto original (level1Context ou currentProduct)
+          if (validUuids.has(foundUuid) && foundUuid !== lastReferencedProductId) {
+            foundCount++
             if (!referencedInternalProducts.includes(foundUuid))
               referencedInternalProducts.push(foundUuid)
             if (!aiReferencedProducts.includes(foundUuid)) aiReferencedProducts.push(foundUuid)
           }
         }
         if (foundCount > 0) {
-          console.log(`[ai-search] PP UUID scanner: found ${foundCount} products in text content`)
+          console.log(`[ai-search] PP UUID scanner: found ${foundCount} VALID products in text`)
         }
       }
 

@@ -667,7 +667,7 @@ Deno.serve(async (req: Request) => {
 
       // === PÓS-PROCESSAMENTO: força a imagem correta do produto atual ===
       if (aiResult?.content && contextualProductData?.image_url) {
-        const productName = String(contextualProductData.name || '').replace(/[.*+?^${}()|[\]\]/g, '\$&')
+        const productName = String(contextualProductData.name || '').replace(/[.*+?^${}()|\[\]\]/g, '\$&')
         const correctImageMd = '![' + (contextualProductData.name || '') + '](' + contextualProductData.image_url + ')'
         
         // 1. Substitui qualquer imagem do produto atual que use URL errada
@@ -689,9 +689,8 @@ Deno.serve(async (req: Request) => {
           )
         }
       }
-      // Varre o conteúdo da resposta procurando padrões [PRODUCT:uuid]
-      // e adiciona aos arrays caso a IA tenha esquecido de incluir
-      // === SCANNER DE UUID NO TEXTO - VERSÃO ENDURECIDA ===
+
+      // === SCANNER DE UUID NO TEXTO (reforço para search_products) ===
       if (aiResult.content && typeof aiResult.content === 'string') {
         const uuidPattern = /\[PRODUCT:\s*([a-f0-9-]{36})\]/gi
         let match

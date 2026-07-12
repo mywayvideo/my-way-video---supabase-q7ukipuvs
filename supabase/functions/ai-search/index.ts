@@ -436,6 +436,22 @@ Deno.serve(async (req: Request) => {
         `[ai-search] response: mode=${isHPMode ? 'HP' : 'PP'} full_search_results=${fullSearchResults.length} referenced=${referencedInternalProducts.length}`,
       )
 
+      // Remove o produto atual da página dos cards referenciados
+      if (lastReferencedProductId) {
+        const before = referencedInternalProducts.length
+        const idxRef = referencedInternalProducts.indexOf(lastReferencedProductId)
+        if (idxRef !== -1) referencedInternalProducts.splice(idxRef, 1)
+
+        const idxAi = aiReferencedProducts.indexOf(lastReferencedProductId)
+        if (idxAi !== -1) aiReferencedProducts.splice(idxAi, 1)
+
+        if (idxRef !== -1 || idxAi !== -1) {
+          console.log(
+            `[ai-search] Removed current product (${lastReferencedProductId}) from referenced cards`,
+          )
+        }
+      }
+
       const result: any = {
         content: aiResult.content,
         confidence_level: aiResult.confidence_level,

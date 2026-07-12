@@ -509,7 +509,12 @@ Deno.serve(async (req: Request) => {
 
     // PP Mode: filtra level1Products para manter APENAS os que correspondem ao termo pesquisado
     // Isso evita que produtos irrelevantes entrem no contexto da IA e gerem imagens erradas
-    if (lastReferencedProductId && level1Products.length > 0 && searchQuery) {
+    if (
+      ppIntent === 'COMPARE' &&
+      lastReferencedProductId &&
+      level1Products.length > 0 &&
+      searchQuery
+    ) {
       const searchTerms = searchQuery.toLowerCase().split(' ')
       const beforeCount = level1Products.length
       level1Products = level1Products.filter((p: any) => {
@@ -602,6 +607,27 @@ Deno.serve(async (req: Request) => {
         console.log(
           `[ai-search] PP ${ppIntent}: added ${level1Context.length} products to cards (no filter)`,
         )
+      }
+
+      // Varre o conteúdo da resposta procurando padrões [PRODUCT:uuid]
+      // e adiciona aos arrays caso a IA tenha esquecido de incluir
+      // === SCANNER DE UUID NO TEXTO (reforço para search_products) ===
+      if (aiResult.content && typeof aiResult.content === 'string') {
+        const uuidPattern = /\[PRODUCT:\s*([a-f0-9-]{36})\]/gi
+        let match
+        let foundCount = 0
+        while ((match = uuidPattern.exec(aiResult.content)) !== null) {
+          foundCount++
+          const foundUuid = match[1].toLowerCase()
+          if (foundUuid !== lastReferencedProductId) {
+            if (!referencedInternalProducts.includes(foundUuid))
+              referencedInternalProducts.push(foundUuid)
+            if (!aiReferencedProducts.includes(foundUuid)) aiReferencedProducts.push(foundUuid)
+          }
+        }
+        if (foundCount > 0) {
+          console.log(`[ai-search] PP UUID scanner: found ${foundCount} products in text content`)
+        }
       }
 
       const aiReferencedCount = aiReferencedProducts.length

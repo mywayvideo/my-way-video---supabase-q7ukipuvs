@@ -115,7 +115,15 @@ function classifyPPIntent(query: string): PPIntent {
   )
     return 'COMPARE'
 
-  // 5. ACCESSORY — acessórios compatíveis
+  // 5. RECOMMENDATION — recomendação de uso
+  if (
+    /\b(recomenda|(é|serve) (boa|bom|ideal|melhor|adequad[ao]) para|indicad[ao] para|serve para|para que (serve|é)|o que (acha|você acha)|para qual|qual (uso|aplicação|finalidade))/i.test(
+      q,
+    )
+  )
+    return 'RECOMMENDATION'
+
+  // 6. ACCESSORY — acessórios compatíveis
   // A lista cobre >95% dos acessórios comuns em audiovisual profissional
   if (
     /\b(trip[ée]|lente|bateria|cartão|microfone|monitor externo|cabo|case|grip|luzeira|mochila|filtro|suporte|adaptador|carregador|fonte|controlador|estabilizador|gimbal|quick release|placa|base|alça|handle|capacete|suporte de|montagem)\b/i.test(
@@ -123,14 +131,6 @@ function classifyPPIntent(query: string): PPIntent {
     )
   )
     return 'ACCESSORY'
-
-  // 6. RECOMMENDATION — recomendação de uso
-  if (
-    /\b(recomenda|(é|serve) (boa|bom|ideal|melhor|adequad[ao]) para|indicad[ao] para|serve para|para que (serve|é)|o que (acha|você acha)|para qual|qual (uso|aplicação|finalidade))/i.test(
-      q,
-    )
-  )
-    return 'RECOMMENDATION'
 
   // 7. GENERIC — tudo que não se encaixa acima
   return 'GENERIC'
@@ -413,6 +413,33 @@ Deno.serve(async (req: Request) => {
             console.log(`[ai-search] PP ACCESSORY: no accessory pattern matched query="${query}"`)
           }
         }
+        // === RECOMMENDATION / COMPATIBILITY MODE ===
+        // Extrai o nome do produto mencionado após "para" ou "com"
+        // Ex: "esse tripé é adequado para a sony fx3?" → extrai "sony fx3"
+        if (ppIntent === 'RECOMMENDATION') {
+          // Tenta extrair o produto mencionado após "para a/o", "com a/o", "para"
+          const patterns = [/(?:para a|para o|para|com a|com o|com)\s+(.+?)(?:\?|\.|,|$)/i]
+          let targetProduct: string | null = null
+          for (const pattern of patterns) {
+            const match = query.match(pattern)
+            if (match && match[1]) {
+              targetProduct = match[1]
+                .trim()
+                .replace(/[.,;:!?\s]+$/, '')
+                .trim()
+              // Só aceita se for um nome curto (produto, não frase)
+              if (targetProduct.length > 0 && targetProduct.length < 50) break
+              targetProduct = null
+            }
+          }
+          if (targetProduct) {
+            searchQuery = targetProduct
+            searchEntities = [searchQuery]
+            console.log(`[ai-search] PP RECOMMENDATION: extracted target term="${targetProduct}"`)
+          } else {
+            console.log(`[ai-search] PP RECOMMENDATION: no product name extracted from query`)
+          }
+        }
       }
     }
 
@@ -613,7 +640,7 @@ Deno.serve(async (req: Request) => {
 
       // [ACCESSORY / GENERIC]: adiciona level1Context DIRETAMENTE (sem filtro)
       if (
-        (ppIntent === 'ACCESSORY' || ppIntent === 'GENERIC') &&
+        (ppIntent === 'ACCESSORY' || ppIntent === 'GENERIC' || ppIntent === 'RECOMMENDATION') &&
         lastReferencedProductId &&
         level1Context.length > 0
       ) {

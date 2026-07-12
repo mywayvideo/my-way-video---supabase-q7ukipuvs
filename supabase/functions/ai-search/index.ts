@@ -100,7 +100,7 @@ function classifyPPIntent(query: string): PPIntent {
 
   // 3. TECHNICAL — especificações técnicas do produto atual
   if (
-    /\b(resolução|frame rate|fps|iso|codec|formato|sensor|conectividade|hdmi|sdi|peso|dimensão|bit rate|log|raw|cor|color profile|bitrate|profundidade|quantos fps|qual a resolução|qual o peso|qual a conectividade|qual a saida|qual a entrada|quantos)\b/i.test(
+    /\b(resolução|frame rate|fps|iso|codec|formato|sensor|conectividade|hdmi|sdi|peso|dimensão|bit rate|log|raw|cor|color profile|bitrate|profundidade|quantos fps|qual a resolução|qual o peso|qual a conectividade|qual a saida|qual a entrada|quantos)/i.test(
       q,
     )
   )
@@ -117,7 +117,7 @@ function classifyPPIntent(query: string): PPIntent {
 
   // 5. RECOMMENDATION — recomendação de uso
   if (
-    /\b(recomenda|(é|serve) (boa|bom|ideal|melhor|adequad[ao]) para|indicad[ao] para|serve para|para que (serve|é)|o que (acha|você acha)|para qual|qual (uso|aplicação|finalidade))/i.test(
+    /(recomenda|(é|serve) (boa|bom|ideal|melhor|adequad[ao]) para|indicad[ao] para|serve para|para que (serve|é)|o que (acha|você acha)|para qual|qual (uso|aplicação|finalidade))/i.test(
       q,
     )
   )
@@ -126,7 +126,7 @@ function classifyPPIntent(query: string): PPIntent {
   // 6. ACCESSORY — acessórios compatíveis
   // A lista cobre >95% dos acessórios comuns em audiovisual profissional
   if (
-    /\b(trip[ée]|lente|bateria|cartão|microfone|monitor externo|cabo|case|grip|luzeira|mochila|filtro|suporte|adaptador|carregador|fonte|controlador|estabilizador|gimbal|quick release|placa|base|alça|handle|capacete|suporte de|montagem)\b/i.test(
+    /\b(trip[ée]|lente|bateria|cartão|microfone|monitor externo|cabo|case|grip|luzeira|mochila|filtro|suporte|adaptador|carregador|fonte|controlador|estabilizador|gimbal|quick release|placa|base|alça|handle|capacete|suporte de|montagem)/i.test(
       q,
     )
   )

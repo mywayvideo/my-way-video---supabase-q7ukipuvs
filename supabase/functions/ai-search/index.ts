@@ -581,6 +581,11 @@ Deno.serve(async (req: Request) => {
     const level1Context =
       level1Products.length > 0 ? buildProductContext(level1Products, queryMentionsBrazil) : []
 
+    console.log(
+      `[ai-search] PP level1Context: ${level1Context.length} products`,
+      JSON.stringify(level1Context.map((p: any) => ({ id: p.id, name: p.name }))),
+    )
+
     async function persistAndReturn(aiResult: any, type: string): Promise<Response> {
       const referencedInternalProducts = Array.isArray(aiResult.referenced_internal_products)
         ? [...aiResult.referenced_internal_products]

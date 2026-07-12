@@ -385,6 +385,21 @@ Deno.serve(async (req: Request) => {
       }
     }
 
+    // PP Mode: filtra level1Products para manter APENAS os que correspondem ao termo pesquisado
+    // Isso evita que produtos irrelevantes entrem no contexto da IA e gerem imagens erradas
+    if (lastReferencedProductId && level1Products.length > 0 && searchQuery) {
+      const searchTerms = searchQuery.toLowerCase().split(' ')
+      const beforeCount = level1Products.length
+      level1Products = level1Products.filter((p: any) => {
+        if (!p?.name) return false
+        const productName = p.name.toLowerCase()
+        return searchTerms.every((term: string) => productName.includes(term))
+      })
+      console.log(
+        `[ai-search] PP filtered level1Products: ${beforeCount} → ${level1Products.length} (searchQuery: "${searchQuery}")`,
+      )
+    }
+
     const level1Context =
       level1Products.length > 0 ? buildProductContext(level1Products, queryMentionsBrazil) : []
 
@@ -412,6 +427,36 @@ Deno.serve(async (req: Request) => {
 
       // Cards exibem apenas produtos referenciados pela IA no texto.
       // O produto atual da página não é incluído — o usuário já está na página dele.
+
+      // Filtra o level1Context para manter APENAS produtos que correspondem
+      // ao termo pesquisado pelo usuário (ex: "Sony FX3A", "Sony FX6")
+      if (lastReferencedProductId && level1Context.length > 0 && searchQuery) {
+        const searchTerms = searchQuery.toLowerCase().split(' ')
+
+        // Cria uma lista filtrada: só produtos cujo nome contém TODOS os termos da busca
+        const filteredContext = level1Context.filter((product: any) => {
+          if (!product?.id || !product?.name) return false
+          const productName = product.name.toLowerCase()
+          return searchTerms.every((term: string) => productName.includes(term))
+        })
+
+        console.log(
+          `[ai-search] level1Context: ${level1Context.length} → filtered: ${filteredContext.length} (searchQuery: "${searchQuery}")`,
+        )
+
+        // Adiciona APENAS os produtos filtrados aos cards (exceto o produto atual)
+        for (const product of filteredContext) {
+          const productId = product.id
+          if (productId !== lastReferencedProductId) {
+            if (!referencedInternalProducts.includes(productId)) {
+              referencedInternalProducts.push(productId)
+            }
+            if (!aiReferencedProducts.includes(productId)) {
+              aiReferencedProducts.push(productId)
+            }
+          }
+        }
+      }
 
       const aiReferencedCount = aiReferencedProducts.length
       if (session_id) {

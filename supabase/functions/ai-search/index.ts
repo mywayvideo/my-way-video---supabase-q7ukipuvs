@@ -396,20 +396,17 @@ Deno.serve(async (req: Request) => {
         ? [...aiResult.ai_referenced_products]
         : [...referencedInternalProducts]
 
-      if (lastReferencedProductId && level1Context.length > 0) {
-        const contextIds = level1Context
-          .map((p: any) => p?.id)
-          .filter((id: any) => id != null) as string[]
-        for (const id of contextIds) {
-          if (!referencedInternalProducts.includes(id)) {
-            referencedInternalProducts.push(id)
-            if (!aiReferencedProducts.includes(id)) {
-              aiReferencedProducts.push(id)
-            }
-          }
+      // APENAS adiciona o produto atual da página na lista de referenciados
+      if (
+        lastReferencedProductId &&
+        !referencedInternalProducts.includes(lastReferencedProductId)
+      ) {
+        referencedInternalProducts.push(lastReferencedProductId)
+        if (!aiReferencedProducts.includes(lastReferencedProductId)) {
+          aiReferencedProducts.push(lastReferencedProductId)
         }
         console.log(
-          `[ai-search] PP context merged: ${contextIds.length} IDs (${referencedInternalProducts.length} total)`,
+          `[ai-search] PP added current product (${lastReferencedProductId}) to referenced list`,
         )
       }
 

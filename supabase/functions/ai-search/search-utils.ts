@@ -249,18 +249,28 @@ export function isInstitutionalQuery(query: string): boolean {
   return INSTITUTIONAL_KEYWORDS.some((kw) => lower.includes(kw))
 }
 
+function normalizeForMatch(text: string): string {
+  return text
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[?.,;:!]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 export function checkKeywordRelevance(
   query: string,
   keywords: string[],
 ): { isBlocked: boolean; relevanceScore: number } {
   if (!query || !keywords || keywords.length === 0) return { isBlocked: false, relevanceScore: 0 }
-  const lower = query.toLowerCase()
+  const normalized = normalizeForMatch(query)
   let isBlocked = false
   let relevanceScore = 0
   for (const kw of keywords) {
     const keyword = typeof kw === 'string' ? kw : kw?.keyword
     if (!keyword) continue
-    if (lower.includes(keyword.toLowerCase())) {
+    if (normalized.includes(normalizeForMatch(keyword))) {
       const weight = typeof kw === 'string' ? 1.0 : kw?.weight || 1.0
       const blocking = typeof kw === 'string' ? false : kw?.is_blocking || false
       relevanceScore += weight

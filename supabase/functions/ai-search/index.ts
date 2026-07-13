@@ -125,8 +125,9 @@ function classifyPPIntent(query: string): PPIntent {
 
   // 6. ACCESSORY — acessórios compatíveis
   // A lista cobre >95% dos acessórios comuns em audiovisual profissional
+
   if (
-    /\b(trip[ée]|lente|bateria|cartão|microfone|monitor externo|cabo|case|grip|luzeira|mochila|filtro|suporte|adaptador|carregador|fonte|controlador|estabilizador|gimbal|quick release|placa|base|alça|handle|capacete|suporte de|montagem)/i.test(
+    /\b(trip[ée]|lente|bateria|cartão|memória|microfone|monitor externo|cabo|case|grip|luzeira|mochila|filtro|suporte|adaptador|carregador|fonte|controlador|estabilizador|gimbal|quick release|placa|base|alça|handle|capacete|suporte de|montagem)/i.test(
       q,
     )
   )
@@ -459,8 +460,23 @@ Deno.serve(async (req: Request) => {
       }
     }
 
+    // Limpa caracteres especiais dos termos de busca
+    searchEntities = searchEntities
+      .map(function (term) {
+        return term
+          .toLowerCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .replace(/[?.,;:!]/g, '')
+          .trim()
+      })
+      .filter(function (term) {
+        return term.length > 0
+      })
+
     // Product Search (Stage C preparation) with deterministic entity fallback
     let level1Products: any[] = []
+
     if (!skipSearch && searchQuery.trim().length > 0) {
       const searchFn = async (term: string): Promise<any[]> => {
         console.log(`[ai-search] searchFn executing with term: "${term}"`)

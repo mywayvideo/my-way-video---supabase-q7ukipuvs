@@ -95,6 +95,9 @@ export function useAiSearch() {
           }
         }
 
+        // ← ADICIONE ESTA LINHA:
+        contentStr = typeof contentStr === 'string' ? contentStr.replace(/\\n/g, '\n') : contentStr
+
         const rawRefs = Array.isArray(data.referenced_internal_products)
           ? data.referenced_internal_products
           : []

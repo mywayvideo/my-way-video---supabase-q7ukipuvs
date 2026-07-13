@@ -790,6 +790,26 @@ Deno.serve(async (req: Request) => {
         }
       }
 
+      // HP: se sem produtos referenciados, usa level1Context como fallback
+      if (
+        !lastReferencedProductId &&
+        referencedInternalProducts.length === 0 &&
+        level1Context.length > 0
+      ) {
+        for (var fi = 0; fi < level1Context.length; fi++) {
+          var prodId = level1Context[fi]?.id
+          if (prodId && referencedInternalProducts.indexOf(prodId) < 0) {
+            referencedInternalProducts.push(prodId)
+            if (aiReferencedProducts.indexOf(prodId) < 0) {
+              aiReferencedProducts.push(prodId)
+            }
+          }
+        }
+        console.log(
+          '[ai-search] HP fallback: added ' + level1Context.length + ' products from level1Context',
+        )
+      }
+
       const aiReferencedCount = aiReferencedProducts.length
       if (session_id) {
         await supabase

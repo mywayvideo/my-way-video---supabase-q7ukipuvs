@@ -643,6 +643,26 @@ Deno.serve(async (req: Request) => {
         }
       }
 
+      // [RECOMMENDATION]: só adiciona aos cards o produto que corresponde ao termo buscado
+      if (ppIntent === 'RECOMMENDATION' && lastReferencedProductId && level1Context.length > 0 && searchQuery) {
+        const searchTerms = searchQuery.toLowerCase().split(' ')
+        const filteredContext = level1Context.filter((product: any) => {
+          if (!product?.id || !product?.name) return false
+          return searchTerms.some((term: string) => product.name.toLowerCase().includes(term))
+        })
+        for (const product of filteredContext) {
+          const productId = product.id
+          if (productId !== lastReferencedProductId && !referencedInternalProducts.includes(productId)) {
+            referencedInternalProducts.push(productId)
+            if (!aiReferencedProducts.includes(productId)) aiReferencedProducts.push(productId)
+          }
+        }
+        console.log('[ai-search] PP RECOMMENDATION: level1Context ' + level1Context.length + ' filtered ' + filteredContext.length)
+      }
+
+      // Depois o bloco ACCESSORY/GENERIC original, SEM o RECOMMENDATION
+      if ((ppIntent === 'ACCESSORY' || ppIntent === 'GENERIC') && lastReferencedProductId && level1Context.length > 0) {
+        
       // [ACCESSORY / GENERIC]: adiciona level1Context DIRETAMENTE (sem filtro)
       if (
         (ppIntent === 'ACCESSORY' || ppIntent === 'GENERIC' || ppIntent === 'RECOMMENDATION') &&

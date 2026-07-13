@@ -694,87 +694,103 @@ Deno.serve(async (req: Request) => {
           `[ai-search] PP ${ppIntent}: added ${level1Context.length} products to cards (no filter)`,
         )
       }
-
       // === PÓS-PROCESSAMENTO: força a imagem correta do produto atual ===
       if (aiResult?.content && contextualProductData?.image_url) {
-        const escapeRe = (s: string) => s.replace(new RegExp('[.*+?^${}()|[\]\\]', 'g'), '\$&')
-        const productName = escapeRe(String(contextualProductData.name || ''))
-        const correctImageMd =
-          '![' + (contextualProductData.name || '') + '](' + contextualProductData.image_url + ')'
+        var ppName = String(contextualProductData.name || '')
+        var ppUrl = String(contextualProductData.image_url)
+        var ppMarker = '### Análise por Produto:'
+        var ppCorrectImg = '![' + ppName + '](' + ppUrl + ')'
 
-        // 1. Substitui qualquer imagem do produto atual que use URL errada
-        const imgPattern = new RegExp('!\[' + productName + '\]\(.*?\)', 'gi')
-        aiResult.content = aiResult.content.replace(imgPattern, (match: string) => {
-          if (!match.includes(contextualProductData.image_url)) {
-            return correctImageMd
+        // SE a imagem correta já existe no conteúdo, nada a fazer
+        if (aiResult.content.indexOf(ppUrl) >= 0) {
+          console.log('[ai-search] PP image: correct URL already present')
+        } else {
+          console.log('[ai-search] PP image: correct URL NOT found. Injecting...')
+
+          // 1. Remove TODAS as tags <img> e TODAS as imagens markdown que não sejam a correta
+          var ppLines = aiResult.content.split('\n')
+          var ppFiltered = []
+          for (var pi = 0; pi < ppLines.length; pi++) {
+            var line = ppLines[pi]
+            // Remove linha que é tag <img
+            if (
+              (line.indexOf('<img') >= 0 && line.indexOf('.jpg') >= 0) ||
+              line.indexOf('.png') >= 0
+            ) {
+              continue
+            }
+            // Remove linha que é imagem markdown com .jpg ou .png
+            if (
+              line.indexOf('![') === 0 &&
+              (line.indexOf('.jpg') >= 0 || line.indexOf('.png') >= 0)
+            ) {
+              continue
+            }
+            ppFiltered.push(line)
           }
-          return match
-        })
+          var ppNewContent = ppFiltered.join('\n')
 
-        // 2. Garante que a imagem correta existe na seção "Análise por Produto"
-        const analysisMarker = '### Análise por Produto:'
-        if (
-          aiResult.content.includes(analysisMarker) &&
-          !aiResult.content.includes('](' + contextualProductData.image_url + ')')
-        ) {
-          aiResult.content = aiResult.content.replace(
-            analysisMarker,
-            analysisMarker + '\n\n' + correctImageMd + '\n',
-          )
+          // 2. Insere a imagem correta DEPOIS do marcador "Análise por Produto:"
+          var ppIndex = ppNewContent.indexOf(ppMarker)
+          if (ppIndex >= 0) {
+            var ppAfterNewline = ppNewContent.indexOf('\n', ppIndex)
+            if (ppAfterNewline >= 0) {
+              ppNewContent =
+                ppNewContent.substring(0, ppAfterNewline + 1) +
+                '\n' +
+                ppCorrectImg +
+                '\n' +
+                ppNewContent.substring(ppAfterNewline + 1)
+            } else {
+              ppNewContent = ppNewContent + '\n\n' + ppCorrectImg
+            }
+            console.log('[ai-search] PP image: inserted after marker "' + ppMarker + '"')
+          } else {
+            // Se não achou o marcador, insere no começo do conteúdo
+            ppNewContent = ppCorrectImg + '\n\n' + ppNewContent
+            console.log('[ai-search] PP image: marker not found, inserted at beginning')
+          }
+
+          aiResult.content = ppNewContent
         }
       }
-
       // === SCANNER DE UUID NO TEXTO (reforço para search_products) ===
       if (aiResult.content && typeof aiResult.content === 'string') {
-        const uuidPattern = /\[PRODUCT:\s*([a-f0-9-]{36})\]/gi
-        let match
-        let foundCount = 0
+        var uuidPattern = /\[PRODUCT:\s*([a-f0-9-]{36})\]/gi
+        var uuidMatch
+        var uuidFound = 0
 
-        // Constrói um Set com TODOS os UUIDs VÁLIDOS do contexto original
-        const validUuids = new Set<string>()
-        if (lastReferencedProductId) validUuids.add(lastReferencedProductId.toLowerCase())
-        if (level1Context?.length) {
-          for (const p of level1Context) {
-            if (p?.id) validUuids.add(p.id.toLowerCase())
-          }
-        }
+        // Converte o texto atual para buscar UUIDs
+        while ((uuidMatch = uuidPattern.exec(aiResult.content)) !== null) {
+          var foundUuid = uuidMatch[1].toLowerCase()
 
-        // LOG: mostra quantos UUIDs válidos existem
-        console.log(`[ai-search] PP UUID scanner: ${validUuids.size} valid UUIDs in context`)
-
-        let rejectedCount = 0
-        while ((match = uuidPattern.exec(aiResult.content)) !== null) {
-          const foundUuid = match[1].toLowerCase()
-
-          if (!validUuids.has(foundUuid)) {
-            // REJEITA: UUID não está no contexto original → remove do texto
-            rejectedCount++
-            aiResult.content = aiResult.content.replace(match[0], '')
-            console.log(
-              `[ai-search] PP UUID scanner: REJECTED UUID ${foundUuid} (not in valid set)`,
-            )
-            continue
+          // Só aceita se estiver no level1Context OU for o lastReferencedProductId
+          var isValid = false
+          if (foundUuid === lastReferencedProductId) isValid = true
+          if (level1Context && level1Context.length > 0) {
+            for (var li = 0; li < level1Context.length; li++) {
+              if (level1Context[li] && level1Context[li].id === foundUuid) {
+                isValid = true
+                break
+              }
+            }
           }
 
-          if (foundUuid !== lastReferencedProductId) {
-            foundCount++
-            if (!referencedInternalProducts.includes(foundUuid))
+          if (isValid && foundUuid !== lastReferencedProductId) {
+            uuidFound++
+            if (referencedInternalProducts.indexOf(foundUuid) < 0)
               referencedInternalProducts.push(foundUuid)
-            if (!aiReferencedProducts.includes(foundUuid)) aiReferencedProducts.push(foundUuid)
+            if (aiReferencedProducts.indexOf(foundUuid) < 0) aiReferencedProducts.push(foundUuid)
+            console.log('[ai-search] PP UUID scanner: ACCEPTED ' + foundUuid)
+          } else {
+            // Remove o [PRODUCT:uuid] do texto para não gerar card inválido
+            aiResult.content = aiResult.content.replace(uuidMatch[0], '')
+            console.log('[ai-search] PP UUID scanner: REJECTED ' + foundUuid + ' (not in context)')
           }
         }
 
-        if (foundCount > 0) {
-          console.log(
-            `[ai-search] PP UUID scanner: accepted ${foundCount} products, rejected ${rejectedCount}`,
-          )
-        } else if (rejectedCount > 0) {
-          console.log(
-            `[ai-search] PP UUID scanner: rejected ${rejectedCount} products (all invalid)`,
-          )
-          // Se rejeitou tudo, garante que o array fique vazio
-          aiReferencedProducts = []
-          referencedInternalProducts = []
+        if (uuidFound > 0) {
+          console.log('[ai-search] PP UUID scanner: accepted ' + uuidFound + ' products total')
         }
       }
 

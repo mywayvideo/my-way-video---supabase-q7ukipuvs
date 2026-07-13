@@ -623,11 +623,7 @@ Deno.serve(async (req: Request) => {
         searchQuery
       ) {
         const searchTerms = searchQuery.toLowerCase().split(' ')
-        const filteredContext = level1Context.filter((product: any) => {
-          if (!product?.id || !product?.name) return false
-          const productName = product.name.toLowerCase()
-          return searchTerms.every((term: string) => productName.includes(term))
-        })
+        return searchTerms.every((term) => product.name.toLowerCase().includes(term))
         console.log(
           `[ai-search] PP COMPARE: level1Context ${level1Context.length} → filtered ${filteredContext.length}`,
         )

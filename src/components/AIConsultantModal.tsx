@@ -231,13 +231,6 @@ export function AIConsultantModal({
       }
 
       const data = await response.json()
-      console.log('[DEBUG_MODAL] Resposta completa:', JSON.stringify(data, null, 2))
-      console.log('[DEBUG_MODAL] data.products:', data.products)
-      console.log(
-        '[DEBUG_MODAL] data.referenced_internal_products:',
-        data.referenced_internal_products,
-      )
-      console.log('ai_referenced_products:', data.ai_referenced_products)
 
       // Busca produtos em múltiplos campos possíveis
       let finalProducts = data.products || data.response?.products || data.payload?.products || []

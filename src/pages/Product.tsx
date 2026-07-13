@@ -312,6 +312,25 @@ export default function Product() {
     const fetchRelatedByCategory = async () => {
       try {
         setIsLoadingRelated(true)
+        const productAny = product as any
+        const relatedIds = [
+          ...(productAny.manual_related_ids || []),
+          ...(productAny.ai_related_ids || []),
+        ].filter((rid: string) => rid !== product.id)
+
+        if (relatedIds.length > 0) {
+          const { data: relatedData } = await supabase
+            .from('products')
+            .select('*, manufacturer:manufacturers(*)')
+            .in('id', relatedIds)
+            .eq('is_discontinued', false)
+            .limit(8)
+          if (relatedData && relatedData.length > 0 && mounted) {
+            setRelatedProducts(relatedData)
+            return
+          }
+        }
+
         const { data } = await supabase
           .from('products')
           .select('*, manufacturer:manufacturers(*)')
@@ -378,6 +397,25 @@ export default function Product() {
       const restoreRelatedByCategory = async () => {
         try {
           setIsLoadingRelated(true)
+          const productAny = product as any
+          const relatedIds = [
+            ...(productAny.manual_related_ids || []),
+            ...(productAny.ai_related_ids || []),
+          ].filter((rid: string) => rid !== product.id)
+
+          if (relatedIds.length > 0) {
+            const { data: relatedData } = await supabase
+              .from('products')
+              .select('*, manufacturer:manufacturers(*)')
+              .in('id', relatedIds)
+              .eq('is_discontinued', false)
+              .limit(8)
+            if (relatedData && relatedData.length > 0 && mounted) {
+              setRelatedProducts(relatedData)
+              return
+            }
+          }
+
           const { data } = await supabase
             .from('products')
             .select('*, manufacturer:manufacturers(*)')

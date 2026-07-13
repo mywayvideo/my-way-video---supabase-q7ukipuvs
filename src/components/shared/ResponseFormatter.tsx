@@ -87,21 +87,6 @@ export function ResponseFormatter({
   const hasWhatsAppTrigger =
     showWhatsApp || /<WhatsAppButton/i.test(content || '') || /\[WHATSAPP/i.test(content || '')
 
-  console.log('[RF] isProductRoute:', isProductRoute)
-  console.log('[RF] products count:', products?.length)
-  console.log('[RF] referenced_internal_products:', referenced_internal_products)
-  console.log(
-    '[RF] finalProducts:',
-    finalProducts.map((p) => ({ id: p.id, name: p.name, hasImage: !!p.image_url })),
-  )
-
-  console.log(
-    '[RF] filtered PP products:',
-    finalProducts
-      .filter((p: any) => !isProductRoute || referenced_internal_products?.includes(p.id))
-      .map((p) => ({ id: p.id, name: p.name, hasImage: !!p.image_url })),
-  )
-
   return (
     <div className="flex flex-col space-y-6 w-full max-w-full overflow-hidden">
       {/* 1. AI Text/Markdown Response */}

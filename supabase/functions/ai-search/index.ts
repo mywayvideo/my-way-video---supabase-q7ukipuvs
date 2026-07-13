@@ -667,9 +667,11 @@ Deno.serve(async (req: Request) => {
 
       // === PÓS-PROCESSAMENTO: força a imagem correta do produto atual ===
       if (aiResult?.content && contextualProductData?.image_url) {
-        const productName = String(contextualProductData.name || '').replace(/[.*+?^${}()|[\]\]/g, '\$&')
-        const correctImageMd = '![' + (contextualProductData.name || '') + '](' + contextualProductData.image_url + ')'
-        
+        const escapeRe = (s: string) => s.replace(new RegExp('[.*+?^${}()|[\]\\]', 'g'), '\$&')
+        const productName = escapeRe(String(contextualProductData.name || ''))
+        const correctImageMd =
+          '![' + (contextualProductData.name || '') + '](' + contextualProductData.image_url + ')'
+
         // 1. Substitui qualquer imagem do produto atual que use URL errada
         const imgPattern = new RegExp('!\[' + productName + '\]\(.*?\)', 'gi')
         aiResult.content = aiResult.content.replace(imgPattern, (match: string) => {
@@ -678,14 +680,16 @@ Deno.serve(async (req: Request) => {
           }
           return match
         })
-        
+
         // 2. Garante que a imagem correta existe na seção "Análise por Produto"
         const analysisMarker = '### Análise por Produto:'
-        if (aiResult.content.includes(analysisMarker) &&
-            !aiResult.content.includes('](' + contextualProductData.image_url + ')')) {
+        if (
+          aiResult.content.includes(analysisMarker) &&
+          !aiResult.content.includes('](' + contextualProductData.image_url + ')')
+        ) {
           aiResult.content = aiResult.content.replace(
             analysisMarker,
-            analysisMarker + '\n\n' + correctImageMd + '\n'
+            analysisMarker + '\n\n' + correctImageMd + '\n',
           )
         }
       }
@@ -695,7 +699,7 @@ Deno.serve(async (req: Request) => {
         const uuidPattern = /\[PRODUCT:\s*([a-f0-9-]{36})\]/gi
         let match
         let foundCount = 0
-        
+
         // Constrói um Set com TODOS os UUIDs VÁLIDOS do contexto original
         const validUuids = new Set<string>()
         if (lastReferencedProductId) validUuids.add(lastReferencedProductId.toLowerCase())
@@ -707,32 +711,37 @@ Deno.serve(async (req: Request) => {
 
         // LOG: mostra quantos UUIDs válidos existem
         console.log(`[ai-search] PP UUID scanner: ${validUuids.size} valid UUIDs in context`)
-        
+
         let rejectedCount = 0
         while ((match = uuidPattern.exec(aiResult.content)) !== null) {
           const foundUuid = match[1].toLowerCase()
-          
+
           if (!validUuids.has(foundUuid)) {
             // REJEITA: UUID não está no contexto original → remove do texto
             rejectedCount++
             aiResult.content = aiResult.content.replace(match[0], '')
-            console.log(`[ai-search] PP UUID scanner: REJECTED UUID ${foundUuid} (not in valid set)`)
+            console.log(
+              `[ai-search] PP UUID scanner: REJECTED UUID ${foundUuid} (not in valid set)`,
+            )
             continue
           }
-          
+
           if (foundUuid !== lastReferencedProductId) {
             foundCount++
             if (!referencedInternalProducts.includes(foundUuid))
               referencedInternalProducts.push(foundUuid)
-            if (!aiReferencedProducts.includes(foundUuid))
-              aiReferencedProducts.push(foundUuid)
+            if (!aiReferencedProducts.includes(foundUuid)) aiReferencedProducts.push(foundUuid)
           }
         }
-        
+
         if (foundCount > 0) {
-          console.log(`[ai-search] PP UUID scanner: accepted ${foundCount} products, rejected ${rejectedCount}`)
+          console.log(
+            `[ai-search] PP UUID scanner: accepted ${foundCount} products, rejected ${rejectedCount}`,
+          )
         } else if (rejectedCount > 0) {
-          console.log(`[ai-search] PP UUID scanner: rejected ${rejectedCount} products (all invalid)`)
+          console.log(
+            `[ai-search] PP UUID scanner: rejected ${rejectedCount} products (all invalid)`,
+          )
           // Se rejeitou tudo, garante que o array fique vazio
           aiReferencedProducts = []
           referencedInternalProducts = []

@@ -474,6 +474,27 @@ Deno.serve(async (req: Request) => {
         return term.length > 0
       })
 
+    // Expansão de termos de busca para alcançar produtos com nomenclatura diferente
+    var expandedTerms = []
+    for (var et = 0; et < searchEntities.length; et++) {
+      var term = searchEntities[et]
+      expandedTerms.push(term)
+      // Mapeamento de termos comuns para variações de cadastro
+      if (term === 'cartao' || term === 'cartão') {
+        expandedTerms.push('cfexpress', 'memory', 'card', 'tough', 'axs', 's66', 'cfast', 'vpg')
+      }
+      if (term === 'memoria' || term === 'memória') {
+        expandedTerms.push('cfexpress', 'memory', 'card', 'tough', 'axs', 's66', 'storage')
+      }
+      if (term === 'armazenamento' || term === 'storage') {
+        expandedTerms.push('cfexpress', 'card', 'memory', 'ssd')
+      }
+    }
+    searchEntities = expandedTerms.filter(function (t, i, self) {
+      return self.indexOf(t) === i // deduplica
+    })
+    console.log('[ai-search] expanded searchEntities:', JSON.stringify(searchEntities))
+
     // Product Search (Stage C preparation) with deterministic entity fallback
     let level1Products: any[] = []
 
@@ -750,6 +771,25 @@ Deno.serve(async (req: Request) => {
         else if (isTripodQuery)
           categoryKeywords = ['tripé', 'tripod', 'fluid head', 'monopod', 'quick release', 'cabeça']
 
+        // Palavras-chave de EXCLUSÃO para cada categoria (produtos que matcham mas NÃO são o que procuramos)
+        var exclusionKeywords = []
+        if (isMemoryQuery) {
+          exclusionKeywords = [
+            'media module',
+            'mezzanine',
+            'decklink',
+            'capture card',
+            'grip',
+            'handle',
+            'battery',
+            'lens cap',
+            'top handle',
+            'grips',
+            'remote control',
+            'arm',
+          ]
+        }
+
         var filterTerms = ppQuery.split(/\s+/).filter(function (t) {
           return t.length > 2
         })
@@ -789,8 +829,25 @@ Deno.serve(async (req: Request) => {
             }
           }
 
-          // SEMPRE inclui produtos mencionados no texto da IA via [PRODUCT:uuid]
-          // (esses já foram adicionados pelo UUID scanner)
+          // FILTRO NEGATIVO: mesmo se relevante, exclui se o produto for de uma categoria errada
+          if (isRelevant && exclusionKeywords.length > 0) {
+            for (var ek = 0; ek < exclusionKeywords.length; ek++) {
+              if (productKeywords.indexOf(exclusionKeywords[ek]) >= 0) {
+                isRelevant = false
+                console.log(
+                  '[ai-search] PP GENERIC: EXCLUIDO (exclusion) ' +
+                    productId +
+                    ' (' +
+                    productName.substring(0, 40) +
+                    ')',
+                )
+                break
+              }
+            }
+          }
+
+          // TAMBÉM inclui produtos mencionados no texto da IA via [PRODUCT:uuid]
+          // (esses já foram adicionados pelo UUID scanner, então não precisamos readicionar)
 
           if (isRelevant) {
             if (referencedInternalProducts.indexOf(productId) < 0)

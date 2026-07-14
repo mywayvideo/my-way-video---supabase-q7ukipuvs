@@ -298,50 +298,427 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // Verifica se a pergunta técnica é sobre acessórios/produtos do catálogo
+    // Verifica se a pergunta técnica é sobre produtos/acessórios do catálogo
     function isAccessoryQuery(query: string): boolean {
       var q = query
         .toLowerCase()
         .normalize('NFD')
         .replace(/[\u0300-\u036f]/g, '')
-      var accessoryTerms = [
+
+      // === STORAGE / MÍDIA / MEMÓRIA ===
+      var storageTerms = [
+        'memoria',
+        'memory',
         'memoria',
         'cartao',
+        'card',
+        'tarjeta',
         'armazenamento',
-        'bateria',
-        'battery',
-        'lente',
-        'lens',
-        'microfone',
-        'microphone',
-        'tripé',
-        'tripod',
-        'fonte',
-        'carregador',
-        'charger',
-        'filtro',
-        'flash',
-        'cabo',
-        'cable',
-        'suporte',
-        'mount',
-        'adaptador',
+        'storage',
+        'almacenamiento',
         'cfexpress',
         'sd',
+        'sdxc',
+        'cfast',
+        'axs',
+        's66',
+        'tough',
+        'vpg',
         'ssd',
+        'nvme',
+        'flash',
+        'reader',
+        'leitor',
+        'lector',
         'disco',
+        'disk',
         'hd',
+      ]
+      // === CAMERAS / CÂMERAS (linhas) ===
+      var cameraTerms = [
+        'blackmagic',
+        'ursa',
+        'pocket',
+        'cinema camera',
+        'camara cinema',
+        'davinci',
+        'resolve',
+        'hyperdeck',
+        'videohub',
+        'decklink',
+        'ultrastudio',
+        'teranex',
+        'smartview',
+        'smartscope',
+        'web presenter',
+        'video assist',
+        'atem',
+        'studio camera',
+        'micro converter',
+        'mini converter',
+        'aja',
+        'kona',
+        'io',
+        'ki pro',
+        'helo',
+        'bridge live',
+        'fido',
+        'datavideo',
+        'nvs',
+        'tbc',
+        'ptc',
+        'sony',
+        'venice',
+        'veneza',
+        'burano',
+        'pxw',
+        'fs',
+        'fx',
+        'pvm',
+        'lmd',
+        'bvm',
+        'alpha',
+        'a7',
+        'a1',
+        'canon',
+        'cinema eos',
+        'eos r',
+        'eos',
+        'c70',
+        'c300',
+        'c400',
+        'c500',
+        'r5',
+        'r3',
+        'dulens',
+        'mini prime',
+        'apo',
+        'camera',
+        'camara',
+        'filmadora',
+        'camcorder',
+      ]
+      // === LENSES / LENTES ===
+      var lensTerms = [
+        'lente',
+        'lens',
+        'lente',
+        'objetiva',
+        'fisheye',
+        'olho de peixe',
+        'ojo de pez',
+        'grande angular',
+        'wide angle',
+        'gran angular',
+        'teleobjetiva',
+        'telephoto',
+        'tele',
+        'teleobjetivo',
+        'zoom',
+        'prime',
+        'fija',
+        'anamorfico',
+        'anamorphic',
+        'anamorfico',
+        'macro',
+        'macro',
+        'e mount',
+        'e-mount',
+        'ef mount',
+        'rf mount',
+        'pl mount',
+        'sel',
+        'fe',
+        'cn-e',
+        'g master',
+        'conversor de lente',
+        'lens converter',
+        'adaptador de lente',
+      ]
+      // === AUDIO / ÁUDIO ===
+      var audioTerms = [
+        'microfone',
+        'microphone',
+        'microfono',
+        'shotgun',
+        'lapela',
+        'lavalier',
+        'boom',
+        'sennheiser',
+        'ew',
+        'evolution',
+        'g4',
+        'g3',
+        'mke',
+        'mkh',
+        'sk',
+        'sr',
+        'ek',
+        'xsw',
+        'wireless',
+        'inalambrico',
+        'sem fio',
+        'receiver',
+        'receptor',
+        'transmitter',
+        'transmissor',
+        'audio',
+        'audio',
+        'som',
+        'sound',
+        'sonido',
+        'headset',
+        'headphone',
+        'fone',
+        'auricular',
+        'mixer',
+        'mesa de som',
+        'console',
+      ]
+      // === POWER / ALIMENTAÇÃO ===
+      var powerTerms = [
+        'bateria',
+        'battery',
+        'bateria',
+        'fonte',
+        'power supply',
+        'fuente',
+        'carregador',
+        'charger',
+        'cargador',
+        'power',
+        'alimentacao',
+        'alimentacion',
+        'adaptador',
+        'adapter',
+        'power bank',
+        'powerbank',
+        'vmount',
+        'v-mount',
+        'v mount',
+        'gold mount',
+        'anton bauer',
+      ]
+      // === CABLES / CABOS ===
+      var cableTerms = [
+        'cabo',
+        'cable',
+        'cable',
+        'hdmi',
+        'sdi',
+        'bnc',
+        'xlr',
+        'usb',
+        'thunderbolt',
+        'powercon',
+        'ethernet',
+        'sfp',
+        'adaptador',
+        'adapter',
+        'adaptador',
+      ]
+      // === SUPPORT / TRIPÉ / SUPORTE ===
+      var supportTerms = [
+        'tripe',
+        'tripod',
+        'tripode',
+        'monope',
+        'monopod',
+        'monopode',
+        'cabeca',
+        'head',
+        'cabeza',
+        'fluid head',
+        'quick release',
+        'placa rapida',
+        'slider',
+        'dolly',
+        'carrinho',
+        'shoulder',
+        'ombro',
+        'rig',
+        'cage',
+        'gaiola',
+        'suporte',
+        'mount',
+        'soporte',
+        'alca',
+        'strap',
+        'correa',
+        'grip',
+        'handle',
+        'asa',
+        'case',
+        'maleta',
+        'bag',
+        'bolsa',
+        'mochila',
+        'backpack',
+      ]
+      // === MONITOR / DISPLAY ===
+      var displayTerms = [
+        'monitor',
+        'monitor',
+        'display',
+        'tela',
+        'pantalla',
+        'screen',
+        'visor',
+        'viewfinder',
+        'evf',
+        'smartview',
+        'smartscope',
+        'pvm',
+        'lmd',
+        'bvm',
+        'video assist',
+      ]
+      // === FILTERS / FILTROS ===
+      var filterTerms = [
+        'filtro',
+        'filter',
+        'filtro',
+        'nd',
+        'ir',
+        'polarizador',
+        'polarizer',
+        'difusao',
+        'diffusion',
+        'difusion',
+        'variável',
+        'variable',
+        'variable',
+        'black pro mist',
+        'promist',
+        'mist',
+      ]
+      // === VIDEO PROCESSING / CONVERSÃO ===
+      var processingTerms = [
+        'switcher',
+        'conversor',
+        'converter',
+        'convertidor',
+        'scaler',
+        'escalador',
+        'distribution',
+        'distribuidor',
+        'distribucion',
+        'amplifier',
+        'amplificador',
+        'da',
+        'multiviewer',
+        'multi viewer',
+        'router',
+        'matrix',
+        'capture',
+        'captura',
+        'playback',
+        'production',
+        'producao',
+      ]
+      // === RECORDING / GRAVAÇÃO ===
+      var recordingTerms = [
+        'recorder',
+        'gravador',
+        'grabador',
+        'deck',
+        'hyperdeck',
+        'ki pro',
+        'capture card',
+        'placa de captura',
+      ]
+      // === LIGHTING / ILUMINAÇÃO ===
+      var lightingTerms = [
+        'luz',
+        'light',
+        'luz',
+        'iluminacao',
+        'lighting',
+        'iluminacion',
+        'led',
+        'softbox',
+        'lanterna',
+        'flash',
+        'strobo',
+      ]
+      // === REMOTE / CONTROLE ===
+      var remoteTerms = [
+        'remote',
+        'controle',
+        'control',
+        'controlador',
+        'panel',
+        'painel',
+        'controlador',
+        'lanc',
+        'trigger',
+      ]
+      // === GENERAL ACCESSORIES / ACESSÓRIOS GERAIS ===
+      var generalTerms = [
+        'acessorio',
+        'accessory',
+        'accesorio',
+        'kit',
+        'bundle',
+        'pacote',
+        'fita',
+        'tape',
+        'cinta',
+        'cartridge',
+        'cartucho',
+        'lto',
+        'archive',
+      ]
+      // === COMPATIBILITY / COMPATIBILIDADE ===
+      var compatibilityTerms = [
         'compativel',
         'compatible',
+        'compatible',
+        'compatibilidad',
         'indicado',
+        'recomendado',
         'recommended',
-        'qual',
-        'qual a',
-        'qual o',
-        'qual e',
+        'recomendado',
+        'funciona',
+        'works with',
+        'funciona con',
+        'diferenca',
+        'difference',
+        'diferencia',
+        'vs',
+        'versus',
+        'ou',
+        'comprar',
+        'buy',
+        'comprar',
+        'preco',
+        'price',
+        'precio',
+        'valor',
+        'quanto custa',
+        'cuanto cuesta',
       ]
-      for (var i = 0; i < accessoryTerms.length; i++) {
-        if (q.indexOf(accessoryTerms[i]) >= 0) return true
+
+      var allTerms = ([] as string[]).concat(
+        storageTerms,
+        cameraTerms,
+        lensTerms,
+        audioTerms,
+        powerTerms,
+        cableTerms,
+        supportTerms,
+        displayTerms,
+        filterTerms,
+        processingTerms,
+        recordingTerms,
+        lightingTerms,
+        remoteTerms,
+        generalTerms,
+        compatibilityTerms,
+      )
+
+      for (var i = 0; i < allTerms.length; i++) {
+        if (q.indexOf(allTerms[i]) >= 0) return true
       }
       return false
     }
@@ -627,6 +1004,63 @@ Deno.serve(async (req: Request) => {
       )
     }
     level1Products = level1Products.filter((p: any) => p && p.id && (p.name || p.title || p.sku))
+
+    // SCORING: priorizar produtos que matcham termos específicos da categoria
+    // Termos genéricos (peso baixo): digital, camera, cinema, kit, with, lens
+    // Termos específicos de memória (peso alto): axs, tough, cfexpress, sd, card, memory, flash, s66
+    var genericTerms = [
+      'digital',
+      'camera',
+      'cinema',
+      'kit',
+      'with',
+      'lens',
+      'sony',
+      'fx6',
+      '24-105mm',
+    ]
+    var memoryTerms = [
+      'axs',
+      'tough',
+      'cfexpress',
+      'memory card',
+      'flash',
+      's66',
+      'vpg',
+      'sd',
+      'uhs',
+      'cfast',
+    ]
+
+    for (var si = 0; si < level1Products.length; si++) {
+      var prod = level1Products[si]
+      var prodName = String(prod.name || prod.title || '').toLowerCase()
+      var score = 0
+
+      // Termos genéricos: +1 cada
+      for (var gt = 0; gt < genericTerms.length; gt++) {
+        if (prodName.indexOf(genericTerms[gt]) >= 0) score += 1
+      }
+
+      // Termos de memória: +5 cada (prioridade muito maior)
+      for (var mt = 0; mt < memoryTerms.length; mt++) {
+        if (prodName.indexOf(memoryTerms[mt]) >= 0) score += 5
+      }
+
+      // Guarda score para ordenação
+      prod._relevanceScore = score
+    }
+
+    // Ordena por score decrescente e mantém os 10 primeiros
+    level1Products.sort(function (a, b) {
+      return (b._relevanceScore || 0) - (a._relevanceScore || 0)
+    })
+
+    // Remove campo temporário de score
+    for (var si2 = 0; si2 < level1Products.length; si2++) {
+      delete level1Products[si2]._relevanceScore
+    }
+
     console.log(
       `[ai-search] searchEntities=${JSON.stringify(searchEntities)} validProducts=${level1Products.length}`,
     )

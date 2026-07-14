@@ -298,11 +298,59 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // Technical Intent Detection — skip search cascade if query is technical and product context exists
-    const skipSearch =
-      !!lastReferencedProductId && !!contextualProductData && isTechnicalQuery(query)
+    // Verifica se a pergunta técnica é sobre acessórios/produtos do catálogo
+    function isAccessoryQuery(query: string): boolean {
+      var q = query
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+      var accessoryTerms = [
+        'memoria',
+        'cartao',
+        'armazenamento',
+        'bateria',
+        'battery',
+        'lente',
+        'lens',
+        'microfone',
+        'microphone',
+        'tripé',
+        'tripod',
+        'fonte',
+        'carregador',
+        'charger',
+        'filtro',
+        'flash',
+        'cabo',
+        'cable',
+        'suporte',
+        'mount',
+        'adaptador',
+        'cfexpress',
+        'sd',
+        'ssd',
+        'disco',
+        'hd',
+        'compativel',
+        'compatible',
+        'indicado',
+        'recommended',
+        'qual',
+        'qual a',
+        'qual o',
+        'qual e',
+      ]
+      for (var i = 0; i < accessoryTerms.length; i++) {
+        if (q.indexOf(accessoryTerms[i]) >= 0) return true
+      }
+      return false
+    }
+
+    // Technical Intent Detection — skip search cascade only for non-product technical queries
+    const isNonProductQuery = isTechnicalQuery(query) && !isAccessoryQuery(query)
+    const skipSearch = !!lastReferencedProductId && !!contextualProductData && isNonProductQuery
     if (skipSearch) {
-      console.log(`[ai-search] Skipping cascade for technical question: "${query}"`)
+      console.log(`[ai-search] Skipping cascade for non-product technical question: "${query}"`)
     }
 
     // Stage A: Stop-words removal (skipped if technical intent detected)

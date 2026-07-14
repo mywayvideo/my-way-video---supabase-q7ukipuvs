@@ -782,63 +782,7 @@ Deno.serve(async (req: Request) => {
             console.log(`[ai-search] PP compare mode: extracted target term="${targetProduct}"`)
           }
         }
-        // === ACCESSORY MODE: extrai tipo de acessório e monta searchTerm ===
-        if (ppIntent === 'ACCESSORY') {
-          // Acessórios que DEVEM incluir a marca do produto atual (proprietários)
-          const brandSpecific: { regex: RegExp; searchTerm: string }[] = [
-            { regex: /bateria/i, searchTerm: 'Sony Battery' },
-            { regex: /carregador|fonte|power/i, searchTerm: 'Sony Charger' },
-            { regex: /grip|alça|handle/i, searchTerm: 'Sony Grip' },
-            { regex: /controlador|controller/i, searchTerm: 'Sony Controller' },
-          ]
 
-          // Acessórios que NÃO devem incluir a marca (universais)
-          // Produtos no banco NÃO têm o nome da câmera/marca no nome
-          const universal: { regex: RegExp; searchTerm: string }[] = [
-            { regex: /trip[ée]/i, searchTerm: 'Tripod' },
-            { regex: /lente|len[st]/i, searchTerm: 'E-mount Lens' },
-            { regex: /microfone|mic/i, searchTerm: 'Microphone' },
-            { regex: /monitor/i, searchTerm: 'Monitor' },
-            { regex: /cabo/i, searchTerm: 'Cable' },
-            { regex: /case|mala|estojo/i, searchTerm: 'Case' },
-            { regex: /luzeira|luz|iluminação/i, searchTerm: 'Light' },
-            { regex: /filtro/i, searchTerm: 'Filter' },
-            { regex: /suporte|base|placa|quick release/i, searchTerm: 'Support' },
-            { regex: /cartão|cfexpress|sd/i, searchTerm: 'CFexpress Card' },
-            { regex: /estabilizador|gimbal/i, searchTerm: 'Gimbal' },
-            { regex: /mochila|bag/i, searchTerm: 'Bag' },
-            { regex: /dolly/i, searchTerm: 'Dolly' },
-          ]
-
-          // Tenta primeiro nos acessórios universais (mais comum)
-          let matched = false
-          for (const entry of universal) {
-            if (entry.regex.test(query)) {
-              searchQuery = entry.searchTerm
-              searchEntities = [searchQuery]
-              matched = true
-              console.log(`[ai-search] PP ACCESSORY (universal): "${entry.searchTerm}"`)
-              break
-            }
-          }
-
-          // Se não encontrou, tenta nos proprietários
-          if (!matched) {
-            for (const entry of brandSpecific) {
-              if (entry.regex.test(query)) {
-                searchQuery = entry.searchTerm
-                searchEntities = [searchQuery]
-                matched = true
-                console.log(`[ai-search] PP ACCESSORY (brand-specific): "${entry.searchTerm}"`)
-                break
-              }
-            }
-          }
-
-          if (!matched) {
-            console.log(`[ai-search] PP ACCESSORY: no accessory pattern matched query="${query}"`)
-          }
-        }
         // === RECOMMENDATION / COMPATIBILITY MODE ===
         // Extrai o nome do produto mencionado após "para" ou "com"
         // Ex: "esse tripé é adequado para a sony fx3?" → extrai "sony fx3"

@@ -688,98 +688,177 @@ Deno.serve(async (req: Request) => {
         )
       }
 
-      // [ACCESSORY / GENERIC]: adiciona level1Context DIRETAMENTE (sem filtro)
+      // [ACCESSORY / GENERIC]: adiciona level1Context com filtro de relevância
       if (
         (ppIntent === 'ACCESSORY' || ppIntent === 'GENERIC') &&
         lastReferencedProductId &&
         level1Context.length > 0
       ) {
-        for (const product of level1Context) {
-          const productId = product?.id
-          if (
-            productId &&
-            productId !== lastReferencedProductId &&
-            !referencedInternalProducts.includes(productId)
-          ) {
-            referencedInternalProducts.push(productId)
-            if (!aiReferencedProducts.includes(productId)) aiReferencedProducts.push(productId)
+        // Extrai termos relevantes da query normalizada
+        var ppQuery = searchQuery
+          .toLowerCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .replace(/[?.,;:!]/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+
+        // Detecta a categoria da consulta por palavras-chave
+        var isMemoryQuery =
+          /memoria|cartao|armazenamento|cfexpress|sd|uhs|cfast|ssd|storage|memory|type.?[ab]/i.test(
+            ppQuery,
+          )
+        var isLensQuery = /lente|lens|fisheye|grande.?angular|tele.?[oó]tica|zoom|prime/.test(
+          ppQuery,
+        )
+        var isAudioQuery = /microfone|microphone|audio|som|shotgun|lapela/.test(ppQuery)
+        var isBatteryQuery = /bateria|battery|fonte|carregador|power|supply/.test(ppQuery)
+        var isTripodQuery = /trip[ée]|cabeça|fluid.?head|monop[é]|quick.?release/.test(ppQuery)
+
+        // Define palavras-chave da categoria para filtrar produtos
+        var categoryKeywords = []
+        if (isMemoryQuery)
+          categoryKeywords = [
+            'cfexpress',
+            'memory card',
+            'tough',
+            'sd',
+            'uhs',
+            'cfast',
+            'cartao',
+            'memoria',
+            'ssd',
+            'card reader',
+            'flash',
+            'type a',
+            'type b',
+            'axs',
+          ]
+        else if (isLensQuery)
+          categoryKeywords = ['lente', 'lens', 'fisheye', 'prime', 'zoom', 't2.', 't2,', 't4']
+        else if (isAudioQuery)
+          categoryKeywords = ['microfone', 'microphone', 'shotgun', 'lapela', 'audio', 'boom']
+        else if (isBatteryQuery)
+          categoryKeywords = [
+            'bateria',
+            'battery',
+            'power supply',
+            'carregador',
+            'charger',
+            'power',
+          ]
+        else if (isTripodQuery)
+          categoryKeywords = ['tripé', 'tripod', 'fluid head', 'monopod', 'quick release', 'cabeça']
+
+        var filterTerms = ppQuery.split(/\s+/).filter(function (t) {
+          return t.length > 2
+        })
+        var productsAdded = 0
+
+        for (var li = 0; li < level1Context.length; li++) {
+          var product = level1Context[li]
+          var productId = product?.id
+          if (!productId || productId === lastReferencedProductId) continue
+
+          var productName = String(product.name || product.title || '')
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+          var productType = String(
+            product.type || product.category || product.product_type || '',
+          ).toLowerCase()
+          var productKeywords = productName + ' ' + productType
+
+          var isRelevant = false
+
+          // Se detectou uma categoria específica, usa os categoryKeywords
+          if (categoryKeywords.length > 0) {
+            for (var ck = 0; ck < categoryKeywords.length; ck++) {
+              if (productKeywords.indexOf(categoryKeywords[ck]) >= 0) {
+                isRelevant = true
+                break
+              }
+            }
+          } else {
+            // Fallback: match por termos da query
+            for (var ft = 0; ft < filterTerms.length; ft++) {
+              if (productKeywords.indexOf(filterTerms[ft]) >= 0) {
+                isRelevant = true
+                break
+              }
+            }
+          }
+
+          // SEMPRE inclui produtos mencionados no texto da IA via [PRODUCT:uuid]
+          // (esses já foram adicionados pelo UUID scanner)
+
+          if (isRelevant) {
+            if (referencedInternalProducts.indexOf(productId) < 0)
+              referencedInternalProducts.push(productId)
+            if (aiReferencedProducts.indexOf(productId) < 0) aiReferencedProducts.push(productId)
+            productsAdded++
+            console.log(
+              '[ai-search] PP GENERIC: ADICIONADO ' +
+                productId +
+                ' (' +
+                productName.substring(0, 40) +
+                ')',
+            )
+          } else {
+            console.log(
+              '[ai-search] PP GENERIC: IGNORADO ' +
+                productId +
+                ' (' +
+                productName.substring(0, 40) +
+                ')',
+            )
           }
         }
+
         console.log(
-          `[ai-search] PP ${ppIntent}: added ${level1Context.length} products to cards (no filter)`,
+          '[ai-search] PP GENERIC: ' +
+            productsAdded +
+            ' produtos adicionados de ' +
+            level1Context.length,
         )
       }
-      // === PÓS-PROCESSAMENTO: força a imagem correta do produto atual ===
+
+      // === PÓS-PROCESSAMENTO: garante a imagem do produto atual ===
       if (aiResult?.content && contextualProductData?.image_url) {
-        var ppName = String(contextualProductData.name || '')
         var ppUrl = String(contextualProductData.image_url)
-        var ppMarker = '### Análise por Produto:'
-        var ppCorrectImg = '![' + ppName + '](' + ppUrl + ')'
 
-        // SE a imagem correta já existe no conteúdo, nada a fazer
-        if (aiResult.content.indexOf(ppUrl) >= 0) {
-          console.log('[ai-search] PP image: correct URL already present')
-        } else {
-          console.log('[ai-search] PP image: correct URL NOT found. Injecting...')
+        // Só adiciona se a imagem do produto atual NÃO estiver presente
+        if (aiResult.content.indexOf(ppUrl) < 0) {
+          var ppMarker = '### Análise por Produto:'
+          var ppImg = '![' + String(contextualProductData.name || '') + '](' + ppUrl + ')'
+          var ppIndex = aiResult.content.indexOf(ppMarker)
 
-          // 1. Remove TODAS as tags <img> e TODAS as imagens markdown que não sejam a correta
-          var ppLines = aiResult.content.split('\n')
-          var ppFiltered = []
-          for (var pi = 0; pi < ppLines.length; pi++) {
-            var line = ppLines[pi]
-            // Remove linha que é tag <img
-            if (
-              (line.indexOf('<img') >= 0 && line.indexOf('.jpg') >= 0) ||
-              line.indexOf('.png') >= 0
-            ) {
-              continue
-            }
-            // Remove linha que é imagem markdown com .jpg ou .png
-            if (
-              line.indexOf('![') === 0 &&
-              (line.indexOf('.jpg') >= 0 || line.indexOf('.png') >= 0)
-            ) {
-              continue
-            }
-            ppFiltered.push(line)
-          }
-          var ppNewContent = ppFiltered.join('\n')
-
-          // 2. Insere a imagem correta DEPOIS do marcador "Análise por Produto:"
-          var ppIndex = ppNewContent.indexOf(ppMarker)
           if (ppIndex >= 0) {
-            var ppAfterNewline = ppNewContent.indexOf('\n', ppIndex)
-            if (ppAfterNewline >= 0) {
-              ppNewContent =
-                ppNewContent.substring(0, ppAfterNewline + 1) +
+            var ppNewline = aiResult.content.indexOf('\n', ppIndex)
+            if (ppNewline >= 0) {
+              aiResult.content =
+                aiResult.content.substring(0, ppNewline + 1) +
                 '\n' +
-                ppCorrectImg +
+                ppImg +
                 '\n' +
-                ppNewContent.substring(ppAfterNewline + 1)
-            } else {
-              ppNewContent = ppNewContent + '\n\n' + ppCorrectImg
+                aiResult.content.substring(ppNewline + 1)
             }
-            console.log('[ai-search] PP image: inserted after marker "' + ppMarker + '"')
-          } else {
-            // Se não achou o marcador, insere no começo do conteúdo
-            ppNewContent = ppCorrectImg + '\n\n' + ppNewContent
-            console.log('[ai-search] PP image: marker not found, inserted at beginning')
           }
-
-          aiResult.content = ppNewContent
+          console.log('[ai-search] PP image: injected main product image')
+        } else {
+          console.log('[ai-search] PP image: main product image already present')
         }
       }
+
       // === SCANNER DE UUID NO TEXTO (reforço para search_products) ===
       if (aiResult.content && typeof aiResult.content === 'string') {
         var uuidPattern = /\[PRODUCT:\s*([a-f0-9-]{36})\]/gi
         var uuidMatch
         var uuidFound = 0
 
-        // Converte o texto atual para buscar UUIDs
         while ((uuidMatch = uuidPattern.exec(aiResult.content)) !== null) {
           var foundUuid = uuidMatch[1].toLowerCase()
 
-          // Só aceita se estiver no level1Context OU for o lastReferencedProductId
           var isValid = false
           if (foundUuid === lastReferencedProductId) isValid = true
           if (level1Context && level1Context.length > 0) {
@@ -798,7 +877,6 @@ Deno.serve(async (req: Request) => {
             if (aiReferencedProducts.indexOf(foundUuid) < 0) aiReferencedProducts.push(foundUuid)
             console.log('[ai-search] PP UUID scanner: ACCEPTED ' + foundUuid)
           } else {
-            // Remove o [PRODUCT:uuid] do texto para não gerar card inválido
             aiResult.content = aiResult.content.replace(uuidMatch[0], '')
             console.log('[ai-search] PP UUID scanner: REJECTED ' + foundUuid + ' (not in context)')
           }

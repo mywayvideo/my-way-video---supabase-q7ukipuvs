@@ -474,58 +474,69 @@ Deno.serve(async (req: Request) => {
         return term.length > 0
       })
 
-      // Expansão de termos de busca para alcançar produtos com nomenclatura diferente
-      var expandedTerms = []
-      for (var et = 0; et &lt; searchEntities.length; et++) {
-        var term = searchEntities[et]
-        
-        // 1. Se o termo for uma frase longa, extrai palavras-chave individuais
-        if (term.length > 30) {
-          var lowerTerm = term.toLowerCase()
-          // Palavras relevantes para extrair da frase
-          var extractWords = [
-            'memoria', 'cartao', 'armazenamento', 'compativel', 'indicado',
-            'camera', 'filmadora', 'lente', 'lens', 'microfone', 'microphone',
-            'bateria', 'battery', 'tripé', 'tripod', 'flash', 'ssd'
-          ]
-          for (var ew = 0; ew &lt; extractWords.length; ew++) {
-            if (lowerTerm.indexOf(extractWords[ew]) >= 0) {
-              if (expandedTerms.indexOf(extractWords[ew]) &lt; 0)
-                expandedTerms.push(extractWords[ew])
-            }
+    // Expansão de termos de busca para alcançar produtos com nomenclatura diferente
+    var expandedTerms = []
+    for (var etx = 0; etx < searchEntities.length; etx++) {
+      var term = searchEntities[etx]
+
+      // 1. Se o termo for uma frase longa, extrai palavras-chave individuais
+      if (term.length > 30) {
+        var lowerTerm = term.toLowerCase()
+        // Palavras relevantes para extrair da frase
+        var memoryWords = ['memoria', 'cartao', 'armazenamento', 'compativel', 'indicado']
+        for (var mw = 0; mw < memoryWords.length; mw++) {
+          if (lowerTerm.indexOf(memoryWords[mw]) >= 0) {
+            if (expandedTerms.indexOf(memoryWords[mw]) < 0) expandedTerms.push(memoryWords[mw])
           }
-          
-          // 2. Remove stop words para gerar termos menores
-          var stopWords = ['qual', 'a', 'o', 'e', 'de', 'da', 'do', 'para', 'com', 'que', 'essa', 'esse', 'seu', 'sua', 'meu', 'minha', 'tem', 'uma', 'um', 'no', 'na', 'em']
-          var words = lowerTerm.split(/\s+/)
-          for (var wi = 0; wi &lt; words.length; wi++) {
-            var w = words[wi]
-            if (w.length > 2 && stopWords.indexOf(w) &lt; 0) {
-              if (expandedTerms.indexOf(w) &lt; 0)
-                expandedTerms.push(w)
-            }
+        }
+
+        // 2. Remove stop words para gerar termos menores
+        var stopWords = [
+          'qual',
+          'a',
+          'o',
+          'e',
+          'de',
+          'da',
+          'do',
+          'para',
+          'com',
+          'que',
+          'essa',
+          'esse',
+          'seu',
+          'sua',
+          'meu',
+          'minha',
+          'tem',
+          'uma',
+          'um',
+          'no',
+          'na',
+          'em',
+        ]
+        var words = lowerTerm.split(/\s+/)
+        for (var wj = 0; wj < words.length; wj++) {
+          var w = words[wj]
+          if (w.length > 2 && stopWords.indexOf(w) < 0) {
+            if (expandedTerms.indexOf(w) < 0) expandedTerms.push(w)
           }
-        } else {
-          // Termo curto: mapeamento normal de termos para variações
-          expandedTerms.push(term)
-          if (term === 'cartao' || term === 'cartão' || term === 'memoria' || term === 'memória') {
-            var memoryTerms = ['cfexpress', 'memory', 'card', 'tough', 'axs', 's66', 'cfast', 'vpg', 'sd']
-            for (var mt = 0; mt &lt; memoryTerms.length; mt++) {
-              if (expandedTerms.indexOf(memoryTerms[mt]) &lt; 0)
-                expandedTerms.push(memoryTerms[mt])
-            }
-          }
-          if (term === 'armazenamento' || term === 'storage') {
-            if (expandedTerms.indexOf('cfexpress') &lt; 0) expandedTerms.push('cfexpress')
-            if (expandedTerms.indexOf('card') &lt; 0) expandedTerms.push('card')
-            if (expandedTerms.indexOf('memory') &lt; 0) expandedTerms.push('memory')
+        }
+      } else {
+        // Termo curto: mapeamento normal de termos para variações
+        expandedTerms.push(term)
+        if (term === 'cartao' || term === 'cartão' || term === 'memoria' || term === 'memória') {
+          var memoryAdd = ['cfexpress', 'card', 'memory', 'tough', 'axs', 's66', 'vpg']
+          for (var ma = 0; ma < memoryAdd.length; ma++) {
+            if (expandedTerms.indexOf(memoryAdd[ma]) < 0) expandedTerms.push(memoryAdd[ma])
           }
         }
       }
-      searchEntities = expandedTerms.filter(function(t, i, self) {
-        return self.indexOf(t) === i && t.length > 0
-      })
-      console.log('[ai-search] expanded searchEntities:', JSON.stringify(searchEntities))
+    }
+    searchEntities = expandedTerms.filter(function (t, idx, self) {
+      return self.indexOf(t) === idx && t.length > 0
+    })
+    console.log('[ai-search] expanded searchEntities:', JSON.stringify(searchEntities))
 
     // Product Search (Stage C preparation) with deterministic entity fallback
     let level1Products: any[] = []

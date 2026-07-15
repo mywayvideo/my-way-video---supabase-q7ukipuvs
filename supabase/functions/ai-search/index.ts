@@ -1559,7 +1559,8 @@ Deno.serve(async (req: Request) => {
           }
         }
       }
-      if (                              // ← abre if
+      if (
+        // ← abre if
         !lastReferencedProductId &&
         referencedInternalProducts.length === 0 &&
         level1Context.length > 0
@@ -1567,13 +1568,11 @@ Deno.serve(async (req: Request) => {
         for (var fi = 0; fi < level1Context.length; fi++) {
           var prodId = level1Context[fi]?.id
           if (prodId) {
-            console.log(
-              '[ai-search] HP fallback: ...',
-            )
-          }                               // ← fecha if(prodId)
-        }                                 // ← fecha for
-                                            // ← FALTA fechar o if principal!
-                                            
+            console.log('[ai-search] HP fallback: ...')
+          } // ← fecha if(prodId)
+        } // ← fecha for
+      } // ← FALTA fechar o if principal!
+
       // [RECOMMENDATION]: só adiciona aos cards o produto que corresponde ao termo buscado
       if (
         ppIntent === 'RECOMMENDATION' &&

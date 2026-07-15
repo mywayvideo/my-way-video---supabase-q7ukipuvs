@@ -1530,7 +1530,7 @@ Deno.serve(async (req: Request) => {
       // ao termo pesquisado pelo usuário (ex: "Sony FX3A", "Sony FX6")
       // === PP CARDS: insere produtos nos cards conforme a intenção ===
 
-      // [COMPARE]: filtro restritivo (.every()) — só produtos com TODOS os termos
+      // [COMPARE]: filtro restritivo — só produtos que contêm TODOS os termos da busca
       if (
         ppIntent === 'COMPARE' &&
         lastReferencedProductId &&
@@ -1545,17 +1545,38 @@ Deno.serve(async (req: Request) => {
         console.log(
           `[ai-search] PP COMPARE: level1Context ${level1Context.length} → filtered ${filteredContext.length}`,
         )
+        // COMPARE não adiciona produtos automaticamente — só log
         for (const product of filteredContext) {
           const productId = product.id
-          if (
-            productId !== lastReferencedProductId &&
-            !referencedInternalProducts.includes(productId)
-          ) {
-            referencedInternalProducts.push(productId)
-            if (!aiReferencedProducts.includes(productId)) aiReferencedProducts.push(productId)
+          if (productId !== lastReferencedProductId) {
+            console.log(
+              '[ai-search] PP RECOMMENDATION: RELEVANTE (aguardando menção da IA) ' +
+                productId +
+                ' (' +
+                String(product.name || '').substring(0, 40) +
+                ')',
+            )
           }
         }
       }
+
+      if (
+        !lastReferencedProductId &&
+        referencedInternalProducts.length === 0 &&
+        level1Context.length > 0
+      ) {
+        for (var fi = 0; fi < level1Context.length; fi++) {
+          var prodId = level1Context[fi]?.id
+          if (prodId) {
+            console.log(
+              '[ai-search] HP fallback: RELEVANTE (aguardando menção da IA) ' +
+                prodId +
+                ' (' +
+                String(level1Context[fi]?.name || '').substring(0, 40) +
+                ')',
+            )
+          }
+        }
 
       // [RECOMMENDATION]: só adiciona aos cards o produto que corresponde ao termo buscado
       if (

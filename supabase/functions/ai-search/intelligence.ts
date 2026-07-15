@@ -269,6 +269,17 @@ function parseAIResponse(content: string, context: GenerateContext): any {
   while ((match = idRegex.exec(content)) !== null) {
     productIds.push(match[1])
   }
+  // === ADICIONAR ESTE BLOCO ===
+  // Garante que TODO produto enviado no contexto vire card,
+  // independente do LLM usar [PRODUCT:uuid] no texto
+  if (context.products && context.products.length > 0) {
+    for (const p of context.products) {
+      if (p.id && productIds.indexOf(p.id) < 0) {
+        productIds.push(p.id)
+      }
+    }
+  }
+  // === FIM DO BLOCO ===
   const cleanedContent = content.replace(idRegex, '').trim()
 
   const hasProductMatch = productIds.length > 0

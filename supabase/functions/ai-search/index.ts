@@ -1529,8 +1529,11 @@ Deno.serve(async (req: Request) => {
       // Filtra o level1Context para manter APENAS produtos que correspondem
       // ao termo pesquisado pelo usuário (ex: "Sony FX3A", "Sony FX6")
       // === PP CARDS: insere produtos nos cards conforme a intenção ===
+      // Regra geral: NENHUM bloco abaixo adiciona produtos automaticamente.
+      // Apenas o UUID scanner e a menção explicita do LLM via [PRODUCT:uuid]
+      // podem incluir produtos nos cards.
 
-      // [COMPARE]: filtro restritivo — só produtos que contêm TODOS os termos da busca
+      // [COMPARE]: filtro restritivo — só produtos que contêm TODOS os termos
       if (
         ppIntent === 'COMPARE' &&
         lastReferencedProductId &&
@@ -1559,21 +1562,7 @@ Deno.serve(async (req: Request) => {
         }
       }
 
-      if (
-        // ← abre if
-        !lastReferencedProductId &&
-        referencedInternalProducts.length === 0 &&
-        level1Context.length > 0
-      ) {
-        for (var fi = 0; fi < level1Context.length; fi++) {
-          var prodId = level1Context[fi]?.id
-          if (prodId) {
-            console.log('[ai-search] HP fallback: ...')
-          } // ← fecha if(prodId)
-        } // ← fecha for
-      } // ← FALTA fechar o if principal!
-
-      // [RECOMMENDATION]: só adiciona aos cards o produto que corresponde ao termo buscado
+      // [RECOMMENDATION]: só adiciona aos cards o produto mencionado pela IA
       if (
         ppIntent === 'RECOMMENDATION' &&
         lastReferencedProductId &&
@@ -1587,12 +1576,14 @@ Deno.serve(async (req: Request) => {
         })
         for (const product of filteredContext) {
           const productId = product.id
-          if (
-            productId !== lastReferencedProductId &&
-            !referencedInternalProducts.includes(productId)
-          ) {
-            referencedInternalProducts.push(productId)
-            if (!aiReferencedProducts.includes(productId)) aiReferencedProducts.push(productId)
+          if (productId !== lastReferencedProductId) {
+            console.log(
+              '[ai-search] PP RECOMMENDATION: RELEVANTE (aguardando menção da IA) ' +
+                productId +
+                ' (' +
+                String(product.name || '').substring(0, 40) +
+                ')',
+            )
           }
         }
         console.log(
@@ -1603,13 +1594,12 @@ Deno.serve(async (req: Request) => {
         )
       }
 
-      // [ACCESSORY / GENERIC]: adiciona level1Context com filtro de relevância
+      // [ACCESSORY / GENERIC]: adiciona level1Context com filtro de relevância (LOG ONLY)
       if (
         (ppIntent === 'ACCESSORY' || ppIntent === 'GENERIC') &&
         lastReferencedProductId &&
         level1Context.length > 0
       ) {
-        // Extrai termos relevantes da query normalizada
         var ppQuery = searchQuery
           .toLowerCase()
           .normalize('NFD')
@@ -1617,7 +1607,6 @@ Deno.serve(async (req: Request) => {
           .replace(/[?.,;:!]/g, ' ')
           .replace(/\s+/g, ' ')
           .trim()
-        // Detecta a categoria da consulta por palavras-chave
         var isMemoryQuery =
           /memoria|cartao|armazenamento|cfexpress|sd|uhs|cfast|ssd|storage|memory|type.?[ab]/i.test(
             ppQuery,
@@ -1628,7 +1617,6 @@ Deno.serve(async (req: Request) => {
         var isAudioQuery = /microfone|microphone|audio|som|shotgun|lapela/.test(ppQuery)
         var isBatteryQuery = /bateria|battery|fonte|carregador|power|supply/.test(ppQuery)
         var isTripodQuery = /trip[ée]|cabeça|fluid.?head|monop[é]|quick.?release/.test(ppQuery)
-        // Define palavras-chave da categoria para filtrar produtos
         var categoryKeywords = []
         if (isMemoryQuery)
           categoryKeywords = [
@@ -1662,7 +1650,6 @@ Deno.serve(async (req: Request) => {
           ]
         else if (isTripodQuery)
           categoryKeywords = ['tripé', 'tripod', 'fluid head', 'monopod', 'quick release', 'cabeça']
-        // Palavras-chave de EXCLUSÃO para cada categoria
         var exclusionKeywords = []
         if (isMemoryQuery) {
           exclusionKeywords = [
@@ -1684,7 +1671,6 @@ Deno.serve(async (req: Request) => {
           return t.length > 2
         })
         var productsAdded = 0
-        // APENAS LOGS — NÃO ADICIONA MAIS PRODUTOS AUTOMATICAMENTE
         for (var li = 0; li < level1Context.length; li++) {
           var product = level1Context[li]
           var productName = String(product.name || product.title || '')
@@ -1696,7 +1682,6 @@ Deno.serve(async (req: Request) => {
           ).toLowerCase()
           var productKeywords = productName + ' ' + productType
           var isRelevant = false
-          // Se detectou uma categoria específica, usa os categoryKeywords
           if (categoryKeywords.length > 0) {
             for (var ck = 0; ck < categoryKeywords.length; ck++) {
               if (productKeywords.indexOf(categoryKeywords[ck]) >= 0) {
@@ -1705,7 +1690,6 @@ Deno.serve(async (req: Request) => {
               }
             }
           } else {
-            // Fallback: match por termos da query
             for (var ft = 0; ft < filterTerms.length; ft++) {
               if (productKeywords.indexOf(filterTerms[ft]) >= 0) {
                 isRelevant = true
@@ -1713,7 +1697,6 @@ Deno.serve(async (req: Request) => {
               }
             }
           }
-          // FILTRO NEGATIVO: mesmo se relevante, exclui se o produto for de uma categoria errada
           if (isRelevant && exclusionKeywords.length > 0) {
             for (var ek = 0; ek < exclusionKeywords.length; ek++) {
               if (productKeywords.indexOf(exclusionKeywords[ek]) >= 0) {
@@ -1729,7 +1712,6 @@ Deno.serve(async (req: Request) => {
               }
             }
           }
-          // APENAS LOG — produtos só entram nos cards se mencionados via [PRODUCT:uuid] no texto
           if (isRelevant) {
             console.log(
               '[ai-search] PP GENERIC: RELEVANTE (aguardando menção da IA) ' +
@@ -1759,13 +1741,10 @@ Deno.serve(async (req: Request) => {
       // === PÓS-PROCESSAMENTO: garante a imagem do produto atual ===
       if (aiResult?.content && contextualProductData?.image_url) {
         var ppUrl = String(contextualProductData.image_url)
-
-        // Só adiciona se a imagem do produto atual NÃO estiver presente
         if (aiResult.content.indexOf(ppUrl) < 0) {
           var ppMarker = '### Análise por Produto:'
           var ppImg = '![' + String(contextualProductData.name || '') + '](' + ppUrl + ')'
           var ppIndex = aiResult.content.indexOf(ppMarker)
-
           if (ppIndex >= 0) {
             var ppNewline = aiResult.content.indexOf('\n', ppIndex)
             if (ppNewline >= 0) {
@@ -1788,10 +1767,8 @@ Deno.serve(async (req: Request) => {
         var uuidPattern = /\[PRODUCT:\s*([a-f0-9-]{36})\]/gi
         var uuidMatch
         var uuidFound = 0
-
         while ((uuidMatch = uuidPattern.exec(aiResult.content)) !== null) {
           var foundUuid = uuidMatch[1].toLowerCase()
-
           var isValid = false
           if (foundUuid === lastReferencedProductId) isValid = true
           if (level1Context && level1Context.length > 0) {
@@ -1802,7 +1779,6 @@ Deno.serve(async (req: Request) => {
               }
             }
           }
-
           if (isValid && foundUuid !== lastReferencedProductId) {
             uuidFound++
             if (referencedInternalProducts.indexOf(foundUuid) < 0)
@@ -1814,7 +1790,6 @@ Deno.serve(async (req: Request) => {
             console.log('[ai-search] PP UUID scanner: REJECTED ' + foundUuid + ' (not in context)')
           }
         }
-
         if (uuidFound > 0) {
           console.log('[ai-search] PP UUID scanner: accepted ' + uuidFound + ' products total')
         }

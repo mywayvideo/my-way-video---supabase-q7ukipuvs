@@ -1673,6 +1673,7 @@ Deno.serve(async (req: Request) => {
         var productsAdded = 0
         for (var li = 0; li < level1Context.length; li++) {
           var product = level1Context[li]
+          var productId = product.id
           var productName = String(product.name || product.title || '')
             .toLowerCase()
             .normalize('NFD')

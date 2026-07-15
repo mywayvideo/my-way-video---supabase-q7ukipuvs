@@ -1545,12 +1545,11 @@ Deno.serve(async (req: Request) => {
         console.log(
           `[ai-search] PP COMPARE: level1Context ${level1Context.length} → filtered ${filteredContext.length}`,
         )
-        // COMPARE não adiciona produtos automaticamente — só log
         for (const product of filteredContext) {
           const productId = product.id
           if (productId !== lastReferencedProductId) {
             console.log(
-              '[ai-search] PP RECOMMENDATION: RELEVANTE (aguardando menção da IA) ' +
+              '[ai-search] PP COMPARE: RELEVANTE (aguardando menção da IA) ' +
                 productId +
                 ' (' +
                 String(product.name || '').substring(0, 40) +
@@ -1559,6 +1558,7 @@ Deno.serve(async (req: Request) => {
           }
         }
       }
+
       if (
         // ← abre if
         !lastReferencedProductId &&
@@ -1820,7 +1820,7 @@ Deno.serve(async (req: Request) => {
         }
       }
 
-      // HP: se sem produtos referenciados, usa level1Context como fallback
+      // HP: se sem produtos referenciados, usa level1Context como fallback (LOG ONLY)
       if (
         !lastReferencedProductId &&
         referencedInternalProducts.length === 0 &&
@@ -1828,16 +1828,17 @@ Deno.serve(async (req: Request) => {
       ) {
         for (var fi = 0; fi < level1Context.length; fi++) {
           var prodId = level1Context[fi]?.id
-          if (prodId && referencedInternalProducts.indexOf(prodId) < 0) {
-            referencedInternalProducts.push(prodId)
-            if (aiReferencedProducts.indexOf(prodId) < 0) {
-              aiReferencedProducts.push(prodId)
-            }
+          if (prodId) {
+            console.log(
+              '[ai-search] HP fallback: RELEVANTE (aguardando menção da IA) ' +
+                prodId +
+                ' (' +
+                String(level1Context[fi]?.name || '').substring(0, 40) +
+                ')',
+            )
           }
         }
-        console.log(
-          '[ai-search] HP fallback: added ' + level1Context.length + ' products from level1Context',
-        )
+        console.log('[ai-search] HP fallback: log only, no products added from level1Context')
       }
 
       const aiReferencedCount = aiReferencedProducts.length

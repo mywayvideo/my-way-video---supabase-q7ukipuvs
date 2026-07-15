@@ -1601,7 +1601,6 @@ Deno.serve(async (req: Request) => {
           .replace(/[?.,;:!]/g, ' ')
           .replace(/\s+/g, ' ')
           .trim()
-
         // Detecta a categoria da consulta por palavras-chave
         var isMemoryQuery =
           /memoria|cartao|armazenamento|cfexpress|sd|uhs|cfast|ssd|storage|memory|type.?[ab]/i.test(
@@ -1613,7 +1612,6 @@ Deno.serve(async (req: Request) => {
         var isAudioQuery = /microfone|microphone|audio|som|shotgun|lapela/.test(ppQuery)
         var isBatteryQuery = /bateria|battery|fonte|carregador|power|supply/.test(ppQuery)
         var isTripodQuery = /trip[ée]|cabeça|fluid.?head|monop[é]|quick.?release/.test(ppQuery)
-
         // Define palavras-chave da categoria para filtrar produtos
         var categoryKeywords = []
         if (isMemoryQuery)
@@ -1648,8 +1646,7 @@ Deno.serve(async (req: Request) => {
           ]
         else if (isTripodQuery)
           categoryKeywords = ['tripé', 'tripod', 'fluid head', 'monopod', 'quick release', 'cabeça']
-
-        // Palavras-chave de EXCLUSÃO para cada categoria (produtos que matcham mas NÃO são o que procuramos)
+        // Palavras-chave de EXCLUSÃO para cada categoria
         var exclusionKeywords = []
         if (isMemoryQuery) {
           exclusionKeywords = [
@@ -1667,17 +1664,13 @@ Deno.serve(async (req: Request) => {
             'arm',
           ]
         }
-
         var filterTerms = ppQuery.split(/\s+/).filter(function (t) {
           return t.length > 2
         })
         var productsAdded = 0
-
+        // APENAS LOGS — NÃO ADICIONA MAIS PRODUTOS AUTOMATICAMENTE
         for (var li = 0; li < level1Context.length; li++) {
           var product = level1Context[li]
-          var productId = product?.id
-          if (!productId || productId === lastReferencedProductId) continue
-
           var productName = String(product.name || product.title || '')
             .toLowerCase()
             .normalize('NFD')
@@ -1686,9 +1679,7 @@ Deno.serve(async (req: Request) => {
             product.type || product.category || product.product_type || '',
           ).toLowerCase()
           var productKeywords = productName + ' ' + productType
-
           var isRelevant = false
-
           // Se detectou uma categoria específica, usa os categoryKeywords
           if (categoryKeywords.length > 0) {
             for (var ck = 0; ck < categoryKeywords.length; ck++) {
@@ -1706,7 +1697,6 @@ Deno.serve(async (req: Request) => {
               }
             }
           }
-
           // FILTRO NEGATIVO: mesmo se relevante, exclui se o produto for de uma categoria errada
           if (isRelevant && exclusionKeywords.length > 0) {
             for (var ek = 0; ek < exclusionKeywords.length; ek++) {
@@ -1723,17 +1713,10 @@ Deno.serve(async (req: Request) => {
               }
             }
           }
-
-          // TAMBÉM inclui produtos mencionados no texto da IA via [PRODUCT:uuid]
-          // (esses já foram adicionados pelo UUID scanner, então não precisamos readicionar)
-
+          // APENAS LOG — produtos só entram nos cards se mencionados via [PRODUCT:uuid] no texto
           if (isRelevant) {
-            if (referencedInternalProducts.indexOf(productId) < 0)
-              referencedInternalProducts.push(productId)
-            if (aiReferencedProducts.indexOf(productId) < 0) aiReferencedProducts.push(productId)
-            productsAdded++
             console.log(
-              '[ai-search] PP GENERIC: ADICIONADO ' +
+              '[ai-search] PP GENERIC: RELEVANTE (aguardando menção da IA) ' +
                 productId +
                 ' (' +
                 productName.substring(0, 40) +
@@ -1749,7 +1732,6 @@ Deno.serve(async (req: Request) => {
             )
           }
         }
-
         console.log(
           '[ai-search] PP GENERIC: ' +
             productsAdded +

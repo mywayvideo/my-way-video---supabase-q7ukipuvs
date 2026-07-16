@@ -7,6 +7,7 @@ const corsHeaders = {
     'authorization, x-client-info, x-supabase-client-platform, apikey, content-type',
 }
 import { getActiveAgents, generateResponse } from './intelligence.ts'
+import { classifyIntent } from './intention.ts'
 import {
   sanitizeInput,
   isInstitutionalQuery,
@@ -139,6 +140,8 @@ function classifyPPIntent(query: string): PPIntent {
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
+  const url = new URL(req.url)
+  const isClassifierRoute = url.pathname.endsWith('/classifier')
   try {
     let body: any = null
     try {
@@ -147,6 +150,19 @@ Deno.serve(async (req: Request) => {
       return new Response(JSON.stringify({ error: 'Invalid JSON body' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         status: 400,
+      })
+    }
+
+    if (isClassifierRoute) {
+      const classifierQuery = typeof body?.query === 'string' ? body.query : ''
+      const currentProduct = body?.currentProduct || undefined
+      const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? ''
+      const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+      const classifierSupabase = createClient(supabaseUrl, supabaseServiceKey)
+      const result = await classifyIntent(classifierQuery, classifierSupabase, currentProduct)
+      return new Response(JSON.stringify(result), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 200,
       })
     }
 

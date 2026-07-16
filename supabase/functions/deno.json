@@ -40,7 +40,7 @@
     "update-cache-settings": 10,
     "ups-calculate-rate": 10,
     "ups-get-token": 10,
-    "validate-ai-provider": 10,
+    "validate-ai-provider": 11,
     "validate-discount-coupon": 10,
     "validate-image-url": 10,
     "validate-ncm-suggestion": 10,

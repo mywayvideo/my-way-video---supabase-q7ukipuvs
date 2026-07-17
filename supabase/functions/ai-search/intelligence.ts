@@ -125,14 +125,15 @@ function buildSystemPrompt(context: GenerateContext): string {
   if (context.manufacturerList) {
     prompt += `\n\nFabricantes disponíveis: ${context.manufacturerList}`
   }
-  prompt += '\n\nREGRAS DE PREÇOS E COTAÇÃO:'
-  prompt += '\n- Priorize sempre o preço em USD (FOB Miami) quando o valor for maior que 0.'
+  prompt += '\n\nREGRAS DE PREÇOS — SIGA RIGOROSAMENTE (NÃO INVENTE SÍMBOLOS):'
   prompt +=
-    '\n- Se o preço USD for 0 ou nulo, NÃO invente ou alucine um preço. Informe que o preço está indisponível.'
+    '\n- TODO preço nos dados fornecidos já vem com o símbolo da moeda (US$ ou R$) antes do valor.'
+  prompt += '\n- NUNCA troque o símbolo da moeda. Se veio "US$ 3.899" escreva "US$ 3.899".'
+  prompt += '\n- NUNCA use "R$" para valores que vieram como "US$".'
+  prompt += '\n- Priorize sempre o preço USA (US$) — é o preço de retirada em Miami.'
   prompt +=
-    '\n- O preço nacionalizado (price_nationalized_sales) só deve ser mencionado se o usuário perguntar explicitamente sobre preços no Brasil ou em reais.'
-  prompt +=
-    '\n- Use price_nationalized_currency para associar o símbolo correto (USD/BRL) ao preço nacionalizado.'
+    '\n- O preço Brasil (entrega SP) só deve ser mostrado se o usuário perguntar explicitamente.'
+  prompt += '\n- Se o preço USD for 0 ou vier como "Preço indisponível", NÃO invente um valor.'
   prompt += '\n- NUNCA mencione custos internos, preços de custo ou margens de lucro.'
   if (context.institutionalContext) {
     prompt += `\n\nInformações institucionais:\n${context.institutionalContext}`
@@ -162,10 +163,41 @@ function buildMessages(query: string, context: GenerateContext, systemPrompt: st
     }
   }
 
-  let userContent = query
+  // Novo codigo:
   if (context.products && context.products.length > 0) {
     userContent += '\n\nProdutos relevantes do catálogo:\n'
-    userContent += JSON.stringify(context.products, null, 2)
+    for (const p of context.products) {
+      const usdPrice =
+        p.price_usd && p.price_usd > 0
+          ? Number(p.price_usd).toLocaleString('en-US', {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })
+          : null
+      const natPrice =
+        p.price_nationalized_sales && p.price_nationalized_sales > 0
+          ? Number(p.price_nationalized_sales).toLocaleString(
+              p.price_nationalized_currency === 'BRL' ? 'pt-BR' : 'en-US',
+              { minimumFractionDigits: 2, maximumFractionDigits: 2 },
+            )
+          : null
+      const brlRefPrice =
+        !natPrice && p.price_brl && p.price_brl > 0
+          ? Number(p.price_brl).toLocaleString('en-US', {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })
+          : null
+
+      userContent += `- ${p.name}`
+      userContent += usdPrice ? ` | Preço USA (retirada Miami): US$${usdPrice}` : ''
+      userContent += natPrice
+        ? ` | Preço Brasil (entrega SP): ${p.price_nationalized_currency === 'BRL' ? 'R$' : 'US$'}${natPrice}`
+        : ''
+      userContent += brlRefPrice ? ` | Preço Brasil (referência): US$${brlRefPrice}` : ''
+      userContent += ` | ID: ${p.id}`
+      userContent += '\n'
+    }
   }
 
   // Incluir dados do produto atual separadamente para a IA saber qual é o produto da página

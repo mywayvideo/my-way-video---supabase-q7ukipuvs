@@ -199,13 +199,16 @@ Deno.serve(async (req: Request) => {
         : searchQuery.trim().length > 0 && isInstitutionalQuery(searchQuery)
     if (isInstClassification) {
       logCascade('B', 'institutional', true, query)
+
+      let instContent = ''
+      if (institutionalContext && institutionalContext.trim().length > 0) {
+        instContent = institutionalContext.trim()
+      } else {
+        instContent =
+          'Para informações sobre nossa loja, entre em contato pelo WhatsApp ou telefone.'
+      }
+
       try {
-        const aiResult = await generateResponse(
-          query,
-          { agentSettings, aiSettings, institutionalContext, history, products: [] },
-          undefined,
-          supabase,
-        )
         if (session_id) {
           await supabase
             .from('chat_messages')
@@ -213,55 +216,39 @@ Deno.serve(async (req: Request) => {
           await supabase.from('chat_messages').insert({
             session_id,
             role: 'assistant',
-            message: aiResult.content,
-            content: JSON.stringify({ ...aiResult, referenced_internal_products: [] }),
+            message: instContent,
+            content: JSON.stringify({
+              content: instContent,
+              confidence_level: 'high',
+              referenced_internal_products: [],
+              should_show_whatsapp_button: false,
+              ai_referenced_count: 0,
+              full_search_results: 0,
+              type: 'institutional',
+            }),
             type: 'institutional',
           })
         }
-        let instContent = aiResult.content
-        if (typeof instContent === 'string') {
-          instContent = instContent.trim()
-          if (instContent.startsWith('{') && instContent.includes('"content"')) {
-            try {
-              const parsed = JSON.parse(instContent)
-              if (parsed && typeof parsed.content === 'string') {
-                instContent = parsed.content.trim()
-              }
-            } catch {}
-          }
-        }
-        const instResult = {
-          content: instContent,
-          confidence_level: aiResult.confidence_level || 'high',
-          referenced_internal_products: [],
-          should_show_whatsapp_button: aiResult.should_show_whatsapp_button ?? false,
-          ai_referenced_count: 0,
-          full_search_results: [],
-          execution_id,
-        }
-        return new Response(JSON.stringify(instResult), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          status: 200,
-        })
-      } catch (instErr: any) {
+      } catch (persistErr: any) {
         console.error(
-          '[ai-search] institutional generateResponse failed:',
-          instErr?.message || instErr,
+          '[ai-search] institutional persistence failed:',
+          persistErr?.message || persistErr,
         )
-        const fallbackResult = {
-          content: 'Desculpe, não encontrei informações institucionais no momento.',
-          confidence_level: 'medium',
-          referenced_internal_products: [],
-          should_show_whatsapp_button: true,
-          ai_referenced_count: 0,
-          full_search_results: [],
-          execution_id,
-        }
-        return new Response(JSON.stringify(fallbackResult), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          status: 200,
-        })
       }
+
+      const instResult = {
+        content: instContent,
+        confidence_level: 'high',
+        referenced_internal_products: [],
+        should_show_whatsapp_button: false,
+        ai_referenced_count: 0,
+        full_search_results: 0,
+        execution_id,
+      }
+      return new Response(JSON.stringify(instResult), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 200,
+      })
     }
 
     let searchEntities = extractEntities(searchQuery)

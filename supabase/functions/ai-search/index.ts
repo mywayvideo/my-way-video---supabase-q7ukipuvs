@@ -40,6 +40,17 @@ function logCascade(stage: string, type: string, matched: boolean, query: string
   )
 }
 
+function sanitizeInstitutional(raw: string): string {
+  if (!raw) return ''
+  return raw
+    .replace(/\[ai_knowledge\]\s*/gi, '')
+    .replace(/\[company_info\]\s*/gi, '')
+    .replace(/\[footer_about\]\s*/gi, '')
+    .replace(/\[.*?\]\s*/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
 
@@ -202,7 +213,7 @@ Deno.serve(async (req: Request) => {
 
       let instContent = ''
       if (institutionalContext && institutionalContext.trim().length > 0) {
-        instContent = institutionalContext.trim()
+        instContent = sanitizeInstitutional(institutionalContext.trim())
       } else {
         instContent =
           'Para informações sobre nossa loja, entre em contato pelo WhatsApp ou telefone.'

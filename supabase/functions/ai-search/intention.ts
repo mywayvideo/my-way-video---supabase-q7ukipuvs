@@ -1,5 +1,3 @@
-import { getActiveAgents } from './intelligence.ts'
-
 export type Intent =
   | 'institutional'
   | 'catalog'
@@ -31,7 +29,17 @@ const AGENT_CACHE_TTL = 300_000
 export async function getCachedAgents(supabase: any): Promise<AgentConfig[]> {
   const now = Date.now()
   if (cachedAgents && now - cachedAgentsAt < AGENT_CACHE_TTL) return cachedAgents
-  cachedAgents = await getActiveAgents(supabase)
+  const { data, error } = await supabase
+    .from('ai_providers')
+    .select('*')
+    .eq('is_active', true)
+    .order('priority', { ascending: true })
+    .limit(1)
+  if (error || !data || data.length === 0) {
+    cachedAgents = []
+  } else {
+    cachedAgents = data as AgentConfig[]
+  }
   cachedAgentsAt = now
   return cachedAgents
 }

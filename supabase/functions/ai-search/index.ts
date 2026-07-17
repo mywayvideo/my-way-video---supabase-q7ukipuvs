@@ -40,6 +40,7 @@ function logCascade(stage: string, type: string, matched: boolean, query: string
   )
 }
 
+// ── Sanitize: remove tags internas ──
 function sanitizeInstitutional(raw: string): string {
   if (!raw) return ''
   return raw
@@ -49,6 +50,82 @@ function sanitizeInstitutional(raw: string): string {
     .replace(/\[.*?\]\s*/g, '')
     .replace(/\s{2,}/g, ' ')
     .trim()
+}
+
+// ── Filter: retorna só o trecho relevante para a pergunta ──
+function filterInstitutionalByQuery(raw: string, query: string): string {
+  const cleaned = sanitizeInstitutional(raw)
+  const q = query.toLowerCase()
+
+  // Extrair seções do texto institucional
+  const extractSection = (label: string, nextLabel?: string): string => {
+    const idx = cleaned.indexOf(label)
+    if (idx === -1) return ''
+    const from = idx + label.length
+    if (nextLabel) {
+      const nextIdx = cleaned.indexOf(nextLabel, from)
+      return nextIdx !== -1 ? cleaned.slice(from, nextIdx).trim() : cleaned.slice(from).trim()
+    }
+    return cleaned.slice(from).trim()
+  }
+
+  // Mapear seções conhecidas (em ordem de aparição no texto)
+  const sections = {
+    companyName: 'Company name:',
+    address: 'Address:',
+    phone: 'Phone/WhatsApp:',
+    hours: 'Horário de funcionamento:',
+    institutional: 'Texto Institucional:',
+  }
+
+  // 1) Se perguntou por telefone/contato
+  if (/telefone|whatsapp|whats|phone|contato|ligar|falar|fone/i.test(q)) {
+    const phoneSection = extractSection(sections.phone, sections.hours)
+    const hoursSection = extractSection(sections.hours, sections.institutional)
+    if (phoneSection) {
+      let response = `📞 ${phoneSection}`
+      // Opcional: inclui horário junto, pois telefone + horário andam juntos
+      if (hoursSection) response += `\n🕐 ${hoursSection}`
+      return response
+    }
+  }
+
+  // 2) Se perguntou por horário
+  if (/horário|horario|funcionamento|abre|fecha|aberto|hours|schedule|abrir/i.test(q)) {
+    const hoursSection = extractSection(sections.hours, sections.institutional)
+    const phoneSection = extractSection(sections.phone, sections.hours)
+    if (hoursSection) {
+      let response = `🕐 ${hoursSection}`
+      if (phoneSection) response = `📞 ${phoneSection}\n🕐 ${hoursSection}`
+      return response
+    }
+  }
+
+  // 3) Se perguntou por endereço/local
+  if (/endereço|endereco|local|onde fica|address|located|sede|fica/i.test(q)) {
+    const addressSection = extractSection(sections.address, sections.phone)
+    const companySection = extractSection(sections.companyName, sections.address)
+    if (addressSection) {
+      let response = `📍 ${addressSection}`
+      if (companySection) response = `${companySection}\n📍 ${addressSection}`
+      return response
+    }
+  }
+
+  // 4) Se perguntou por entrega/frete/shipping
+  if (/entrega|frete|shipping|delivery|envio|entregam|prazo/i.test(q)) {
+    const instSection = extractSection(sections.institutional)
+    // Dentro do texto institucional, procura por "entregamos" ou "envio"
+    const deliveryMatch = instSection.match(/[^.]*?(entregamos|envio|shipping|delivery)[^.]*\./gi)
+    if (deliveryMatch) {
+      return deliveryMatch.join('\n')
+    }
+    // Fallback: retorna parágrafo institucional completo
+    return instSection || cleaned
+  }
+
+  // 5) Fallback: pergunta institucional genérica → texto completo limpo
+  return cleaned
 }
 
 Deno.serve(async (req: Request) => {
@@ -213,7 +290,7 @@ Deno.serve(async (req: Request) => {
 
       let instContent = ''
       if (institutionalContext && institutionalContext.trim().length > 0) {
-        instContent = sanitizeInstitutional(institutionalContext.trim())
+        instContent = filterInstitutionalByQuery(institutionalContext, query)
       } else {
         instContent =
           'Para informações sobre nossa loja, entre em contato pelo WhatsApp ou telefone.'

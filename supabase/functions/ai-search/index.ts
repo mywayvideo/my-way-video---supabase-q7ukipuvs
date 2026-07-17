@@ -495,6 +495,57 @@ Deno.serve(async (req: Request) => {
       })
     }
 
+    interface ProductItem {
+      id: string
+      name: string
+      manufacturer?: string
+      category?: string
+      price?: number
+      variant?: string
+    }
+
+    function curateProducts(
+      products: ProductItem[],
+      intent: string,
+      searchTerms: string[],
+      query: string,
+    ): { featured: ProductItem[]; cards: ProductItem[] } {
+      if (!products || products.length === 0) {
+        return { featured: [], cards: [] }
+      }
+
+      // ── Caso 1: COMPARAÇÃO ──
+      if (intent === 'comparison' && searchTerms.length > 0) {
+        const terms = searchTerms.map((t) => t.toLowerCase())
+        const matched = products.filter((p) => {
+          const name = p.name.toLowerCase()
+          return terms.some((t) => name.includes(t))
+        })
+        if (matched.length > 0) {
+          return { featured: matched, cards: matched }
+        }
+        return { featured: products.slice(0, 6), cards: products }
+      }
+
+      // ── Caso 2: ACESSÓRIO ──
+      if (intent === 'accessory') {
+        return { featured: products.slice(0, 4), cards: products }
+      }
+
+      // ── Caso 3: CATÁLOGO/GENÉRICA (ex: "câmera PTZ 4K") ──
+      const featuredMap = new Map<string, ProductItem[]>()
+      for (const p of products) {
+        const mfr = p.manufacturer || 'Outros'
+        if (!featuredMap.has(mfr)) featuredMap.set(mfr, [])
+        if (featuredMap.get(mfr)!.length < 2) {
+          featuredMap.get(mfr)!.push(p)
+        }
+      }
+      const featured = Array.from(featuredMap.values()).flat()
+
+      return { featured, cards: products }
+    }
+
     function outOfScopeResponse(): Response {
       return new Response(
         JSON.stringify({
@@ -511,12 +562,21 @@ Deno.serve(async (req: Request) => {
 
     if (level1Products.length > 0) {
       logCascade('C', 'products', true, query, `products=${level1Products.length}`)
+
+      // ── Curadoria: featured (texto) vs cards (exibição) ──
+      const { featured, cards } = curateProducts(
+        level1Products,
+        classificationIntent,
+        classificationTerms, // ← usa os searchTerms do classificador
+        query,
+      )
+
       const aiResult = await generateResponse(
         query,
         {
           agentSettings,
           aiSettings,
-          products: level1Products,
+          products: featured, // ← SÓ os curados para a IA mencionar
           manufacturerList,
           history,
           currentProductId: lastReferencedProductId,
@@ -527,7 +587,16 @@ Deno.serve(async (req: Request) => {
         undefined,
         supabase,
       )
-      return await persistAndReturn(aiResult, 'products')
+
+      return await persistAndReturn(
+        {
+          ...aiResult,
+          referenced_internal_products: cards.map((p) => p.id), // ← cards exibidos
+          ai_referenced_count: cards.length, // ← contagem correta
+          full_search_results: level1Products.length, // ← total real do banco
+        },
+        'products',
+      )
     }
 
     const manufacturerNames = manufacturers ? manufacturers.map((m) => m.name) : []

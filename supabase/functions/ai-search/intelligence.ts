@@ -163,7 +163,9 @@ function buildMessages(query: string, context: GenerateContext, systemPrompt: st
     }
   }
 
-  // Novo codigo:
+  // Monta a mensagem do usuário com os produtos formatados
+  let userContent = query
+
   if (context.products && context.products.length > 0) {
     userContent += '\n\nProdutos relevantes do catálogo:\n'
     for (const p of context.products) {
@@ -195,12 +197,11 @@ function buildMessages(query: string, context: GenerateContext, systemPrompt: st
         ? ` | Preço Brasil (entrega SP): ${p.price_nationalized_currency === 'BRL' ? 'R$' : 'US$'}${natPrice}`
         : ''
       userContent += brlRefPrice ? ` | Preço Brasil (referência): US$${brlRefPrice}` : ''
-      userContent += ` | ID: ${p.id}`
       userContent += '\n'
     }
   }
 
-  // Incluir dados do produto atual separadamente para a IA saber qual é o produto da página
+  // Incluir dados do produto atual separadamente
   if (context.contextualProductData) {
     userContent += '\n\nProduto atual da página:\n'
     userContent += JSON.stringify(
@@ -218,6 +219,7 @@ function buildMessages(query: string, context: GenerateContext, systemPrompt: st
   }
 
   messages.push({ role: 'user', content: userContent })
+
   return messages
 }
 

@@ -161,6 +161,28 @@ Deno.serve(async (req: Request) => {
         }
       : null
 
+    const currentProductForClassifier = lastReferencedProductId
+      ? {
+          id: lastReferencedProductId,
+          name: contextualProductData?.name || undefined,
+          manufacturer: contextualProductData?.manufacturer || undefined,
+          category: contextualProductData?.category || undefined,
+        }
+      : undefined
+
+    let classificationIntent: string | null = null
+    let classificationTerms: string[] = []
+    try {
+      const classification = await classifyIntent(query, supabase, currentProductForClassifier)
+      classificationIntent = classification.intent
+      classificationTerms = classification.searchTerms || []
+      console.log(
+        `[ai-search] classifier: intent=${classificationIntent} terms=[${classificationTerms.join(', ')}]`,
+      )
+    } catch (err: any) {
+      console.error('[ai-search] classifier failed, using fallback:', err?.message || err)
+    }
+
     const hpSearchTerm = isHPMode ? cleanPortugueseGenericWords(query) : query
     const searchPromise: Promise<any[]> = isHPMode
       ? supabase
@@ -171,8 +193,92 @@ Deno.serve(async (req: Request) => {
     const searchQuery = removeStopWords(query) || query
     logCascade('A', 'stopwords', true, query, `cleaned="${searchQuery}"`)
 
-    const searchEntities = extractEntities(searchQuery)
+    const isInstClassification =
+      classificationIntent !== null
+        ? classificationIntent === 'institutional'
+        : searchQuery.trim().length > 0 && isInstitutionalQuery(searchQuery)
+    if (isInstClassification) {
+      logCascade('B', 'institutional', true, query)
+      try {
+        const aiResult = await generateResponse(
+          query,
+          { agentSettings, aiSettings, institutionalContext, history, products: [] },
+          undefined,
+          supabase,
+        )
+        if (session_id) {
+          await supabase
+            .from('chat_messages')
+            .insert({ session_id, role: 'user', message: query, content: query })
+          await supabase.from('chat_messages').insert({
+            session_id,
+            role: 'assistant',
+            message: aiResult.content,
+            content: JSON.stringify({ ...aiResult, referenced_internal_products: [] }),
+            type: 'institutional',
+          })
+        }
+        let instContent = aiResult.content
+        if (typeof instContent === 'string') {
+          instContent = instContent.trim()
+          if (instContent.startsWith('{') && instContent.includes('"content"')) {
+            try {
+              const parsed = JSON.parse(instContent)
+              if (parsed && typeof parsed.content === 'string') {
+                instContent = parsed.content.trim()
+              }
+            } catch {}
+          }
+        }
+        const instResult = {
+          content: instContent,
+          confidence_level: aiResult.confidence_level || 'high',
+          referenced_internal_products: [],
+          should_show_whatsapp_button: aiResult.should_show_whatsapp_button ?? false,
+          ai_referenced_count: 0,
+          full_search_results: [],
+          execution_id,
+        }
+        return new Response(JSON.stringify(instResult), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          status: 200,
+        })
+      } catch (instErr: any) {
+        console.error(
+          '[ai-search] institutional generateResponse failed:',
+          instErr?.message || instErr,
+        )
+        const fallbackResult = {
+          content: 'Desculpe, não encontrei informações institucionais no momento.',
+          confidence_level: 'medium',
+          referenced_internal_products: [],
+          should_show_whatsapp_button: true,
+          ai_referenced_count: 0,
+          full_search_results: [],
+          execution_id,
+        }
+        return new Response(JSON.stringify(fallbackResult), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          status: 200,
+        })
+      }
+    }
+
+    let searchEntities = extractEntities(searchQuery)
     console.log('[ai-search] searchEntities:', JSON.stringify(searchEntities))
+
+    if (classificationTerms.length > 0) {
+      const termSet = new Set(searchEntities.map((e: string) => e.toLowerCase()))
+      for (const term of classificationTerms) {
+        if (!termSet.has(term.toLowerCase())) {
+          searchEntities.push(term)
+        }
+      }
+      console.log(
+        '[ai-search] searchEntities after classifier injection:',
+        JSON.stringify(searchEntities),
+      )
+    }
 
     let level1Products: any[] = []
     if (searchQuery.trim().length > 0 && searchEntities.length > 0) {
@@ -326,17 +432,6 @@ Deno.serve(async (req: Request) => {
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 },
       )
-    }
-
-    if (searchQuery.trim().length > 0 && isInstitutionalQuery(searchQuery)) {
-      logCascade('B', 'institutional', true, query)
-      const aiResult = await generateResponse(
-        query,
-        { agentSettings, aiSettings, institutionalContext, history, products: [] },
-        undefined,
-        supabase,
-      )
-      return await persistAndReturn(aiResult, 'institutional')
     }
 
     if (level1Products.length > 0) {

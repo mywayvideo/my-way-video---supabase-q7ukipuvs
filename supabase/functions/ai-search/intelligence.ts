@@ -169,11 +169,13 @@ function buildMessages(
   ]
 
   if (context.history && context.history.length > 0) {
-    for (const h of context.history.slice(-10)) {
-      messages.push({
-        role: h.role,
-        content: h.content || h.message || '',
-      })
+    for (const h of context.history.slice(-2)) {
+      if (h.role === 'user') {
+        messages.push({
+          role: h.role,
+          content: h.content || h.message || '',
+        })
+      }
     }
   }
 

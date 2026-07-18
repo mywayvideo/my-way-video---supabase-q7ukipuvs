@@ -364,7 +364,7 @@ Deno.serve(async (req: Request) => {
       const comparisonPatterns = [
         /compare\s+(.+?)\s+(?:com|e|vs|versus|contra|x)\s+(.+)/i,
         /comparar\s+(.+?)\s+(?:com|e|vs|versus|contra|x)\s+(.+)/i,
-        /(.+?)\s+(?:vs|versus|x|ou)\s+(.+)/i,
+        /(.+?)\s+(?:vs|versus|x|ou|e)\s+(.+)/i,
         /melhores?\s+(.+?)\s+(?:e|com)\s+(.+)/i,
         /diferença\s+(?:entre\s+)?(.+?)\s+(?:e|com)\s+(.+)/i,
       ]
@@ -399,10 +399,8 @@ Deno.serve(async (req: Request) => {
       const searchTerms1 = terms1.length > 0 ? terms1.join(' ') : part1
       const searchTerms2 = terms2.length > 0 ? terms2.join(' ') : part2
 
-      // Adiciona "ptz 4k" se não estiver presente
-      const baseQuery = lowerQuery.includes('ptz') ? '' : 'ptz '
-      const q1 = `${baseQuery}${lowerQuery.includes('4k') ? '' : '4k '}${searchTerms1}`
-      const q2 = `${baseQuery}${lowerQuery.includes('4k') ? '' : '4k '}${searchTerms2}`
+      const q1 = searchTerms1
+      const q2 = searchTerms2
 
       console.log(`[comparison] Split query: "${q1}" | "${q2}"`)
 

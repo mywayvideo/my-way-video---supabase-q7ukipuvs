@@ -1,332 +1,178 @@
 import { createClient } from 'npm:@supabase/supabase-js'
 
-interface AgentConfig {
+const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? ''
+const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+
+function getAdminClient() {
+  return createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+}
+
+export interface AIProvider {
   id: string
   provider_name: string
   provider_type: string
   model_id: string
   api_key_secret_name: string
-  custom_endpoint?: string
-  priority?: number
+  custom_endpoint: string | null
+  is_active: boolean
+  priority: integer
 }
 
-export async function getActiveAgents(supabase: any): Promise<AgentConfig[]> {
-  const { data, error } = await supabase
+export async function getActiveAgents(): Promise<AIProvider[]> {
+  const client = getAdminClient()
+  const { data, error } = await client
     .from('ai_providers')
     .select('*')
     .eq('is_active', true)
     .order('priority', { ascending: true })
-  if (error || !data || data.length === 0) return []
-  return data as AgentConfig[]
+
+  if (error) {
+    console.error('[intelligence] Error fetching active agents:', error)
+    return []
+  }
+
+  return (data ?? []) as AIProvider[]
 }
 
-interface GenerateContext {
-  agentSettings?: any
-  aiSettings?: any
-  products?: any[]
-  manufacturerList?: string
-  history?: any[]
-  currentProductId?: string | null
-  contextualProductData?: any
-  institutionalContext?: string
-  productPagePrompt?: string
-  currentProductContext?: {
-    id?: string
-    name?: string
-    manufacturer?: string
-    category?: string
+function resolveApiKey(secretName: string): string {
+  const key = Deno.env.get(secretName)
+  if (!key) {
+    console.warn(`[intelligence] API key not found for secret: ${secretName}`)
+    return ''
   }
+  return key
+}
+
+function getProviderConfig(provider: AIProvider) {
+  const apiKey = resolveApiKey(provider.api_key_secret_name)
+  const model = provider.model_id || 'gpt-4o-mini'
+
+  switch (provider.provider_type?.toLowerCase()) {
+    case 'openai':
+      return {
+        endpoint: provider.custom_endpoint || 'https://api.openai.com/v1/chat/completions',
+        apiKey,
+        model,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+      }
+    case 'deepseek':
+      return {
+        endpoint: provider.custom_endpoint || 'https://api.deepseek.com/v1/chat/completions',
+        apiKey,
+        model: model || 'deepseek-chat',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+      }
+    case 'anthropic':
+      return {
+        endpoint: provider.custom_endpoint || 'https://api.anthropic.com/v1/messages',
+        apiKey,
+        model: model || 'claude-3-5-sonnet-20241022',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+      }
+    default:
+      return {
+        endpoint: provider.custom_endpoint || 'https://api.openai.com/v1/chat/completions',
+        apiKey,
+        model,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+      }
+  }
+}
+
+function buildRequestBody(
+  provider: AIProvider,
+  config: ReturnType<typeof getProviderConfig>,
+  messages: Array<{ role: string; content: string }>,
+  temperature: number,
+) {
+  if (provider.provider_type?.toLowerCase() === 'anthropic') {
+    const systemMsg = messages.find((m) => m.role === 'system')
+    const userMsgs = messages.filter((m) => m.role !== 'system')
+    return {
+      model: config.model,
+      max_tokens: 2000,
+      temperature,
+      system: systemMsg?.content ?? '',
+      messages: userMsgs.map((m) => ({
+        role: m.role === 'assistant' ? 'assistant' : 'user',
+        content: m.content,
+      })),
+    }
+  }
+  return {
+    model: config.model,
+    messages,
+    temperature,
+    max_tokens: 2000,
+  }
+}
+
+function extractContent(provider: AIProvider, data: any): string {
+  if (provider.provider_type?.toLowerCase() === 'anthropic') {
+    return data?.content?.map((c: any) => c.text).join('') ?? ''
+  }
+  return data?.choices?.[0]?.message?.content ?? ''
 }
 
 export async function generateResponse(
-  query: string,
-  context: GenerateContext,
-  _modelOverride: any,
-  supabase: any,
-): Promise<any> {
-  const openaiKey = Deno.env.get('OPENAI_API_KEY') ?? ''
-  const deepseekKey = Deno.env.get('DEEPSEEK_API_KEY') ?? ''
-  const anthropicKey = Deno.env.get('ANTHROPIC_API_KEY') ?? ''
-
-  const systemPrompt = buildSystemPrompt(context)
-  const messages = buildMessages(query, context, systemPrompt)
-
-  for (const agent of await getActiveAgents(supabase)) {
-    try {
-      let result: any = null
-      const providerType = (agent.provider_type || agent.provider_name || '').toLowerCase()
-
-      if (providerType.includes('openai') || providerType.includes('gpt')) {
-        if (!openaiKey) continue
-        result = await callOpenAI(openaiKey, agent.model_id || 'gpt-4o-mini', messages)
-      } else if (providerType.includes('deepseek')) {
-        if (!deepseekKey) continue
-        result = await callDeepSeek(deepseekKey, agent.model_id || 'deepseek-chat', messages)
-      } else if (providerType.includes('anthropic') || providerType.includes('claude')) {
-        if (!anthropicKey) continue
-        result = await callAnthropic(
-          anthropicKey,
-          agent.model_id || 'claude-3-5-sonnet-20241022',
-          messages,
-          systemPrompt,
-        )
-      } else if (openaiKey) {
-        result = await callOpenAI(openaiKey, agent.model_id || 'gpt-4o-mini', messages)
-      }
-
-      if (result) {
-        return parseAIResponse(result, context)
-      }
-    } catch (err) {
-      console.error(`[intelligence] Agent ${agent.provider_name} failed:`, err)
-    }
-  }
-
-  if (openaiKey) {
-    try {
-      const result = await callOpenAI(openaiKey, 'gpt-4o-mini', messages)
-      return parseAIResponse(result, context)
-    } catch (err) {
-      console.error('[intelligence] OpenAI fallback failed:', err)
-    }
-  }
-
-  return {
-    content:
-      'Desculpe, não foi possível processar sua solicitação no momento. Tente novamente em instantes.',
-    confidence_level: 'low',
-    referenced_internal_products: [],
-    should_show_whatsapp_button: true,
-  }
-}
-
-function buildSystemPrompt(context: GenerateContext): string {
-  console.log(`[intelligence] productPagePrompt presente: ${!!context.productPagePrompt}`)
-  console.log(
-    `[intelligence] agentSettings present=${!!context.agentSettings} system_prompt_length=${(context.agentSettings?.system_prompt || '').length}`,
-  )
-  const agentSettings = context.agentSettings
-  const aiSettings = context.aiSettings
-  let prompt = agentSettings?.system_prompt || aiSettings?.system_prompt_template || ''
-  prompt +=
-    '\n\nVocê é um assistente de IA especializado em equipamentos audiovisuais profissionais.'
-  prompt += '\nResponda sempre em português brasileiro, de forma clara e objetiva.'
-  prompt +=
-    '\nQuando mencionar produtos do catálogo, inclua o ID do produto na resposta usando o formato [PRODUCT:id].'
-  prompt += '\n\nREGRAS DE REFERÊNCIA DE PRODUTOS (referenced_internal_products):'
-  prompt +=
-    '\n- Densidade Mínima: Para buscas de categoria, inclua pelo menos os 6 IDs de produtos mais relevantes usando o formato [PRODUCT:id].'
-  prompt +=
-    '\n- Diversidade de Fabricantes: Para buscas de categoria, os IDs referenciados devem representar diferentes fabricantes (ex: Sony, Canon, Datavideo, Blackmagic).'
-  prompt +=
-    '\n- Integridade de Comparação: Para consultas de comparação, pelo menos ambos os produtos comparados (mínimo 2) devem ser referenciados.'
-  prompt +=
-    '\n- Política de Não-Vazio: O array de produtos referenciados nunca deve estar vazio se a busca retornou produtos válidos.'
-  if (context.manufacturerList) {
-    prompt += `\n\nFabricantes disponíveis: ${context.manufacturerList}`
-  }
-  prompt += '\n\nREGRAS DE PREÇOS — SIGA RIGOROSAMENTE (NÃO INVENTE SÍMBOLOS):'
-  prompt +=
-    '\n- TODO preço nos dados fornecidos já vem com o símbolo da moeda (US$ ou R$) antes do valor.'
-  prompt += '\n- NUNCA troque o símbolo da moeda. Se veio "US$ 3.899" escreva "US$ 3.899".'
-  prompt += '\n- NUNCA use "R$" para valores que vieram como "US$".'
-  prompt += '\n- Priorize sempre o preço USA (US$) — é o preço de retirada em Miami.'
-  prompt +=
-    '\n- O preço Brasil (entrega SP) só deve ser mostrado se o usuário perguntar explicitamente.'
-  prompt += '\n- Se o preço USD for 0 ou vier como "Preço indisponível", NÃO invente um valor.'
-  prompt += '\n- NUNCA mencione custos internos, preços de custo ou margens de lucro.'
-  if (context.institutionalContext) {
-    prompt += `\n\nInformações institucionais:\n${context.institutionalContext}`
-  }
-  // Garantir que a IA use o preço do produto atual quando disponível
-  if (context.contextualProductData?.price_usd > 0) {
-    prompt +=
-      '\n\nO produto atual da página tem preço disponível em USD. Use esse preço nas suas respostas sobre ele.'
-  }
-  if (context.productPagePrompt && context.currentProductContext) {
-    const resolved = context.productPagePrompt
-      .replace(/\{\{productName\}\}/g, context.currentProductContext.name || '')
-      .replace(/\{\{manufacturer\}\}/g, context.currentProductContext.manufacturer || '')
-      .replace(/\{\{category\}\}/g, context.currentProductContext.category || '')
-      .replace(/\{\{currentProductId\}\}/g, context.currentProductContext.id || '')
-    prompt += `\n\n### INSTRUÇÕES DA PÁGINA DO PRODUTO\n${resolved}`
-  }
-  return prompt
-}
-
-function buildMessages(query: string, context: GenerateContext, systemPrompt: string): any[] {
-  const messages: any[] = [{ role: 'system', content: systemPrompt }]
-
-  if (context.history && context.history.length > 0) {
-    for (const h of context.history.slice(-10)) {
-      messages.push({ role: h.role, content: h.content || h.message || '' })
-    }
-  }
-
-  // Monta a mensagem do usuário com os produtos formatados
-  let userContent = query
-
-  if (context.products && context.products.length > 0) {
-    userContent += '\n\nProdutos relevantes do catálogo:\n'
-    for (const p of context.products) {
-      const usdPrice =
-        p.price_usd && p.price_usd > 0
-          ? Number(p.price_usd).toLocaleString('en-US', {
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2,
-            })
-          : null
-      const natPrice =
-        p.price_nationalized_sales && p.price_nationalized_sales > 0
-          ? Number(p.price_nationalized_sales).toLocaleString(
-              p.price_nationalized_currency === 'BRL' ? 'pt-BR' : 'en-US',
-              { minimumFractionDigits: 2, maximumFractionDigits: 2 },
-            )
-          : null
-      const brlRefPrice =
-        !natPrice && p.price_brl && p.price_brl > 0
-          ? Number(p.price_brl).toLocaleString('en-US', {
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2,
-            })
-          : null
-
-      userContent += `- ${p.name}`
-      userContent += usdPrice ? ` | Preço USA (retirada Miami): US$${usdPrice}` : ''
-      userContent += natPrice
-        ? ` | Preço Brasil (entrega SP): ${p.price_nationalized_currency === 'BRL' ? 'R$' : 'US$'}${natPrice}`
-        : ''
-      userContent += brlRefPrice ? ` | Preço Brasil (referência): US$${brlRefPrice}` : ''
-      userContent += '\n'
-    }
-  }
-
-  // Incluir dados do produto atual separadamente
-  if (context.contextualProductData) {
-    userContent += '\n\nProduto atual da página:\n'
-    userContent += JSON.stringify(
-      {
-        id: context.contextualProductData.id,
-        name: context.contextualProductData.name,
-        price_usd: context.contextualProductData.price_usd,
-        manufacturer: context.contextualProductData.manufacturer,
-      },
-      null,
-      2,
-    )
-    userContent +=
-      '\n(Produto atual da página - NÃO incluir nos produtos referenciados, a menos que o usuário pergunte especificamente sobre ele)'
-  }
-
-  messages.push({ role: 'user', content: userContent })
-
-  return messages
-}
-
-async function callOpenAI(apiKey: string, model: string, messages: any[]): Promise<string> {
-  const resp = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      messages,
-      temperature: 0.3,
-      max_tokens: 4000,
-    }),
-  })
-  if (!resp.ok) {
-    const text = await resp.text()
-    throw new Error(`OpenAI API error ${resp.status}: ${text}`)
-  }
-  const data = await resp.json()
-  return data.choices?.[0]?.message?.content || ''
-}
-
-async function callDeepSeek(apiKey: string, model: string, messages: any[]): Promise<string> {
-  const resp = await fetch('https://api.deepseek.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      messages,
-      temperature: 0.3,
-      max_tokens: 4000,
-    }),
-  })
-  if (!resp.ok) {
-    const text = await resp.text()
-    throw new Error(`DeepSeek API error ${resp.status}: ${text}`)
-  }
-  const data = await resp.json()
-  return data.choices?.[0]?.message?.content || ''
-}
-
-async function callAnthropic(
-  apiKey: string,
-  model: string,
-  messages: any[],
-  systemPrompt: string,
+  messages: Array<{ role: string; content: string }>,
+  options: { temperature?: number; provider?: AIProvider } = {},
 ): Promise<string> {
-  const userMessages = messages.filter((m) => m.role !== 'system')
-  const resp = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model,
-      system: systemPrompt,
-      messages: userMessages,
-      max_tokens: 4000,
-    }),
-  })
-  if (!resp.ok) {
-    const text = await resp.text()
-    throw new Error(`Anthropic API error ${resp.status}: ${text}`)
-  }
-  const data = await resp.json()
-  return data.content?.[0]?.text || ''
-}
+  const temperature = options.temperature ?? 0.3
 
-function parseAIResponse(content: string, context: GenerateContext): any {
-  const productIds: string[] = []
-  const idRegex = /\[PRODUCT:([0-9a-fA-F-]{36})\]/g
-  let match: RegExpExecArray | null
-  while ((match = idRegex.exec(content)) !== null) {
-    productIds.push(match[1])
+  let providers: AIProvider[] = []
+  if (options.provider) {
+    providers = [options.provider]
+  } else {
+    providers = await getActiveAgents()
   }
-  // === ADICIONAR ESTE BLOCO ===
-  // Garante que TODO produto enviado no contexto vire card,
-  // independente do LLM usar [PRODUCT:uuid] no texto
-  if (context.products && context.products.length > 0) {
-    for (const p of context.products) {
-      if (p.id && productIds.indexOf(p.id) < 0) {
-        productIds.push(p.id)
+
+  if (providers.length === 0) {
+    console.warn('[intelligence] No active AI providers available')
+    return 'Desculpe, não foi possível processar sua solicitação no momento.'
+  }
+
+  for (const provider of providers) {
+    const config = getProviderConfig(provider)
+    if (!config.apiKey) continue
+
+    try {
+      const body = buildRequestBody(provider, config, messages, temperature)
+      const response = await fetch(config.endpoint, {
+        method: 'POST',
+        headers: config.headers,
+        body: JSON.stringify(body),
+      })
+
+      if (!response.ok) {
+        const errText = await response.text()
+        console.error(
+          `[intelligence] Provider ${provider.provider_name} returned ${response.status}: ${errText}`,
+        )
+        continue
       }
+
+      const data = await response.json()
+      const content = extractContent(provider, data)
+      if (content) return content
+    } catch (err) {
+      console.error(`[intelligence] Error with provider ${provider.provider_name}:`, err)
+      continue
     }
   }
-  // === FIM DO BLOCO ===
-  const cleanedContent = content.replace(idRegex, '').trim()
 
-  const hasProductMatch = productIds.length > 0
-  const confidenceLevel = hasProductMatch ? 'high' : 'medium'
-
-  const shouldShowWhatsApp =
-    confidenceLevel === 'low' || (!hasProductMatch && !context.institutionalContext)
-
-  return {
-    content: cleanedContent,
-    confidence_level: confidenceLevel,
-    referenced_internal_products: productIds,
-    ai_referenced_products: productIds,
-    should_show_whatsapp_button: shouldShowWhatsApp,
-  }
+  return 'Desculpe, não foi possível obter uma resposta dos provedores de IA no momento.'
 }

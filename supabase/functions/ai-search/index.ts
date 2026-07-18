@@ -356,17 +356,40 @@ Deno.serve(async (req: Request) => {
     }
 
     let level1Products: any[] = []
-    if (searchQuery.trim().length > 0 && searchEntities.length > 0) {
-      level1Products = await searchAllEntities(supabase, searchEntities)
-    }
+    if (classificationIntent === 'categorizar' && query && query.trim().length > 0) {
+      try {
+        const { data: rpcResults, error: rpcError } = await supabase.rpc('search_products_v2', {
+          search_term: query,
+          boost_multiplier: 1.0,
+        })
 
-    if (level1Products.length === 0 && searchQuery.trim().length > 0) {
-      const fallbackTerms = generateFallbackTerms(searchQuery)
-      if (fallbackTerms.length > 0) {
-        console.log(`[ai-search] PT FALLBACK: trying [${fallbackTerms.join(', ')}]`)
-        const fallbackProducts = await searchAllEntities(supabase, fallbackTerms)
-        level1Products = mergeProductResults([level1Products, fallbackProducts])
-        console.log(`[ai-search] PT FALLBACK completed: total products=${level1Products.length}`)
+        if (rpcError) {
+          console.error('[ai-search] search_products_v2 RPC error:', rpcError)
+          level1Products = []
+        } else if (rpcResults && Array.isArray(rpcResults) && rpcResults.length > 0) {
+          const orderedIds: string[] = rpcResults.map((p: any) => p.id)
+
+          const { data: fullProducts, error: fetchError } = await supabase
+            .from('products')
+            .select('*')
+            .in('id', orderedIds)
+
+          if (fetchError || !fullProducts) {
+            console.error('[ai-search] product fetch error:', fetchError)
+            level1Products = []
+          } else {
+            const productMap = new Map<string, any>()
+            for (const p of fullProducts) {
+              productMap.set(p.id, p)
+            }
+            level1Products = orderedIds
+              .map((id: string) => productMap.get(id))
+              .filter((p: any) => p !== undefined)
+          }
+        }
+      } catch (err: any) {
+        console.error('[ai-search] search_products_v2 failed:', err?.message || err)
+        level1Products = []
       }
     }
 

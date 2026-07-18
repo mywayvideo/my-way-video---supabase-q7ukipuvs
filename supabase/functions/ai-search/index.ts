@@ -686,27 +686,41 @@ Deno.serve(async (req: Request) => {
       const { featured, cards } = curateProducts(
         level1Products,
         classificationIntent,
-        classificationTerms, // ← usa os searchTerms do classificador
+        classificationTerms,
         query,
       )
 
-      const aiResult = await generateResponse(
-        query,
-        {
-          agentSettings,
-          aiSettings,
-          products: featured, // ← SÓ os curados para a IA mencionar
-          manufacturerList,
-          history,
-          currentProductId: lastReferencedProductId,
-          contextualProductData,
-          productPagePrompt: productPagePrompt || undefined,
-          currentProductContext: currentProductContext || undefined,
-        },
-        undefined,
-        supabase,
+      // Monta o contexto para a IA
+      const contextForAI = {
+        agentSettings,
+        aiSettings,
+        products: featured,
+        manufacturerList,
+        history,
+        currentProductId: lastReferencedProductId,
+        contextualProductData,
+        productPagePrompt: productPagePrompt || undefined,
+        currentProductContext: currentProductContext || undefined,
+      }
+
+      // LOG 1
+      console.log(
+        '[price-check] context products:',
+        JSON.stringify({
+          count: contextForAI.products?.length || 0,
+          first2: (contextForAI.products || []).slice(0, 2).map((p: any) => ({
+            id: p.id,
+            name: p.name?.substring(0, 60),
+            price_usd: p.price_usd,
+            price_brl: p.price_brl,
+          })),
+          hasProducts: 'products' in contextForAI,
+          keys: Object.keys(contextForAI),
+        }),
       )
 
+      // Usa a variável em vez de repetir o objeto inline
+      const aiResult = await generateResponse(query, contextForAI, undefined, supabase)
       return await persistAndReturn(
         {
           ...aiResult,

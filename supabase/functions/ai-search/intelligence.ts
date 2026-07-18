@@ -233,6 +233,21 @@ function buildMessages(
       '\n(Produto atual da página - NÃO incluir nos produtos referenciados, a menos que o usuário pergunte especificamente sobre ele)'
   }
 
+  // LOG 2: Conteúdo formatado que a IA vai receber
+  console.log('[price-check] userContent final (last 800 chars):', userContent.slice(-800))
+  console.log('[price-check] context.products present:', context?.products?.length || 0)
+  if (context?.products?.length > 0) {
+    console.log(
+      '[price-check] sample product prices:',
+      JSON.stringify(
+        context.products.slice(0, 2).map((p: any) => ({
+          name: p.name?.substring(0, 50),
+          price_usd: p.price_usd,
+          price_brl: p.price_brl,
+        })),
+      ),
+    )
+  }
   messages.push({ role: 'user', content: userContent })
   return messages
 }
@@ -267,12 +282,26 @@ export async function generateResponse(
     const content = await _callAIProvider(queryOrMessages, contextOrOptions || {})
     return { content }
   }
+  // LOG 3: Formato da chamada
+  console.log('[price-check] generateResponse query type:', typeof queryOrMessages)
+  console.log('[price-check] generateResponse is array:', Array.isArray(queryOrMessages))
+  console.log('[price-check] generateResponse context keys:', Object.keys(contextOrOptions || {}))
 
   // Se for string, é o formato antigo (query + contexto)
   const context = contextOrOptions || {}
   const systemPrompt = buildSystemPrompt(context)
   const messages = buildMessages(queryOrMessages, context, systemPrompt)
   const content = await _callAIProvider(messages, { temperature: 0.3 })
+
+  // LOG 3b: messages prontas para o provider
+  if (Array.isArray(messages)) {
+    const lastUserMsg = messages.filter((m) => m.role === 'user').pop()
+    console.log(
+      '[price-check] last user message (first 600 chars):',
+      (lastUserMsg?.content || '').substring(0, 600),
+    )
+  }
+
   return parseAIResponse({ content }, context.products || [])
 }
 

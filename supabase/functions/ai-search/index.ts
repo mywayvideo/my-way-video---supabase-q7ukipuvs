@@ -432,22 +432,23 @@ Deno.serve(async (req: Request) => {
     }
 
     let level1Products: any[] = []
+    let featured: any[] = []
+    let cards: any[] = []
     const SEARCHABLE = ['categorizar', 'catalog', 'comparison', 'specs', 'product', 'features']
+
     if (SEARCHABLE.includes(classificationIntent) && query && query.trim().length > 0) {
       try {
-        // Tenta query comparativa PRIMEIRO
+        // 1. Busca os produtos
         const comparisonResults = await executeComparisonSearch(query, supabase)
 
         let rpcResults: any[]
         let rpcError: any
 
         if (comparisonResults.length > 0) {
-          // Modo COMPARAÇÃO: usa resultados combinados
           rpcResults = comparisonResults
           rpcError = null
           console.log(`[cascata] Stage C: comparison mode — ${comparisonResults.length} products`)
         } else {
-          // Modo NORMAL: chamada única ao RPC
           const result = await supabase.rpc('search_products_v2', {
             search_term: query,
             boost_multiplier: 1.0,
@@ -456,30 +457,31 @@ Deno.serve(async (req: Request) => {
           rpcError = result.error
         }
 
-        if (rpcError) {
-          console.error('[ai-search] search_products_v2 RPC error:', rpcError)
-          level1Products = []
-        } else if (rpcResults && Array.isArray(rpcResults) && rpcResults.length > 0) {
+        // 2. Popula level1Products
+        if (rpcResults && Array.isArray(rpcResults) && rpcResults.length > 0) {
           const orderedIds: string[] = rpcResults.map((p: any) => p.id)
-
           const { data: fullProducts, error: fetchError } = await supabase
             .from('products')
             .select('*')
             .in('id', orderedIds)
 
-          if (fetchError || !fullProducts) {
-            console.error('[ai-search] product fetch error:', fetchError)
-            level1Products = []
-          } else {
-            const productMap = new Map<string, any>()
-            for (const p of fullProducts) {
-              productMap.set(p.id, p)
-            }
+          if (!fetchError && fullProducts) {
+            const productMap = new Map(fullProducts.map((p: any) => [p.id, p]))
             level1Products = orderedIds
               .map((id: string) => productMap.get(id))
               .filter((p: any) => p !== undefined)
           }
         }
+
+        // 3. SÓ AGORA faz o curateProducts
+        const result = curateProducts(
+          level1Products,
+          classificationIntent,
+          classificationTerms,
+          query,
+        )
+        featured = result.featured
+        cards = result.cards
       } catch (err: any) {
         console.error('[ai-search] search_products_v2 failed:', err?.message || err)
         level1Products = []
@@ -726,14 +728,12 @@ Deno.serve(async (req: Request) => {
         }),
       )
 
-      // Usa a variável em vez de repetir o objeto inline
-      const aiResult = await generateResponse(query, contextForAI, undefined, supabase)
-      return await persistAndReturn(
+      const result = await persistAndReturn(
         {
           ...aiResult,
-          referenced_internal_products: cards.map((p) => p.id), // ← cards exibidos
-          ai_referenced_count: cards.length, // ← contagem correta
-          full_search_results: level1Products.length, // ← total real do banco
+          referenced_internal_products: cards.map((p) => p.id),
+          ai_referenced_count: cards.length,
+          full_search_results: cards.length,
         },
         'products',
       )

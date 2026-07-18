@@ -773,7 +773,7 @@ Deno.serve(async (req: Request) => {
     })
     if (matchedManufacturers.length > 0) {
       logCascade('D', 'manufacturers', true, query, `manufacturers=${matchedManufacturers.length}`)
-      const aiResult = await generateResponse(
+      aiResult = await generateResponse(
         query,
         {
           agentSettings,
@@ -798,7 +798,7 @@ Deno.serve(async (req: Request) => {
     }
 
     logCascade('E', 'keywords', true, query, `relevance=true`)
-    const aiResult = await generateResponse(
+    aiResult = await generateResponse(
       query,
       {
         agentSettings,

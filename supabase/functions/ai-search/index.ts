@@ -449,52 +449,44 @@ Deno.serve(async (req: Request) => {
     }
     const SEARCHABLE = ['categorizar', 'catalog', 'comparison', 'specs', 'product', 'features']
 
+    // ── Stage C: Search Products ──
     if (SEARCHABLE.includes(classificationIntent) && query && query.trim().length > 0) {
       try {
-        // 1. Busca os produtos
         const comparisonResults = await executeComparisonSearch(query, supabase)
-        let rpcResults: any[]
-        let rpcError: any
 
         if (comparisonResults.length > 0) {
-          rpcResults = comparisonResults
-          console.log(
-            '[debug] comparison results per side:',
-            JSON.stringify({
-              rpcCount: rpcResults.length,
-              first3: rpcResults
-                .slice(0, 3)
-                .map((p: any) => ({ id: p.id, name: p.name?.substring(0, 60) })),
-            }),
-          )
-          rpcError = null
+          // ═══ MODO COMPARAÇÃO ═══
+          // comparisonResults JÁ são produtos completos do banco.
+          // NÃO fazer re-fetch — isso perde produtos!
+          level1Products = comparisonResults
           console.log(`[cascata] Stage C: comparison mode — ${comparisonResults.length} products`)
         } else {
+          // ═══ MODO NORMAL ═══
+          // Busca via RPC e faz re-fetch dos dados completos
           const result = await supabase.rpc('search_products_v2', {
             search_term: query,
             boost_multiplier: 1.0,
           })
-          rpcResults = result.data || []
-          rpcError = result.error
-        }
+          const rpcResults = result.data || []
+          const rpcError = result.error
 
-        // 2. Popula level1Products
-        if (!rpcError && rpcResults && Array.isArray(rpcResults) && rpcResults.length > 0) {
-          const orderedIds: string[] = rpcResults.map((p: any) => p.id)
-          const { data: fullProducts, error: fetchError } = await supabase
-            .from('products')
-            .select('*')
-            .in('id', orderedIds)
+          if (!rpcError && rpcResults && Array.isArray(rpcResults) && rpcResults.length > 0) {
+            const orderedIds: string[] = rpcResults.map((p: any) => p.id)
+            const { data: fullProducts, error: fetchError } = await supabase
+              .from('products')
+              .select('*')
+              .in('id', orderedIds)
 
-          if (!fetchError && fullProducts) {
-            const productMap = new Map(fullProducts.map((p: any) => [p.id, p]))
-            level1Products = orderedIds
-              .map((id: string) => productMap.get(id))
-              .filter((p: any) => p !== undefined)
+            if (!fetchError && fullProducts) {
+              const productMap = new Map(fullProducts.map((p: any) => [p.id, p]))
+              level1Products = orderedIds
+                .map((id: string) => productMap.get(id))
+                .filter((p: any) => p !== undefined)
+            }
           }
         }
 
-        // 3. Curadoria
+        // Curadoria (sempre executa com level1Products correto agora)
         const curated = curateProducts(
           level1Products,
           classificationIntent,
@@ -504,7 +496,7 @@ Deno.serve(async (req: Request) => {
         featured = curated.featured
         cards = curated.cards
 
-        // 4. Contexto para IA
+        // Contexto para IA
         contextForAI = {
           agentSettings,
           aiSettings,
@@ -516,6 +508,10 @@ Deno.serve(async (req: Request) => {
           productPagePrompt: productPagePrompt || undefined,
           currentProductContext: currentProductContext || undefined,
         }
+
+        console.log(
+          `[price-check] Stage C final: level1=${level1Products.length} featured=${featured.length} cards=${cards.length}`,
+        )
       } catch (err) {
         console.error('[cascata] Stage C error:', err)
       }

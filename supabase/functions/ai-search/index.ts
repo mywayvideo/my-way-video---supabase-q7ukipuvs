@@ -392,12 +392,9 @@ Deno.serve(async (req: Request) => {
       // Extrai fabricantes/termos relevantes de cada parte
       const manufacturerPatterns = ['sony', 'canon', 'datavideo', 'panasonic', 'jvc', 'blackmagic']
 
-      const terms1 = manufacturerPatterns.filter((t) => part1.includes(t))
-      const terms2 = manufacturerPatterns.filter((t) => part2.includes(t))
-
-      // Se não conseguiu extrair fabricantes claros, usa os termos brutos
-      const searchTerms1 = terms1.length > 0 ? terms1.join(' ') : part1
-      const searchTerms2 = terms2.length > 0 ? terms2.join(' ') : part2
+      // Usa a parte COMPLETA como termo de busca, não só o fabricante
+      const searchTerms1 = part1
+      const searchTerms2 = part2
 
       const q1 = searchTerms1
       const q2 = searchTerms2
@@ -428,6 +425,7 @@ Deno.serve(async (req: Request) => {
       const result = orderedIds
         .map((id: string) => (fullProducts || []).find((p: any) => p.id === id))
         .filter(Boolean)
+        .slice(0, 10) // ← LIMITE: no máximo 10 produtos (5 de cada lado)
 
       console.log(`[comparison] Total unique products: ${result.length}`)
       return result

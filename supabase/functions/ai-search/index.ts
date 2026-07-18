@@ -436,7 +436,8 @@ Deno.serve(async (req: Request) => {
     }
 
     let level1Products: any[] = []
-    if (classificationIntent === 'categorizar' && query && query.trim().length > 0) {
+    const SEARCHABLE = ['categorizar', 'catalog', 'comparison', 'specs', 'product', 'features']
+    if (SEARCHABLE.includes(classificationIntent) && query && query.trim().length > 0) {
       try {
         // Tenta query comparativa PRIMEIRO
         const comparisonResults = await executeComparisonSearch(query, supabase)

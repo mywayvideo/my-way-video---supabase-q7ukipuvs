@@ -396,8 +396,9 @@ Deno.serve(async (req: Request) => {
       const searchTerms1 = part1
       const searchTerms2 = part2
 
-      const q1 = searchTerms1
-      const q2 = searchTerms2
+      // Limpa stop words de cada termo antes de buscar
+      const q1 = cleanPortugueseGenericWords(searchTerms1) || searchTerms1
+      const q2 = cleanPortugueseGenericWords(searchTerms2) || searchTerms2
 
       console.log(`[comparison] Split query: "${q1}" | "${q2}"`)
 

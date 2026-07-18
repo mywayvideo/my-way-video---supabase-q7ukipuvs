@@ -458,6 +458,15 @@ Deno.serve(async (req: Request) => {
 
         if (comparisonResults.length > 0) {
           rpcResults = comparisonResults
+          console.log(
+            '[debug] comparison results per side:',
+            JSON.stringify({
+              rpcCount: rpcResults.length,
+              first3: rpcResults
+                .slice(0, 3)
+                .map((p: any) => ({ id: p.id, name: p.name?.substring(0, 60) })),
+            }),
+          )
           rpcError = null
           console.log(`[cascata] Stage C: comparison mode — ${comparisonResults.length} products`)
         } else {
@@ -772,8 +781,8 @@ Deno.serve(async (req: Request) => {
       )
     })
 
+    // ── Stage D: Fallback Manufacturers ──
     if (matchedManufacturers.length > 0) {
-      // GUARDA: Se Stage C já encontrou produtos, pula Stage D
       if (level1Products.length > 0) {
         logCascade('D', 'manufacturers', false, query, '(skipped: Stage C already found products)')
       } else {
@@ -799,6 +808,56 @@ Deno.serve(async (req: Request) => {
         return await persistAndReturn(aiResult, 'manufacturers')
       }
     }
+
+    // ── Stage E: Fallback Keywords ──
+    // Só executa se Stage C não encontrou produtos (senão o checkKeywordRelevance pode bloquear)
+    if (level1Products.length > 0) {
+      logCascade('E', 'keywords', false, query, '(skipped: Stage C already found products)')
+    } else {
+      const { isBlocked, relevanceScore } = checkKeywordRelevance(query, keywordList)
+
+      if (isBlocked) {
+        logCascade('E', 'keywords', true, query, 'matched=false (blocked)')
+        return OUT_OF_SCOPE_MESSAGE
+      }
+
+      if (relevanceScore > 0) {
+        logCascade('E', 'keywords', true, query, `matched=true (score=${relevanceScore})`)
+        aiResult = await generateResponse(
+          query,
+          {
+            agentSettings,
+            aiSettings,
+            keywordContext: `Consulta relacionada a: ${query}`,
+            history,
+            products: level1Products,
+          },
+          undefined,
+          supabase,
+        )
+        return await persistAndReturn(aiResult, 'keywords')
+      }
+
+      // relevanceScore === 0 → cai no Stage F
+      logCascade('E', 'keywords', false, query, `(skipped: score=0)`)
+    }
+
+    // ── Stage F: Fallback General ──
+    logCascade('F', 'general', true, query, 'matched=true (fallback)')
+    aiResult = await generateResponse(
+      query,
+      {
+        agentSettings,
+        aiSettings,
+        institutionalContext,
+        manufacturerList,
+        history,
+        products: level1Products,
+      },
+      undefined,
+      supabase,
+    )
+    return await persistAndReturn(aiResult, 'general')
 
     const isRelevant = checkKeywordRelevance(
       searchQuery,

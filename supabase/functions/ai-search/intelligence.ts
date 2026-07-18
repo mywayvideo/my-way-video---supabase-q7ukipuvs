@@ -127,7 +127,154 @@ function extractContent(provider: AIProvider, data: any): string {
   return data?.choices?.[0]?.message?.content ?? ''
 }
 
+function buildSystemPrompt(context: any): string {
+  const parts: string[] = []
+
+  if (context.agentSettings?.system_prompt) {
+    parts.push(context.agentSettings.system_prompt)
+  }
+
+  if (context.productPagePrompt) {
+    parts.push(context.productPagePrompt)
+  }
+
+  const rules = [
+    'REGRAS DE FORMATAÇÃO DE PREÇOS:',
+    '- Priorize sempre o preço USA (US$) como referência principal.',
+    '- NUNCA troque o símbolo da moeda (US$ ou R$).',
+    '- Se o produto tem preço USA em dólar, use US$.',
+    '- Se o produto tem preço Brasil em real, use R$.',
+    '- Preços em reais (R$) usam formato brasileiro: R$ 1.234,56',
+    '- Preços em dólar (US$) usam formato americano: US$ 1,234.56',
+    '',
+    'REGRAS DE COMPORTAMENTO:',
+    '- NÃO inclua produtos que não foram mencionados na sua resposta.',
+    '- Se não tiver produtos relevantes, informe o usuário educadamente.',
+    '- Se for uma comparação, destaque as diferenças técnicas.',
+    '- Responda sempre em português brasileiro.',
+    '- Seja técnico e objetivo.',
+  ]
+
+  parts.push(rules.join('\n'))
+  return parts.filter(Boolean).join('\n\n')
+}
+
+function buildMessages(
+  query: string,
+  context: any,
+  systemPrompt: string,
+): Array<{ role: string; content: string }> {
+  const messages: Array<{ role: string; content: string }> = [
+    { role: 'system', content: systemPrompt },
+  ]
+
+  if (context.history && context.history.length > 0) {
+    for (const h of context.history.slice(-10)) {
+      messages.push({
+        role: h.role,
+        content: h.content || h.message || '',
+      })
+    }
+  }
+
+  let userContent = query
+
+  if (context.products && context.products.length > 0) {
+    userContent += '\n\nProdutos relevantes do catálogo:\n'
+    for (const p of context.products) {
+      const usdPrice =
+        p.price_usd && p.price_usd > 0
+          ? Number(p.price_usd).toLocaleString('en-US', {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })
+          : null
+      const natPrice =
+        p.price_nationalized_sales && p.price_nationalized_sales > 0
+          ? Number(p.price_nationalized_sales).toLocaleString(
+              p.price_nationalized_currency === 'BRL' ? 'pt-BR' : 'en-US',
+              { minimumFractionDigits: 2, maximumFractionDigits: 2 },
+            )
+          : null
+      const brlRefPrice =
+        !natPrice && p.price_brl && p.price_brl > 0
+          ? Number(p.price_brl).toLocaleString('en-US', {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })
+          : null
+
+      userContent += `- ${p.name}`
+      if (usdPrice) userContent += ` | Preço USA (retirada Miami): US$${usdPrice}`
+      if (natPrice)
+        userContent += ` | Preço Brasil (entrega SP): ${
+          p.price_nationalized_currency === 'BRL' ? 'R$' : 'US$'
+        }${natPrice}`
+      if (brlRefPrice) userContent += ` | Preço Brasil (referência): US$${brlRefPrice}`
+      userContent += '\n'
+    }
+  }
+
+  if (context.contextualProductData) {
+    userContent += '\n\nProduto atual da página:\n'
+    userContent += JSON.stringify(
+      {
+        id: context.contextualProductData.id,
+        name: context.contextualProductData.name,
+        price_usd: context.contextualProductData.price_usd,
+        manufacturer: context.contextualProductData.manufacturer,
+      },
+      null,
+      2,
+    )
+    userContent +=
+      '\n(Produto atual da página - NÃO incluir nos produtos referenciados, a menos que o usuário pergunte especificamente sobre ele)'
+  }
+
+  messages.push({ role: 'user', content: userContent })
+  return messages
+}
+
+function parseAIResponse(response: any, products: any[]): any {
+  const content = typeof response === 'string' ? response : response?.content || ''
+
+  return {
+    content: content.trim(),
+    confidence_level: response?.confidence_level || 'medium',
+    should_show_whatsapp_button: response?.should_show_whatsapp_button ?? true,
+    referenced_internal_products: Array.isArray(response?.referenced_internal_products)
+      ? response.referenced_internal_products
+      : (products || []).map((p: any) => p.id),
+    ai_referenced_products: Array.isArray(response?.ai_referenced_products)
+      ? response.ai_referenced_products
+      : [],
+  }
+}
+
+// GenerateResponse pública — aceita AMBOS os formatos:
+//   Formato novo: generateResponse(messages[], options?)
+//   Formato antigo: generateResponse(query, context, undefined, supabase)
 export async function generateResponse(
+  queryOrMessages: string | Array<{ role: string; content: string }>,
+  contextOrOptions?: any,
+  _unused?: any,
+  supabase?: any,
+): Promise<any> {
+  // Se for array, é o formato novo (mensagens já montadas)
+  if (Array.isArray(queryOrMessages)) {
+    const content = await _callAIProvider(queryOrMessages, contextOrOptions || {})
+    return { content }
+  }
+
+  // Se for string, é o formato antigo (query + contexto)
+  const context = contextOrOptions || {}
+  const systemPrompt = buildSystemPrompt(context)
+  const messages = buildMessages(queryOrMessages, context, systemPrompt)
+  const content = await _callAIProvider(messages, { temperature: 0.3 })
+  return parseAIResponse({ content }, context.products || [])
+}
+
+async function _callAIProvider(
   messages: Array<{ role: string; content: string }>,
   options: { temperature?: number; provider?: AIProvider } = {},
 ): Promise<string> {

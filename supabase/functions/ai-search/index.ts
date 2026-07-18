@@ -541,7 +541,8 @@ Deno.serve(async (req: Request) => {
         })
       }
 
-      const fullSearchResults = isHPMode ? await searchPromise : []
+      // full_search_results para cards: usa level1Products (ou cards) em vez do searchPromise
+      const fullSearchResults = isHPMode ? cards || level1Products || [] : []
 
       if (lastReferencedProductId) {
         const idxRef = referencedInternalProducts.indexOf(lastReferencedProductId)
@@ -634,8 +635,11 @@ Deno.serve(async (req: Request) => {
       if (intent === 'comparison' && searchTerms.length > 0) {
         const terms = searchTerms.map((t) => t.toLowerCase())
         const matched = products.filter((p) => {
-          const name = p.name.toLowerCase()
-          return terms.some((t) => name.includes(t))
+          const name = (p.name || '').toLowerCase()
+          const sku = (p.sku || '').toLowerCase()
+          const manufacturer = (p.manufacturer || '').toLowerCase()
+          const searchText = `${name} ${sku} ${manufacturer}`
+          return terms.some((t) => searchText.includes(t))
         })
         if (matched.length > 0) {
           return { featured: matched, cards: matched }
@@ -679,6 +683,12 @@ Deno.serve(async (req: Request) => {
     if (level1Products.length > 0) {
       logCascade('C', 'products', true, query, `products=${level1Products.length}`)
 
+      console.log(
+        '[price-check] level1Products names:',
+        JSON.stringify(
+          level1Products.map((p: any) => ({ id: p.id, name: p.name?.substring(0, 80) })),
+        ),
+      )
       // ── Curadoria: featured (texto) vs cards (exibição) ──
       const { featured, cards } = curateProducts(
         level1Products,

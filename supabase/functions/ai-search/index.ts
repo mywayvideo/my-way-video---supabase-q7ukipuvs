@@ -771,21 +771,33 @@ Deno.serve(async (req: Request) => {
           entity.toLowerCase().includes(nameLower) || nameLower.includes(entity.toLowerCase()),
       )
     })
+
     if (matchedManufacturers.length > 0) {
-      logCascade('D', 'manufacturers', true, query, `manufacturers=${matchedManufacturers.length}`)
-      aiResult = await generateResponse(
-        query,
-        {
-          agentSettings,
-          aiSettings,
-          manufacturerList: matchedManufacturers.join(', '),
-          history,
-          products: [],
-        },
-        undefined,
-        supabase,
-      )
-      return await persistAndReturn(aiResult, 'manufacturers')
+      // GUARDA: Se Stage C já encontrou produtos, pula Stage D
+      if (level1Products.length > 0) {
+        logCascade('D', 'manufacturers', false, query, '(skipped: Stage C already found products)')
+      } else {
+        logCascade(
+          'D',
+          'manufacturers',
+          true,
+          query,
+          `manufacturers=${matchedManufacturers.length}`,
+        )
+        aiResult = await generateResponse(
+          query,
+          {
+            agentSettings,
+            aiSettings,
+            manufacturerList: matchedManufacturers.join(', '),
+            history,
+            products: [],
+          },
+          undefined,
+          supabase,
+        )
+        return await persistAndReturn(aiResult, 'manufacturers')
+      }
     }
 
     const isRelevant = checkKeywordRelevance(

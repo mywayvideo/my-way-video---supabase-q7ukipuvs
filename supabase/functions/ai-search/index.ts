@@ -354,14 +354,110 @@ Deno.serve(async (req: Request) => {
         JSON.stringify(searchEntities),
       )
     }
+    // === DETECÇÃO DE QUERY COMPARATIVA ===
+    // Se a query contém palavras-chave de comparação, extrai entidades
+    // e faz múltiplas chamadas ao search_products_v2
+    async function executeComparisonSearch(query: string, supabase: any): Promise<any[]> {
+      const lowerQuery = query.toLowerCase()
+
+      // Detecta padrões de comparação
+      const comparisonPatterns = [
+        /compare\s+(.+?)\s+(?:com|e|vs|versus|contra|x)\s+(.+)/i,
+        /comparar\s+(.+?)\s+(?:com|e|vs|versus|contra|x)\s+(.+)/i,
+        /(.+?)\s+(?:vs|versus|x|ou)\s+(.+)/i,
+        /melhores?\s+(.+?)\s+(?:e|com)\s+(.+)/i,
+        /diferença\s+(?:entre\s+)?(.+?)\s+(?:e|com)\s+(.+)/i,
+      ]
+
+      let match: RegExpExecArray | null = null
+      for (const pattern of comparisonPatterns) {
+        match = pattern.exec(lowerQuery)
+        if (match) break
+      }
+
+      // Se não detectou padrão de comparação, retorna array vazio
+      // (o fluxo normal segue sem essa lógica)
+      if (!match) return []
+
+      // Extrai as duas partes da comparação
+      const part1 = match[1]
+        .trim()
+        .replace(/\b(d[aeo]s?\s*)?(melhor|melhores)\b/g, '')
+        .trim()
+      const part2 = match[2]
+        .trim()
+        .replace(/\b(d[aeo]s?\s*)?(melhor|melhores)\b/g, '')
+        .trim()
+
+      // Extrai fabricantes/termos relevantes de cada parte
+      const manufacturerPatterns = ['sony', 'canon', 'datavideo', 'panasonic', 'jvc', 'blackmagic']
+
+      const terms1 = manufacturerPatterns.filter((t) => part1.includes(t))
+      const terms2 = manufacturerPatterns.filter((t) => part2.includes(t))
+
+      // Se não conseguiu extrair fabricantes claros, usa os termos brutos
+      const searchTerms1 = terms1.length > 0 ? terms1.join(' ') : part1
+      const searchTerms2 = terms2.length > 0 ? terms2.join(' ') : part2
+
+      // Adiciona "ptz 4k" se não estiver presente
+      const baseQuery = lowerQuery.includes('ptz') ? '' : 'ptz '
+      const q1 = `${baseQuery}${lowerQuery.includes('4k') ? '' : '4k '}${searchTerms1}`
+      const q2 = `${baseQuery}${lowerQuery.includes('4k') ? '' : '4k '}${searchTerms2}`
+
+      console.log(`[comparison] Split query: "${q1}" | "${q2}"`)
+
+      // Executa as duas queries em PARALELO
+      const [result1, result2] = await Promise.all([
+        supabase.rpc('search_products_v2', { search_term: q1, boost_multiplier: 1.0 }),
+        supabase.rpc('search_products_v2', { search_term: q2, boost_multiplier: 1.0 }),
+      ])
+
+      // Extrai IDs de cada resultado
+      const ids1 = (result1.data || []).map((p: any) => p.id)
+      const ids2 = (result2.data || []).map((p: any) => p.id)
+
+      // Une e deduplica
+      const allIds = [...new Set([...ids1, ...ids2])]
+
+      if (allIds.length === 0) return []
+
+      // Busca os produtos completos
+      const { data: fullProducts } = await supabase.from('products').select('*').in('id', allIds)
+
+      // Preserva a ordem: produtos da query 1 primeiro, depois query 2
+      const orderedIds = [...ids1, ...ids2.filter((id: string) => !ids1.includes(id))]
+
+      const result = orderedIds
+        .map((id: string) => (fullProducts || []).find((p: any) => p.id === id))
+        .filter(Boolean)
+
+      console.log(`[comparison] Total unique products: ${result.length}`)
+      return result
+    }
 
     let level1Products: any[] = []
     if (classificationIntent === 'categorizar' && query && query.trim().length > 0) {
       try {
-        const { data: rpcResults, error: rpcError } = await supabase.rpc('search_products_v2', {
-          search_term: query,
-          boost_multiplier: 1.0,
-        })
+        // Tenta query comparativa PRIMEIRO
+        const comparisonResults = await executeComparisonSearch(query, supabase)
+
+        let rpcResults: any[]
+        let rpcError: any
+
+        if (comparisonResults.length > 0) {
+          // Modo COMPARAÇÃO: usa resultados combinados
+          rpcResults = comparisonResults
+          rpcError = null
+          console.log(`[cascata] Stage C: comparison mode — ${comparisonResults.length} products`)
+        } else {
+          // Modo NORMAL: chamada única ao RPC
+          const result = await supabase.rpc('search_products_v2', {
+            search_term: query,
+            boost_multiplier: 1.0,
+          })
+          rpcResults = result.data || []
+          rpcError = result.error
+        }
 
         if (rpcError) {
           console.error('[ai-search] search_products_v2 RPC error:', rpcError)

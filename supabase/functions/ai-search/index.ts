@@ -431,16 +431,28 @@ Deno.serve(async (req: Request) => {
       return result
     }
 
+    // ── Variáveis de escopo do handler ──
     let level1Products: any[] = []
     let featured: any[] = []
     let cards: any[] = []
+    let aiResult: any = { content: '' }
+    let contextForAI: any = {
+      agentSettings,
+      aiSettings,
+      products: [],
+      manufacturerList: [],
+      history,
+      currentProductId: lastReferencedProductId,
+      contextualProductData,
+      productPagePrompt: productPagePrompt || undefined,
+      currentProductContext: currentProductContext || undefined,
+    }
     const SEARCHABLE = ['categorizar', 'catalog', 'comparison', 'specs', 'product', 'features']
 
     if (SEARCHABLE.includes(classificationIntent) && query && query.trim().length > 0) {
       try {
         // 1. Busca os produtos
         const comparisonResults = await executeComparisonSearch(query, supabase)
-
         let rpcResults: any[]
         let rpcError: any
 
@@ -458,7 +470,7 @@ Deno.serve(async (req: Request) => {
         }
 
         // 2. Popula level1Products
-        if (rpcResults && Array.isArray(rpcResults) && rpcResults.length > 0) {
+        if (!rpcError && rpcResults && Array.isArray(rpcResults) && rpcResults.length > 0) {
           const orderedIds: string[] = rpcResults.map((p: any) => p.id)
           const { data: fullProducts, error: fetchError } = await supabase
             .from('products')
@@ -473,18 +485,30 @@ Deno.serve(async (req: Request) => {
           }
         }
 
-        // 3. SÓ AGORA faz o curateProducts
-        const result = curateProducts(
+        // 3. Curadoria
+        const curated = curateProducts(
           level1Products,
           classificationIntent,
           classificationTerms,
           query,
         )
-        featured = result.featured
-        cards = result.cards
-      } catch (err: any) {
-        console.error('[ai-search] search_products_v2 failed:', err?.message || err)
-        level1Products = []
+        featured = curated.featured
+        cards = curated.cards
+
+        // 4. Contexto para IA
+        contextForAI = {
+          agentSettings,
+          aiSettings,
+          products: featured,
+          manufacturerList,
+          history,
+          currentProductId: lastReferencedProductId,
+          contextualProductData,
+          productPagePrompt: productPagePrompt || undefined,
+          currentProductContext: currentProductContext || undefined,
+        }
+      } catch (err) {
+        console.error('[cascata] Stage C error:', err)
       }
     }
 

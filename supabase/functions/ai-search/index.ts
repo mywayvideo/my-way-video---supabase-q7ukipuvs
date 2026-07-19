@@ -457,13 +457,24 @@ Deno.serve(async (req: Request) => {
 
         if (comparisonResults.length > 0) {
           // ═══ MODO COMPARAÇÃO ═══
-          // Pula curateProducts — os resultados já vêm filtrados pelo RPC
+          // Pula curateProducts completamente — os resultados já vêm corretos do RPC
           level1Products = comparisonResults
-          featured = comparisonResults // ← USA DIRETO, sem curateProducts!
-          cards = comparisonResults // ← USA DIRETO, sem curateProducts!
+          featured = comparisonResults
+          cards = comparisonResults
+
           console.log(`[cascata] Stage C: comparison mode — ${comparisonResults.length} products`)
+          console.log(
+            `[price-check] comparison products:`,
+            JSON.stringify(
+              comparisonResults.map((p: any) => ({
+                id: p.id,
+                name: p.name?.substring(0, 60),
+                price_usd: p.price_usd,
+              })),
+            ),
+          )
         } else {
-          // ═══ MODO NORMAL ═══
+          // ═══ MODO NORMAL ═══ (NUNCA executa se comparação achou produtos)
           const result = await supabase.rpc('search_products_v2', {
             search_term: query,
             boost_multiplier: 1.0,
@@ -486,7 +497,7 @@ Deno.serve(async (req: Request) => {
             }
           }
 
-          // Curadoria (só no modo normal)
+          // Curadoria SÓ no modo normal
           const curated = curateProducts(
             level1Products,
             classificationIntent,
@@ -497,11 +508,11 @@ Deno.serve(async (req: Request) => {
           cards = curated.cards
         }
 
-        // Contexto para IA — usa featured/cards (que em modo comparação = comparisonResults)
+        // Contexto para IA — usa featured (que em modo comparação = comparisonResults)
         contextForAI = {
           agentSettings,
           aiSettings,
-          products: featured, // ← AGORA tem Canon C50 + Sony FX6!
+          products: featured,
           manufacturerList,
           history,
           currentProductId: lastReferencedProductId,

@@ -434,15 +434,25 @@ Deno.serve(async (req: Request) => {
       if (allIds.length === 0) return []
 
       // Busca os produtos completos
-      const { data: fullProducts } = await supabase.from('products').select('*').in('id', allIds)
+      const { data: fullProducts } = await supabase
+        .from('products')
+        .select('*, manufacturers(name)') // ← JOINS COM FABRICANTE
+        .in('id', allIds)
 
       // Preserva a ordem: produtos da query 1 primeiro, depois query 2
       const orderedIds = [...ids1, ...ids2.filter((id: string) => !ids1.includes(id))]
 
       const result = orderedIds
-        .map((id: string) => (fullProducts || []).find((p: any) => p.id === id))
+        .map((id: string) => {
+          const p = (fullProducts || []).find((p: any) => p.id === id)
+          if (!p) return null
+          return {
+            ...p,
+            manufacturer: p.manufacturers?.name || p.manufacturer || null,
+          }
+        })
         .filter(Boolean)
-        .slice(0, 10) // ← LIMITE: no máximo 10 produtos (5 de cada lado)
+        .slice(0, 10)
 
       console.log(`[comparison] Total unique products: ${result.length}`)
       return result
@@ -562,7 +572,7 @@ Deno.serve(async (req: Request) => {
             const orderedIds: string[] = rpcResults.map((p: any) => p.id)
             const { data: fullProducts, error: fetchError } = await supabase
               .from('products')
-              .select('*')
+              .select('*, manufacturers(name)')
               .in('id', orderedIds)
 
             if (!fetchError && fullProducts) {

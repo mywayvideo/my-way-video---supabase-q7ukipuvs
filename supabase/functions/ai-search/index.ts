@@ -42,6 +42,13 @@ function logCascade(stage: string, type: string, matched: boolean, query: string
   )
 }
 
+function applyCustomStopWords(q: string, stopWords: string[]): string {
+  if (!q || stopWords.length === 0) return q
+  const words = q.split(/\s+/)
+  const stopSet = new Set(stopWords.map((w) => w.trim().toLowerCase()))
+  return words.filter((w) => !stopSet.has(w.toLowerCase())).join(' ')
+}
+
 // ── Sanitize: remove tags internas ──
 function sanitizeInstitutional(raw: string): string {
   if (!raw) return ''
@@ -191,6 +198,9 @@ Deno.serve(async (req: Request) => {
       .select('*')
       .maybeSingle()
     const { data: aiSettings } = await supabase.from('ai_settings').select('*').maybeSingle()
+    const customStopWords: string[] = Array.isArray(aiSettings?.custom_stop_words)
+      ? aiSettings.custom_stop_words
+      : []
     const { data: globalSettings } = await supabase.from('settings').select('key, value')
     const { data: companyInfoRows } = await supabase.from('company_info').select('content, type')
     const { data: avproKeywords } = await supabase
@@ -512,13 +522,34 @@ Deno.serve(async (req: Request) => {
           // ═══ MODO NORMAL ═══
 
           // Injeção de contexto PP
-          let enrichedQuery = query
+          let enrichedQuery = applyCustomStopWords(
+            isHPMode ? cleanPortugueseGenericWords(query) : query,
+            customStopWords,
+          )
+          // 🔥 ADICIONA os termos do classificador (IA) para enriquecer a busca
+          if (classificationTerms.length > 0) {
+            const enriched = `${enrichedQuery} ${classificationTerms.join(' ')}`
+            console.log(
+              `[enriched-query] original="${enrichedQuery}" AI_terms=[${classificationTerms.join(', ')}] enriched="${enriched}"`,
+            )
+            enrichedQuery = enriched
+          }
+          console.log(
+            `[enriched-query] original="${query}" cleaned="${isHPMode ? cleanPortugueseGenericWords(query) : query}" afterStopWords="${enrichedQuery}" mode=${isHPMode ? 'HP' : 'PP'}`,
+          )
           if (currentProductContext?.name) {
             const manufacturer = currentProductContext.name.split(' ')[0]
-            enrichedQuery = `${query} ${manufacturer}`
-            console.log(
-              `[pp-context] enriched query: "${query}" → "${enrichedQuery}" (manufacturer: ${manufacturer})`,
+            enrichedQuery = applyCustomStopWords(
+              `${isHPMode ? cleanPortugueseGenericWords(query) : query} ${manufacturer}`,
+              customStopWords,
             )
+            // 🔥 TAMBÉM adiciona no caso PP
+            if (classificationTerms.length > 0) {
+              enrichedQuery = `${enrichedQuery} ${classificationTerms.join(' ')}`
+            }
+            console.log(`[enriched-query] manufacturer="${manufacturer}" final="${enrichedQuery}"`)
+          } else {
+            console.log(`[enriched-query] no manufacturer context, final="${enrichedQuery}"`)
           }
 
           const result = await supabase.rpc('search_products_v2', {

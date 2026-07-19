@@ -456,22 +456,33 @@ Deno.serve(async (req: Request) => {
         const comparisonResults = await executeComparisonSearch(query, supabase)
 
         if (comparisonResults.length > 0) {
-          // ═══ MODO COMPARAÇÃO ═══
-          // Pula curateProducts completamente — os resultados já vêm corretos do RPC
           level1Products = comparisonResults
           featured = comparisonResults
           cards = comparisonResults
 
           console.log(`[cascata] Stage C: comparison mode — ${comparisonResults.length} products`)
-          console.log(
-            `[price-check] comparison products:`,
-            JSON.stringify(
-              comparisonResults.map((p: any) => ({
-                id: p.id,
-                name: p.name?.substring(0, 60),
-                price_usd: p.price_usd,
-              })),
-            ),
+
+          contextForAI = {
+            agentSettings,
+            aiSettings,
+            products: featured,
+            manufacturerList,
+            history,
+            currentProductId: lastReferencedProductId,
+            contextualProductData,
+            productPagePrompt: productPagePrompt || undefined,
+            currentProductContext: currentProductContext || undefined,
+          }
+
+          aiResult = await generateResponse(query, contextForAI, undefined, supabase)
+          return await persistAndReturn(
+            {
+              ...aiResult,
+              referenced_internal_products: cards.map((p: any) => p.id),
+              ai_referenced_count: cards.length,
+              full_search_results: cards.length || level1Products.length,
+            },
+            'products',
           )
         } else {
           // ═══ MODO NORMAL ═══ (NUNCA executa se comparação achou produtos)

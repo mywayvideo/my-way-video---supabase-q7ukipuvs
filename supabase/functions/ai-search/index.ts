@@ -477,12 +477,14 @@ Deno.serve(async (req: Request) => {
     // ── Stage C: Search Products ──
     if (SEARCHABLE.includes(classificationIntent) && query && query.trim().length > 0) {
       try {
-        // Enriquece a query com classificationTerms também para o modo comparação (HP)
-        const comparisonQuery =
-          classificationTerms.length > 0 ? `${query} ${classificationTerms.join(' ')}` : query
+        // MODO COMPARAÇÃO: usa APENAS query limpa via stop words, SEM classificationTerms
+        const comparisonQuery = applyCustomStopWords(
+          cleanPortugueseGenericWords(query),
+          customStopWords
+        )
 
         console.log(
-          `[cascata][comparison] original="${query}" enriched="${comparisonQuery}" AI_terms=[${classificationTerms.join(', ')}]`,
+          `[cascata][comparison] original="${query}" cleaned="${comparisonQuery}"`,
         )
 
         const comparisonResults = await executeComparisonSearch(comparisonQuery, supabase)
@@ -535,7 +537,7 @@ Deno.serve(async (req: Request) => {
 
           let enrichedQuery = applyCustomStopWords(
             isHPMode ? cleanPortugueseGenericWords(query) : query,
-            customStopWords,
+            customStopWords
           )
           console.log(
             `[enriched-query] original="${query}" cleaned="${isHPMode ? cleanPortugueseGenericWords(query) : query}" afterStopWords="${enrichedQuery}" mode=${isHPMode ? 'HP' : 'PP'}`,
@@ -544,7 +546,7 @@ Deno.serve(async (req: Request) => {
             const manufacturer = currentProductContext.name.split(' ')[0]
             enrichedQuery = applyCustomStopWords(
               `${isHPMode ? cleanPortugueseGenericWords(query) : query} ${manufacturer}`,
-              customStopWords,
+              customStopWords
             )
             console.log(`[enriched-query] manufacturer="${manufacturer}" final="${enrichedQuery}"`)
           } else {
@@ -573,15 +575,42 @@ Deno.serve(async (req: Request) => {
             }
           }
 
-          // Curadoria SÓ no modo normal
-          const curated = curateProducts(
-            level1Products,
-            classificationIntent,
-            classificationTerms,
-            query,
+          // Curadoria com diversidade de fabricantes
+          const MAX_PER_MANUFACTURER = 2
+          const MAX_TOTAL_CARDS = 10
+          const productsByManufacturer = new Map()
+          for (const product of level1Products) {
+            const manufacturer = (product.manufacturer || product.brand || 'Outros').trim()
+            if (!productsByManufacturer.has(manufacturer)) {
+              productsByManufacturer.set(manufacturer, [])
+            }
+            productsByManufacturer.get(manufacturer).push(product)
+          }
+          const manufacturerEntries = Array.from(productsByManufacturer.entries())
+          manufacturerEntries.sort((a, b) => b[1].length - a[1].length)
+          const balancedProducts: any[] = []
+          let index = 0
+          let allExhausted = false
+          while (balancedProducts.length < MAX_TOTAL_CARDS && !allExhausted) {
+            allExhausted = true
+            for (const [mfr, products] of manufacturerEntries) {
+              if (index < products.length && balancedProducts.length < MAX_TOTAL_CARDS) {
+                const countForBrand = balancedProducts.filter(p =>
+                  (p.manufacturer || p.brand || 'Outros').trim() === mfr
+                ).length
+                if (countForBrand < MAX_PER_MANUFACTURER) {
+                  balancedProducts.push(products[index])
+                  allExhausted = false
+                }
+              }
+            }
+            index++
+          }
+          featured = balancedProducts
+          cards = balancedProducts
+          console.log(
+            `[curation] total=${level1Products.length} balanced=${balancedProducts.length} manufacturers=[${manufacturerEntries.map(([m, p]) => `${m}(${p.length})`).join(', ')}]`,
           )
-          featured = curated.featured
-          cards = curated.cards
 
           // ═══ NOVO: gerar resposta e retornar AQUI mesmo (igual ao modo comparação) ═══
           contextForAI = {
@@ -836,21 +865,41 @@ Deno.serve(async (req: Request) => {
       )
     }
 
-    if (level1Products.length > 0) {
-      logCascade('C', 'products', true, query, `products=${level1Products.length}`)
-
+      // Curadoria com diversidade de fabricantes
+      const MAX_PER_MANUFACTURER = 2
+      const MAX_TOTAL_CARDS = 10
+      const productsByManufacturer = new Map()
+      for (const product of level1Products) {
+        const manufacturer = (product.manufacturer || product.brand || 'Outros').trim()
+        if (!productsByManufacturer.has(manufacturer)) {
+          productsByManufacturer.set(manufacturer, [])
+        }
+        productsByManufacturer.get(manufacturer).push(product)
+      }
+      const manufacturerEntries = Array.from(productsByManufacturer.entries())
+      manufacturerEntries.sort((a, b) => b[1].length - a[1].length)
+      const balancedProducts = []
+      let index = 0
+      let allExhausted = false
+      while (balancedProducts.length < MAX_TOTAL_CARDS && !allExhausted) {
+        allExhausted = true
+        for (const [mfr, products] of manufacturerEntries) {
+          if (index < products.length && balancedProducts.length < MAX_TOTAL_CARDS) {
+            const countForBrand = balancedProducts.filter(p =>
+              (p.manufacturer || p.brand || 'Outros').trim() === mfr
+            ).length
+            if (countForBrand < MAX_PER_MANUFACTURER) {
+              balancedProducts.push(products[index])
+              allExhausted = false
+            }
+          }
+        }
+        index++
+      }
+      const featured = balancedProducts
+      const cards = balancedProducts
       console.log(
-        '[price-check] level1Products names:',
-        JSON.stringify(
-          level1Products.map((p: any) => ({ id: p.id, name: p.name?.substring(0, 80) })),
-        ),
-      )
-      // ── Curadoria: featured (texto) vs cards (exibição) ──
-      const { featured, cards } = curateProducts(
-        level1Products,
-        classificationIntent,
-        classificationTerms,
-        query,
+        `[curation] total=${level1Products.length} balanced=${balancedProducts.length} manufacturers=[${manufacturerEntries.map(([m, p]) => `${m}(${p.length})`).join(', ')}]`,
       )
 
       // Monta o contexto para a IA
@@ -908,117 +957,6 @@ Deno.serve(async (req: Request) => {
       )
     }
 
-    const manufacturerNames = manufacturers ? manufacturers.map((m) => m.name) : []
-    const matchedManufacturers = manufacturerNames.filter((name) => {
-      const nameLower = name.toLowerCase()
-      return searchEntities.some(
-        (entity) =>
-          entity.toLowerCase().includes(nameLower) || nameLower.includes(entity.toLowerCase()),
-      )
-    })
-
-    // ── Stage D: Fallback Manufacturers ──
-    if (matchedManufacturers.length > 0) {
-      if (level1Products.length > 0) {
-        logCascade('D', 'manufacturers', false, query, '(skipped: Stage C already found products)')
-      } else {
-        logCascade(
-          'D',
-          'manufacturers',
-          true,
-          query,
-          `manufacturers=${matchedManufacturers.length}`,
-        )
-        aiResult = await generateResponse(
-          query,
-          {
-            agentSettings,
-            aiSettings,
-            manufacturerList: matchedManufacturers.join(', '),
-            history,
-            products: [],
-          },
-          undefined,
-          supabase,
-        )
-        return await persistAndReturn(aiResult, 'manufacturers')
-      }
-    }
-
-    // ── Stage E: Fallback Keywords ──
-    // Só executa se Stage C não encontrou produtos (senão o checkKeywordRelevance pode bloquear)
-    if (level1Products.length > 0) {
-      logCascade('E', 'keywords', false, query, '(skipped: Stage C already found products)')
-    } else {
-      const { isBlocked, relevanceScore } = checkKeywordRelevance(query, keywordList)
-
-      if (isBlocked) {
-        logCascade('E', 'keywords', true, query, 'matched=false (blocked)')
-        return OUT_OF_SCOPE_MESSAGE
-      }
-
-      if (relevanceScore > 0) {
-        logCascade('E', 'keywords', true, query, `matched=true (score=${relevanceScore})`)
-        aiResult = await generateResponse(
-          query,
-          {
-            agentSettings,
-            aiSettings,
-            keywordContext: `Consulta relacionada a: ${query}`,
-            history,
-            products: level1Products,
-          },
-          undefined,
-          supabase,
-        )
-        return await persistAndReturn(aiResult, 'keywords')
-      }
-
-      // relevanceScore === 0 → cai no Stage F
-      logCascade('E', 'keywords', false, query, `(skipped: score=0)`)
-    }
-
-    // ── Stage F: Fallback General ──
-    logCascade('F', 'general', true, query, 'matched=true (fallback)')
-    aiResult = await generateResponse(
-      query,
-      {
-        agentSettings,
-        aiSettings,
-        institutionalContext,
-        manufacturerList,
-        history,
-        products: level1Products,
-      },
-      undefined,
-      supabase,
-    )
-    return await persistAndReturn(aiResult, 'general')
-
-    const isRelevant = checkKeywordRelevance(
-      searchQuery,
-      keywordList.map((k: any) => k.keyword),
-    )
-    if (!isRelevant) {
-      logCascade('E', 'keywords', false, query, '(blocked)')
-      return outOfScopeResponse()
-    }
-
-    logCascade('E', 'keywords', true, query, `relevance=true`)
-    aiResult = await generateResponse(
-      query,
-      {
-        agentSettings,
-        aiSettings,
-        institutionalContext,
-        manufacturerList,
-        history,
-        products: level1Products,
-      },
-      undefined,
-      supabase,
-    )
-    return await persistAndReturn(aiResult, 'keywords')
   } catch (error: any) {
     console.error('[ERRO GLOBAL]', error)
     return new Response(

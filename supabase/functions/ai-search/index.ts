@@ -476,15 +476,14 @@ Deno.serve(async (req: Request) => {
 
     // ── Stage C: Search Products ──
     if (SEARCHABLE.includes(classificationIntent) && query && query.trim().length > 0) {
+      try {
         // MODO COMPARAÇÃO: usa APENAS query limpa via stop words, SEM classificationTerms
         const comparisonQuery = applyCustomStopWords(
           cleanPortugueseGenericWords(query),
-          customStopWords
+          customStopWords,
         )
 
-        console.log(
-          `[cascata][comparison] original="${query}" cleaned="${comparisonQuery}"`,
-        )
+        console.log(`[cascata][comparison] original="${query}" cleaned="${comparisonQuery}"`)
 
         const comparisonResults = await executeComparisonSearch(comparisonQuery, supabase)
 
@@ -536,7 +535,7 @@ Deno.serve(async (req: Request) => {
 
           let enrichedQuery = applyCustomStopWords(
             isHPMode ? cleanPortugueseGenericWords(query) : query,
-            customStopWords
+            customStopWords,
           )
           console.log(
             `[enriched-query] original="${query}" cleaned="${isHPMode ? cleanPortugueseGenericWords(query) : query}" afterStopWords="${enrichedQuery}" mode=${isHPMode ? 'HP' : 'PP'}`,
@@ -545,7 +544,7 @@ Deno.serve(async (req: Request) => {
             const manufacturer = currentProductContext.name.split(' ')[0]
             enrichedQuery = applyCustomStopWords(
               `${isHPMode ? cleanPortugueseGenericWords(query) : query} ${manufacturer}`,
-              customStopWords
+              customStopWords,
             )
             console.log(`[enriched-query] manufacturer="${manufacturer}" final="${enrichedQuery}"`)
           } else {
@@ -594,8 +593,8 @@ Deno.serve(async (req: Request) => {
             allExhausted = true
             for (const [mfr, products] of manufacturerEntries) {
               if (index < products.length && balancedProducts.length < MAX_TOTAL_CARDS) {
-                const countForBrand = balancedProducts.filter(p =>
-                  (p.manufacturer || p.brand || 'Outros').trim() === mfr
+                const countForBrand = balancedProducts.filter(
+                  (p) => (p.manufacturer || p.brand || 'Outros').trim() === mfr,
                 ).length
                 if (countForBrand < MAX_PER_MANUFACTURER) {
                   balancedProducts.push(products[index])
@@ -665,7 +664,9 @@ Deno.serve(async (req: Request) => {
         console.log(
           `[price-check] Stage C final: level1=${level1Products.length} featured=${featured.length} cards=${cards.length}`,
         )
-
+      } catch (err) {
+        console.error('[cascata] Stage C error:', err)
+      }
     }
 
     if (level1Products.length > 0 && isGenericSearch(searchQuery)) {
@@ -861,99 +862,6 @@ Deno.serve(async (req: Request) => {
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 },
       )
     }
-
-      // Curadoria com diversidade de fabricantes
-      const MAX_PER_MANUFACTURER = 2
-      const MAX_TOTAL_CARDS = 10
-      const productsByManufacturer = new Map()
-      for (const product of level1Products) {
-        const manufacturer = (product.manufacturer || product.brand || 'Outros').trim()
-        if (!productsByManufacturer.has(manufacturer)) {
-          productsByManufacturer.set(manufacturer, [])
-        }
-        productsByManufacturer.get(manufacturer).push(product)
-      }
-      const manufacturerEntries = Array.from(productsByManufacturer.entries())
-      manufacturerEntries.sort((a, b) => b[1].length - a[1].length)
-      const balancedProducts = []
-      let index = 0
-      let allExhausted = false
-      while (balancedProducts.length < MAX_TOTAL_CARDS && !allExhausted) {
-        allExhausted = true
-        for (const [mfr, products] of manufacturerEntries) {
-          if (index < products.length && balancedProducts.length < MAX_TOTAL_CARDS) {
-            const countForBrand = balancedProducts.filter(p =>
-              (p.manufacturer || p.brand || 'Outros').trim() === mfr
-            ).length
-            if (countForBrand < MAX_PER_MANUFACTURER) {
-              balancedProducts.push(products[index])
-              allExhausted = false
-            }
-          }
-        }
-        index++
-      }
-      const featured = balancedProducts
-      const cards = balancedProducts
-      console.log(
-        `[curation] total=${level1Products.length} balanced=${balancedProducts.length} manufacturers=[${manufacturerEntries.map(([m, p]) => `${m}(${p.length})`).join(', ')}]`,
-      )
-
-      // Monta o contexto para a IA
-      const contextForAI = {
-        agentSettings,
-        aiSettings,
-        products: featured,
-        manufacturerList,
-        history,
-        currentProductId: lastReferencedProductId,
-        contextualProductData,
-        productPagePrompt: productPagePrompt || undefined,
-        currentProductContext: currentProductContext || undefined,
-      }
-
-      // LOG 1
-      console.log(
-        '[price-check] context products:',
-        JSON.stringify({
-          count: contextForAI.products?.length || 0,
-          first2: (contextForAI.products || []).slice(0, 2).map((p: any) => ({
-            id: p.id,
-            name: p.name?.substring(0, 60),
-            price_usd: p.price_usd,
-            price_brl: p.price_brl,
-          })),
-          hasProducts: 'products' in contextForAI,
-          keys: Object.keys(contextForAI),
-        }),
-      )
-
-      // Cria lookup pelos dados completos do banco (image_url está em level1Products, não em cards)
-      const productLookup = new Map(level1Products.map((p: any) => [p.id, p]))
-
-      return await persistAndReturn(
-        {
-          ...aiResult,
-          referenced_internal_products: cards.map((p: any) => p.id),
-          referenced_product_data: cards.map((p: any) => {
-            const fullProduct = productLookup.get(p.id) || p
-            return {
-              id: fullProduct.id,
-              name: fullProduct.name,
-              image_url: fullProduct.image_url?.includes('bhphotovideo')
-                ? `${IMAGE_PROXY_URL}?url=${encodeURIComponent(fullProduct.image_url)}`
-                : fullProduct.image_url || '',
-              price_usd: fullProduct.price_usd,
-              price_brl: fullProduct.price_brl,
-            }
-          }),
-          ai_referenced_count: cards.length,
-          full_search_results: cards.length || level1Products.length,
-        },
-        'products',
-      )
-    }
-
   } catch (error: any) {
     console.error('[ERRO GLOBAL]', error)
     return new Response(

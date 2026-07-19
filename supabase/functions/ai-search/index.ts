@@ -448,7 +448,15 @@ Deno.serve(async (req: Request) => {
       productPagePrompt: productPagePrompt || undefined,
       currentProductContext: currentProductContext || undefined,
     }
-    const SEARCHABLE = ['categorizar', 'catalog', 'comparison', 'specs', 'product', 'features']
+    const SEARCHABLE = [
+      'categorizar',
+      'catalog',
+      'comparison',
+      'specs',
+      'product',
+      'features',
+      'accessory',
+    ]
 
     // ── Stage C: Search Products ──
     if (SEARCHABLE.includes(classificationIntent) && query && query.trim().length > 0) {
@@ -486,8 +494,21 @@ Deno.serve(async (req: Request) => {
           )
         } else {
           // ═══ MODO NORMAL ═══ (NUNCA executa se comparação achou produtos)
+
+          // ═══ INJEÇÃO DE CONTEXTO PP (Product Page) ═══
+          // Enriquece a query com o nome do produto atual para buscar acessórios compatíveis
+          let enrichedQuery = query
+          if (currentProductContext?.name) {
+            const productBaseName =
+              currentProductContext.name.split('(')[0]?.trim() || currentProductContext.name
+            enrichedQuery = `${query} ${productBaseName}`
+            console.log(
+              `[pp-context] enriched query: "${query}" → "${enrichedQuery}" (based on: ${productBaseName})`,
+            )
+          }
+
           const result = await supabase.rpc('search_products_v2', {
-            search_term: query,
+            search_term: enrichedQuery, // ← ISSO precisa ser enrichedQuery, não query
             boost_multiplier: 1.0,
           })
           const rpcResults = result.data || []

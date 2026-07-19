@@ -15,7 +15,7 @@
     "ai-search": 160,
     "update-exchange-rate": 26,
     "execute_ai_search_v2_pp": 24,
-    "lookup-address": 25,
+    "lookup-address": 27,
     "square-payment": 20,
     "send-email": 16,
     "send-order-email": 16,
@@ -42,10 +42,11 @@
     "ups-get-token": 11,
     "validate-ai-provider": 12,
     "validate-discount-coupon": 11,
-    "validate-image-url": 11,
+    "validate-image-url": 13,
     "validate-ncm-suggestion": 11,
     "validate-payment-token": 11,
     "verify-paypal-payment": 11,
-    "verify-user-role": 11
+    "verify-user-role": 11,
+    "image-proxy": 2
   }
 }

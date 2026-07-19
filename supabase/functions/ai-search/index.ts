@@ -496,14 +496,15 @@ Deno.serve(async (req: Request) => {
           // ═══ MODO NORMAL ═══ (NUNCA executa se comparação achou produtos)
 
           // ═══ INJEÇÃO DE CONTEXTO PP (Product Page) ═══
-          // Enriquece a query com o nome do produto atual para buscar acessórios compatíveis
+          // Enriquece a query com o FABRICANTE do produto atual para buscar acessórios compatíveis
+          // (usar o nome completo do produto com bool_and no RPC não funciona para acessórios,
+          //  pois eles não contêm o modelo exato no nome)
           let enrichedQuery = query
           if (currentProductContext?.name) {
-            const productBaseName =
-              currentProductContext.name.split('(')[0]?.trim() || currentProductContext.name
-            enrichedQuery = `${query} ${productBaseName}`
+            const manufacturer = currentProductContext.name.split(' ')[0]
+            enrichedQuery = `${query} ${manufacturer}`
             console.log(
-              `[pp-context] enriched query: "${query}" → "${enrichedQuery}" (based on: ${productBaseName})`,
+              `[pp-context] enriched query: "${query}" → "${enrichedQuery}" (manufacturer: ${manufacturer})`,
             )
           }
 

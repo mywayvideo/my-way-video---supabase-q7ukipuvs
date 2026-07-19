@@ -476,7 +476,6 @@ Deno.serve(async (req: Request) => {
 
     // ── Stage C: Search Products ──
     if (SEARCHABLE.includes(classificationIntent) && query && query.trim().length > 0) {
-      try {
         // MODO COMPARAÇÃO: usa APENAS query limpa via stop words, SEM classificationTerms
         const comparisonQuery = applyCustomStopWords(
           cleanPortugueseGenericWords(query),
@@ -666,9 +665,7 @@ Deno.serve(async (req: Request) => {
         console.log(
           `[price-check] Stage C final: level1=${level1Products.length} featured=${featured.length} cards=${cards.length}`,
         )
-      } catch (err) {
-        console.error('[cascata] Stage C error:', err)
-      }
+
     }
 
     if (level1Products.length > 0 && isGenericSearch(searchQuery)) {

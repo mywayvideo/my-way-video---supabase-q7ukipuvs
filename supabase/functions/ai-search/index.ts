@@ -391,8 +391,32 @@ Deno.serve(async (req: Request) => {
         if (match) break
       }
 
-      // Se não detectou padrão de comparação, retorna array vazio
-      // (o fluxo normal segue sem essa lógica)
+      // ✅ NOVO BLOCO AQUI:
+      // Se não detectou padrão A vs B, mas está em PP
+      if (!match && currentProductContext) {
+        console.log(`[comparison] PP mode — single target search: "${query}"`)
+        const searchResult = await supabase.rpc('search_products_v2', {
+          search_term: query,
+          boost_multiplier: 1.0,
+        })
+        const foundProducts = searchResult.data || []
+        if (foundProducts.length > 0) {
+          const targetIds = foundProducts.map((p: any) => p.id)
+          const { data: fullProducts } = await supabase
+            .from('products')
+            .select('*, manufacturer_id, manufacturers!inner(name)')
+            .in('id', targetIds)
+
+          const mappedProducts = (fullProducts || []).map((p: any) => ({
+            ...p,
+            manufacturer: p.manufacturers?.name || p.manufacturer || null,
+          }))
+
+          return mappedProducts.slice(0, 10)
+        }
+      }
+
+      // Se não detectou padrão E não está em PP, retorna vazio
       if (!match) return []
 
       // Extrai as duas partes da comparação
@@ -551,14 +575,27 @@ Deno.serve(async (req: Request) => {
             `[enriched-query] original="${query}" cleaned="${isHPMode ? cleanPortugueseGenericWords(query) : query}" afterStopWords="${enrichedQuery}" mode=${isHPMode ? 'HP' : 'PP'}`,
           )
           if (currentProductContext?.name) {
-            const manufacturer = currentProductContext.name.split(' ')[0]
-            enrichedQuery = applyCustomStopWords(
-              `${isHPMode ? cleanPortugueseGenericWords(query) : query} ${manufacturer}`,
-              customStopWords,
-            )
-            console.log(`[enriched-query] manufacturer="${manufacturer}" final="${enrichedQuery}"`)
-          } else {
-            console.log(`[enriched-query] no manufacturer context, final="${enrichedQuery}"`)
+            // SE for query comparativa, NÃO adiciona manufacturer do produto atual
+            const lowerQuery = query.toLowerCase()
+            const isComparisonQuery =
+              /^(compare|comparar|vs|versus|x)\b|(\b(compare|comparar|vs|versus|x|ou)\b)/i.test(
+                lowerQuery,
+              )
+
+            if (isComparisonQuery) {
+              console.log(
+                `[enriched-query] comparison query detected, skipping manufacturer injection`,
+              )
+            } else {
+              const manufacturer = currentProductContext.name.split(' ')[0]
+              enrichedQuery = applyCustomStopWords(
+                `${isHPMode ? cleanPortugueseGenericWords(query) : query} ${manufacturer}`,
+                customStopWords,
+              )
+              console.log(
+                `[enriched-query] manufacturer="${manufacturer}" final="${enrichedQuery}"`,
+              )
+            }
           }
 
           const result = await supabase.rpc('search_products_v2', {
@@ -572,7 +609,9 @@ Deno.serve(async (req: Request) => {
             const orderedIds: string[] = rpcResults.map((p: any) => p.id)
             const { data: fullProducts, error: fetchError } = await supabase
               .from('products')
-              .select('*, manufacturers(name)')
+              .select(
+                'id, name, sku, category, description, technical_info, image_url, price_usd, price_brl, price_nationalized_sales, price_nationalized_currency, price_usa_rebate, weight, is_discontinued, manufacturer_id, manufacturers(name)',
+              )
               .in('id', orderedIds)
 
             if (!fetchError && fullProducts) {

@@ -493,12 +493,9 @@ Deno.serve(async (req: Request) => {
             'products',
           )
         } else {
-          // ═══ MODO NORMAL ═══ (NUNCA executa se comparação achou produtos)
+          // ═══ MODO NORMAL ═══
 
-          // ═══ INJEÇÃO DE CONTEXTO PP (Product Page) ═══
-          // Enriquece a query com o FABRICANTE do produto atual para buscar acessórios compatíveis
-          // (usar o nome completo do produto com bool_and no RPC não funciona para acessórios,
-          //  pois eles não contêm o modelo exato no nome)
+          // Injeção de contexto PP
           let enrichedQuery = query
           if (currentProductContext?.name) {
             const manufacturer = currentProductContext.name.split(' ')[0]
@@ -509,7 +506,7 @@ Deno.serve(async (req: Request) => {
           }
 
           const result = await supabase.rpc('search_products_v2', {
-            search_term: enrichedQuery, // ← ISSO precisa ser enrichedQuery, não query
+            search_term: enrichedQuery,
             boost_multiplier: 1.0,
           })
           const rpcResults = result.data || []
@@ -539,6 +536,30 @@ Deno.serve(async (req: Request) => {
           )
           featured = curated.featured
           cards = curated.cards
+
+          // ═══ NOVO: gerar resposta e retornar AQUI mesmo (igual ao modo comparação) ═══
+          contextForAI = {
+            agentSettings,
+            aiSettings,
+            products: featured,
+            manufacturerList,
+            history,
+            currentProductId: lastReferencedProductId,
+            contextualProductData,
+            productPagePrompt: productPagePrompt || undefined,
+            currentProductContext: currentProductContext || undefined,
+          }
+
+          aiResult = await generateResponse(query, contextForAI, undefined, supabase)
+          return await persistAndReturn(
+            {
+              ...aiResult,
+              referenced_internal_products: cards.map((p: any) => p.id),
+              ai_referenced_count: cards.length,
+              full_search_results: cards.length || level1Products.length,
+            },
+            'products',
+          )
         }
 
         // Contexto para IA — usa featured (que em modo comparação = comparisonResults)

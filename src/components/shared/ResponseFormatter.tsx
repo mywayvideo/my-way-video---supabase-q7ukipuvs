@@ -158,11 +158,13 @@ export function ResponseFormatter({
                 </a>
               ),
               img: ({ src, alt }) => (
-                <img
-                  src={src || ''}
-                  alt={alt || ''}
-                  className="mx-auto block w-full max-w-sm rounded-lg object-contain bg-zinc-900 border border-zinc-800/60 p-2 my-6"
-                />
+                <div className="mx-auto block w-full max-w-sm rounded-lg bg-zinc-900 border border-zinc-800/60 p-2 my-6">
+                  <ImageWithFallback
+                    src={src || ''}
+                    alt={alt || ''}
+                    className="w-full rounded object-contain"
+                  />
+                </div>
               ),
               whatsappbutton: () => null,
             }}

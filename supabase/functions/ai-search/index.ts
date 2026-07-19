@@ -482,11 +482,24 @@ Deno.serve(async (req: Request) => {
             currentProductContext: currentProductContext || undefined,
           }
 
+          // Cria lookup pelos dados completos do banco (image_url está em level1Products, não em cards)
+          const productLookup = new Map(level1Products.map((p: any) => [p.id, p]))
+
           aiResult = await generateResponse(query, contextForAI, undefined, supabase)
           return await persistAndReturn(
             {
               ...aiResult,
               referenced_internal_products: cards.map((p: any) => p.id),
+              referenced_product_data: cards.map((p: any) => {
+                const fullProduct = productLookup.get(p.id) || p
+                return {
+                  id: fullProduct.id,
+                  name: fullProduct.name,
+                  image_url: fullProduct.image_url || '',
+                  price_usd: fullProduct.price_usd,
+                  price_brl: fullProduct.price_brl,
+                }
+              }),
               ai_referenced_count: cards.length,
               full_search_results: cards.length || level1Products.length,
             },
@@ -555,6 +568,14 @@ Deno.serve(async (req: Request) => {
             {
               ...aiResult,
               referenced_internal_products: cards.map((p: any) => p.id),
+              // ═══ ADICIONAR: dados completos dos produtos para renderizar thumbnails ═══
+              referenced_product_data: cards.map((p: any) => ({
+                id: p.id,
+                name: p.name,
+                image_url: p.image_url || p.thumbnail_url || p.image || '',
+                price_usd: p.price_usd,
+                price_brl: p.price_brl,
+              })),
               ai_referenced_count: cards.length,
               full_search_results: cards.length || level1Products.length,
             },
@@ -823,10 +844,23 @@ Deno.serve(async (req: Request) => {
         }),
       )
 
+      // Cria lookup pelos dados completos do banco (image_url está em level1Products, não em cards)
+      const productLookup = new Map(level1Products.map((p: any) => [p.id, p]))
+
       return await persistAndReturn(
         {
           ...aiResult,
           referenced_internal_products: cards.map((p: any) => p.id),
+          referenced_product_data: cards.map((p: any) => {
+            const fullProduct = productLookup.get(p.id) || p
+            return {
+              id: fullProduct.id,
+              name: fullProduct.name,
+              image_url: fullProduct.image_url || '',
+              price_usd: fullProduct.price_usd,
+              price_brl: fullProduct.price_brl,
+            }
+          }),
           ai_referenced_count: cards.length,
           full_search_results: cards.length || level1Products.length,
         },

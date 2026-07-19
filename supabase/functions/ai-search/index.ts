@@ -457,13 +457,13 @@ Deno.serve(async (req: Request) => {
 
         if (comparisonResults.length > 0) {
           // ═══ MODO COMPARAÇÃO ═══
-          // comparisonResults JÁ são produtos completos do banco.
-          // NÃO fazer re-fetch — isso perde produtos!
+          // Pula curateProducts — os resultados já vêm filtrados pelo RPC
           level1Products = comparisonResults
+          featured = comparisonResults // ← USA DIRETO, sem curateProducts!
+          cards = comparisonResults // ← USA DIRETO, sem curateProducts!
           console.log(`[cascata] Stage C: comparison mode — ${comparisonResults.length} products`)
         } else {
           // ═══ MODO NORMAL ═══
-          // Busca via RPC e faz re-fetch dos dados completos
           const result = await supabase.rpc('search_products_v2', {
             search_term: query,
             boost_multiplier: 1.0,
@@ -485,23 +485,23 @@ Deno.serve(async (req: Request) => {
                 .filter((p: any) => p !== undefined)
             }
           }
+
+          // Curadoria (só no modo normal)
+          const curated = curateProducts(
+            level1Products,
+            classificationIntent,
+            classificationTerms,
+            query,
+          )
+          featured = curated.featured
+          cards = curated.cards
         }
 
-        // Curadoria (sempre executa com level1Products correto agora)
-        const curated = curateProducts(
-          level1Products,
-          classificationIntent,
-          classificationTerms,
-          query,
-        )
-        featured = curated.featured
-        cards = curated.cards
-
-        // Contexto para IA
+        // Contexto para IA — usa featured/cards (que em modo comparação = comparisonResults)
         contextForAI = {
           agentSettings,
           aiSettings,
-          products: featured,
+          products: featured, // ← AGORA tem Canon C50 + Sony FX6!
           manufacturerList,
           history,
           currentProductId: lastReferencedProductId,
@@ -758,12 +758,12 @@ Deno.serve(async (req: Request) => {
         }),
       )
 
-      const result = await persistAndReturn(
+      return await persistAndReturn(
         {
           ...aiResult,
-          referenced_internal_products: cards.map((p) => p.id),
+          referenced_internal_products: cards.map((p: any) => p.id),
           ai_referenced_count: cards.length,
-          full_search_results: cards.length,
+          full_search_results: cards.length || level1Products.length,
         },
         'products',
       )

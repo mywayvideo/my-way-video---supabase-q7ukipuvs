@@ -284,17 +284,13 @@ Deno.serve(async (req: Request) => {
     }
 
     const hpSearchTerm = isHPMode ? cleanPortugueseGenericWords(query) : query
-    // 🔥 Enriquece o hpSearchTerm com os termos do classificador (IA)
-    const hpSearchTermEnriched =
-      classificationTerms.length > 0
-        ? `${hpSearchTerm} ${classificationTerms.join(' ')}`
-        : hpSearchTerm
+    const hpSearchTermCleaned = applyCustomStopWords(hpSearchTerm, customStopWords)
     console.log(
-      `[hp-enriched] original="${hpSearchTerm}" AI_terms=[${classificationTerms.join(', ')}] enriched="${hpSearchTermEnriched}"`,
+      `[hp-search] original="${query}" afterClean="${hpSearchTerm}" afterStopWords="${hpSearchTermCleaned}"`,
     )
     const searchPromise: Promise<any[]> = isHPMode
       ? supabase
-          .rpc('search_products_v2', { search_term: hpSearchTermEnriched, boost_multiplier: 1.0 })
+          .rpc('search_products_v2', { search_term: hpSearchTermCleaned, boost_multiplier: 1.0 })
           .then(({ data }: any) => (Array.isArray(data) ? data : []))
       : Promise.resolve([])
 
@@ -537,19 +533,10 @@ Deno.serve(async (req: Request) => {
         } else {
           // ═══ MODO NORMAL ═══
 
-          // Injeção de contexto PP
           let enrichedQuery = applyCustomStopWords(
             isHPMode ? cleanPortugueseGenericWords(query) : query,
             customStopWords,
           )
-          // 🔥 ADICIONA os termos do classificador (IA) para enriquecer a busca
-          if (classificationTerms.length > 0) {
-            const enriched = `${enrichedQuery} ${classificationTerms.join(' ')}`
-            console.log(
-              `[enriched-query] original="${enrichedQuery}" AI_terms=[${classificationTerms.join(', ')}] enriched="${enriched}"`,
-            )
-            enrichedQuery = enriched
-          }
           console.log(
             `[enriched-query] original="${query}" cleaned="${isHPMode ? cleanPortugueseGenericWords(query) : query}" afterStopWords="${enrichedQuery}" mode=${isHPMode ? 'HP' : 'PP'}`,
           )
@@ -559,10 +546,6 @@ Deno.serve(async (req: Request) => {
               `${isHPMode ? cleanPortugueseGenericWords(query) : query} ${manufacturer}`,
               customStopWords,
             )
-            // 🔥 TAMBÉM adiciona no caso PP
-            if (classificationTerms.length > 0) {
-              enrichedQuery = `${enrichedQuery} ${classificationTerms.join(' ')}`
-            }
             console.log(`[enriched-query] manufacturer="${manufacturer}" final="${enrichedQuery}"`)
           } else {
             console.log(`[enriched-query] no manufacturer context, final="${enrichedQuery}"`)

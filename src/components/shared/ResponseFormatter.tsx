@@ -4,6 +4,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Phone } from 'lucide-react'
 import { ProductCard } from '@/components/ProductCard'
+import { ImageWithFallback } from '@/components/ImageWithFallback'
 import { WhatsAppButton } from '@/components/WhatsAppButton'
 import { Button } from '@/components/ui/button'
 

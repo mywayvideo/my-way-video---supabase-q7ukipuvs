@@ -284,9 +284,17 @@ Deno.serve(async (req: Request) => {
     }
 
     const hpSearchTerm = isHPMode ? cleanPortugueseGenericWords(query) : query
+    // 🔥 Enriquece o hpSearchTerm com os termos do classificador (IA)
+    const hpSearchTermEnriched =
+      classificationTerms.length > 0
+        ? `${hpSearchTerm} ${classificationTerms.join(' ')}`
+        : hpSearchTerm
+    console.log(
+      `[hp-enriched] original="${hpSearchTerm}" AI_terms=[${classificationTerms.join(', ')}] enriched="${hpSearchTermEnriched}"`,
+    )
     const searchPromise: Promise<any[]> = isHPMode
       ? supabase
-          .rpc('search_products_v2', { search_term: hpSearchTerm, boost_multiplier: 1.0 })
+          .rpc('search_products_v2', { search_term: hpSearchTermEnriched, boost_multiplier: 1.0 })
           .then(({ data }: any) => (Array.isArray(data) ? data : []))
       : Promise.resolve([])
 
@@ -473,7 +481,15 @@ Deno.serve(async (req: Request) => {
     // ── Stage C: Search Products ──
     if (SEARCHABLE.includes(classificationIntent) && query && query.trim().length > 0) {
       try {
-        const comparisonResults = await executeComparisonSearch(query, supabase)
+        // Enriquece a query com classificationTerms também para o modo comparação (HP)
+        const comparisonQuery =
+          classificationTerms.length > 0 ? `${query} ${classificationTerms.join(' ')}` : query
+
+        console.log(
+          `[cascata][comparison] original="${query}" enriched="${comparisonQuery}" AI_terms=[${classificationTerms.join(', ')}]`,
+        )
+
+        const comparisonResults = await executeComparisonSearch(comparisonQuery, supabase)
 
         if (comparisonResults.length > 0) {
           level1Products = comparisonResults

@@ -158,13 +158,19 @@ export function ResponseFormatter({
                   {children}
                 </a>
               ),
-              img: ({ src, alt }) => (
-                <img
-                  src={src || ''}
-                  alt={alt || ''}
-                  className="mx-auto block w-full max-w-sm rounded-lg object-contain bg-zinc-900 border border-zinc-800/60 p-2 my-6"
-                />
-              ),
+              img: ({ src, alt }) => {
+                const IMAGE_PROXY = '/api/image-proxy'
+                const needsProxy = src?.includes('bhphotovideo') || src?.includes('bhphoto')
+                const finalSrc =
+                  needsProxy && src ? `${IMAGE_PROXY}?url=${encodeURIComponent(src)}` : src || ''
+                return (
+                  <img
+                    src={finalSrc}
+                    alt={alt || ''}
+                    className="mx-auto block w-full max-w-sm rounded-lg object-contain bg-zinc-900 border border-zinc-800/60 p-2 my-6"
+                  />
+                )
+              },
               whatsappbutton: () => null,
             }}
           >

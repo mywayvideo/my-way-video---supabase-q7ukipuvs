@@ -213,6 +213,8 @@ function buildMessages(
           p.price_nationalized_currency === 'BRL' ? 'R$' : 'US$'
         }${natPrice}`
       if (brlRefPrice) userContent += ` | Preço Brasil (referência): US$${brlRefPrice}`
+      if (p.image_url) userContent += ` | image: ${p.image_url}`
+
       userContent += '\n'
     }
   }

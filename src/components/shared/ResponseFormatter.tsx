@@ -7,6 +7,7 @@ import { ProductCard } from '@/components/ProductCard'
 import { ImageWithFallback } from '@/components/ImageWithFallback'
 import { WhatsAppButton } from '@/components/WhatsAppButton'
 import { Button } from '@/components/ui/button'
+import { getProxiedImageUrl } from '@/lib/image-proxy'
 
 interface ResponseFormatterProps {
   content: string
@@ -160,7 +161,7 @@ export function ResponseFormatter({
               ),
               img: ({ src, alt }) => (
                 <img
-                  src={src || ''}
+                  src={getProxiedImageUrl(typeof src === 'string' ? src : '') || ''}
                   alt={alt || ''}
                   className="mx-auto block w-full max-w-sm rounded-lg object-contain bg-zinc-900 border border-zinc-800/60 p-2 my-6"
                 />

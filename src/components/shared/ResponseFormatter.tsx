@@ -159,10 +159,15 @@ export function ResponseFormatter({
                 </a>
               ),
               img: ({ src, alt }) => {
-                const IMAGE_PROXY = '/api/image-proxy'
-                const needsProxy = src?.includes('bhphotovideo') || src?.includes('bhphoto')
-                const finalSrc =
-                  needsProxy && src ? `${IMAGE_PROXY}?url=${encodeURIComponent(src)}` : src || ''
+                const srcStr = typeof src === 'string' ? src : ''
+                const needsProxy =
+                  srcStr.startsWith('https://www.bhphotovideo.com') ||
+                  srcStr.startsWith('https://static.bhphoto.com') ||
+                  srcStr.startsWith('https://bhphotovideo.com') ||
+                  srcStr.startsWith('https://www.bhphoto.com')
+                const finalSrc = needsProxy
+                  ? `/api/image-proxy?url=${encodeURIComponent(srcStr)}`
+                  : srcStr
                 return (
                   <img
                     src={finalSrc}

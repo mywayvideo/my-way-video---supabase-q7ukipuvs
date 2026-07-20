@@ -404,7 +404,7 @@ Deno.serve(async (req: Request) => {
           const targetIds = foundProducts.map((p: any) => p.id)
           const { data: fullProducts } = await supabase
             .from('products')
-            .select('*, manufacturer_id, manufacturers!inner(name)')
+            .select('*, manufacturer_id, manufacturers(name)') // ← SEM !inner = LEFT JOIN
             .in('id', targetIds)
 
           const mappedProducts = (fullProducts || []).map((p: any) => ({
@@ -615,6 +615,19 @@ Deno.serve(async (req: Request) => {
                 'id, name, sku, category, description, technical_info, image_url, price_usd, price_brl, price_nationalized_sales, price_nationalized_currency, price_usa_rebate, weight, is_discontinued, manufacturer_id, manufacturers(name)',
               )
               .in('id', orderedIds)
+
+            console.log(
+              '[DEBUG] fullProducts sample:',
+              JSON.stringify(
+                fullProducts?.slice(0, 3).map((p: any) => ({
+                  id: p.id,
+                  name: p.name,
+                  manufacturer_id: p.manufacturer_id,
+                  manufacturers: p.manufacturers,
+                  manufacturer_mapped: p.manufacturers?.name || p.manufacturer || null,
+                })),
+              ),
+            )
 
             if (!fetchError && fullProducts) {
               const productMap = new Map(fullProducts.map((p: any) => [p.id, p]))

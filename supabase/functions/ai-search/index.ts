@@ -460,7 +460,7 @@ Deno.serve(async (req: Request) => {
       // Busca os produtos completos
       const { data: fullProducts } = await supabase
         .from('products')
-        .select('*, manufacturers(name)') // ← JOINS COM FABRICANTE
+        .select('*, manufacturer_id, manufacturers(name)') // ← JOINS COM FABRICANTE
         .in('id', allIds)
 
       // Preserva a ordem: produtos da query 1 primeiro, depois query 2

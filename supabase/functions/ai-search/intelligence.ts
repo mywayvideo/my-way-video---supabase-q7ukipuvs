@@ -213,7 +213,10 @@ function buildMessages(
           p.price_nationalized_currency === 'BRL' ? 'R$' : 'US$'
         }${natPrice}`
       if (brlRefPrice) userContent += ` | Preço Brasil (referência): US$${brlRefPrice}`
-      if (p.image_url) userContent += ` | image: ${p.image_url}`
+      if (p.image_url) {
+        const cacheUrl = `https://wsrv.nl/?url=${encodeURIComponent(p.image_url)}&w=400&h=400&fit=inside`
+        userContent += ` | image: ${cacheUrl}`
+      }
 
       userContent += '\n'
     }

@@ -642,7 +642,12 @@ Deno.serve(async (req: Request) => {
           const MAX_TOTAL_CARDS = 10
           const productsByManufacturer = new Map()
           for (const product of level1Products) {
-            const manufacturer = (product.manufacturer || product.brand || 'Outros').trim()
+            const manufacturer = (
+              product.manufacturers?.name ||
+              product.manufacturer ||
+              product.brand ||
+              'Outros'
+            ).trim()
             if (!productsByManufacturer.has(manufacturer)) {
               productsByManufacturer.set(manufacturer, [])
             }

@@ -162,6 +162,7 @@ export function ResponseFormatter({
                 <img
                   src={src || ''}
                   alt={alt || ''}
+                  referrerPolicy="no-referrer"
                   className="mx-auto block w-full max-w-sm rounded-lg object-contain bg-zinc-900 border border-zinc-800/60 p-2 my-6"
                 />
               ),

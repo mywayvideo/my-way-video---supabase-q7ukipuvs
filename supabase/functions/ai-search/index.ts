@@ -540,7 +540,9 @@ Deno.serve(async (req: Request) => {
             currentProductContext: currentProductContext || undefined,
           }
 
-          // Cria lookup pelos dados completos do banco (image_url está em level1Products, não em cards)
+          // ✅ GERAR RESPOSTA AI ANTES DE RETORNAR
+          aiResult = await generateResponse(query, contextForAI, undefined, supabase)
+
           const productLookup = new Map(level1Products.map((p: any) => [p.id, p]))
 
           return await persistAndReturn(
@@ -774,7 +776,7 @@ Deno.serve(async (req: Request) => {
       }
 
       // full_search_results para cards: usa level1Products (ou cards) em vez do searchPromise
-      const fullSearchResults = isHPMode ? cards || level1Products || [] : []
+      const fullSearchResults = cards || level1Products || []
 
       if (lastReferencedProductId) {
         const idxRef = referencedInternalProducts.indexOf(lastReferencedProductId)

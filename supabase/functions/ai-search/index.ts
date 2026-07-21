@@ -448,9 +448,12 @@ Deno.serve(async (req: Request) => {
         supabase.rpc('search_products_v2', { search_term: q2, boost_multiplier: 1.0 }),
       ])
 
-      // Extrai IDs de cada resultado
-      const ids1 = (result1.data || []).map((p: any) => p.id)
-      const ids2 = (result2.data || []).map((p: any) => p.id)
+      const data1 = result1.data || []
+      const data2 = result2.data || []
+
+      console.log('[comparison] result1 count:', data1.length, '| result2 count:', data2.length)
+      console.log('[comparison] result1 ids:', data1.map((p) => p.id).join(','))
+      console.log('[comparison] result2 ids:', data2.map((p) => p.id).join(','))
 
       // Une e deduplica
       const allIds = [...new Set([...ids1, ...ids2])]
@@ -600,12 +603,21 @@ Deno.serve(async (req: Request) => {
             }
           }
 
+          console.log('[enriched] calling search_products_v2 with search_term:', enrichedQuery)
+
           const result = await supabase.rpc('search_products_v2', {
             search_term: enrichedQuery,
             boost_multiplier: 1.0,
           })
           const rpcResults = result.data || []
           const rpcError = result.error
+
+          console.log(
+            '[enriched] rpc returned:',
+            rpcResults.length,
+            'products | ids:',
+            rpcResults.map((p) => p.id).join(','),
+          )
 
           if (!rpcError && rpcResults && Array.isArray(rpcResults) && rpcResults.length > 0) {
             const orderedIds: string[] = rpcResults.map((p: any) => p.id)

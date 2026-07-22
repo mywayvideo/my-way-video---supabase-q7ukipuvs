@@ -290,8 +290,8 @@ Deno.serve(async (req: Request) => {
     )
     const searchPromise: Promise<any[]> = isHPMode
       ? supabase
-          .rpc('search_products_v2', { search_term: hpSearchTermCleaned, boost_multiplier: 1.0 })
-          .then(({ data }: any) => (Array.isArray(data) ? data : []))
+          .rpc('execute_ai_search_v3', { search_term: hpSearchTermCleaned })
+          .then(({ data }: any) => (data?.stock ? data.stock : []))
       : Promise.resolve([])
 
     const searchQuery = removeStopWords(query) || query
@@ -395,23 +395,20 @@ Deno.serve(async (req: Request) => {
       // Se não detectou padrão A vs B, mas está em PP
       if (!match && currentProductContext) {
         console.log(`[comparison] PP mode — single target search: "${query}"`)
-        const searchResult = await supabase.rpc('search_products_v2', {
+        const searchResult = await supabase.rpc('execute_ai_search_v3', {
           search_term: query,
-          boost_multiplier: 1.0,
         })
-        const foundProducts = searchResult.data || []
+        const foundProducts = searchResult.data?.stock || []
         if (foundProducts.length > 0) {
           const targetIds = foundProducts.map((p: any) => p.id)
           const { data: fullProducts } = await supabase
             .from('products')
-            .select('*, manufacturer_id, manufacturers(name)') // ← SEM !inner = LEFT JOIN
+            .select('*, manufacturer_id, manufacturers(name)')
             .in('id', targetIds)
-
           const mappedProducts = (fullProducts || []).map((p: any) => ({
             ...p,
             manufacturer: p.manufacturers?.name || p.manufacturer || null,
           }))
-
           return mappedProducts.slice(0, 10)
         }
       }
@@ -442,14 +439,13 @@ Deno.serve(async (req: Request) => {
 
       console.log(`[comparison] Split query: "${q1}" | "${q2}"`)
 
-      // Executa as duas queries em PARALELO
       const [result1, result2] = await Promise.all([
-        supabase.rpc('search_products_v2', { search_term: q1, boost_multiplier: 1.0 }),
-        supabase.rpc('search_products_v2', { search_term: q2, boost_multiplier: 1.0 }),
+        supabase.rpc('execute_ai_search_v3', { search_term: q1 }),
+        supabase.rpc('execute_ai_search_v3', { search_term: q2 }),
       ])
 
-      const data1 = result1.data || []
-      const data2 = result2.data || []
+      const data1 = result1.data?.stock || []
+      const data2 = result2.data?.stock || []
 
       console.log('[comparison] result1 count:', data1.length, '| result2 count:', data2.length)
       console.log('[comparison] result1 ids:', data1.map((p) => p.id).join(','))
@@ -603,13 +599,12 @@ Deno.serve(async (req: Request) => {
             }
           }
 
-          console.log('[enriched] calling search_products_v2 with search_term:', enrichedQuery)
+          console.log('[enriched] calling execute_ai_search_v3 with search_term:', enrichedQuery)
 
-          const result = await supabase.rpc('search_products_v2', {
+          const result = await supabase.rpc('execute_ai_search_v3', {
             search_term: enrichedQuery,
-            boost_multiplier: 1.0,
           })
-          const rpcResults = result.data || []
+          const rpcResults = result.data?.stock || []
           const rpcError = result.error
 
           console.log(
@@ -618,6 +613,7 @@ Deno.serve(async (req: Request) => {
             'products | ids:',
             rpcResults.map((p) => p.id).join(','),
           )
+          console.log('[enriched] rpc error:', rpcError)
 
           if (!rpcError && rpcResults && Array.isArray(rpcResults) && rpcResults.length > 0) {
             const orderedIds: string[] = rpcResults.map((p: any) => p.id)

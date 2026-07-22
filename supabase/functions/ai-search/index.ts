@@ -647,12 +647,12 @@ Deno.serve(async (req: Request) => {
 
           // ═══ FILTRO DE INTENÇÃO usando stop_words do banco ═══
           const queryForFilter = (enrichedQuery || query || '').toLowerCase()
-          const rawTokens = queryForFilter.split(' ').filter(t => t.length > 2)
-          const { data: stopWordsData } = await supabase
-            .from('stop_words')
-            .select('word')
-          const stopWordsSet = new Set((stopWordsData || []).map((sw: any) => sw.word.toLowerCase()))
-          const intentTokens = rawTokens.filter(t => !stopWordsSet.has(t))
+          const rawTokens = queryForFilter.split(' ').filter((t) => t.length > 2)
+          const { data: stopWordsData } = await supabase.from('stop_words').select('word')
+          const stopWordsSet = new Set(
+            (stopWordsData || []).map((sw: any) => sw.word.toLowerCase()),
+          )
+          const intentTokens = rawTokens.filter((t) => !stopWordsSet.has(t))
           if (intentTokens.length > 0) {
             const before = level1Products.length
             const filtered = level1Products.filter((p: any) => {
@@ -662,16 +662,16 @@ Deno.serve(async (req: Request) => {
             if (filtered.length >= 3) {
               level1Products = filtered
               console.log(
-                `[curation] Intent filter applied tokens=[${intentTokens.join(',')}] before=${before} after=${filtered.length}`
+                `[curation] Intent filter applied tokens=[${intentTokens.join(',')}] before=${before} after=${filtered.length}`,
               )
             } else {
               console.log(
-                `[curation] Intent filter removed too many (${filtered.length}/${before}), keeping original set`
+                `[curation] Intent filter removed too many (${filtered.length}/${before}), keeping original set`,
               )
             }
           } else {
             console.log('[curation] No intent tokens found, skipping filter')
-          }          
+          }
 
           // ═══ Curadoria com diversidade de fabricantes ═══
           const MAX_PER_MANUFACTURER = 2
@@ -739,9 +739,10 @@ Deno.serve(async (req: Request) => {
                   id: p.id,
                   name: p.name,
                   // URLs da B&H passam pelo proxy para evitar hotlinking; demais URLs vão direto
-                  image_url: rawUrl.includes('bhphotovideo') || rawUrl.includes('bhphoto')
-                    ? IMAGE_PROXY_URL + '?url=' + encodeURIComponent(rawUrl)
-                    : rawUrl,
+                  image_url:
+                    rawUrl.includes('bhphotovideo') || rawUrl.includes('bhphoto')
+                      ? IMAGE_PROXY_URL + '?url=' + encodeURIComponent(rawUrl)
+                      : rawUrl,
                   price_usd: p.price_usd,
                   price_brl: p.price_brl,
                 }
@@ -751,6 +752,10 @@ Deno.serve(async (req: Request) => {
             },
             'products',
           )
+        }
+
+        // ATENÇÃO: código abaixo não executa (ambos os branches do if/else têm return)
+        // Mantido para referência — pode ser removido em refatoração futura
 
         // Contexto para IA — usa featured (que em modo comparação = comparisonResults)
         contextForAI = {

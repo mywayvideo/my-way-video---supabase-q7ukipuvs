@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { getProxiedImageUrl } from '@/lib/image-proxy'
 
 export function useImageFallback(imageUrl: string | null | undefined, productId: string) {
   const [displayUrl, setDisplayUrl] = useState<string | null>(null)
@@ -43,12 +44,13 @@ export function useImageFallback(imageUrl: string | null | undefined, productId:
           }
         }
 
-        // 2. If fails, try original imageUrl
+        // 2. If fails, try original imageUrl (routed through proxy if B&H Photo)
         if (imageUrl) {
-          const isOriginalValid = await testImage(imageUrl, signal)
+          const proxiedUrl = getProxiedImageUrl(imageUrl) || imageUrl
+          const isOriginalValid = await testImage(proxiedUrl, signal)
           if (isOriginalValid) {
             if (isActive) {
-              setDisplayUrl(imageUrl)
+              setDisplayUrl(proxiedUrl)
               setIsLoading(false)
             }
             return

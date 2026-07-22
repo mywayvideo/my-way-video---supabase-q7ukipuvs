@@ -242,11 +242,14 @@ export function ProductCard({
           onClick={handleLinkClick}
           className="w-full h-[220px] overflow-hidden flex items-center justify-center relative p-4"
         >
-          <ImageWithFallback
+          <img
             src={product?.image_url}
             alt={productName}
-            productId={product?.id || ''}
             className="w-full h-full object-contain transition-transform duration-500 group-hover:scale-105"
+            loading="lazy"
+            onError={(e) => {
+              ;(e.target as HTMLImageElement).src = '/placeholder-dummy.png'
+            }}
           />
         </Link>
       </CardHeader>

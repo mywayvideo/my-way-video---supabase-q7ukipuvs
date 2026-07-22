@@ -645,7 +645,35 @@ Deno.serve(async (req: Request) => {
             }
           }
 
-          // Curadoria com diversidade de fabricantes
+          // ═══ FILTRO DE INTENÇÃO: usando stop_words do banco ═══
+          const queryForFilter = (enrichedQuery || query || '').toLowerCase()
+          const rawTokens = queryForFilter.split(' ').filter(t => t.length > 2)
+          const { data: stopWordsData } = await supabase
+            .from('stop_words')
+            .select('word')
+          const stopWordsSet = new Set((stopWordsData || []).map((sw: any) => sw.word.toLowerCase()))
+          const intentTokens = rawTokens.filter(t => !stopWordsSet.has(t))
+          if (intentTokens.length > 0) {
+            const before = level1Products.length
+            const filtered = level1Products.filter((p: any) => {
+              const name = (p.name || p.nome || '').toLowerCase()
+              return intentTokens.some((token: string) => name.includes(token))
+            })
+            if (filtered.length >= 3) {
+              level1Products = filtered
+              console.log(
+                `[curation] Intent filter applied tokens=[${intentTokens.join(',')}] before=${before} after=${filtered.length}`,
+              )
+            } else {
+              console.log(
+                `[curation] Intent filter removed too many (${filtered.length}/${before}), keeping original set`,
+              )
+            }
+          } else {
+            console.log('[curation] No intent tokens found, skipping filter')
+          }
+
+          // ═══ Curadoria com diversidade de fabricantes ═══
           const MAX_PER_MANUFACTURER = 2
           const MAX_TOTAL_CARDS = 10
           const productsByManufacturer = new Map()
@@ -687,7 +715,7 @@ Deno.serve(async (req: Request) => {
             `[curation] total=${level1Products.length} balanced=${balancedProducts.length} manufacturers=[${manufacturerEntries.map(([m, p]) => `${m}(${p.length})`).join(', ')}]`,
           )
 
-          // ═══ NOVO: gerar resposta e retornar AQUI mesmo (igual ao modo comparação) ═══
+          // ═══ Gerar resposta e retornar ═══
           contextForAI = {
             agentSettings,
             aiSettings,
@@ -705,15 +733,13 @@ Deno.serve(async (req: Request) => {
             {
               ...aiResult,
               referenced_internal_products: cards.map((p: any) => p.id),
-              // ═══ ADICIONAR: dados completos dos produtos para renderizar thumbnails ═══
               referenced_product_data: cards.map((p: any) => {
                 const rawUrl = p.image_url || p.thumbnail_url || p.image || ''
                 return {
                   id: p.id,
                   name: p.name,
-                  image_url: rawUrl.includes('bhphotovideo')
-                    ? `${IMAGE_PROXY_URL}?url=${encodeURIComponent(rawUrl)}`
-                    : rawUrl,
+                  // URL direta sem proxy — o frontend já tenta direto → proxy → fallback
+                  image_url: rawUrl,
                   price_usd: p.price_usd,
                   price_brl: p.price_brl,
                 }
@@ -723,7 +749,6 @@ Deno.serve(async (req: Request) => {
             },
             'products',
           )
-        }
 
         // Contexto para IA — usa featured (que em modo comparação = comparisonResults)
         contextForAI = {

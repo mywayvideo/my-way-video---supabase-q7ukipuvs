@@ -740,7 +740,7 @@ Deno.serve(async (req: Request) => {
                   name: p.name,
                   // URLs da B&H passam pelo proxy para evitar hotlinking; demais URLs vão direto
                   image_url: rawUrl.includes('bhphotovideo') || rawUrl.includes('bhphoto')
-                    ? `${IMAGE_PROXY_URL}?url=${encodeURIComponent(rawUrl)}`
+                    ? IMAGE_PROXY_URL + '?url=' + encodeURIComponent(rawUrl)
                     : rawUrl,
                   price_usd: p.price_usd,
                   price_brl: p.price_brl,

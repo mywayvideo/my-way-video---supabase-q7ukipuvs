@@ -556,7 +556,7 @@ Deno.serve(async (req: Request) => {
                   id: fullProduct.id,
                   name: fullProduct.name,
                   image_url: fullProduct.image_url?.includes('bhphotovideo')
-                    ? `${IMAGE_PROXY_URL}?url=${encodeURIComponent(fullProduct.image_url)}`
+                    ? `https://wsrv.nl/?url=${encodeURIComponent(fullProduct.image_url)}&w=400&h=400&fit=inside`
                     : fullProduct.image_url || '',
                   price_usd: fullProduct.price_usd,
                   price_brl: fullProduct.price_brl,

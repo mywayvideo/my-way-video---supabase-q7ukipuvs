@@ -538,6 +538,7 @@ Deno.serve(async (req: Request) => {
             contextualProductData,
             productPagePrompt: productPagePrompt || undefined,
             currentProductContext: currentProductContext || undefined,
+            imageProxyUrl: IMAGE_PROXY_URL, // ← ADICIONE AQUI
           }
 
           // ✅ GERAR RESPOSTA AI ANTES DE RETORNAR
@@ -727,6 +728,7 @@ Deno.serve(async (req: Request) => {
             contextualProductData,
             productPagePrompt: productPagePrompt || undefined,
             currentProductContext: currentProductContext || undefined,
+            imageProxyUrl: IMAGE_PROXY_URL, // ← ADICIONE AQUI
           }
 
           aiResult = await generateResponse(query, contextForAI, undefined, supabase)
@@ -769,6 +771,7 @@ Deno.serve(async (req: Request) => {
           contextualProductData,
           productPagePrompt: productPagePrompt || undefined,
           currentProductContext: currentProductContext || undefined,
+          imageProxyUrl: IMAGE_PROXY_URL, // ← ADICIONE AQUI
         }
 
         console.log(

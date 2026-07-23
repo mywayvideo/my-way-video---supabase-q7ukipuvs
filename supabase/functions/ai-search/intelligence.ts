@@ -154,10 +154,11 @@ function buildSystemPrompt(context: any): string {
     '- Responda sempre em português brasileiro.',
     '- Seja técnico e objetivo.',
     '',
-    'REGRAS DE IMAGENS:',
-    '- Quando um produto tiver o campo | image: URL no final da linha, inclua essa imagem na resposta usando <img src="URL" />.',
-    '- Coloque a imagem antes ou depois do nome do produto.',
-    '- Todas as imagens dos produtos DEVEM aparecer.',
+    'REGRAS DE EXIBIÇÃO DE IMAGENS:',
+    '- Quando um produto tiver | image: URL no final da linha, você DEVE renderizar essa imagem usando a tag HTML <img src="URL" />.',
+    '- Coloque a imagem ANTES do nome do produto ou no início do bloco de descrição.',
+    '- NÃO escreva a URL como texto — use a tag <img> para exibir a imagem visualmente.',
+    '- Todas as imagens dos produtos listados DEVEM aparecer na resposta visualmente.',
   ]
 
   parts.push(rules.join('\n'))
@@ -221,7 +222,7 @@ function buildMessages(
       // IMAGEM: usa o proxy configurado ou wsrv.nl como fallback
       // wsrv.nl com cache busting forçado (&v=2) para evitar cache de erro
       if (p.image_url) {
-        userContent += ` | image: https://wsrv.nl/?url=${encodeURIComponent(p.image_url)}`
+        userContent += ` | image: https://wsrv.nl/?url=${encodeURIComponent(p.image_url)}&w=400&h=400&fit=inside`
       }
     }
   }

@@ -153,6 +153,11 @@ function buildSystemPrompt(context: any): string {
     '- Se for uma comparação, destaque as diferenças técnicas.',
     '- Responda sempre em português brasileiro.',
     '- Seja técnico e objetivo.',
+    '',
+    'REGRAS DE IMAGENS:',
+    '- Quando um produto tiver o campo | image: URL no final da linha, inclua essa imagem na resposta usando <img src="URL" />.',
+    '- Coloque a imagem antes ou depois do nome do produto.',
+    '- Todas as imagens dos produtos DEVEM aparecer.',
   ]
 
   parts.push(rules.join('\n'))
@@ -216,8 +221,7 @@ function buildMessages(
       // IMAGEM: usa o proxy configurado ou wsrv.nl como fallback
       // wsrv.nl com cache busting forçado (&v=2) para evitar cache de erro
       if (p.image_url) {
-        // wsrv.nl com cache busting forçado (&v=2)
-        userContent += ` | image: https://wsrv.nl/?url=${encodeURIComponent(p.image_url)}&w=400&h=400&fit=inside&v=2`
+        userContent += ` | image: https://wsrv.nl/?url=${encodeURIComponent(p.image_url)}`
       }
     }
   }

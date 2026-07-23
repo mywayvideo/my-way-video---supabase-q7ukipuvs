@@ -496,6 +496,7 @@ Deno.serve(async (req: Request) => {
       contextualProductData,
       productPagePrompt: productPagePrompt || undefined,
       currentProductContext: currentProductContext || undefined,
+      imageProxyUrl: IMAGE_PROXY_URL,
     }
     const SEARCHABLE = [
       'categorizar',

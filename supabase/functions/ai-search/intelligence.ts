@@ -214,11 +214,12 @@ function buildMessages(
         }${natPrice}`
       if (brlRefPrice) userContent += ` | Preço Brasil (referência): US$${brlRefPrice}`
       if (p.image_url) {
-        const proxyBaseUrl = Deno.env.get('IMAGE_PROXY_URL') || 'https://wsrv.nl'
-        const cacheUrl = `${proxyBaseUrl}?url=${encodeURIComponent(p.image_url)}`
-        userContent += ` | image: ${cacheUrl}`
+        const proxyBaseUrl = context?.imageProxyUrl || ''
+        if (proxyBaseUrl) {
+          const cacheUrl = `${proxyBaseUrl}?url=${encodeURIComponent(p.image_url)}`
+          userContent += ` | image: ${cacheUrl}`
+        }
       }
-
       userContent += '\n'
     }
   }

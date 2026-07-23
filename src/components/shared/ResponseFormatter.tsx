@@ -7,6 +7,7 @@ import { ProductCard } from '@/components/ProductCard'
 import { ImageWithFallback } from '@/components/ImageWithFallback'
 import { WhatsAppButton } from '@/components/WhatsAppButton'
 import { Button } from '@/components/ui/button'
+import rehypeRaw from 'rehype-raw'
 
 interface ResponseFormatterProps {
   content: string
@@ -95,6 +96,7 @@ export function ResponseFormatter({
         <div className="order-1 prose prose-invert max-w-none text-base leading-relaxed w-full break-words">
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
+            rehypePlugins={[rehypeRaw]}
             components={{
               table: ({ children }) => (
                 <div className="overflow-x-auto w-full my-6">

@@ -213,14 +213,12 @@ function buildMessages(
           p.price_nationalized_currency === 'BRL' ? 'R$' : 'US$'
         }${natPrice}`
       if (brlRefPrice) userContent += ` | Preço Brasil (referência): US$${brlRefPrice}`
+      // IMAGEM: usa o proxy configurado ou wsrv.nl como fallback
+      // wsrv.nl com cache busting forçado (&v=2) para evitar cache de erro
       if (p.image_url) {
-        const proxyBaseUrl = context?.imageProxyUrl || ''
-        if (proxyBaseUrl) {
-          const cacheUrl = `${proxyBaseUrl}?url=${encodeURIComponent(p.image_url)}`
-          userContent += ` | image: ${cacheUrl}`
-        }
+        // wsrv.nl com cache busting forçado (&v=2)
+        userContent += ` | image: https://wsrv.nl/?url=${encodeURIComponent(p.image_url)}&w=400&h=400&fit=inside&v=2`
       }
-      userContent += '\n'
     }
   }
 

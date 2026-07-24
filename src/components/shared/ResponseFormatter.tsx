@@ -20,6 +20,15 @@ interface ResponseFormatterProps {
   onProductClick?: () => void
 }
 
+function processImageUrl(src: string): string {
+  if (!src) return src
+  if (src.includes('wsrv.nl')) return src
+  if (src.includes('bhphotovideo.com')) {
+    return `https://wsrv.nl/?url=${encodeURIComponent(src)}&w=400&h=400&fit=inside`
+  }
+  return src
+}
+
 export function ResponseFormatter({
   content,
   products,
@@ -84,6 +93,7 @@ export function ResponseFormatter({
     ?.replace(/\[WHATSAPP\]/gi, '')
     // Also cleanup some leftover AI tokens
     ?.replace(/realizando busca profunda my way/gi, '')
+    ?.replace(/\*{4,}/g, '\n\n')
     ?.trim()
 
   const hasWhatsAppTrigger =
@@ -162,7 +172,7 @@ export function ResponseFormatter({
               ),
               img: ({ src, alt }) => (
                 <img
-                  src={src || ''}
+                  src={processImageUrl(src || '')}
                   alt={alt || ''}
                   referrerPolicy="no-referrer"
                   className="mx-auto block w-full max-w-sm rounded-lg object-contain bg-zinc-900 border border-zinc-800/60 p-2 my-6"

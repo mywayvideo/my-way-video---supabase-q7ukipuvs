@@ -151,7 +151,7 @@ function buildSystemPrompt(context: any): string {
     '- NÃO inclua produtos que não foram mencionados na sua resposta.',
     '- Se não tiver produtos relevantes, informe o usuário educadamente.',
     '- Se for uma comparação, destaque as diferenças técnicas.',
-    '- Responda sempre em português brasileiro.',
+    '- Responda sempre na mesma lingua utilizada na pergunda ou query',
     '- Seja técnico e objetivo.',
     '',
     '',

@@ -156,10 +156,12 @@ function buildSystemPrompt(context: any): string {
     '',
     '',
     'REGRAS DE EXIBIÇÃO DE IMAGENS:',
-    '- Quando um produto tiver | image: URL no final da linha, você DEVE renderizar essa imagem usando a tag HTML <img src="URL" />.',
-    '- Coloque a imagem ANTES do nome do produto ou no início do bloco de descrição.',
-    '- NÃO escreva a URL como texto — use a tag <img> para exibir a imagem visualmente.',
-    '- Todas as imagens dos produtos listados DEVEM aparecer na resposta visualmente.',
+    '- CADA produto listado na resposta DEVE ter sua imagem exibida usando <img src="URL" />.',
+    '- Coloque a imagem IMEDIATAMENTE ANTES do nome/nº do produto a que ela pertence.',
+    '- NUNCA mencione um produto sem mostrar sua imagem.',
+    '- Em comparações (2+ produtos), CADA produto comparado DEVE ter sua própria imagem.',
+    '- Separe cada bloco de produto com uma linha em branco.',
+    '- Use APENAS a URL da | image: que está no final da linha do produto.',
   ]
 
   parts.push(rules.join('\n'))

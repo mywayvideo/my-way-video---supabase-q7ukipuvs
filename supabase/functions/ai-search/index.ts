@@ -857,6 +857,7 @@ Deno.serve(async (req: Request) => {
         should_show_whatsapp_button: aiResult.should_show_whatsapp_button,
         ai_referenced_count: aiReferencedCount,
         full_search_results: fullSearchResults,
+        referenced_product_data: aiResult.referenced_product_data || null,
       }
 
       if (typeof result.content === 'string') {

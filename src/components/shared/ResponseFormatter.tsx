@@ -17,6 +17,10 @@ function processImageUrl(src: string): string {
   return src
 }
 
+export function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
 interface ResponseFormatterProps {
   content: string
   products?: any[]
@@ -100,6 +104,37 @@ export function ResponseFormatter({
   const hasWhatsAppTrigger =
     showWhatsApp || /<WhatsAppButton/i.test(content || '') || /\[WHATSAPP/i.test(content || '')
 
+  const injectProductImages = (text: string, prods: any[]): string => {
+    if (!prods || prods.length === 0) return text
+    let result = text
+    for (const product of prods) {
+      if (!product?.name || !product?.image_url) continue
+      const productName = product.name as string
+      const imageUrl = product.image_url as string
+      const imgTag = `\n\n<img src="https://wsrv.nl/?url=${encodeURIComponent(imageUrl)}&w=400&h=400&fit=inside" />\n\n`
+      const patterns = [
+        new RegExp('<strong>' + escapeRegex(productName) + '</strong>', 'i'),
+        new RegExp(escapeRegex(productName), 'i'),
+      ]
+      let injected = false
+      for (const pattern of patterns) {
+        if (injected) break
+        const match = result.match(pattern)
+        if (match && match.index !== undefined) {
+          const beforeSlice = result.slice(Math.max(0, match.index - 50), match.index)
+          if (!beforeSlice.includes('<img')) {
+            result = result.slice(0, match.index) + imgTag + result.slice(match.index)
+            injected = true
+            break
+          }
+        }
+      }
+    }
+    return result
+  }
+
+  const contentWithImages = injectProductImages(cleanContent, finalProducts)
+
   return (
     <div className="flex flex-col space-y-6 w-full max-w-full overflow-hidden">
       {/* 1. AI Text/Markdown Response */}
@@ -182,7 +217,7 @@ export function ResponseFormatter({
               whatsappbutton: () => null,
             }}
           >
-            {cleanContent}
+            {contentWithImages}
           </ReactMarkdown>
         </div>
       )}

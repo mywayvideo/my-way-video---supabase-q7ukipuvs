@@ -452,6 +452,8 @@ Deno.serve(async (req: Request) => {
       console.log('[comparison] result2 ids:', data2.map((p) => p.id).join(','))
 
       // Une e deduplica
+      const ids1 = (data1 || []).map((p: any) => p.id)
+      const ids2 = (data2 || []).map((p: any) => p.id)
       const allIds = [...new Set([...ids1, ...ids2])]
 
       if (allIds.length === 0) return []
@@ -519,7 +521,7 @@ Deno.serve(async (req: Request) => {
 
         console.log(`[cascata][comparison] original="${query}" cleaned="${comparisonQuery}"`)
 
-        const comparisonResults = await executeComparisonSearch(comparisonQuery, supabase)
+        const comparisonResults = await executeComparisonSearch(query, supabase)
 
         if (comparisonResults.length > 0) {
           level1Products = comparisonResults

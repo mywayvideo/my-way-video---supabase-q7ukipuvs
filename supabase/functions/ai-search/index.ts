@@ -467,7 +467,7 @@ Deno.serve(async (req: Request) => {
       // Preserva a ordem: produtos da query 1 primeiro, depois query 2
       const orderedIds = [...ids1, ...ids2.filter((id: string) => !ids1.includes(id))]
 
-      const result = orderedIds
+      const allProducts = orderedIds
         .map((id: string) => {
           const p = (fullProducts || []).find((p: any) => p.id === id)
           if (!p) return null
@@ -477,10 +477,41 @@ Deno.serve(async (req: Request) => {
           }
         })
         .filter(Boolean)
-        .slice(0, 10)
 
-      console.log(`[comparison] Total unique products: ${result.length}`)
-      return result
+      // === Investigation Step 1 ===
+      // a) The .slice(0, 10) was previously applied here, inside executeComparisonSearch
+      //    in supabase/functions/ai-search/index.ts
+      // b) The variable that received the sliced result was `result` (returned below)
+      // c) Before slicing, data1 (side 1) and data2 (side 2) are still in scope
+      // d) The two variables are `data1` (result1) and `data2` (result2)
+      //
+      // === Investigation Step 2 ===
+      // a) Product objects do NOT have a `side` field; manufacturer_id exists but does
+      //    not directly indicate which comparison side the product came from
+      // b) The only reliable way is to compare product IDs against data1 and data2 arrays
+
+      // === Implementation Step 3: Balanced comparison distribution ===
+      const side1Ids = new Set((data1 || []).map((p: any) => p.id))
+      const side2Ids = new Set((data2 || []).map((p: any) => p.id))
+      const side1Products = allProducts.filter((p: any) => side1Ids.has(p.id))
+      const side2Products = allProducts.filter((p: any) => side2Ids.has(p.id))
+      const takeFromSide1 = Math.min(5, side1Products.length)
+      const takeFromSide2 = Math.min(5, side2Products.length)
+      const finalSide1 = side1Products.slice(0, Math.max(1, takeFromSide1))
+      const finalSide2 = side2Products.slice(0, Math.max(1, takeFromSide2))
+      const interleaved: any[] = []
+      const maxLen = Math.max(finalSide1.length, finalSide2.length)
+      for (let i = 0; i < maxLen && interleaved.length < 10; i++) {
+        if (i < finalSide1.length && interleaved.length < 10) {
+          interleaved.push(finalSide1[i])
+        }
+        if (i < finalSide2.length && interleaved.length < 10) {
+          interleaved.push(finalSide2[i])
+        }
+      }
+
+      console.log(`[comparison] Total unique products: ${interleaved.length}`)
+      return interleaved
     }
 
     // ── Variáveis de escopo do handler ──

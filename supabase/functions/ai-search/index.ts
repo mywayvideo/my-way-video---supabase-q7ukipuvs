@@ -530,6 +530,20 @@ Deno.serve(async (req: Request) => {
 
           console.log(`[cascata] Stage C: comparison mode — ${comparisonResults.length} products`)
 
+          console.log(
+            '[CURADORIA] ANTES - total produtos:',
+            comparisonResults?.length || level1Products?.length,
+            'IDs:',
+            JSON.stringify((comparisonResults || level1Products).map((p: any) => p.id)),
+          )
+          console.log('[CURADORIA] Modo comparação ativo — pulando curadoria')
+          console.log(
+            '[CURADORIA] DEPOIS - total produtos:',
+            level1Products?.length || featured?.length,
+            'IDs:',
+            JSON.stringify((level1Products || featured).map((p: any) => p.id)),
+          )
+
           contextForAI = {
             agentSettings,
             aiSettings,
@@ -677,46 +691,83 @@ Deno.serve(async (req: Request) => {
             console.log('[curation] No intent tokens found, skipping filter')
           }
 
-          // ═══ Curadoria com diversidade de fabricantes ═══
-          const MAX_PER_MANUFACTURER = 2
-          const MAX_TOTAL_CARDS = 10
-          const productsByManufacturer = new Map()
-          for (const product of level1Products) {
-            const manufacturer = (
-              product.manufacturers?.name ||
-              product.manufacturer ||
-              product.brand ||
-              'Outros'
-            ).trim()
-            if (!productsByManufacturer.has(manufacturer)) {
-              productsByManufacturer.set(manufacturer, [])
+          // ── STEP 1: Investigation Answers ──
+          // a) Yes, the curation block exists inline in the normal-mode (else) branch of Stage C.
+          //    It is the manufacturer balancing/diversity curation section.
+          // b) Yes — it filters, orders, and reduces the product array via a round-robin loop.
+          // c) No named function is called; the curation is inline code (not curateProducts).
+          // d) level1Products is read; featured and cards are overwritten with balancedProducts.
+          // e) The while loop with MAX_PER_MANUFACTURER=2 and MAX_TOTAL_CARDS=10 reduces the array.
+          //
+          // ── STEP 2: Curation Function Investigation ──
+          // a) The inline curation operates on level1Products (comparisonResults is empty in else).
+          // b) Yes — it returns a smaller list (max 10 total, max 2 per manufacturer).
+          // c) Yes — it groups products into a Map keyed by manufacturer name.
+          // d) MAX_PER_MANUFACTURER = 2 is the threshold; excess products per manufacturer are dropped.
+
+          // ── STEP 3: Diagnostic Logs (ANTES) ──
+          console.log(
+            '[CURADORIA] ANTES - total produtos:',
+            comparisonResults?.length || level1Products?.length,
+            'IDs:',
+            JSON.stringify((comparisonResults || level1Products).map((p: any) => p.id)),
+          )
+
+          // ── STEP 4: Early return guard for comparison mode ──
+          if ((comparisonResults && comparisonResults.length > 0) || detectComparison(query)) {
+            console.log('[CURADORIA] Modo comparação ativo — pulando curadoria')
+            featured = level1Products
+            cards = level1Products
+          } else {
+            // ═══ Curadoria com diversidade de fabricantes ═══
+            const MAX_PER_MANUFACTURER = 2
+            const MAX_TOTAL_CARDS = 10
+            const productsByManufacturer = new Map()
+            for (const product of level1Products) {
+              const manufacturer = (
+                product.manufacturers?.name ||
+                product.manufacturer ||
+                product.brand ||
+                'Outros'
+              ).trim()
+              if (!productsByManufacturer.has(manufacturer)) {
+                productsByManufacturer.set(manufacturer, [])
+              }
+              productsByManufacturer.get(manufacturer).push(product)
             }
-            productsByManufacturer.get(manufacturer).push(product)
-          }
-          const manufacturerEntries = Array.from(productsByManufacturer.entries())
-          manufacturerEntries.sort((a, b) => b[1].length - a[1].length)
-          const balancedProducts: any[] = []
-          let index = 0
-          let allExhausted = false
-          while (balancedProducts.length < MAX_TOTAL_CARDS && !allExhausted) {
-            allExhausted = true
-            for (const [mfr, products] of manufacturerEntries) {
-              if (index < products.length && balancedProducts.length < MAX_TOTAL_CARDS) {
-                const countForBrand = balancedProducts.filter(
-                  (p) => (p.manufacturer || p.brand || 'Outros').trim() === mfr,
-                ).length
-                if (countForBrand < MAX_PER_MANUFACTURER) {
-                  balancedProducts.push(products[index])
-                  allExhausted = false
+            const manufacturerEntries = Array.from(productsByManufacturer.entries())
+            manufacturerEntries.sort((a, b) => b[1].length - a[1].length)
+            const balancedProducts: any[] = []
+            let index = 0
+            let allExhausted = false
+            while (balancedProducts.length < MAX_TOTAL_CARDS && !allExhausted) {
+              allExhausted = true
+              for (const [mfr, products] of manufacturerEntries) {
+                if (index < products.length && balancedProducts.length < MAX_TOTAL_CARDS) {
+                  const countForBrand = balancedProducts.filter(
+                    (p) => (p.manufacturer || p.brand || 'Outros').trim() === mfr,
+                  ).length
+                  if (countForBrand < MAX_PER_MANUFACTURER) {
+                    balancedProducts.push(products[index])
+                    allExhausted = false
+                  }
                 }
               }
+              index++
             }
-            index++
-          }
-          featured = balancedProducts
-          cards = balancedProducts
+            featured = balancedProducts
+            cards = balancedProducts
+            console.log(
+              `[curation] total=${level1Products.length} balanced=${balancedProducts.length} manufacturers=[${manufacturerEntries.map(([m, p]) => `${m}(${p.length})`).join(', ')}]`,
+            )
+          } // fim do else (curadoria normal)
+
+          // ── STEP 3: Diagnostic Logs (DEPOIS) ──
           console.log(
-            `[curation] total=${level1Products.length} balanced=${balancedProducts.length} manufacturers=[${manufacturerEntries.map(([m, p]) => `${m}(${p.length})`).join(', ')}]`,
+            '[CURADORIA] DEPOIS - total produtos:',
+            level1Products?.length || featured?.length,
+            'IDs:',
+            JSON.stringify((level1Products || featured).map((p: any) => p.id)),
           )
 
           // ═══ Gerar resposta e retornar ═══

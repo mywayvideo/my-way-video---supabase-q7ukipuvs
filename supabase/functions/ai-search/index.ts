@@ -905,6 +905,14 @@ Deno.serve(async (req: Request) => {
       console.log(
         `[ai-search] response: mode=${isHPMode ? 'HP' : 'PP'} full_search_results=${fullSearchResults.length} referenced=${referencedInternalProducts.length}`,
       )
+      console.log(
+        '[DEBUG FINAL] referenced_internal_products:',
+        JSON.stringify(result.referenced_internal_products),
+      )
+      console.log(
+        '[DEBUG FINAL] result.products IDs:',
+        JSON.stringify(result.products?.map((p: any) => p.id)),
+      )
       return new Response(JSON.stringify(result), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         status: 200,

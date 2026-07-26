@@ -87,10 +87,11 @@ export function ResponseFormatter({
 
   // Extract inline WhatsApp triggers to ensure they only appear at the bottom
   const cleanContent = extractContent(content || '')
+    ?.replace(/\+\+(.+?)\+\+/g, '**$1**')
+    ?.replace(/^---+\s*$/gm, '')
     ?.replace(/<WhatsAppButton[^>]*\/>/gi, '')
     ?.replace(/\[WHATSAPP_BUTTON\]/gi, '')
     ?.replace(/\[WHATSAPP\]/gi, '')
-    // Also cleanup some leftover AI tokens
     ?.replace(/realizando busca profunda my way/gi, '')
     ?.replace(/\*{4,}/g, '\n\n')
     ?.trim()

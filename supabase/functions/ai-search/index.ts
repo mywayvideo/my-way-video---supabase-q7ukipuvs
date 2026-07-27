@@ -750,48 +750,95 @@ Deno.serve(async (req: Request) => {
             featured = level1Products
             cards = level1Products
           } else {
-            // ═══ Curadoria com diversidade de fabricantes ═══
-            const MAX_PER_MANUFACTURER = 2
-            const MAX_TOTAL_CARDS = 10
-            const productsByManufacturer = new Map()
-            for (const product of level1Products) {
-              const manufacturer = (
-                product.manufacturers?.name ||
-                product.manufacturer ||
-                product.brand ||
-                'Outros'
-              ).trim()
-              if (!productsByManufacturer.has(manufacturer)) {
-                productsByManufacturer.set(manufacturer, [])
+            // ═══ Verifica se a query menciona um fabricante específico ═══
+            const queryLower = query.toLowerCase()
+            const mentionedManufacturer = manufacturers?.find((m: any) =>
+              queryLower.includes(m.name.toLowerCase()),
+            )
+
+            if (mentionedManufacturer) {
+              // Filtra APENAS produtos do fabricante mencionado
+              const filteredByManufacturer = level1Products.filter((p: any) => {
+                const pMfr = (p.manufacturers?.name || p.manufacturer || p.brand || '')
+                  .toLowerCase()
+                  .trim()
+                return pMfr === mentionedManufacturer.name.toLowerCase().trim()
+              })
+
+              if (filteredByManufacturer.length >= 3) {
+                // Tem produtos suficientes → usa só esses, sem balancear
+                featured = filteredByManufacturer.slice(0, 10)
+                cards = featured
+                console.log(
+                  `[curation] Query menciona fabricante "${mentionedManufacturer.name}" — pulando balanceamento. ` +
+                    `${filteredByManufacturer.length} produtos encontrados, usando ${featured.length}.`,
+                )
+              } else if (filteredByManufacturer.length > 0) {
+                // Poucos produtos do fabricante, usa eles + complementa
+                const others = level1Products.filter((p: any) => {
+                  const pMfr = (p.manufacturers?.name || p.manufacturer || p.brand || '')
+                    .toLowerCase()
+                    .trim()
+                  return pMfr !== mentionedManufacturer.name.toLowerCase().trim()
+                })
+                featured = [...filteredByManufacturer, ...others].slice(0, 10)
+                cards = featured
+                console.log(
+                  `[curation] Query menciona fabricante "${mentionedManufacturer.name}" — ` +
+                    `${filteredByManufacturer.length} produtos do fabricante + complemento.`,
+                )
+              } else {
+                // Não encontrou produtos do fabricante mencionado → cai no balanceamento normal
+                fallbackToBalancing()
               }
-              productsByManufacturer.get(manufacturer).push(product)
+            } else {
+              fallbackToBalancing()
             }
-            const manufacturerEntries = Array.from(productsByManufacturer.entries())
-            manufacturerEntries.sort((a, b) => b[1].length - a[1].length)
-            const balancedProducts: any[] = []
-            let index = 0
-            let allExhausted = false
-            while (balancedProducts.length < MAX_TOTAL_CARDS && !allExhausted) {
-              allExhausted = true
-              for (const [mfr, products] of manufacturerEntries) {
-                if (index < products.length && balancedProducts.length < MAX_TOTAL_CARDS) {
-                  const countForBrand = balancedProducts.filter(
-                    (p) => (p.manufacturer || p.brand || 'Outros').trim() === mfr,
-                  ).length
-                  if (countForBrand < MAX_PER_MANUFACTURER) {
-                    balancedProducts.push(products[index])
-                    allExhausted = false
+
+            function fallbackToBalancing() {
+              // ═══ Curadoria com diversidade de fabricantes (original) ═══
+              const MAX_PER_MANUFACTURER = 2
+              const MAX_TOTAL_CARDS = 10
+              const productsByManufacturer = new Map()
+              for (const product of level1Products) {
+                const manufacturer = (
+                  product.manufacturers?.name ||
+                  product.manufacturer ||
+                  product.brand ||
+                  'Outros'
+                ).trim()
+                if (!productsByManufacturer.has(manufacturer)) {
+                  productsByManufacturer.set(manufacturer, [])
+                }
+                productsByManufacturer.get(manufacturer).push(product)
+              }
+              const manufacturerEntries = Array.from(productsByManufacturer.entries())
+              manufacturerEntries.sort((a, b) => b[1].length - a[1].length)
+              const balancedProducts: any[] = []
+              let idx = 0
+              let allExhausted = false
+              while (balancedProducts.length < MAX_TOTAL_CARDS && !allExhausted) {
+                allExhausted = true
+                for (const [mfr, products] of manufacturerEntries) {
+                  if (idx < products.length && balancedProducts.length < MAX_TOTAL_CARDS) {
+                    const countForBrand = balancedProducts.filter(
+                      (p) => (p.manufacturer || p.brand || 'Outros').trim() === mfr,
+                    ).length
+                    if (countForBrand < MAX_PER_MANUFACTURER) {
+                      balancedProducts.push(products[idx])
+                      allExhausted = false
+                    }
                   }
                 }
+                idx++
               }
-              index++
+              featured = balancedProducts
+              cards = balancedProducts
+              console.log(
+                `[curation] total=${level1Products.length} balanced=${balancedProducts.length} manufacturers=[${manufacturerEntries.map(([m, p]) => `${m}(${p.length})`).join(', ')}]`,
+              )
             }
-            featured = balancedProducts
-            cards = balancedProducts
-            console.log(
-              `[curation] total=${level1Products.length} balanced=${balancedProducts.length} manufacturers=[${manufacturerEntries.map(([m, p]) => `${m}(${p.length})`).join(', ')}]`,
-            )
-          } // fim do else (curadoria normal)
+          }
 
           // ── STEP 3: Diagnostic Logs (DEPOIS) ──
           console.log(

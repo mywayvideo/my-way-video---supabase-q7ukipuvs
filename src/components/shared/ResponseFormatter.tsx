@@ -6,6 +6,7 @@ import { Phone } from 'lucide-react'
 import { ProductCard } from '@/components/ProductCard'
 import { ImageWithFallback } from '@/components/ImageWithFallback'
 import { WhatsAppButton } from '@/components/WhatsAppButton'
+import { ProductImages } from '@/components/shared/ProductImages'
 import { Button } from '@/components/ui/button'
 import rehypeRaw from 'rehype-raw'
 
@@ -104,42 +105,17 @@ export function ResponseFormatter({
   const hasWhatsAppTrigger =
     showWhatsApp || /<WhatsAppButton/i.test(content || '') || /\[WHATSAPP/i.test(content || '')
 
-  const injectProductImages = (text: string, prods: any[]): string => {
-    if (!prods || prods.length === 0) return text
-    let result = text
-    for (const product of prods) {
-      if (!product?.name || !product?.image_url) continue
-      const productName = product.name as string
-      const imageUrl = product.image_url as string
-      const imgTag = `\n\n<img src="https://wsrv.nl/?url=${encodeURIComponent(imageUrl)}&w=400&h=400&fit=inside" />\n\n`
-      const patterns = [
-        new RegExp('<strong>' + escapeRegex(productName) + '</strong>', 'i'),
-        new RegExp(escapeRegex(productName), 'i'),
-      ]
-      let injected = false
-      for (const pattern of patterns) {
-        if (injected) break
-        const match = result.match(pattern)
-        if (match && match.index !== undefined) {
-          const beforeSlice = result.slice(Math.max(0, match.index - 50), match.index)
-          if (!beforeSlice.includes('<img')) {
-            result = result.slice(0, match.index) + imgTag + result.slice(match.index)
-            injected = true
-            break
-          }
-        }
-      }
-    }
-    return result
-  }
-
-  const contentWithImages = injectProductImages(cleanContent, finalProducts)
-
   return (
     <div className="flex flex-col space-y-6 w-full max-w-full overflow-hidden">
-      {/* 1. AI Text/Markdown Response */}
+      {/* 1. Product Images */}
+      <ProductImages
+        products={finalProducts}
+        referencedInternalProducts={referenced_internal_products || []}
+      />
+
+      {/* 2. AI Text/Markdown Response */}
       {cleanContent && (
-        <div className="order-1 prose prose-invert max-w-none text-base leading-relaxed w-full break-words">
+        <div className="order-2 prose prose-invert max-w-none text-base leading-relaxed w-full break-words">
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
             rehypePlugins={[rehypeRaw]}
@@ -217,14 +193,14 @@ export function ResponseFormatter({
               whatsappbutton: () => null,
             }}
           >
-            {contentWithImages}
+            {cleanContent}
           </ReactMarkdown>
         </div>
       )}
 
       {/* 2. Product Cards Section — PP vs HP */}
       {finalProducts && finalProducts.length > 0 && (
-        <div className="order-2 mt-8 animate-fade-in-up">
+        <div className="order-3 mt-8 animate-fade-in-up">
           {/* PP: "Produtos Referenciados" — produto origem incluso */}
           {isProductRoute && (
             <>
@@ -283,7 +259,7 @@ export function ResponseFormatter({
 
       {/* 3. WhatsApp Button */}
       {hasWhatsAppTrigger && (
-        <div className="order-3 mt-6 animate-fade-in-up w-full">
+        <div className="order-4 mt-6 animate-fade-in-up w-full">
           <div className="pt-6 border-t border-green-900/30">
             {onWhatsAppClick ? (
               <Button

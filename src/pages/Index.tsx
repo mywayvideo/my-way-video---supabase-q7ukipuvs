@@ -113,8 +113,8 @@ export default function Index() {
   const enrichedResults = results
     ? {
         ...results,
-        referenced_internal_products: [],
-        products: [],
+        referenced_internal_products: section1Ids,
+        products: aiProducts,
         stock: [],
         search_results: {
           ...(results.search_results || {}),

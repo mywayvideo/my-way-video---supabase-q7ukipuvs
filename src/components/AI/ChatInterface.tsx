@@ -33,6 +33,7 @@ export function ChatInterface({ productId: propProductId }: { productId?: string
       showWhatsapp?: boolean
       confidence?: string
       is_intermediate?: boolean
+      referenced_internal_products?: string[]
     }>
   >([])
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -84,6 +85,7 @@ export function ChatInterface({ productId: propProductId }: { productId?: string
             showWhatsapp: res.should_show_whatsapp_button,
             confidence: res.confidence_level,
             is_intermediate: false,
+            referenced_internal_products: res.referenced_internal_products || [],
           }
           return newMessages
         }
@@ -96,6 +98,7 @@ export function ChatInterface({ productId: propProductId }: { productId?: string
             showWhatsapp: res.should_show_whatsapp_button,
             confidence: res.confidence_level,
             is_intermediate: false,
+            referenced_internal_products: res.referenced_internal_products || [],
           },
         ]
       })
@@ -202,6 +205,7 @@ export function ChatInterface({ productId: propProductId }: { productId?: string
                         <ResponseFormatter
                           content={msg.content}
                           products={msg.products}
+                          referenced_internal_products={msg.referenced_internal_products}
                           currentProductId={productId}
                           showWhatsApp={msg.showWhatsapp || msg.confidence === 'low'}
                           onWhatsAppClick={() =>

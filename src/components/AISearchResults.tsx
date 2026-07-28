@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useMemo } from 'react'
 import { Sparkles, CheckCircle2, AlertTriangle, AlertCircle, ShoppingCart } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -6,6 +6,8 @@ import { useCart } from '@/hooks/useCart'
 import MarkdownWithTables from '@/components/MarkdownWithTables'
 import { ReferencedProducts } from '@/components/ReferencedProducts'
 import { AILoader } from '@/components/AI/AILoader'
+import { supabase } from '@/lib/supabase/client'
+import { processProductImages, type ProductImageInfo } from '@/utils/productImageProcessor'
 
 interface Product {
   id: string
@@ -17,6 +19,7 @@ interface Product {
 
 interface AIResult {
   message?: string
+  content?: string
   confidence_level?: 'high' | 'medium' | 'low'
   referenced_internal_products?: Product[]
   should_show_whatsapp_button?: boolean
@@ -55,6 +58,69 @@ export function AISearchResults({
     }
     prevLoadingRef.current = isLoading
   }, [isLoading, result])
+
+  const [productImages, setProductImages] = useState<ProductImageInfo[]>([])
+
+  useEffect(() => {
+    if (!result) {
+      setProductImages([])
+      return
+    }
+
+    let isMounted = true
+    const refs = result.referenced_internal_products || []
+    const fullProducts: ProductImageInfo[] = []
+    const idsToFetch: string[] = []
+
+    refs.forEach((item: any) => {
+      if (typeof item === 'object' && item !== null) {
+        if (item.name && item.image_url) {
+          fullProducts.push({ name: item.name, image_url: item.image_url, id: item.id })
+        } else if (item.id) {
+          idsToFetch.push(item.id)
+        }
+      } else if (typeof item === 'string' && item.length > 0) {
+        idsToFetch.push(item)
+      }
+    })
+
+    const resultProducts = result.products || []
+    resultProducts.forEach((item: any) => {
+      if (item && typeof item === 'object' && item.name && item.image_url) {
+        fullProducts.push({ name: item.name, image_url: item.image_url, id: item.id })
+      }
+    })
+
+    if (idsToFetch.length > 0) {
+      supabase
+        .from('products')
+        .select('id, name, image_url')
+        .in('id', idsToFetch)
+        .then(({ data }) => {
+          if (!isMounted) return
+          if (data && data.length > 0) {
+            setProductImages([
+              ...fullProducts,
+              ...data.map((p: any) => ({ name: p.name, image_url: p.image_url, id: p.id })),
+            ])
+          } else {
+            setProductImages(fullProducts)
+          }
+        })
+    } else {
+      setProductImages(fullProducts)
+    }
+
+    return () => {
+      isMounted = false
+    }
+  }, [result])
+
+  const processedContent = useMemo(() => {
+    if (!result?.content) return ''
+    const rawContent = result.content.replace(/realizando busca profunda my way/gi, '').trim()
+    return processProductImages(rawContent, productImages)
+  }, [result?.content, productImages])
 
   if (isLoading && (!result || !result.is_intermediate)) {
     return (
@@ -145,11 +211,7 @@ export function AISearchResults({
           <AILoader size="default" />
         ) : (
           <>
-            <MarkdownWithTables
-              markdown={(result.content || '')
-                .replace(/realizando busca profunda my way/gi, '')
-                .trim()}
-            />
+            <MarkdownWithTables markdown={processedContent} />
             {Array.isArray(result.referenced_internal_products) &&
               result.referenced_internal_products.length > 0 && (
                 <div className="mt-4">

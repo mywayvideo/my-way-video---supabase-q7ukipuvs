@@ -4,6 +4,7 @@ import { ReferencedProducts } from '@/components/ReferencedProducts'
 import MarkdownWithTables from '@/components/MarkdownWithTables'
 import { Button } from '@/components/ui/button'
 import { MessageCircle } from 'lucide-react'
+import { processProductImages, type ProductImageInfo } from '@/utils/productImageProcessor'
 
 export function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -38,8 +39,12 @@ export function ResponseFormatter({
       ids.push(match[1])
     }
     const cleaned = content.replace(idRegex, '').trim()
-    return { cleanedContent: cleaned, parsedProductIds: ids }
-  }, [content])
+    const productImageInfos: ProductImageInfo[] = (products || [])
+      .filter((p: any) => p?.name && p?.image_url)
+      .map((p: any) => ({ name: p.name, image_url: p.image_url, id: p.id }))
+    const processed = processProductImages(cleaned, productImageInfos)
+    return { cleanedContent: processed, parsedProductIds: ids }
+  }, [content, products])
 
   const allReferencedIds = useMemo(() => {
     const refIds = (referenced_internal_products || [])

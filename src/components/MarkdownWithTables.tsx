@@ -334,8 +334,25 @@ interface MarkdownWithTablesProps {
   className?: string
 }
 
+const preprocessHtmlImages = (text: string): string => {
+  return text
+    .replace(
+      /<img\s+[^>]*?src=["']([^"']+)["'][^>]*?(?:alt=["']([^"']*)["'])?[^>]*?\/?>/gi,
+      (_match, src: string, alt: string | undefined) => {
+        return `![${alt ?? ''}](${src})`
+      },
+    )
+    .replace(
+      /<img\s+[^>]*?(?:alt=["']([^"']*)["'])?[^>]*?src=["']([^"']+)["'][^>]*?\/?>/gi,
+      (_match, alt: string | undefined, src: string) => {
+        return `![${alt ?? ''}](${src})`
+      },
+    )
+}
+
 const MarkdownWithTables: React.FC<MarkdownWithTablesProps> = ({ markdown, className = '' }) => {
-  const lines = markdown.split(/\r?\n/)
+  const processedMarkdown = preprocessHtmlImages(markdown)
+  const lines = processedMarkdown.split(/\r?\n/)
   const content = parseMarkdown(lines)
 
   return (

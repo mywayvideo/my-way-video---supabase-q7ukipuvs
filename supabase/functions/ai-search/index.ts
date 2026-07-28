@@ -1029,7 +1029,9 @@ Deno.serve(async (req: Request) => {
         const originProduct = result.products.find((p: any) => p.id === lastReferencedProductId)
         if (originProduct) {
           if (!result.referenced_product_data) result.referenced_product_data = []
-          const hasOrigin = result.referenced_product_data.some((p: any) => p.id === lastReferencedProductId)
+          const hasOrigin = result.referenced_product_data.some(
+            (p: any) => p.id === lastReferencedProductId,
+          )
           if (!hasOrigin) {
             result.referenced_product_data.push({
               id: originProduct.id,
@@ -1068,12 +1070,15 @@ Deno.serve(async (req: Request) => {
                 : rawUrl
 
             const escapedUrl = proxiedUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-            const imgRegex = new RegExp(`<img[^>]*src=["']${escapedUrl}["']`, 'i')
-            if (imgRegex.test(result.content)) continue
 
-            const imgTag = `<img src="${proxiedUrl}" alt="${productName}" />`
+            const htmlImgRegex = new RegExp(`<img[^>]*src=["']${escapedUrl}["']`, 'i')
+            const markdownImgRegex = new RegExp(`!\\[[^\\]]*\\]\\(${escapedUrl}\\)`, 'i')
+
+            if (htmlImgRegex.test(result.content) || markdownImgRegex.test(result.content)) continue
+
+            const markdownImg = `\n\n![${productName}](${proxiedUrl})\n\n`
             result.content =
-              result.content.slice(0, nameIdx) + imgTag + result.content.slice(nameIdx)
+              result.content.slice(0, nameIdx) + markdownImg + result.content.slice(nameIdx)
           } catch {
             // Fallback safety: skip injection on any error
           }

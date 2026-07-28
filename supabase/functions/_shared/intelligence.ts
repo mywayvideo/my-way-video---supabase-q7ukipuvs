@@ -27,6 +27,7 @@ interface GenerateContext {
   manufacturerList?: string
   history?: any[]
   currentProductId?: string | null
+  currentProductName?: string | null
   contextualProductData?: any
   institutionalContext?: string
 }
@@ -37,6 +38,27 @@ export async function generateResponse(
   _modelOverride: any,
   supabase: any,
 ): Promise<any> {
+  if (!context.aiSettings?.product_page_prompt) {
+    const { data: aiSettingsData } = await supabase
+      .from('ai_settings')
+      .select('product_page_prompt')
+      .limit(1)
+      .maybeSingle()
+    if (aiSettingsData?.product_page_prompt) {
+      context = {
+        ...context,
+        aiSettings: {
+          ...context.aiSettings,
+          product_page_prompt: aiSettingsData.product_page_prompt,
+        },
+      }
+    }
+  }
+
+  if (!context.currentProductName && context.contextualProductData?.name) {
+    context = { ...context, currentProductName: context.contextualProductData.name }
+  }
+
   const openaiKey = Deno.env.get('OPENAI_API_KEY') ?? ''
   const deepseekKey = Deno.env.get('DEEPSEEK_API_KEY') ?? ''
   const anthropicKey = Deno.env.get('ANTHROPIC_API_KEY') ?? ''
@@ -126,6 +148,18 @@ function buildSystemPrompt(context: GenerateContext): string {
   if (context.institutionalContext) {
     prompt += `\n\nInformações institucionais:\n${context.institutionalContext}`
   }
+
+  prompt +=
+    '\n\nREGRA DE IMAGENS: Sua resposta será REJEITADA se não incluir a imagem de cada produto mencionado.'
+
+  if (context.currentProductId && context.currentProductName) {
+    prompt += `\n\nCONTEXTO: O usuário está visualizando o produto ${context.currentProductName}. Qualquer pergunta que não mencione explicitamente outro produto refere-se a este produto de origem.`
+  }
+
+  if (context.aiSettings?.product_page_prompt) {
+    prompt += `\n\n${context.aiSettings.product_page_prompt}`
+  }
+
   return prompt
 }
 
@@ -144,8 +178,18 @@ function buildMessages(query: string, context: GenerateContext, systemPrompt: st
     userContent += JSON.stringify(context.products, null, 2)
   }
   if (context.contextualProductData) {
-    userContent += '\n\nProduto atualmente em contexto:\n'
-    userContent += JSON.stringify(context.contextualProductData, null, 2)
+    userContent += '\n\nProduto de origem (página atual do usuário):\n'
+    const expandedProduct = {
+      id: context.contextualProductData.id,
+      name: context.contextualProductData.name,
+      price_usd: context.contextualProductData.price_usd,
+      manufacturer: context.contextualProductData.manufacturer,
+      category: context.contextualProductData.category,
+      description: context.contextualProductData.description,
+      technical_info: context.contextualProductData.technical_info,
+      image_url: context.contextualProductData.image_url,
+    }
+    userContent += JSON.stringify(expandedProduct, null, 2)
   }
   messages.push({ role: 'user', content: userContent })
   return messages
@@ -229,7 +273,9 @@ function parseAIResponse(content: string, context: GenerateContext): any {
   const idRegex = /\[PRODUCT:([0-9a-fA-F-]{36})\]/g
   let match: RegExpExecArray | null
   while ((match = idRegex.exec(content)) !== null) {
-    productIds.push(match[1])
+    if (match[1] !== context.currentProductId) {
+      productIds.push(match[1])
+    }
   }
   const cleanedContent = content.replace(idRegex, '').trim()
 
@@ -239,11 +285,13 @@ function parseAIResponse(content: string, context: GenerateContext): any {
   const shouldShowWhatsApp =
     confidenceLevel === 'low' || (!hasProductMatch && !context.institutionalContext)
 
+  const filteredProductIds = productIds.filter((id) => id !== context.currentProductId)
+
   return {
     content: cleanedContent,
     confidence_level: confidenceLevel,
-    referenced_internal_products: productIds,
-    ai_referenced_products: productIds,
+    referenced_internal_products: filteredProductIds,
+    ai_referenced_products: filteredProductIds,
     should_show_whatsapp_button: shouldShowWhatsApp,
   }
 }

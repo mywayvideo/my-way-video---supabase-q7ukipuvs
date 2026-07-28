@@ -123,10 +123,11 @@ export function AIConsultantModal({
         if (activeProductId) {
           const { data: productData } = await supabase
             .from('products')
-            .select('id, name, sku, description, technical_info, price_usd, image_url')
+            .select(
+              'id, name, sku, description, technical_info, price_usd, image_url, category, manufacturer:manufacturers(name)',
+            )
             .eq('id', activeProductId)
             .maybeSingle()
-
           if (productData) {
             setCurrentProductPrice(productData.price_usd || 0)
             setCurrentProductName(productData.name || productName || '')
@@ -175,19 +176,6 @@ export function AIConsultantModal({
     const query = overrideQuery || inputValue
     if (!query.trim()) return
 
-    let promptToUse = productPagePrompt
-    if (activeProductId && !promptToUse) {
-      const { data: promptData } = await supabase
-        .from('ai_settings')
-        .select('product_page_prompt')
-        .limit(1)
-        .maybeSingle()
-      if (promptData?.product_page_prompt) {
-        promptToUse = promptData.product_page_prompt
-        setProductPagePrompt(promptToUse)
-      }
-    }
-
     const userMsg: Message = {
       id: crypto.randomUUID(),
       role: 'user',
@@ -216,7 +204,6 @@ export function AIConsultantModal({
           session_id: sessionId,
           currentProductId: activeProductId,
           currentProductContext: fullProductData,
-          productPagePrompt: promptToUse,
           userName: user?.user_metadata?.name || 'Cliente',
           messages: messages.map((m) => ({ role: m.role, content: m.content })),
         }),
@@ -289,9 +276,11 @@ export function AIConsultantModal({
       }
 
       const aiResultData: AIConsultantResult = {
-        referenced_internal_products: refIds,
-        ai_referenced_products: data.ai_referenced_products || [],
-        products: finalProducts,
+        referenced_internal_products: refIds.filter((id: string) => id !== activeProductId),
+        ai_referenced_products: (data.ai_referenced_products || []).filter(
+          (id: string) => id !== activeProductId,
+        ),
+        products: finalProducts.filter((p: any) => p.id !== activeProductId),
       }
       onAIResult?.(aiResultData)
 
@@ -299,8 +288,10 @@ export function AIConsultantModal({
         id: crypto.randomUUID(),
         role: 'assistant',
         content: data.content || 'Desculpe, não consegui processar sua requisição.',
-        products: finalProducts,
-        referenced_internal_products: data.referenced_internal_products || refIds, // ← ADICIONE
+        products: finalProducts.filter((p: any) => p.id !== activeProductId),
+        referenced_internal_products: (data.referenced_internal_products || refIds).filter(
+          (id: string) => id !== activeProductId,
+        ),
         should_show_whatsapp_button: data.should_show_whatsapp_button,
         tier: data.tier || 1,
       }
@@ -406,6 +397,7 @@ export function AIConsultantModal({
                       }
                       onWhatsAppClick={handleWhatsappClick}
                       onProductClick={onClose}
+                      hideProductImages
                     />
                   )}
                 </div>

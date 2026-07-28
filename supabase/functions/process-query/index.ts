@@ -20,6 +20,8 @@ Deno.serve(async (req: Request) => {
       isNABQuery,
       assembledPrompt,
       temperature = 0.1,
+      currentProductId,
+      currentProductName,
     } = await req.json()
 
     if (!query) {
@@ -130,9 +132,20 @@ MANDATORY RULES:
 - Double-check your math before outputting text: BRL value must ALWAYS be significantly higher than USD value due to the exchange rate.
 `
 
+    const productContextInstruction = currentProductId
+      ? `\n\nCONTEXTO: O usuário está visualizando o produto ${currentProductName || 'atual'}. Qualquer pergunta que não mencione explicitamente outro produto refere-se a este produto de origem.`
+      : ''
+
+    const inlineImageInstruction =
+      '\n\nREGRA DE IMAGENS: Sua resposta será REJEITADA se não incluir a imagem de cada produto mencionado.'
+
+    const productPagePromptInstruction = aiSettings?.product_page_prompt
+      ? `\n\n${aiSettings.product_page_prompt}`
+      : ''
+
     const finalSystemPrompt = assembledPrompt
-      ? `${assembledPrompt}\n\n${technicalBridgeRules}\n\n${tonePrompt}\n\n${dynamicConstraints}`
-      : `${systemPrompt}\n\n${systemPromptTemplate}\n\n${logisticsRulesPrompt}\n\n${technicalBridgeRules}\n\n${tonePrompt}\n\n${dynamicConstraints}`
+      ? `${assembledPrompt}\n\n${technicalBridgeRules}\n\n${tonePrompt}\n\n${dynamicConstraints}${productContextInstruction}${inlineImageInstruction}${productPagePromptInstruction}`
+      : `${systemPrompt}\n\n${systemPromptTemplate}\n\n${logisticsRulesPrompt}\n\n${technicalBridgeRules}\n\n${tonePrompt}\n\n${dynamicConstraints}${productContextInstruction}${inlineImageInstruction}${productPagePromptInstruction}`
 
     const dataContext = `
 DADOS REAIS DO BANCO:

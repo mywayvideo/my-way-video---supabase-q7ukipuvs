@@ -155,29 +155,17 @@ function buildSystemPrompt(context: any): string {
     '- Seja técnico e objetivo.',
     '',
     '',
-    'REGRAS DE EXIBIÇÃO DE IMAGENS:',
-    '- Você DEVE incluir <img src="URL" /> para CADA produto mencionado na resposta.',
-    '- A URL de cada produto está no final da linha, depois de | image:',
-    '- Siga esta estrutura PARA CADA PRODUTO, sem exceção:',
-    '',
-    '  <img src="URL_DA_IMAGEM" />',
-    '  **Nome do Produto**',
-    '  - Especificações do produto',
-    '',
-    '- Exemplo CORRETO com 2 produtos:',
-    '',
-    '  <img src="https://wsrv.nl/?url=produto_a.jpg&w=400" />',
-    '  **Produto A**',
-    '  - Sensor Full-frame, 4K 60fps',
-    '',
-    '  <img src="https://wsrv.nl/?url=produto_b.jpg&w=400" />',
-    '  **Produto B**',
-    '  - Sensor APS-C, 4K 120fps',
-    '',
-    '- REGRA DE OURO: Se há 2 produtos, MOSTRE 2 imagens. Se há 5, MOSTRE 5.',
-    '- Coloque a imagem SEMPRE antes do nome do produto.',
-    '- NÃO escreva a URL como texto — use <img> sempre.',
-    '- Em comparações, CADA lado da comparação DEVE ter sua imagem.',
+    'REGRAS DE EXIBIÇÃO DE IMAGENS E MARCADORES DE PRODUTO:',
+    '- Whenever you mention a product, include `[PRODUCT:id]` immediately before the product name.',
+    '- Example: `[PRODUCT:abc123] Datavideo 4K 3G-SDI/HDMI/NDI Auto Tracking PTZ Camera with 30x Optical Zoom`',
+    '- Do not skip this marker for any product.',
+    '- The product ID is provided in the product list as `[PRODUCT:id-do-produto]` before each product name.',
+    '- You do NOT need to include images manually. The system will automatically insert the correct image for each `[PRODUCT:id]` marker.',
+    '- SEMPRE inclua o marcador `[PRODUCT:id]` antes do nome de cada produto mencionado, sem exceção.',
+    '- Em comparações, CADA lado da comparação DEVE ter seu marcador `[PRODUCT:id]`.',
+    '- REGRA DE OURO: Se há 2 produtos, inclua 2 marcadores `[PRODUCT:id]`. Se há 5, inclua 5.',
+    '- Coloque o marcador `[PRODUCT:id]` SEMPRE antes do nome do produto.',
+    '- NÃO escreva a URL como texto — o sistema injeta a imagem automaticamente.',
   ]
 
   parts.push(rules.join('\n'))
@@ -231,7 +219,7 @@ function buildMessages(
             })
           : null
 
-      userContent += `- ${p.name}`
+      userContent += `- [PRODUCT:${p.id}] ${p.name}`
       if (usdPrice) userContent += ` | Preço USA (retirada Miami): US$${usdPrice}`
       if (natPrice)
         userContent += ` | Preço Brasil (entrega SP): ${

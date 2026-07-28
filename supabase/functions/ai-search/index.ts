@@ -1029,9 +1029,7 @@ Deno.serve(async (req: Request) => {
         const originProduct = result.products.find((p: any) => p.id === lastReferencedProductId)
         if (originProduct) {
           if (!result.referenced_product_data) result.referenced_product_data = []
-          const hasOrigin = result.referenced_product_data.some(
-            (p: any) => p.id === lastReferencedProductId,
-          )
+          const hasOrigin = result.referenced_product_data.some((p: any) => p.id === lastReferencedProductId)
           if (!hasOrigin) {
             result.referenced_product_data.push({
               id: originProduct.id,
@@ -1053,35 +1051,103 @@ Deno.serve(async (req: Request) => {
       }
 
       if (typeof result.content === 'string' && Array.isArray(result.products)) {
-        for (const product of result.products) {
-          try {
-            const productName = product.name?.trim()
-            if (!productName) continue
+        const productMap = new Map(result.products.map((p: any) => [p.id, p]))
+        const processedProductIds = new Set<string>()
 
-            const nameIdx = result.content.indexOf(productName)
-            if (nameIdx === -1) continue
+        // 1) Replace [PRODUCT:id] markers with image markdown
+        const markerRegex = /\[PRODUCT:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\]/gi
+        let markerMatch: RegExpExecArray | null
+        const markerReplacements: { start: number; end: number; replacement: string }[] = []
 
-            const rawUrl = product.image_url || ''
-            if (!rawUrl) continue
+        while ((markerMatch = markerRegex.exec(result.content)) !== null) {
+          const productId = markerMatch[1]
+          const product = productMap.get(productId)
+          processedProductIds.add(productId)
 
-            const proxiedUrl =
-              rawUrl.includes('bhphotovideo') || rawUrl.includes('bhphoto')
-                ? `https://wsrv.nl/?url=${encodeURIComponent(rawUrl)}&w=400&h=400&fit=inside`
-                : rawUrl
-
-            const escapedUrl = proxiedUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-
-            const htmlImgRegex = new RegExp(`<img[^>]*src=["']${escapedUrl}["']`, 'i')
-            const markdownImgRegex = new RegExp(`!\\[[^\\]]*\\]\\(${escapedUrl}\\)`, 'i')
-
-            if (htmlImgRegex.test(result.content) || markdownImgRegex.test(result.content)) continue
-
-            const markdownImg = `\n\n![${productName}](${proxiedUrl})\n\n`
-            result.content =
-              result.content.slice(0, nameIdx) + markdownImg + result.content.slice(nameIdx)
-          } catch {
-            // Fallback safety: skip injection on any error
+          if (!product) {
+            markerReplacements.push({
+              start: markerMatch.index,
+              end: markerMatch.index + markerMatch[0].length,
+              replacement: '',
+            })
+            continue
           }
+
+          const rawUrl = product.image_url || ''
+          if (!rawUrl) {
+            markerReplacements.push({
+              start: markerMatch.index,
+              end: markerMatch.index + markerMatch[0].length,
+              replacement: '',
+            })
+            continue
+          }
+
+          const proxiedUrl =
+            rawUrl.includes('bhphotovideo') || rawUrl.includes('bhphoto')
+              ? `https://wsrv.nl/?url=${encodeURIComponent(rawUrl)}&w=400&h=400&fit=inside`
+              : rawUrl
+
+          const productName = (product.name || '').trim() || 'Product'
+          const escapedUrl = proxiedUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+          const htmlImgRegex = new RegExp(`<img[^>]*src=["']${escapedUrl}["']`, 'i')
+          const markdownImgRegex = new RegExp(`!\\[[^\\]]*\\]\\(${escapedUrl}\\)`, 'i')
+
+          if (htmlImgRegex.test(result.content) || markdownImgRegex.test(result.content)) {
+            markerReplacements.push({
+              start: markerMatch.index,
+              end: markerMatch.index + markerMatch[0].length,
+              replacement: '',
+            })
+            continue
+          }
+
+          markerReplacements.push({
+            start: markerMatch.index,
+            end: markerMatch.index + markerMatch[0].length,
+            replacement: `![${productName}](${proxiedUrl})\n\n`,
+          })
+        }
+
+        // Apply replacements in reverse order to preserve indices
+        markerReplacements.sort((a, b) => b.start - a.start)
+        for (const { start, end, replacement } of markerReplacements) {
+          result.content = result.content.slice(0, start) + replacement + result.content.slice(end)
+        }
+
+        // 2) Fallback: normalized name-based matching for products without markers
+        for (const product of result.products) {
+          const productId = product.id
+          if (processedProductIds.has(productId)) continue
+
+          const rawUrl = product.image_url || ''
+          if (!rawUrl) continue
+
+          const proxiedUrl =
+            rawUrl.includes('bhphotovideo') || rawUrl.includes('bhphoto')
+              ? `https://wsrv.nl/?url=${encodeURIComponent(rawUrl)}&w=400&h=400&fit=inside`
+              : rawUrl
+
+          const escapedUrl = proxiedUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+          const htmlImgRegex = new RegExp(`<img[^>]*src=["']${escapedUrl}["']`, 'i')
+          const markdownImgRegex = new RegExp(`!\\[[^\\]]*\\]\\(${escapedUrl}\\)`, 'i')
+
+          if (htmlImgRegex.test(result.content) || markdownImgRegex.test(result.content)) continue
+
+          const productName = (product.name || '').trim()
+          const normalizedName = productName.replace(/\s*\([^)]*\)\s*/g, '').trim()
+          if (!normalizedName) continue
+
+          const escapedName = normalizedName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+          const nameRegex = new RegExp(escapedName, 'i')
+          const nameMatch = nameRegex.exec(result.content)
+          if (!nameMatch) continue
+
+          const markdownImg = `\n\n![${productName}](${proxiedUrl})\n\n`
+          result.content =
+            result.content.slice(0, nameMatch.index) +
+            markdownImg +
+            result.content.slice(nameMatch.index)
         }
       }
 

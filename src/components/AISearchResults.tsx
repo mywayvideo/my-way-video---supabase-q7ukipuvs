@@ -1,12 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import {
-  Sparkles,
-  CheckCircle2,
-  AlertTriangle,
-  AlertCircle,
-  AlertCircle,
-  ShoppingCart,
-} from 'lucide-react'
+import { Sparkles, CheckCircle2, AlertTriangle, AlertCircle, ShoppingCart } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { useCart } from '@/hooks/useCart'

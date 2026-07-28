@@ -3,7 +3,9 @@ import { Sparkles, CheckCircle2, AlertTriangle, AlertCircle, ShoppingCart } from
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { useCart } from '@/hooks/useCart'
-import { ResponseFormatter } from '@/components/shared/ResponseFormatter'
+import MarkdownWithTables from '@/components/MarkdownWithTables'
+import { ReferencedProducts } from '@/components/ReferencedProducts'
+>>>>>>> Replace
 import { AILoader } from '@/components/AI/AILoader'
 
 interface Product {
@@ -143,19 +145,23 @@ export function AISearchResults({
         {result.is_intermediate ? (
           <AILoader size="default" />
         ) : (
-          <ResponseFormatter
-            content={(result.content || '')
+          <MarkdownWithTables
+            markdown={(result.content || '')
               .replace(/realizando busca profunda my way/gi, '')
               .trim()}
-            products={result.products}
-            referenced_internal_products={
-              Array.isArray(result.referenced_internal_products)
-                ? result.referenced_internal_products.map((item: any) =>
-                    typeof item === 'object' && item !== null ? item.id : item,
-                  )
-                : undefined
-            }
           />
+          {Array.isArray(result.referenced_internal_products) &&
+            result.referenced_internal_products.length > 0 && (
+              <div className="mt-4">
+                <ReferencedProducts
+                  productIds={result.referenced_internal_products.map(
+                    (item: any) =>
+                      typeof item === 'object' && item !== null ? item.id : item,
+                  )}
+                />
+              </div>
+            )}
+>>>>>>> Replace
         )}
       </div>
 

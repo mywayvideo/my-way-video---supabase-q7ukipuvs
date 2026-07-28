@@ -54,9 +54,6 @@ export function ResponseFormatter({
     const refs = (referenced_internal_products || []).map((item: any) =>
       typeof item === 'object' && item !== null ? item.id : item,
     )
-    if (activeProductId && !refs.includes(activeProductId)) {
-      refs.push(activeProductId)
-    }
     return refs
   }, [referenced_internal_products, activeProductId])
 
@@ -76,6 +73,10 @@ export function ResponseFormatter({
       (v: any, i: number, a: any[]) =>
         v?.id && typeof v === 'object' && a.findIndex((t) => String(t?.id) === String(v.id)) === i,
     )
+
+    if (isProductRoute && activeProductId) {
+      filtered = filtered.filter((p: any) => String(p.id) !== activeProductId)
+    }
 
     return filtered
   }, [products, stock, referenced_internal_products])
@@ -225,10 +226,7 @@ export function ResponseFormatter({
                     // PP: mostra o produto atual + os produtos que a IA referenciou por ID
                     if (!isProductRoute) return true // HP: mostra todos
                     if (!referenced_internal_products) return false // PP sem referências: não mostra nada
-                    return (
-                      referenced_internal_products.includes(p.id) ||
-                      p.id === (activeProductId || currentProductId)
-                    )
+                    return referenced_internal_products.includes(p.id)
                   })
                   .map((p: any) => (
                     <div

@@ -1029,7 +1029,9 @@ Deno.serve(async (req: Request) => {
         const originProduct = result.products.find((p: any) => p.id === lastReferencedProductId)
         if (originProduct) {
           if (!result.referenced_product_data) result.referenced_product_data = []
-          const hasOrigin = result.referenced_product_data.some((p: any) => p.id === lastReferencedProductId)
+          const hasOrigin = result.referenced_product_data.some(
+            (p: any) => p.id === lastReferencedProductId,
+          )
           if (!hasOrigin) {
             result.referenced_product_data.push({
               id: originProduct.id,
@@ -1047,6 +1049,7 @@ Deno.serve(async (req: Request) => {
           result.ai_referenced_products.splice(idxAi, 1)
           result.ai_referenced_count = result.ai_referenced_products.length
         }
+        result.products = result.products.filter((p: any) => p.id !== lastReferencedProductId)
       }
 
       result.execution_id = execution_id

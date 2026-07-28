@@ -186,7 +186,7 @@ export function AIConsultantModal({
 
     try {
       const functionUrl = activeProductId
-        ? `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-search-product-page`
+        ? `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/execute_ai_search_v2_pp`
         : `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-search`
 
       const response = await fetch(functionUrl, {
@@ -284,7 +284,7 @@ export function AIConsultantModal({
       const assistantMsg: Message = {
         id: crypto.randomUUID(),
         role: 'assistant',
-        content: data.content || 'Desculpe, não consegui processar sua requisição.',
+        content: data.message || data.content || 'Desculpe, não consegui processar sua requisição.',
         products: finalProducts.filter((p: any) => p.id !== activeProductId),
         referenced_internal_products: (data.referenced_internal_products || refIds).filter(
           (id: string) => id !== activeProductId,

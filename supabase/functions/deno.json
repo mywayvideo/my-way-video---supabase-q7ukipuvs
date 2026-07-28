@@ -41,7 +41,6 @@
     "ups-calculate-rate": 13,
     "ups-get-token": 13,
     "validate-ai-provider": 30,
-    "validate-discount-coupon": 29,
     "validate-image-url": 31,
     "validate-ncm-suggestion": 13,
     "validate-payment-token": 29,

@@ -50,6 +50,16 @@ export function ResponseFormatter({
   // Normalize both IDs to strings for comparison to avoid type mismatches
   const activeProductId = String(currentProductId || (isProductRoute ? routeId : '') || '')
 
+  const enrichedReferencedInternalProducts = useMemo(() => {
+    const refs = (referenced_internal_products || []).map((item: any) =>
+      typeof item === 'object' && item !== null ? item.id : item,
+    )
+    if (activeProductId && !refs.includes(activeProductId)) {
+      refs.push(activeProductId)
+    }
+    return refs
+  }, [referenced_internal_products, activeProductId])
+
   // SOBERANIA DE DADOS: Só exibimos o que a IA validou explicitamente por ID
   const finalProducts = useMemo(() => {
     let prods: any[] = products || []
@@ -110,7 +120,7 @@ export function ResponseFormatter({
       {/* 1. Product Images */}
       <ProductImages
         products={finalProducts}
-        referencedInternalProducts={referenced_internal_products || []}
+        referencedInternalProducts={enrichedReferencedInternalProducts}
       />
 
       {/* 2. AI Text/Markdown Response */}

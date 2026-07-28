@@ -637,11 +637,13 @@ Deno.serve(async (req: Request) => {
                 `[enriched-query] comparison query detected, skipping manufacturer injection`,
               )
             } else {
-              const manufacturer = currentProductContext.name.split(' ')[0]
-              enrichedQuery = applyCustomStopWords(
-                `${isHPMode ? cleanPortugueseGenericWords(query) : query} ${manufacturer}`,
-                customStopWords,
-              )
+              const manufacturer = currentProductContext.manufacturer
+              if (manufacturer && manufacturer !== 'N/A') {
+                enrichedQuery = applyCustomStopWords(
+                  `${isHPMode ? cleanPortugueseGenericWords(query) : query} ${manufacturer}`,
+                  customStopWords,
+                )
+              }
               console.log(
                 `[enriched-query] manufacturer="${manufacturer}" final="${enrichedQuery}"`,
               )
@@ -971,13 +973,6 @@ Deno.serve(async (req: Request) => {
       // full_search_results para cards: usa level1Products (ou cards) em vez do searchPromise
       const fullSearchResults = cards || level1Products || []
 
-      if (lastReferencedProductId) {
-        const idxRef = referencedInternalProducts.indexOf(lastReferencedProductId)
-        if (idxRef !== -1) referencedInternalProducts.splice(idxRef, 1)
-        const idxAi = aiReferencedProducts.indexOf(lastReferencedProductId)
-        if (idxAi !== -1) aiReferencedProducts.splice(idxAi, 1)
-      }
-
       const result: any = {
         content: aiResult.content,
         confidence_level: aiResult.confidence_level,
@@ -1027,6 +1022,32 @@ Deno.serve(async (req: Request) => {
               const bIsAi = aiIdSet.has(b.id) ? 0 : 1
               return aIsAi - bIsAi
             })
+        }
+      }
+
+      if (lastReferencedProductId && result.products) {
+        const originProduct = result.products.find((p: any) => p.id === lastReferencedProductId)
+        if (originProduct) {
+          if (!result.referenced_product_data) result.referenced_product_data = []
+          const hasOrigin = result.referenced_product_data.some(
+            (p: any) => p.id === lastReferencedProductId,
+          )
+          if (!hasOrigin) {
+            result.referenced_product_data.push({
+              id: originProduct.id,
+              name: originProduct.name,
+              image_url: originProduct.image_url,
+              price_usd: originProduct.price_usd,
+              price_brl: originProduct.price_brl,
+            })
+          }
+        }
+        const idxRef = result.referenced_internal_products.indexOf(lastReferencedProductId)
+        if (idxRef !== -1) result.referenced_internal_products.splice(idxRef, 1)
+        const idxAi = result.ai_referenced_products.indexOf(lastReferencedProductId)
+        if (idxAi !== -1) {
+          result.ai_referenced_products.splice(idxAi, 1)
+          result.ai_referenced_count = result.ai_referenced_products.length
         }
       }
 

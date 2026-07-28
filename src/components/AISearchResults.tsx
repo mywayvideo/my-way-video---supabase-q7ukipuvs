@@ -149,8 +149,10 @@ export function AISearchResults({
               .trim()}
             products={result.products}
             referenced_internal_products={
-              typeof result.referenced_internal_products?.[0] === 'string'
-                ? (result.referenced_internal_products as string[])
+              Array.isArray(result.referenced_internal_products)
+                ? result.referenced_internal_products.map((item: any) =>
+                    typeof item === 'object' && item !== null ? item.id : item,
+                  )
                 : undefined
             }
           />

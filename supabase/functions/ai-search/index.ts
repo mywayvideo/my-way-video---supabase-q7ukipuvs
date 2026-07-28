@@ -1029,7 +1029,9 @@ Deno.serve(async (req: Request) => {
         const originProduct = result.products.find((p: any) => p.id === lastReferencedProductId)
         if (originProduct) {
           if (!result.referenced_product_data) result.referenced_product_data = []
-          const hasOrigin = result.referenced_product_data.some((p: any) => p.id === lastReferencedProductId)
+          const hasOrigin = result.referenced_product_data.some(
+            (p: any) => p.id === lastReferencedProductId,
+          )
           if (!hasOrigin) {
             result.referenced_product_data.push({
               id: originProduct.id,
@@ -1048,6 +1050,36 @@ Deno.serve(async (req: Request) => {
           result.ai_referenced_count = result.ai_referenced_products.length
         }
         result.products = result.products.filter((p: any) => p.id !== lastReferencedProductId)
+      }
+
+      if (typeof result.content === 'string' && Array.isArray(result.products)) {
+        for (const product of result.products) {
+          try {
+            const productName = product.name?.trim()
+            if (!productName) continue
+
+            const nameIdx = result.content.indexOf(productName)
+            if (nameIdx === -1) continue
+
+            const rawUrl = product.image_url || ''
+            if (!rawUrl) continue
+
+            const proxiedUrl =
+              rawUrl.includes('bhphotovideo') || rawUrl.includes('bhphoto')
+                ? `https://wsrv.nl/?url=${encodeURIComponent(rawUrl)}&w=400&h=400&fit=inside`
+                : rawUrl
+
+            const escapedUrl = proxiedUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+            const imgRegex = new RegExp(`<img[^>]*src=["']${escapedUrl}["']`, 'i')
+            if (imgRegex.test(result.content)) continue
+
+            const imgTag = `<img src="${proxiedUrl}" alt="${productName}" />`
+            result.content =
+              result.content.slice(0, nameIdx) + imgTag + result.content.slice(nameIdx)
+          } catch {
+            // Fallback safety: skip injection on any error
+          }
+        }
       }
 
       result.execution_id = execution_id

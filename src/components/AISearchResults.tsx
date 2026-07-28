@@ -147,11 +147,7 @@ export function AISearchResults({
             content={(result.content || '')
               .replace(/realizando busca profunda my way/gi, '')
               .trim()}
-            products={
-              typeof result.referenced_internal_products?.[0] === 'object'
-                ? (result.referenced_internal_products as any[])
-                : undefined
-            }
+            products={result.products}
             referenced_internal_products={
               typeof result.referenced_internal_products?.[0] === 'string'
                 ? (result.referenced_internal_products as string[])

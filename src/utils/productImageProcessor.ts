@@ -122,11 +122,43 @@ function findLineEnd(text: string, position: number): number {
   return idx === -1 ? text.length : idx
 }
 
+const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp']
+const IMAGE_DOMAINS = [
+  'bhphotovideo.com',
+  'bhphoto.com',
+  'eimagevideo.com',
+  'static.bhphoto.com',
+  'img.usecurling.com',
+]
+
+function isImageUrl(url: string): boolean {
+  const lower = url.toLowerCase().split('?')[0].split('#')[0]
+  if (IMAGE_EXTENSIONS.some((ext) => lower.endsWith(ext))) return true
+  try {
+    const parsed = new URL(url)
+    const host = parsed.hostname.toLowerCase().replace(/^www\./, '')
+    return IMAGE_DOMAINS.some((d) => host === d || host.endsWith('.' + d))
+  } catch {
+    return false
+  }
+}
+
+function fixMissingImageBangs(text: string): string {
+  return text.replace(
+    /(?<!!)(?<!\\)\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g,
+    (match, alt: string, url: string) => {
+      if (!isImageUrl(url)) return match
+      const suffix = match.endsWith(')') ? '' : ''
+      return `![${alt}](${url})${suffix}`
+    },
+  )
+}
+
 export function processProductImages(content: string, products: ProductImageInfo[]): string {
   if (!content) return content
-  if (!products || products.length === 0) return content
 
-  let processed = cleanHtmlImages(content)
+  let processed = fixMissingImageBangs(content)
+  processed = cleanHtmlImages(processed)
   processed = cleanBrokenMarkdownImages(processed)
 
   const existingUrls = extractExistingImageUrls(processed)

@@ -350,8 +350,75 @@ const preprocessHtmlImages = (text: string): string => {
     )
 }
 
+const normalizeTableBlocks = (text: string): string => {
+  const lines = text.split(/\r?\n/)
+  const result: string[] = []
+  let i = 0
+
+  const isPotentialTableLine = (line: string): boolean => {
+    const pipeCount = (line.match(/\|/g) || []).length
+    return pipeCount >= 2
+  }
+
+  const normalizeTableLine = (line: string): string => {
+    let normalized = line.trim()
+
+    if (!normalized.startsWith('|')) {
+      normalized = '|' + normalized
+    }
+
+    normalized = normalized.replace(/\s*\|\s*$/g, (match, offset, full) => {
+      const beforePipe = full[offset - 1]
+      if (beforePipe === '|') return ''
+      return match
+    })
+
+    return normalized
+  }
+
+  const hasSeparatorLine = (block: string[]): boolean => {
+    return block.some((line) => {
+      const cells = line
+        .split('|')
+        .slice(1, -1)
+        .map((c) => c.trim())
+      return cells.length > 0 && cells.every((cell) => /^:?-{2,}:?$/.test(cell))
+    })
+  }
+
+  const countCells = (line: string): number => {
+    return line.split('|').length - 1
+  }
+
+  while (i < lines.length) {
+    if (isPotentialTableLine(lines[i])) {
+      const block: string[] = []
+      while (i < lines.length && isPotentialTableLine(lines[i])) {
+        block.push(lines[i])
+        i++
+      }
+
+      const normalizedBlock = block.map(normalizeTableLine)
+
+      if (!hasSeparatorLine(normalizedBlock) && normalizedBlock.length >= 1) {
+        const cellCount = Math.max(countCells(normalizedBlock[0]), 3)
+        const separatorCells = Array(cellCount).fill('---')
+        const separator = '|' + separatorCells.join('|') + '|'
+        normalizedBlock.splice(1, 0, separator)
+      }
+
+      result.push(...normalizedBlock)
+    } else {
+      result.push(lines[i])
+      i++
+    }
+  }
+
+  return result.join('\n')
+}
+
 const MarkdownWithTables: React.FC<MarkdownWithTablesProps> = ({ markdown, className = '' }) => {
-  const processedMarkdown = preprocessHtmlImages(markdown)
+  const processedMarkdown = normalizeTableBlocks(preprocessHtmlImages(markdown))
   const lines = processedMarkdown.split(/\r?\n/)
   const content = parseMarkdown(lines)
 

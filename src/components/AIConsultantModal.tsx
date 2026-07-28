@@ -88,7 +88,6 @@ export function AIConsultantModal({
   const [currentProductPrice, setCurrentProductPrice] = useState(0)
   const [currentProductName, setCurrentProductName] = useState(productName || '')
   const [fullProductData, setFullProductData] = useState<any>(null)
-  const [productPagePrompt, setProductPagePrompt] = useState<string>('')
 
   const { id: urlProductId } = useParams<{ id: string }>()
   const activeProductId = productId || urlProductId
@@ -108,16 +107,12 @@ export function AIConsultantModal({
 
         const { data: aiSettings } = await supabase
           .from('ai_settings')
-          .select('price_threshold_usd, product_page_prompt')
+          .select('price_threshold_usd')
           .limit(1)
           .maybeSingle()
 
         if (aiSettings?.price_threshold_usd) {
           setPriceThreshold(aiSettings.price_threshold_usd)
-        }
-
-        if (aiSettings?.product_page_prompt) {
-          setProductPagePrompt(aiSettings.product_page_prompt)
         }
 
         if (activeProductId) {
@@ -190,7 +185,9 @@ export function AIConsultantModal({
     const timeoutId = setTimeout(() => controller.abort(), 60000)
 
     try {
-      const functionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-search`
+      const functionUrl = activeProductId
+        ? `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-search-product-page`
+        : `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-search`
 
       const response = await fetch(functionUrl, {
         method: 'POST',
@@ -376,7 +373,7 @@ export function AIConsultantModal({
                 className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}
               >
                 <div
-                  className={`max-w-[90%] w-full break-words rounded-lg p-4 ${msg.role === 'user' ? 'bg-green-600/20 text-green-100 whitespace-pre-wrap' : 'bg-zinc-900 border border-green-900/30 overflow-hidden'}`}
+                  className={`max-w-[90%] w-full min-w-0 break-words rounded-lg p-4 ${msg.role === 'user' ? 'bg-green-600/20 text-green-100 whitespace-pre-wrap' : 'bg-zinc-900 border border-green-900/30 overflow-visible'}`}
                 >
                   {msg.role === 'user' ? (
                     <p className="text-sm">{msg.content}</p>

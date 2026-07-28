@@ -67,7 +67,7 @@ export function ReferencedProducts({
   if (products.length === 0) return null
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 not-prose mt-2">
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 not-prose mt-2 overflow-hidden">
       {products.map((p) => (
         <ProductCard key={p.id} product={p} />
       ))}

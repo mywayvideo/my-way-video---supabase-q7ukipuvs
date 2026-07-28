@@ -1,5 +1,78 @@
 import React from 'react'
 
+function parseInline(text: string): React.ReactNode[] {
+  const nodes: React.ReactNode[] = []
+  const regex =
+    /(!\[([^\]]*)\]\(([^)]+)\))|(\[([^\]]+)\]\(([^)]+)\))|(\*\*([^*]+)\*\*)|(\*([^*]+)\*)|(`([^`]+)`)/g
+  let lastIndex = 0
+  let match: RegExpExecArray | null
+  let key = 0
+
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      nodes.push(text.substring(lastIndex, match.index))
+    }
+
+    if (match[1]) {
+      nodes.push(
+        <img
+          key={key++}
+          src={match[3]}
+          alt={match[2]}
+          className="max-w-full h-auto rounded-lg my-2"
+        />,
+      )
+    } else if (match[4]) {
+      nodes.push(
+        <a
+          key={key++}
+          href={match[6]}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ color: '#60a5fa', textDecoration: 'underline' }}
+        >
+          {match[5]}
+        </a>,
+      )
+    } else if (match[7]) {
+      nodes.push(
+        <strong key={key++} style={{ fontWeight: 700 }}>
+          {match[8]}
+        </strong>,
+      )
+    } else if (match[9]) {
+      nodes.push(
+        <em key={key++} style={{ fontStyle: 'italic' }}>
+          {match[10]}
+        </em>,
+      )
+    } else if (match[11]) {
+      nodes.push(
+        <code
+          key={key++}
+          style={{
+            backgroundColor: '#27272a',
+            color: '#4ade80',
+            padding: '2px 6px',
+            borderRadius: '4px',
+            fontSize: '0.875em',
+          }}
+        >
+          {match[12]}
+        </code>,
+      )
+    }
+
+    lastIndex = regex.lastIndex
+  }
+
+  if (lastIndex < text.length) {
+    nodes.push(text.substring(lastIndex))
+  }
+
+  return nodes
+}
+
 interface TableRow {
   cells: string[]
 }
@@ -24,7 +97,6 @@ const parseTable = (start: number, lines: string[]): ParseTableResult => {
       .map((cell) => cell.trim())
     const isSeparator = cells.every((cell) => /^:?-{2,}:?$/.test(cell))
 
-    // header vem SEMPRE antes do separator
     if (!isSeparator) {
       rows.push({ cells })
     }
@@ -56,7 +128,7 @@ const TableBlock: React.FC<TableBlockProps> = ({ rows }) => {
           <tr>
             {rows[0].cells.map((header, index) => (
               <th key={index} style={thStyle}>
-                {header}
+                {parseInline(header)}
               </th>
             ))}
           </tr>
@@ -73,7 +145,7 @@ const TableBlock: React.FC<TableBlockProps> = ({ rows }) => {
                     whiteSpace: 'nowrap',
                   }}
                 >
-                  {cell}
+                  {parseInline(cell)}
                 </td>
               ))}
             </tr>
@@ -98,13 +170,15 @@ const isListStart = (line: string): boolean => {
   return t.startsWith('- ') || t.startsWith('* ') || /^\d+\.\s/.test(t)
 }
 
+const GREEN_400 = 'rgb(74 222 128)'
+
 const parseMarkdown = (lines: string[]): React.ReactNode[] => {
   const elements: React.ReactNode[] = []
   let i = 0
 
   while (i < lines.length) {
-    let line = lines[i]
-    let trimmed = line.trim()
+    const line = lines[i]
+    const trimmed = line.trim()
 
     if (trimmed === '') {
       i++
@@ -112,22 +186,38 @@ const parseMarkdown = (lines: string[]): React.ReactNode[] => {
     }
 
     if (trimmed.startsWith('# ')) {
-      elements.push(<h1 key={elements.length}>{trimmed.slice(2).trim()}</h1>)
+      elements.push(
+        <h1 key={elements.length} style={{ margin: '0.5em 0' }}>
+          {parseInline(trimmed.slice(2).trim())}
+        </h1>,
+      )
       i++
       continue
     }
     if (trimmed.startsWith('## ')) {
-      elements.push(<h2 key={elements.length}>{trimmed.slice(3).trim()}</h2>)
+      elements.push(
+        <h2 key={elements.length} style={{ color: GREEN_400, margin: '0.75em 0 0.5em' }}>
+          {parseInline(trimmed.slice(3).trim())}
+        </h2>,
+      )
       i++
       continue
     }
     if (trimmed.startsWith('### ')) {
-      elements.push(<h3 key={elements.length}>{trimmed.slice(4).trim()}</h3>)
+      elements.push(
+        <h3 key={elements.length} style={{ color: GREEN_400, margin: '0.75em 0 0.5em' }}>
+          {parseInline(trimmed.slice(4).trim())}
+        </h3>,
+      )
       i++
       continue
     }
     if (trimmed.startsWith('#### ')) {
-      elements.push(<h4 key={elements.length}>{trimmed.slice(5).trim()}</h4>)
+      elements.push(
+        <h4 key={elements.length} style={{ margin: '0.5em 0' }}>
+          {parseInline(trimmed.slice(5).trim())}
+        </h4>,
+      )
       i++
       continue
     }
@@ -170,10 +260,10 @@ const parseMarkdown = (lines: string[]): React.ReactNode[] => {
     if (isListStart(line)) {
       const listItems: React.ReactNode[] = []
       const isOrdered = /^\d+\.\s/.test(trimmed)
-      let currentI = i
+      const currentI = i
 
       while (i < lines.length && isListStart(lines[i])) {
-        let itemLine = lines[i].trim()
+        const itemLine = lines[i].trim()
         let itemText: string
 
         if (isOrdered) {
@@ -182,22 +272,26 @@ const parseMarkdown = (lines: string[]): React.ReactNode[] => {
           itemText = itemLine.slice(2).trim()
         }
 
-        listItems.push(<li key={listItems.length}>{itemText}</li>)
+        listItems.push(<li key={listItems.length}>{parseInline(itemText)}</li>)
         i++
       }
 
       const listKey = `list-${currentI}`
       const listElement = isOrdered ? (
-        <ol key={listKey}>{listItems}</ol>
+        <ol key={listKey} style={{ margin: '0.5em 0', paddingLeft: '1.5em' }}>
+          {listItems}
+        </ol>
       ) : (
-        <ul key={listKey}>{listItems}</ul>
+        <ul key={listKey} style={{ margin: '0.5em 0', paddingLeft: '1.5em' }}>
+          {listItems}
+        </ul>
       )
 
       elements.push(listElement)
       continue
     }
 
-    let paraLines: string[] = [line]
+    const paraLines: string[] = [line]
     i++
 
     while (i < lines.length) {
@@ -226,8 +320,8 @@ const parseMarkdown = (lines: string[]): React.ReactNode[] => {
       .join(' ')
       .trim()
     elements.push(
-      <p key={elements.length} style={{ margin: '1em 0' }}>
-        {paraText}
+      <p key={elements.length} style={{ margin: '0.5em 0' }}>
+        {parseInline(paraText)}
       </p>,
     )
   }
@@ -245,7 +339,15 @@ const MarkdownWithTables: React.FC<MarkdownWithTablesProps> = ({ markdown, class
   const content = parseMarkdown(lines)
 
   return (
-    <div className={className} style={{ fontFamily: 'sans-serif', lineHeight: 1.6 }}>
+    <div
+      className={className}
+      style={{
+        fontFamily: 'sans-serif',
+        lineHeight: 1.6,
+        wordBreak: 'break-word',
+        overflowWrap: 'break-word',
+      }}
+    >
       {content}
     </div>
   )

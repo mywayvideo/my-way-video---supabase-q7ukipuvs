@@ -4,8 +4,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2'
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers':
-    'authorization, x-client-info, x-supabase-client-platform, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, x-supabase-client-platform, apikey, content-type',
 }
 
 interface ChatMessage {
@@ -108,9 +107,7 @@ Deno.serve(async (req: Request) => {
 
     const { data: aiSettings } = await supabase
       .from('ai_settings')
-      .select(
-        'system_prompt_template, product_page_prompt, logistics_rules_prompt, price_threshold_usd, result_component_config',
-      )
+      .select('system_prompt_template, product_page_prompt, logistics_rules_prompt, price_threshold_usd, result_component_config')
       .limit(1)
       .maybeSingle()
 
@@ -139,26 +136,19 @@ Deno.serve(async (req: Request) => {
       )
     }
 
-    let systemPrompt =
-      aiSettings?.system_prompt_template ||
+    let systemPrompt = aiSettings?.system_prompt_template ||
       'You are a professional audiovisual equipment consultant for MY WAY Video. When mentioning a product from the catalog, include its ID using the format [PRODUCT:product-id].'
 
     try {
-      const { data: searchResults } = await supabase.rpc('search_products_v2', {
-        search_term: query,
-        boost_multiplier: 1.0,
-      })
+      const { data: searchResults } = await supabase
+        .rpc('search_products_v2', { search_term: query, boost_multiplier: 1.0 })
 
       if (searchResults && searchResults.length > 0) {
         const topProducts = searchResults.slice(0, 10)
-        systemPrompt +=
-          '\n\nAvailable products from our catalog:\n' +
-          topProducts
-            .map(
-              (p: any) =>
-                `[PRODUCT:${p.id}] ${p.name} - USD $${p.price_usd || 'N/A'} - ${p.category || 'N/A'} - ${(p.description || 'No description').substring(0, 200)}${p.image_url ? ` - Image: ${p.image_url}` : ''}`,
-            )
-            .join('\n')
+        systemPrompt += '\n\nAvailable products from our catalog:\n' +
+          topProducts.map((p: any) =>
+            `[PRODUCT:${p.id}] ${p.name} - USD $${p.price_usd || 'N/A'} - ${p.category || 'N/A'} - ${(p.description || 'No description').substring(0, 200)}${p.image_url ? ` - Image: ${p.image_url}` : ''}`,
+          ).join('\n')
       }
     } catch (_e) {
       // Continue without search results
@@ -174,9 +164,7 @@ Deno.serve(async (req: Request) => {
       if (!productCtx.id && currentProductId) {
         const { data: productData } = await supabase
           .from('products')
-          .select(
-            'id, name, sku, description, technical_info, price_usd, image_url, category, manufacturer:manufacturers(name)',
-          )
+          .select('id, name, sku, description, technical_info, price_usd, image_url, category, manufacturer:manufacturers(name)')
           .eq('id', currentProductId)
           .maybeSingle()
 
@@ -194,16 +182,13 @@ Deno.serve(async (req: Request) => {
 
       systemPrompt += `\n\nThe user is viewing product "${originProductName}". Questions without naming another product refer to this product.`
 
-      systemPrompt +=
-        '\n\nYour answer will be REJECTED if it does not include the image of every product mentioned. Use markdown image syntax: ![Product Name](image_url) for each product you mention.'
+      systemPrompt += '\n\nYour answer will be REJECTED if it does not include the image of every product mentioned. Use markdown image syntax: ![Product Name](image_url) for each product you mention.'
 
-      const manufacturerName =
-        typeof productCtx.manufacturer === 'object'
-          ? productCtx.manufacturer?.name
-          : productCtx.manufacturer
+      const manufacturerName = typeof productCtx.manufacturer === 'object'
+        ? productCtx.manufacturer?.name
+        : productCtx.manufacturer
 
-      systemPrompt +=
-        `\n\nCurrent product details:\n` +
+      systemPrompt += `\n\nCurrent product details:\n` +
         `- ID: ${productCtx.id || currentProductId}\n` +
         `- Name: ${productCtx.name || 'N/A'}\n` +
         `- SKU: ${productCtx.sku || 'N/A'}\n` +
@@ -232,13 +217,10 @@ Deno.serve(async (req: Request) => {
 
     const providerName = (provider?.provider_name || 'openai').toLowerCase()
     const modelId = provider?.model_id || 'gpt-4o-mini'
-    const baseUrl =
-      provider?.custom_endpoint ||
-      (providerName === 'deepseek'
-        ? 'https://api.deepseek.com'
-        : providerName === 'anthropic'
-          ? 'https://api.anthropic.com'
-          : 'https://api.openai.com')
+    const baseUrl = provider?.custom_endpoint ||
+      (providerName === 'deepseek' ? 'https://api.deepseek.com' :
+       providerName === 'anthropic' ? 'https://api.anthropic.com' :
+       'https://api.openai.com')
 
     let aiResponse: string
     if (providerName === 'anthropic') {
@@ -262,9 +244,7 @@ Deno.serve(async (req: Request) => {
     if (filteredRefs.length > 0) {
       const { data: productData } = await supabase
         .from('products')
-        .select(
-          'id, name, price_usd, price_brl, price_nationalized_sales, price_nationalized_currency, image_url, category, description, sku, weight, is_discontinued, price_usa_rebate, date_rebate, manufacturer_id, manufacturer:manufacturers(name)',
-        )
+        .select('id, name, price_usd, price_brl, price_nationalized_sales, price_nationalized_currency, image_url, category, description, sku, weight, is_discontinued, price_usa_rebate, date_rebate, manufacturer_id, manufacturer:manufacturers(name)')
         .in('id', filteredRefs)
 
       if (productData) {
@@ -277,10 +257,10 @@ Deno.serve(async (req: Request) => {
 
     const confidenceLevel = filteredRefs.length > 0 ? 'high' : 'low'
     const priceThreshold = aiSettings?.price_threshold_usd || 5000
-    const shouldShowWhatsapp =
-      isProductPage &&
-      (originProductPrice > priceThreshold ||
-        products.some((p) => (p.price_usd || 0) > priceThreshold))
+    const shouldShowWhatsapp = isProductPage && (
+      originProductPrice > priceThreshold ||
+      products.some((p) => (p.price_usd || 0) > priceThreshold)
+    )
 
     const cleanedContent = aiResponse.replace(/\[PRODUCT:[0-9a-fA-F-]{36}\]/g, '').trim()
 

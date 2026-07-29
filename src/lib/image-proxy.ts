@@ -1,4 +1,5 @@
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string
 
 const BH_PHOTO_DOMAINS = [
   'bhphotovideo.com',
@@ -16,7 +17,10 @@ export function isBhPhotoUrl(url: string | null | undefined): boolean {
 export function getProxiedImageUrl(url: string | null | undefined): string | null {
   if (!url) return null
   if (isBhPhotoUrl(url)) {
-    return `${SUPABASE_URL}/functions/v1/image-proxy?url=${encodeURIComponent(url)}`
+    const proxyUrl = new URL(`${SUPABASE_URL}/functions/v1/image-proxy`)
+    proxyUrl.searchParams.set('url', url)
+    proxyUrl.searchParams.set('apikey', SUPABASE_ANON_KEY)
+    return proxyUrl.toString()
   }
   return url
 }

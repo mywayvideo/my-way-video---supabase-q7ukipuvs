@@ -43,7 +43,6 @@
     "validate-ai-provider": 45,
     "validate-discount-coupon": 43,
     "validate-image-url": 46,
-    "validate-ncm-suggestion": 13,
     "validate-payment-token": 44,
     "verify-paypal-payment": 13,
     "verify-user-role": 13,

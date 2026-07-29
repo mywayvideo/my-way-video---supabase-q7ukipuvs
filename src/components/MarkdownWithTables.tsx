@@ -1,5 +1,4 @@
 import React from 'react'
-import { getProxiedImageUrl } from '@/lib/image-proxy'
 
 function parseInline(text: string): React.ReactNode[] {
   const nodes: React.ReactNode[] = []
@@ -18,9 +17,12 @@ function parseInline(text: string): React.ReactNode[] {
       nodes.push(
         <img
           key={key++}
-          src={getProxiedImageUrl(match[3]) || match[3]}
+          src={match[3]}
           alt={match[2]}
           className="max-w-full h-auto rounded-lg my-2"
+          onError={(e) => {
+            ;(e.target as HTMLImageElement).src = '/placeholder-dummy.png'
+          }}
         />,
       )
     } else if (match[4]) {

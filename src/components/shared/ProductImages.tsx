@@ -12,11 +12,6 @@ function normalizeRefs(refs: string[]): string[] {
     .map(String)
 }
 
-function getProxiedImageUrl(url: string): string {
-  if (url.includes('wsrv.nl')) return url
-  return `https://wsrv.nl/?url=${encodeURIComponent(url)}&w=400&h=400&fit=inside`
-}
-
 export function ProductImages({ products, referencedInternalProducts }: ProductImagesProps) {
   const filteredProducts = useMemo(() => {
     const refs = normalizeRefs(referencedInternalProducts)
@@ -32,7 +27,7 @@ export function ProductImages({ products, referencedInternalProducts }: ProductI
         <div key={product.id} className="flex flex-col items-center gap-2">
           <div className="w-full aspect-square rounded-lg overflow-hidden bg-zinc-900 border border-zinc-800/60 p-2">
             <img
-              src={getProxiedImageUrl(product.image_url)}
+              src={product.image_url}
               alt={product.name || ''}
               referrerPolicy="no-referrer"
               className="w-full h-full object-contain"

@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { getProxiedImageUrl } from '@/lib/image-proxy'
 
 export function useImageFallback(imageUrl: string | null | undefined, productId: string) {
   const [displayUrl, setDisplayUrl] = useState<string | null>(null)
@@ -7,8 +6,6 @@ export function useImageFallback(imageUrl: string | null | undefined, productId:
   const [hasError, setHasError] = useState(false)
   const [retryCount, setRetryCount] = useState(0)
   const abortControllerRef = useRef<AbortController | null>(null)
-
-  const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
 
   const retry = useCallback(() => {
     if (retryCount < 3) {
@@ -30,68 +27,32 @@ export function useImageFallback(imageUrl: string | null | undefined, productId:
       const signal = abortControllerRef.current.signal
 
       try {
-        // 1. Se a URL for externa (http/https), tenta direto primeiro — igual ao Testador de Busca
         if (imageUrl && (imageUrl.startsWith('http://') || imageUrl.startsWith('https://'))) {
-          const isDirectValid = await testImage(imageUrl, signal)
-          if (isDirectValid) {
+          const isValid = await testImage(imageUrl, signal)
+          if (isValid) {
             if (isActive) {
               setDisplayUrl(imageUrl)
               setIsLoading(false)
             }
             return
           }
-
-          // Se direto falhou, tenta via proxy (pode ser B&H que precisa de proxy)
-          const proxiedUrl = getProxiedImageUrl(imageUrl) || imageUrl
-          if (proxiedUrl !== imageUrl) {
-            const isProxyValid = await testImage(proxiedUrl, signal)
-            if (isProxyValid) {
-              if (isActive) {
-                setDisplayUrl(proxiedUrl)
-                setIsLoading(false)
-              }
-              return
-            }
-          }
-
-          // URL externa falhou direto e via proxy
-          throw new Error('All image sources failed')
+          throw new Error('Direct image URL failed')
         }
 
-        // 2. Para URLs relativas (armazenadas no Supabase Storage), tenta Storage primeiro
-        if (productId) {
-          const supabaseUrl = `${SUPABASE_URL}/storage/v1/object/public/products/${productId}`
-          const isSupabaseValid = await testImage(supabaseUrl, signal)
-
-          if (isSupabaseValid) {
-            if (isActive) {
-              setDisplayUrl(supabaseUrl)
-              setIsLoading(false)
-            }
-            return
-          }
-        }
-
-        // 3. Fallback: tenta a URL original (relativa ou via proxy)
         if (imageUrl) {
-          const proxiedUrl = getProxiedImageUrl(imageUrl) || imageUrl
-          const isOriginalValid = await testImage(proxiedUrl, signal)
-          if (isOriginalValid) {
+          const isValid = await testImage(imageUrl, signal)
+          if (isValid) {
             if (isActive) {
-              setDisplayUrl(proxiedUrl)
+              setDisplayUrl(imageUrl)
               setIsLoading(false)
             }
             return
           }
         }
 
-        // 4. Tudo falhou
         throw new Error('All image sources failed')
       } catch (err: any) {
         if (err.name === 'AbortError') return
-        if (import.meta.env.DEV) {
-          console.error(`[useImageFallback] Error loading image for product ${productId}:`, err)
-        }
         if (isActive) {
           setHasError(true)
           setIsLoading(false)
@@ -107,7 +68,7 @@ export function useImageFallback(imageUrl: string | null | undefined, productId:
         abortControllerRef.current.abort()
       }
     }
-  }, [imageUrl, productId, SUPABASE_URL, retryCount])
+  }, [imageUrl, retryCount])
 
   const testImage = (url: string, signal: AbortSignal): Promise<boolean> => {
     return new Promise((resolve, reject) => {

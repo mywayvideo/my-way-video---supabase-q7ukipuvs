@@ -1,7 +1,5 @@
 import { useImageFallback } from '@/hooks/useImageFallback'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Camera, RefreshCw } from 'lucide-react'
-import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
 interface ImageWithFallbackProps {
@@ -21,7 +19,7 @@ export function ImageWithFallback({
   width,
   height,
 }: ImageWithFallbackProps) {
-  const { displayUrl, isLoading, hasError, retryCount, retry } = useImageFallback(src, productId)
+  const { displayUrl, isLoading, hasError, retry } = useImageFallback(src, productId)
 
   if (isLoading) {
     return <Skeleton className={cn('w-full h-full rounded', className)} style={{ width, height }} />

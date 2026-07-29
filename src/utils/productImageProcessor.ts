@@ -67,39 +67,14 @@ function cleanBrokenMarkdownImages(text: string): string {
     .replace(new RegExp(`\\*\\*${img}`, 'g'), '$1')
 }
 
-function extractOriginalFromProxied(url: string): string | null {
-  const proxyMarker = '/functions/v1/image-proxy?url='
-  const idx = url.indexOf(proxyMarker)
-  if (idx === -1) return null
-  const encodedUrl = url.substring(idx + proxyMarker.length)
-  try {
-    return decodeURIComponent(encodedUrl)
-  } catch {
-    return encodedUrl
-  }
-}
-
 function extractExistingImageUrls(text: string): Set<string> {
   const urls = new Set<string>()
   const regex = /!\[[^\]]*\]\(([^)]*)\)/g
   let match: RegExpExecArray | null
   while ((match = regex.exec(text)) !== null) {
-    const rawUrl = match[1]
-    urls.add(rawUrl)
-    const originalUrl = extractOriginalFromProxied(rawUrl)
-    if (originalUrl && originalUrl !== rawUrl) {
-      urls.add(originalUrl)
-    }
+    urls.add(match[1])
   }
   return urls
-}
-
-function proxyMarkdownImageUrls(text: string): string {
-  return text.replace(/!\[([^\]]*)\]\(([^)]*)\)/g, (match, alt: string, url: string) => {
-    const proxied = getProxiedImageUrl(url)
-    if (!proxied || proxied === url) return match
-    return `![${alt}](${proxied})`
-  })
 }
 
 function hasImageWithName(text: string, names: string[]): boolean {

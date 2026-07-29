@@ -3,7 +3,7 @@ import React from 'react'
 function parseInline(text: string): React.ReactNode[] {
   const nodes: React.ReactNode[] = []
   const regex =
-    /(!\[([^\]]*)\]\(([^)]+)\))|(\[([^\]]+)\]\(([^)]+)\))|(\*\*([^*]+)\*\*)|(\*([^*]+)\*)|(`([^`]+)`)/g
+    /(!\[([^\]]*)\]\(((?:[^()]*|\([^()]*\))*)\))|(\[([^\]]+)\]\(((?:[^()]*|\([^()]*\))*)\))|(\*\*([^*]+)\*\*)|(\*([^*]+)\*)|(`([^`]+)`)/g
   let lastIndex = 0
   let match: RegExpExecArray | null
   let key = 0
@@ -117,13 +117,15 @@ const TableBlock: React.FC<TableBlockProps> = ({ rows }) => {
     border: '1px solid #475569',
     padding: '10px 14px',
     textAlign: 'left',
-    whiteSpace: 'nowrap',
     fontWeight: 600,
+    verticalAlign: 'top',
+    overflowWrap: 'break-word',
   }
   const tdStyle: React.CSSProperties = {
     border: '1px solid #475569',
     padding: '10px 14px',
     verticalAlign: 'top',
+    overflowWrap: 'break-word',
   }
   if (rows.length === 0) return null
 

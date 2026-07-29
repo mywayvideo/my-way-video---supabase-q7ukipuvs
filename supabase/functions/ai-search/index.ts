@@ -1029,7 +1029,9 @@ Deno.serve(async (req: Request) => {
         const originProduct = result.products.find((p: any) => p.id === lastReferencedProductId)
         if (originProduct) {
           if (!result.referenced_product_data) result.referenced_product_data = []
-          const hasOrigin = result.referenced_product_data.some((p: any) => p.id === lastReferencedProductId)
+          const hasOrigin = result.referenced_product_data.some(
+            (p: any) => p.id === lastReferencedProductId,
+          )
           if (!hasOrigin) {
             result.referenced_product_data.push({
               id: originProduct.id,
@@ -1055,7 +1057,8 @@ Deno.serve(async (req: Request) => {
         const processedProductIds = new Set<string>()
 
         // 1) Replace [PRODUCT:id] markers with image markdown
-        const markerRegex = /\[PRODUCT:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\]/gi
+        const markerRegex =
+          /\[PRODUCT:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\]/gi
         let markerMatch: RegExpExecArray | null
         const markerReplacements: { start: number; end: number; replacement: string }[] = []
 

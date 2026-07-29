@@ -47,70 +47,76 @@ export function normalizeProductName(name: string): string {
 }
 
 function resolveProductImageUrl(url: string | null | undefined): string | null {
-  const resolved = resolveImageUrl(url)
-  if (!resolved) return null
-  return getProxiedImageUrl(resolved) ?? resolved
+  return resolveImageUrl(url)
 }
 
 function cleanHtmlImages(text: string): string {
   return text
     .replace(
       /<img\s+[^>]*?src=["']([^"']+)["'][^>]*?(?:alt=["']([^"']*)["'])?[^>]*?\/?>/gi,
-      (_m, src: string, alt?: string) => {
-        const proxied = getProxiedImageUrl(src) ?? src
-        return `\n\n![${alt || ''}](${proxied})\n\n`
-      },
+      (_m, src: string, alt?: string) => `\n\n![${alt || ''}](${src})\n\n`,
     )
     .replace(
       /<img\s+[^>]*?(?:alt=["']([^"']*)["'])?[^>]*?src=["']([^"']+)["'][^>]*?\/?>/gi,
-      (_m, alt?: string, src?: string) => {
-        const proxied = getProxiedImageUrl(src ?? '') ?? src
-        return `\n\n![${alt || ''}](${proxied})\n\n`
-      },
+      (_m, alt?: string, src?: string) => `\n\n![${alt || ''}](${src ?? ''})\n\n`,
     )
 }
 
 function cleanBrokenMarkdownImages(text: string): string {
+  const img = '(!\\[[^\\]]*\\]\\((?:[^()]*|\\([^()]*\\))*\\))'
   return text
-    .replace(/""(!\[[^\]]*\]\([^)]+\))/g, '$1')
-    .replace(/\*\*(!\[[^\]]*\]\([^)]+\))\*\*/g, '$1')
-    .replace(/\*(!\[[^\]]*\]\([^)]+\))\*/g, '$1')
-    .replace(/(!\[[^\]]*\]\([^)]+\))\*\*/g, '$1')
-    .replace(/\*\*(!\[[^\]]*\]\([^)]+\))/g, '$1')
+    .replace(new RegExp(`""${img}`, 'g'), '$1')
+    .replace(new RegExp(`"${img}`, 'g'), '$1')
+    .replace(new RegExp(`${img}"`, 'g'), '$1')
+    .replace(new RegExp(`\\*\\*${img}\\*\\*`, 'g'), '$1')
+    .replace(new RegExp(`\\*${img}\\*`, 'g'), '$1')
+    .replace(new RegExp(`${img}\\*\\*`, 'g'), '$1')
+    .replace(new RegExp(`\\*\\*${img}`, 'g'), '$1')
+}
+
+function extractOriginalFromProxied(url: string): string | null {
+  const proxyMarker = '/functions/v1/image-proxy?url='
+  const idx = url.indexOf(proxyMarker)
+  if (idx === -1) return null
+  const encodedUrl = url.substring(idx + proxyMarker.length)
+  try {
+    return decodeURIComponent(encodedUrl)
+  } catch {
+    return encodedUrl
+  }
 }
 
 function extractExistingImageUrls(text: string): Set<string> {
   const urls = new Set<string>()
-  const regex = /!\[[^\]]*\]\(([^)]+)\)/g
+  const regex = /!\[[^\]]*\]\(((?:[^()]*|\([^()]*\))*)\)/g
   let match: RegExpExecArray | null
   while ((match = regex.exec(text)) !== null) {
     const rawUrl = match[1]
     urls.add(rawUrl)
-    const proxied = getProxiedImageUrl(rawUrl)
-    if (proxied && proxied !== rawUrl) {
-      urls.add(proxied)
-    }
-    const resolved = resolveProductImageUrl(rawUrl)
-    if (resolved && resolved !== rawUrl && !urls.has(resolved)) {
-      urls.add(resolved)
+    const originalUrl = extractOriginalFromProxied(rawUrl)
+    if (originalUrl && originalUrl !== rawUrl) {
+      urls.add(originalUrl)
     }
   }
   return urls
 }
 
 function proxyMarkdownImageUrls(text: string): string {
-  return text.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (match, alt: string, url: string) => {
-    const proxied = getProxiedImageUrl(url)
-    if (!proxied || proxied === url) return match
-    return `![${alt}](${proxied})`
-  })
+  return text.replace(
+    /!\[([^\]]*)\]\(((?:[^()]*|\([^()]*\))*)\)/g,
+    (match, alt: string, url: string) => {
+      const proxied = getProxiedImageUrl(url)
+      if (!proxied || proxied === url) return match
+      return `![${alt}](${proxied})`
+    },
+  )
 }
 
 function hasImageWithName(text: string, names: string[]): boolean {
   for (const name of names) {
     if (!name || name.length < 3) continue
     const lower = name.toLowerCase()
-    const regex = /!\[([^\]]*)\]\([^)]+\)/g
+    const regex = /!\[([^\]]*)\]\(((?:[^()]*|\([^()]*\))*)\)/g
     let m: RegExpExecArray | null
     while ((m = regex.exec(text)) !== null) {
       const alt = m[1].toLowerCase().trim()
@@ -169,11 +175,10 @@ function isImageUrl(url: string): boolean {
 
 function fixMissingImageBangs(text: string): string {
   return text.replace(
-    /(?<!!)(?<!\\)\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g,
+    /(?<!!)(?<!\\)\[([^\]]*)\]\(((?:[^()\s]+|\([^()]*\))*?)(?:\s+"[^"]*")?\)/g,
     (match, alt: string, url: string) => {
       if (!isImageUrl(url)) return match
-      const proxied = getProxiedImageUrl(url) ?? url
-      return `![${alt}](${proxied})`
+      return `![${alt}](${url})`
     },
   )
 }
@@ -184,16 +189,18 @@ export function processProductImages(content: string, products: ProductImageInfo
   let processed = fixMissingImageBangs(content)
   processed = cleanHtmlImages(processed)
   processed = cleanBrokenMarkdownImages(processed)
-  processed = proxyMarkdownImageUrls(processed)
 
   const existingUrls = extractExistingImageUrls(processed)
 
   for (const product of products) {
     if (!product?.name || !product?.image_url) continue
+
+    if (existingUrls.has(product.image_url)) continue
+
     const resolved = resolveProductImageUrl(product.image_url)
     if (!resolved) continue
 
-    if (existingUrls.has(resolved) || existingUrls.has(product.image_url)) continue
+    if (existingUrls.has(resolved)) continue
 
     const normalized = normalizeProductName(product.name)
     const namesToTry = [product.name, normalized].filter(
@@ -211,8 +218,11 @@ export function processProductImages(content: string, products: ProductImageInfo
     const imageMarkdown = `\n\n![${displayName}](${resolved})\n`
 
     processed = processed.substring(0, insertPos) + imageMarkdown + processed.substring(insertPos)
+    existingUrls.add(product.image_url)
     existingUrls.add(resolved)
   }
+
+  processed = proxyMarkdownImageUrls(processed)
 
   return processed
 }

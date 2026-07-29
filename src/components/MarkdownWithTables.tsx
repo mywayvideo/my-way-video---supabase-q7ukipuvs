@@ -3,7 +3,7 @@ import React from 'react'
 function parseInline(text: string): React.ReactNode[] {
   const nodes: React.ReactNode[] = []
   const regex =
-    /(!\[([^\]]*)\]\(((?:[^()]*|\([^()]*\))*)\))|(\[([^\]]+)\]\(([^)]*)\))|(\*\*([^*]+)\*\*)|(\*([^*]+)\*)|(`([^`]+)`)/g
+    /(!\[([^\]]*)\]\(((?:[^()]|\([^()]*\))*)\))|(\[([^\]]+)\]\(([^)]*)\))|(\*\*([^*]+)\*\*)|(\*([^*]+)\*)|(`([^`]+)`)/g
   let lastIndex = 0
   let match: RegExpExecArray | null
   let key = 0

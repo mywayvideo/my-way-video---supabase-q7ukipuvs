@@ -56,7 +56,7 @@ function cleanHtmlImages(text: string): string {
 }
 
 function cleanBrokenMarkdownImages(text: string): string {
-  const img = '(!\\[[^\\]]*\\]\\((?:[^()]*|\\([^()]*\\))*\\))'
+  const img = '(!\\[[^\\]]*\\]\\((?:[^()]|\\([^()]*\\))*\\))'
   return text
     .replace(new RegExp(`""${img}`, 'g'), '$1')
     .replace(new RegExp(`"${img}`, 'g'), '$1')
@@ -69,7 +69,7 @@ function cleanBrokenMarkdownImages(text: string): string {
 
 function extractExistingImageUrls(text: string): Set<string> {
   const urls = new Set<string>()
-  const regex = /!\[[^\]]*\]\(((?:[^()]*|\([^()]*\))*)\)/g
+  const regex = /!\[[^\]]*\]\(((?:[^()]|\([^()]*\))*)\)/g
   let match: RegExpExecArray | null
   while ((match = regex.exec(text)) !== null) {
     urls.add(match[1])
@@ -81,7 +81,7 @@ function hasImageWithName(text: string, names: string[]): boolean {
   for (const name of names) {
     if (!name || name.length < 3) continue
     const lower = name.toLowerCase()
-    const regex = /!\[([^\]]*)\]\(((?:[^()]*|\([^()]*\))*)\)/g
+    const regex = /!\[([^\]]*)\]\(((?:[^()]|\([^()]*\))*)\)/g
     let m: RegExpExecArray | null
     while ((m = regex.exec(text)) !== null) {
       const alt = m[1].toLowerCase().trim()

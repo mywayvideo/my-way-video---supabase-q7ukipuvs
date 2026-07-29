@@ -63,7 +63,7 @@ function cleanHtmlImages(text: string): string {
 }
 
 function cleanBrokenMarkdownImages(text: string): string {
-  const img = '(!\\[[^\\]]*\\]\\((?:[^()]*|\\([^()]*\\))*\\))'
+  const img = '(!\\[[^\\]]*\\]\\([^)]*\\))'
   return text
     .replace(new RegExp(`""${img}`, 'g'), '$1')
     .replace(new RegExp(`"${img}`, 'g'), '$1')
@@ -88,7 +88,7 @@ function extractOriginalFromProxied(url: string): string | null {
 
 function extractExistingImageUrls(text: string): Set<string> {
   const urls = new Set<string>()
-  const regex = /!\[[^\]]*\]\(((?:[^()]*|\([^()]*\))*)\)/g
+  const regex = /!\[[^\]]*\]\(([^)]*)\)/g
   let match: RegExpExecArray | null
   while ((match = regex.exec(text)) !== null) {
     const rawUrl = match[1]
@@ -102,21 +102,18 @@ function extractExistingImageUrls(text: string): Set<string> {
 }
 
 function proxyMarkdownImageUrls(text: string): string {
-  return text.replace(
-    /!\[([^\]]*)\]\(((?:[^()]*|\([^()]*\))*)\)/g,
-    (match, alt: string, url: string) => {
-      const proxied = getProxiedImageUrl(url)
-      if (!proxied || proxied === url) return match
-      return `![${alt}](${proxied})`
-    },
-  )
+  return text.replace(/!\[([^\]]*)\]\(([^)]*)\)/g, (match, alt: string, url: string) => {
+    const proxied = getProxiedImageUrl(url)
+    if (!proxied || proxied === url) return match
+    return `![${alt}](${proxied})`
+  })
 }
 
 function hasImageWithName(text: string, names: string[]): boolean {
   for (const name of names) {
     if (!name || name.length < 3) continue
     const lower = name.toLowerCase()
-    const regex = /!\[([^\]]*)\]\(((?:[^()]*|\([^()]*\))*)\)/g
+    const regex = /!\[([^\]]*)\]\(([^)]*)\)/g
     let m: RegExpExecArray | null
     while ((m = regex.exec(text)) !== null) {
       const alt = m[1].toLowerCase().trim()
@@ -175,7 +172,7 @@ function isImageUrl(url: string): boolean {
 
 function fixMissingImageBangs(text: string): string {
   return text.replace(
-    /(?<!!)(?<!\\)\[([^\]]*)\]\(((?:[^()\s]+|\([^()]*\))*?)(?:\s+"[^"]*")?\)/g,
+    /(?<!!)(?<!\\)\[([^\]]*)\]\(([^)\s]*?)(?:\s+"[^"]*")?\)/g,
     (match, alt: string, url: string) => {
       if (!isImageUrl(url)) return match
       return `![${alt}](${url})`

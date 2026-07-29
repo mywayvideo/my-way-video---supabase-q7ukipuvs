@@ -56,16 +56,23 @@ function cleanHtmlImages(text: string): string {
   return text
     .replace(
       /<img\s+[^>]*?src=["']([^"']+)["'][^>]*?(?:alt=["']([^"']*)["'])?[^>]*?\/?>/gi,
-      (_m, src: string, alt?: string) => `\n\n![${alt || ''}](${src})\n\n`,
+      (_m, src: string, alt?: string) => {
+        const proxied = getProxiedImageUrl(src) ?? src
+        return `\n\n![${alt || ''}](${proxied})\n\n`
+      },
     )
     .replace(
       /<img\s+[^>]*?(?:alt=["']([^"']*)["'])?[^>]*?src=["']([^"']+)["'][^>]*?\/?>/gi,
-      (_m, alt?: string, src?: string) => `\n\n![${alt || ''}](${src})\n\n`,
+      (_m, alt?: string, src?: string) => {
+        const proxied = getProxiedImageUrl(src ?? '') ?? src
+        return `\n\n![${alt || ''}](${proxied})\n\n`
+      },
     )
 }
 
 function cleanBrokenMarkdownImages(text: string): string {
   return text
+    .replace(/""(!\[[^\]]*\]\([^)]+\))/g, '$1')
     .replace(/\*\*(!\[[^\]]*\]\([^)]+\))\*\*/g, '$1')
     .replace(/\*(!\[[^\]]*\]\([^)]+\))\*/g, '$1')
     .replace(/(!\[[^\]]*\]\([^)]+\))\*\*/g, '$1')
@@ -77,9 +84,26 @@ function extractExistingImageUrls(text: string): Set<string> {
   const regex = /!\[[^\]]*\]\(([^)]+)\)/g
   let match: RegExpExecArray | null
   while ((match = regex.exec(text)) !== null) {
-    urls.add(match[1])
+    const rawUrl = match[1]
+    urls.add(rawUrl)
+    const proxied = getProxiedImageUrl(rawUrl)
+    if (proxied && proxied !== rawUrl) {
+      urls.add(proxied)
+    }
+    const resolved = resolveProductImageUrl(rawUrl)
+    if (resolved && resolved !== rawUrl && !urls.has(resolved)) {
+      urls.add(resolved)
+    }
   }
   return urls
+}
+
+function proxyMarkdownImageUrls(text: string): string {
+  return text.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (match, alt: string, url: string) => {
+    const proxied = getProxiedImageUrl(url)
+    if (!proxied || proxied === url) return match
+    return `![${alt}](${proxied})`
+  })
 }
 
 function hasImageWithName(text: string, names: string[]): boolean {
@@ -148,8 +172,8 @@ function fixMissingImageBangs(text: string): string {
     /(?<!!)(?<!\\)\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g,
     (match, alt: string, url: string) => {
       if (!isImageUrl(url)) return match
-      const suffix = match.endsWith(')') ? '' : ''
-      return `![${alt}](${url})${suffix}`
+      const proxied = getProxiedImageUrl(url) ?? url
+      return `![${alt}](${proxied})`
     },
   )
 }
@@ -160,6 +184,7 @@ export function processProductImages(content: string, products: ProductImageInfo
   let processed = fixMissingImageBangs(content)
   processed = cleanHtmlImages(processed)
   processed = cleanBrokenMarkdownImages(processed)
+  processed = proxyMarkdownImageUrls(processed)
 
   const existingUrls = extractExistingImageUrls(processed)
 

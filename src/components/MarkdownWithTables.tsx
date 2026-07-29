@@ -95,7 +95,7 @@ const parseTable = (start: number, lines: string[]): ParseTableResult => {
       .split('|')
       .slice(1, -1)
       .map((cell) => cell.trim())
-    const isSeparator = cells.every((cell) => /^:?-{2,}:?$/.test(cell))
+    const isSeparator = cells.length > 0 && cells.every((cell) => /^:?-{2,}:?$/.test(cell))
 
     if (!isSeparator) {
       rows.push({ cells })
@@ -112,18 +112,26 @@ interface TableBlockProps {
 
 const TableBlock: React.FC<TableBlockProps> = ({ rows }) => {
   const thStyle: React.CSSProperties = {
-    backgroundColor: '#1a1a1a',
-    color: '#fff',
-    border: '1px solid #444',
-    padding: '12px 8px',
+    backgroundColor: '#1e293b',
+    color: '#f1f5f9',
+    border: '1px solid #475569',
+    padding: '10px 14px',
     textAlign: 'left',
     whiteSpace: 'nowrap',
+    fontWeight: 600,
+  }
+  const tdStyle: React.CSSProperties = {
+    border: '1px solid #475569',
+    padding: '10px 14px',
+    verticalAlign: 'top',
   }
   if (rows.length === 0) return null
 
+  const headerCellCount = rows[0].cells.length
+
   return (
     <div style={{ overflowX: 'auto', width: '100%', margin: '1em 0' }}>
-      <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+      <table style={{ borderCollapse: 'collapse', width: '100%', tableLayout: 'auto' }}>
         <thead>
           <tr>
             {rows[0].cells.map((header, index) => (
@@ -136,16 +144,9 @@ const TableBlock: React.FC<TableBlockProps> = ({ rows }) => {
         <tbody>
           {rows.slice(1).map((row, rowIndex) => (
             <tr key={rowIndex}>
-              {row.cells.map((cell, cellIndex) => (
-                <td
-                  key={cellIndex}
-                  style={{
-                    border: '1px solid #ccc',
-                    padding: '12px 8px',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {parseInline(cell)}
+              {Array.from({ length: headerCellCount }).map((_, cellIndex) => (
+                <td key={cellIndex} style={tdStyle}>
+                  {parseInline(row.cells[cellIndex] || '')}
                 </td>
               ))}
             </tr>
@@ -356,52 +357,61 @@ const normalizeTableBlocks = (text: string): string => {
   let i = 0
 
   const isPotentialTableLine = (line: string): boolean => {
-    const pipeCount = (line.match(/\|/g) || []).length
+    const trimmed = line.trim()
+    if (!trimmed) return false
+    const pipeCount = (trimmed.match(/\|/g) || []).length
     return pipeCount >= 2
   }
 
   const normalizeTableLine = (line: string): string => {
     let normalized = line.trim()
-
     if (!normalized.startsWith('|')) {
       normalized = '|' + normalized
     }
-
-    normalized = normalized.replace(/\s*\|\s*$/g, (match, offset, full) => {
-      const beforePipe = full[offset - 1]
-      if (beforePipe === '|') return ''
-      return match
-    })
-
+    if (!normalized.endsWith('|')) {
+      normalized = normalized + '|'
+    }
     return normalized
+  }
+
+  const getCellCount = (line: string): number => {
+    const parts = line.split('|')
+    if (parts[0] === '') parts.shift()
+    if (parts[parts.length - 1] === '') parts.pop()
+    return parts.length
   }
 
   const hasSeparatorLine = (block: string[]): boolean => {
     return block.some((line) => {
-      const cells = line
-        .split('|')
-        .slice(1, -1)
-        .map((c) => c.trim())
-      return cells.length > 0 && cells.every((cell) => /^:?-{2,}:?$/.test(cell))
+      const parts = line.split('|')
+      if (parts[0] === '') parts.shift()
+      if (parts[parts.length - 1] === '') parts.pop()
+      return parts.length > 0 && parts.every((cell) => /^:?-{2,}:?$/.test(cell.trim()))
     })
-  }
-
-  const countCells = (line: string): number => {
-    return line.split('|').length - 1
   }
 
   while (i < lines.length) {
     if (isPotentialTableLine(lines[i])) {
       const block: string[] = []
-      while (i < lines.length && isPotentialTableLine(lines[i])) {
-        block.push(lines[i])
+      while (i < lines.length) {
+        if (isPotentialTableLine(lines[i])) {
+          block.push(lines[i])
+        } else if (
+          lines[i].trim() === '' &&
+          i + 1 < lines.length &&
+          isPotentialTableLine(lines[i + 1])
+        ) {
+          // Skip blank lines between table rows
+        } else {
+          break
+        }
         i++
       }
 
       const normalizedBlock = block.map(normalizeTableLine)
 
       if (!hasSeparatorLine(normalizedBlock) && normalizedBlock.length >= 1) {
-        const cellCount = Math.max(countCells(normalizedBlock[0]), 3)
+        const cellCount = Math.max(...normalizedBlock.map(getCellCount), 2)
         const separatorCells = Array(cellCount).fill('---')
         const separator = '|' + separatorCells.join('|') + '|'
         normalizedBlock.splice(1, 0, separator)

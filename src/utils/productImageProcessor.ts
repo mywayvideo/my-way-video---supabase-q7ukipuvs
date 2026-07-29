@@ -56,7 +56,7 @@ function cleanHtmlImages(text: string): string {
 }
 
 function cleanBrokenMarkdownImages(text: string): string {
-  const img = '(!\\[[^\\]]*\\]\\([^)]*\\))'
+  const img = '(!\\[[^\\]]*\\]\\((?:[^()]*|\\([^()]*\\))*\\))'
   return text
     .replace(new RegExp(`""${img}`, 'g'), '$1')
     .replace(new RegExp(`"${img}`, 'g'), '$1')
@@ -69,7 +69,7 @@ function cleanBrokenMarkdownImages(text: string): string {
 
 function extractExistingImageUrls(text: string): Set<string> {
   const urls = new Set<string>()
-  const regex = /!\[[^\]]*\]\(([^)]*)\)/g
+  const regex = /!\[[^\]]*\]\(((?:[^()]*|\([^()]*\))*)\)/g
   let match: RegExpExecArray | null
   while ((match = regex.exec(text)) !== null) {
     urls.add(match[1])
@@ -81,7 +81,7 @@ function hasImageWithName(text: string, names: string[]): boolean {
   for (const name of names) {
     if (!name || name.length < 3) continue
     const lower = name.toLowerCase()
-    const regex = /!\[([^\]]*)\]\(([^)]*)\)/g
+    const regex = /!\[([^\]]*)\]\(((?:[^()]*|\([^()]*\))*)\)/g
     let m: RegExpExecArray | null
     while ((m = regex.exec(text)) !== null) {
       const alt = m[1].toLowerCase().trim()
@@ -91,15 +91,35 @@ function hasImageWithName(text: string, names: string[]): boolean {
   return false
 }
 
+function isInsideBold(text: string, position: number): boolean {
+  const lineStart = text.lastIndexOf('\n', position - 1) + 1
+  const lineBefore = text.substring(lineStart, position)
+  const boldCount = (lineBefore.match(/\*\*/g) || []).length
+  return boldCount % 2 === 1
+}
+
+function isInsideHeading(text: string, position: number): boolean {
+  const lineStart = text.lastIndexOf('\n', position - 1) + 1
+  const lineEnd = text.indexOf('\n', position)
+  const line = text.substring(lineStart, lineEnd === -1 ? text.length : lineEnd)
+  return line.trim().startsWith('#')
+}
+
 function findFirstMention(text: string, names: string[]): { index: number; length: number } | null {
   let best: { index: number; length: number } | null = null
   for (const name of names) {
-    if (!name || name.length < 3) continue
+    if (!name || name.length < 4) continue
+    if (!/[a-z0-9]/i.test(name)) continue
     const escaped = escapeRegex(name)
-    const regex = new RegExp(`(?<!\\w)${escaped}`, 'i')
-    const match = regex.exec(text)
-    if (match && (best === null || match.index < best.index)) {
-      best = { index: match.index, length: match[0].length }
+    const regex = new RegExp(`(?<!\\w)${escaped}`, 'gi')
+    let match: RegExpExecArray | null
+    while ((match = regex.exec(text)) !== null) {
+      if (isInsideBold(text, match.index)) continue
+      if (isInsideHeading(text, match.index)) continue
+      if (best === null || match.index < best.index) {
+        best = { index: match.index, length: match[0].length }
+      }
+      break
     }
   }
   return best
@@ -169,7 +189,7 @@ export function processProductImages(content: string, products: ProductImageInfo
 
     const normalized = normalizeProductName(product.name)
     const namesToTry = [product.name, normalized].filter(
-      (n, i, arr) => n && n.length >= 3 && arr.indexOf(n) === i,
+      (n, i, arr) => n && n.length >= 4 && /[a-z0-9]/i.test(n) && arr.indexOf(n) === i,
     )
 
     if (hasImageWithName(processed, namesToTry)) continue

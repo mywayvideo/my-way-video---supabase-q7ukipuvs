@@ -3,7 +3,7 @@ import React from 'react'
 function parseInline(text: string): React.ReactNode[] {
   const nodes: React.ReactNode[] = []
   const regex =
-    /(!\[([^\]]*)\]\(([^)]*)\))|(\[([^\]]+)\]\(([^)]*)\))|(\*\*([^*]+)\*\*)|(\*([^*]+)\*)|(`([^`]+)`)/g
+    /(!\[([^\]]*)\]\(((?:[^()]*|\([^()]*\))*)\))|(\[([^\]]+)\]\(([^)]*)\))|(\*\*([^*]+)\*\*)|(\*([^*]+)\*)|(`([^`]+)`)/g
   let lastIndex = 0
   let match: RegExpExecArray | null
   let key = 0
@@ -89,6 +89,10 @@ const parseTable = (start: number, lines: string[]): ParseTableResult => {
   while (j < lines.length) {
     const raw = lines[j]
     const line = raw.trim()
+    if (line === '') {
+      j++
+      continue
+    }
     const pipeCount = raw.split('|').length - 1
     if (pipeCount < 2) break
     const cells = line
@@ -251,9 +255,6 @@ const parseMarkdown = (lines: string[]): React.ReactNode[] => {
     }
 
     if (isTableStart(line)) {
-      while (lines[i + 1] !== undefined && lines[i + 1].trim() === '') {
-        i++
-      }
       const tableResult = parseTable(i, lines)
       elements.push(<TableBlock key={elements.length} rows={tableResult.rows} />)
       i = tableResult.end
@@ -398,12 +399,16 @@ const normalizeTableBlocks = (text: string): string => {
       while (i < lines.length) {
         if (isPotentialTableLine(lines[i])) {
           block.push(lines[i])
-        } else if (
-          lines[i].trim() === '' &&
-          i + 1 < lines.length &&
-          isPotentialTableLine(lines[i + 1])
-        ) {
-          // Skip blank lines between table rows
+        } else if (lines[i].trim() === '') {
+          let lookAhead = i + 1
+          while (lookAhead < lines.length && lines[lookAhead].trim() === '') {
+            lookAhead++
+          }
+          if (lookAhead < lines.length && isPotentialTableLine(lines[lookAhead])) {
+            // Skip blank lines between table rows
+          } else {
+            break
+          }
         } else {
           break
         }

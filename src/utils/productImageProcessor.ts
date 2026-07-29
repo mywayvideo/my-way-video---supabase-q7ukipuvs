@@ -1,6 +1,3 @@
-import { getProxiedImageUrl } from '@/lib/image-proxy'
-import { resolveImageUrl } from '@/hooks/use-image-fallback'
-
 export interface ProductImageInfo {
   name: string
   image_url?: string | null
@@ -44,10 +41,6 @@ const COLOR_SUFFIXES = [
 export function normalizeProductName(name: string): string {
   const pattern = COLOR_SUFFIXES.join('|')
   return name.replace(new RegExp(`\\s*\\((?:${pattern})\\)\\s*`, 'gi'), '').trim()
-}
-
-function resolveProductImageUrl(url: string | null | undefined): string | null {
-  return resolveImageUrl(url)
 }
 
 function cleanHtmlImages(text: string): string {
@@ -194,7 +187,7 @@ export function processProductImages(content: string, products: ProductImageInfo
 
     if (existingUrls.has(product.image_url)) continue
 
-    const resolved = resolveProductImageUrl(product.image_url)
+    const resolved = product.image_url
     if (!resolved) continue
 
     if (existingUrls.has(resolved)) continue
@@ -218,8 +211,6 @@ export function processProductImages(content: string, products: ProductImageInfo
     existingUrls.add(product.image_url)
     existingUrls.add(resolved)
   }
-
-  processed = proxyMarkdownImageUrls(processed)
 
   return processed
 }

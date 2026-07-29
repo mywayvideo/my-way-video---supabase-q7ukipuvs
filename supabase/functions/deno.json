@@ -33,7 +33,6 @@
     "initiate-paypal-payment": 12,
     "notify-admin-payment": 42,
     "notify-admin-refund": 13,
-    "process-knowledge": 12,
     "process-query": 14,
     "send-welcome-email": 41,
     "toggle-2fa": 42,

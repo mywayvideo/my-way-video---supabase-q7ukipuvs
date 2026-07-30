@@ -69,7 +69,7 @@ export function ResponseFormatter({
 
       {allReferencedIds.length > 0 && (
         <div onClick={onProductClick} className="not-prose overflow-hidden max-w-full">
-          <ReferencedProducts ids={allReferencedIds} currentProductId={currentProductId} />
+          <ReferencedProducts products={filteredProducts} currentProductId={currentProductId} />
         </div>
       )}
 

@@ -341,6 +341,50 @@ interface MarkdownWithTablesProps {
   className?: string
 }
 
+const IMAGE_EXTENSIONS_REGEX = /\.(jpg|jpeg|png|gif|webp|svg|bmp|tiff)(\?[^\s)]*)?$/i
+
+const fixMalformedImageMarkdown = (text: string): string => {
+  let result = text
+
+  // Step 1: Rejoin broken multi-line image tags (with ! prefix)
+  // Handles: ![alt\n text](url), ![alt]\n(url), ![alt\n text]\n(url), ![alt](url\n part)
+  result = result.replace(/!\[([^\]]*?)\]\s*\(([^)]*?)\)/g, (m, alt: string, url: string) => {
+    if (!m.includes('\n') && !m.includes('\r')) return m
+    const cleanAlt = alt
+      .replace(/[\r\n]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+    const cleanUrl = url.replace(/[\s\r\n]+/g, '').trim()
+    return `![${cleanAlt}](${cleanUrl})`
+  })
+
+  // Step 2: Rejoin broken multi-line link tags (without ! prefix)
+  // Same patterns as Step 1 but for links — needed so Step 3 can inspect the full URL
+  result = result.replace(/(?<!!)\[([^\]]*?)\]\s*\(([^)]*?)\)/g, (m, alt: string, url: string) => {
+    if (!m.includes('\n') && !m.includes('\r')) return m
+    const cleanAlt = alt
+      .replace(/[\r\n]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+    const cleanUrl = url.replace(/[\s\r\n]+/g, '').trim()
+    return `[${cleanAlt}](${cleanUrl})`
+  })
+
+  // Step 3: Add missing ! prefix for links whose URL ends with an image extension
+  result = result.replace(/(?<!!)\[([^\]]*?)\]\(([^)]*?)\)/g, (m, alt: string, url: string) => {
+    const cleanUrl = url.trim()
+    if (IMAGE_EXTENSIONS_REGEX.test(cleanUrl)) {
+      return `![${alt}](${cleanUrl})`
+    }
+    return m
+  })
+
+  // Step 4: Collapse any double ! prefixes introduced by previous steps (idempotency guard)
+  result = result.replace(/!{2,}\[/g, '![')
+
+  return result
+}
+
 const fixBrokenImageMarkdown = (text: string): string => {
   return text.replace(
     /!\[([^\]]*)\]\(((?:[^()]|\([^()]*\))*)\)/g,
@@ -451,7 +495,7 @@ const normalizeTableBlocks = (text: string): string => {
 
 const MarkdownWithTables: React.FC<MarkdownWithTablesProps> = ({ markdown, className = '' }) => {
   const processedMarkdown = normalizeTableBlocks(
-    preprocessHtmlImages(fixBrokenImageMarkdown(markdown)),
+    preprocessHtmlImages(fixBrokenImageMarkdown(fixMalformedImageMarkdown(markdown))),
   )
   const lines = processedMarkdown.split(/\r?\n/)
   const content = parseMarkdown(lines)

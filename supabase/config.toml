@@ -1,0 +1,151 @@
+project_id = "ymlkyspcznrrmlktudxx"
+
+[functions]
+verify_jwt = false
+
+[functions.apply-discount-coupon]
+verify_jwt = false
+
+[functions.calculate-price-brl]
+verify_jwt = false
+
+[functions.calculate-shipping]
+verify_jwt = false
+
+[functions.call-ai-agent]
+verify_jwt = false
+
+[functions.cancel-stripe-charge]
+verify_jwt = false
+
+[functions.change-admin-password]
+verify_jwt = false
+
+[functions.change-customer-password]
+verify_jwt = false
+
+[functions.create-customer-public]
+verify_jwt = false
+
+[functions.create-customer]
+verify_jwt = false
+
+[functions.create-discount-coupon]
+verify_jwt = false
+
+[functions.create-payment-intent]
+verify_jwt = false
+
+[functions.create-paypal-payment-intent]
+verify_jwt = false
+
+[functions.ai-search]
+verify_jwt = false
+
+[functions.update-exchange-rate]
+verify_jwt = false
+
+[functions.execute_ai_search_v2_pp]
+verify_jwt = false
+
+[functions.lookup-address]
+verify_jwt = false
+
+[functions.square-payment]
+verify_jwt = false
+
+[functions.send-email]
+verify_jwt = false
+
+[functions.send-order-email]
+verify_jwt = false
+
+[functions.notify-admin-pix]
+verify_jwt = false
+
+[functions.notify-admin-transferencia-brasil]
+verify_jwt = false
+
+[functions.send-confirmation-email]
+verify_jwt = false
+
+[functions.cleanup-spam-customers]
+verify_jwt = false
+
+[functions.execute-ai-search-v3]
+verify_jwt = false
+
+[functions.enrich-product-specs]
+verify_jwt = false
+
+[functions.execute_ai_search_v2]
+verify_jwt = false
+
+[functions.extract-product-bhphoto]
+verify_jwt = false
+
+[functions.generate-cart-whatsapp-message]
+verify_jwt = false
+
+[functions.generate-payment-token]
+verify_jwt = false
+
+[functions.generate-related-products]
+verify_jwt = false
+
+[functions.initiate-paypal-payment]
+verify_jwt = false
+
+[functions.notify-admin-payment]
+verify_jwt = false
+
+[functions.notify-admin-refund]
+verify_jwt = false
+
+[functions.process-knowledge]
+verify_jwt = false
+
+[functions.process-query]
+verify_jwt = false
+
+[functions.send-welcome-email]
+verify_jwt = false
+
+[functions.toggle-2fa]
+verify_jwt = false
+
+[functions.update-cache-settings]
+verify_jwt = false
+
+[functions.ups-calculate-rate]
+verify_jwt = false
+
+[functions.ups-get-token]
+verify_jwt = false
+
+[functions.validate-ai-provider]
+verify_jwt = false
+
+[functions.validate-discount-coupon]
+verify_jwt = false
+
+[functions.validate-image-url]
+verify_jwt = false
+
+[functions.validate-ncm-suggestion]
+verify_jwt = false
+
+[functions.validate-payment-token]
+verify_jwt = false
+
+[functions.verify-paypal-payment]
+verify_jwt = false
+
+[functions.verify-user-role]
+verify_jwt = false
+
+[functions.image-proxy]
+verify_jwt = false
+
+[functions.ai-search-product-page]
+verify_jwt = false

@@ -247,31 +247,6 @@ export function AIConsultantModal({
           (typeof p.manufacturer === 'string' ? p.manufacturer : null),
       }))
 
-      // Cálculo de preço final por cliente
-      if (user && finalProducts.length > 0) {
-        try {
-          const { data: customer } = await supabase
-            .from('customers')
-            .select('id')
-            .eq('user_id', user.id)
-            .single()
-
-          if (customer) {
-            finalProducts = await Promise.all(
-              finalProducts.map(async (p: Product) => {
-                const { data: finalPrice } = await supabase.rpc('calculate_final_price', {
-                  p_customer_id: customer.id,
-                  p_product_id: p.id,
-                })
-                return { ...p, price_usd: finalPrice ?? p.price_usd }
-              }),
-            )
-          }
-        } catch (e) {
-          console.error('Error fetching final prices', e)
-        }
-      }
-
       const aiResultData: AIConsultantResult = {
         referenced_internal_products: refIds.filter((id: string) => id !== activeProductId),
         ai_referenced_products: (data.ai_referenced_products || []).filter(

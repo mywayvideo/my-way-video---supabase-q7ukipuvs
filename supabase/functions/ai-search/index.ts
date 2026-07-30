@@ -44,7 +44,10 @@ function logCascade(stage: string, type: string, matched: boolean, query: string
 
 function removePunctuation(s: string): string {
   if (!s) return ''
-  return s.replace(/[?!.,;:()"'\[\]{}@#$%*&+=/\\<>|~^]/g, '').replace(/\s+/g, ' ').trim()
+  return s
+    .replace(/[?!.,;:()"'\[\]{}@#$%*&+=/\\<>|~^]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 function applyCustomStopWords(q: string, stopWords: string[]): string {
@@ -402,11 +405,14 @@ Deno.serve(async (req: Request) => {
       // ✅ NOVO BLOCO AQUI:
       // Se não detectou padrão A vs B, mas está em PP
       if (!match && currentProductContext) {
-        const ppCleaned = applyCustomStopWords(
-          removeStopWords(removePunctuation(cleanPortugueseGenericWords(query))),
-          customStopWords,
-        ) || query
-        console.log(`[comparison] PP mode — single target search: "${query}" cleaned="${ppCleaned}"`)
+        const ppCleaned =
+          applyCustomStopWords(
+            removeStopWords(removePunctuation(cleanPortugueseGenericWords(query))),
+            customStopWords,
+          ) || query
+        console.log(
+          `[comparison] PP mode — single target search: "${query}" cleaned="${ppCleaned}"`,
+        )
         const searchResult = await supabase.rpc('execute_ai_search_v3', {
           search_term: ppCleaned,
         })
@@ -446,14 +452,16 @@ Deno.serve(async (req: Request) => {
       const searchTerms2 = part2
 
       // Limpa stop words de cada termo antes de buscar
-      const q1 = applyCustomStopWords(
-        removeStopWords(removePunctuation(cleanPortugueseGenericWords(searchTerms1))),
-        customStopWords,
-      ) || searchTerms1
-      const q2 = applyCustomStopWords(
-        removeStopWords(removePunctuation(cleanPortugueseGenericWords(searchTerms2))),
-        customStopWords,
-      ) || searchTerms2
+      const q1 =
+        applyCustomStopWords(
+          removeStopWords(removePunctuation(cleanPortugueseGenericWords(searchTerms1))),
+          customStopWords,
+        ) || searchTerms1
+      const q2 =
+        applyCustomStopWords(
+          removeStopWords(removePunctuation(cleanPortugueseGenericWords(searchTerms2))),
+          customStopWords,
+        ) || searchTerms2
 
       console.log(`[comparison] Split query: "${q1}" | "${q2}"`)
 
@@ -1053,7 +1061,9 @@ Deno.serve(async (req: Request) => {
         const originProduct = result.products.find((p: any) => p.id === lastReferencedProductId)
         if (originProduct) {
           if (!result.referenced_product_data) result.referenced_product_data = []
-          const hasOrigin = result.referenced_product_data.some((p: any) => p.id === lastReferencedProductId)
+          const hasOrigin = result.referenced_product_data.some(
+            (p: any) => p.id === lastReferencedProductId,
+          )
           if (!hasOrigin) {
             result.referenced_product_data.push({
               id: originProduct.id,
@@ -1079,7 +1089,8 @@ Deno.serve(async (req: Request) => {
         const processedProductIds = new Set<string>()
 
         // 1) Replace [PRODUCT:id] markers with image markdown
-        const markerRegex = /\[PRODUCT:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\]/gi
+        const markerRegex =
+          /\[PRODUCT:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\]/gi
         let markerMatch: RegExpExecArray | null
         const markerReplacements: { start: number; end: number; replacement: string }[] = []
 

@@ -371,13 +371,19 @@ const fixMalformedImageMarkdown = (text: string): string => {
   })
 
   // Step 3: Add missing ! prefix for links whose URL ends with an image extension
-  result = result.replace(/(?<!!)\[([^\]]*?)\]\(([^)]*?)\)/g, (m, alt: string, url: string) => {
-    const cleanUrl = url.trim()
-    if (IMAGE_EXTENSIONS_REGEX.test(cleanUrl)) {
-      return `![${alt}](${cleanUrl})`
+  // Line-isolation rule: only convert when the link is alone on its own line
+  const lines3 = result.split('\n')
+  for (let k = 0; k < lines3.length; k++) {
+    const line = lines3[k]
+    const trimmed = line.trim()
+    const match = trimmed.match(/^\[([^\]]*?)\]\(([^)]*?)\)$/)
+    if (match && IMAGE_EXTENSIONS_REGEX.test(match[2].trim())) {
+      const leadingWhitespace = line.substring(0, line.indexOf(trimmed))
+      const trailingWhitespace = line.substring(line.indexOf(trimmed) + trimmed.length)
+      lines3[k] = `${leadingWhitespace}![${match[1]}](${match[2].trim()})${trailingWhitespace}`
     }
-    return m
-  })
+  }
+  result = lines3.join('\n')
 
   // Step 4: Collapse any double ! prefixes introduced by previous steps (idempotency guard)
   result = result.replace(/!{2,}\[/g, '![')

@@ -42,6 +42,14 @@ function logCascade(stage: string, type: string, matched: boolean, query: string
   )
 }
 
+function removePunctuation(s: string): string {
+  if (!s) return ''
+  return s
+    .replace(/[?!.,;:()"'\[\]{}@#$%*&+=/\\<>|~^]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 function applyCustomStopWords(q: string, stopWords: string[]): string {
   if (!q || stopWords.length === 0) return q
   const words = q.split(/\s+/)
@@ -284,7 +292,10 @@ Deno.serve(async (req: Request) => {
     }
 
     const hpSearchTerm = isHPMode ? cleanPortugueseGenericWords(query) : query
-    const hpSearchTermCleaned = applyCustomStopWords(hpSearchTerm, customStopWords)
+    const hpSearchTermCleaned = applyCustomStopWords(
+      removeStopWords(removePunctuation(hpSearchTerm)),
+      customStopWords,
+    )
     console.log(
       `[hp-search] original="${query}" afterClean="${hpSearchTerm}" afterStopWords="${hpSearchTermCleaned}"`,
     )
@@ -394,9 +405,16 @@ Deno.serve(async (req: Request) => {
       // ✅ NOVO BLOCO AQUI:
       // Se não detectou padrão A vs B, mas está em PP
       if (!match && currentProductContext) {
-        console.log(`[comparison] PP mode — single target search: "${query}"`)
+        const ppCleaned =
+          applyCustomStopWords(
+            removeStopWords(removePunctuation(cleanPortugueseGenericWords(query))),
+            customStopWords,
+          ) || query
+        console.log(
+          `[comparison] PP mode — single target search: "${query}" cleaned="${ppCleaned}"`,
+        )
         const searchResult = await supabase.rpc('execute_ai_search_v3', {
-          search_term: query,
+          search_term: ppCleaned,
         })
         const foundProducts = searchResult.data?.stock || []
         if (foundProducts.length > 0) {
@@ -434,8 +452,16 @@ Deno.serve(async (req: Request) => {
       const searchTerms2 = part2
 
       // Limpa stop words de cada termo antes de buscar
-      const q1 = cleanPortugueseGenericWords(searchTerms1) || searchTerms1
-      const q2 = cleanPortugueseGenericWords(searchTerms2) || searchTerms2
+      const q1 =
+        applyCustomStopWords(
+          removeStopWords(removePunctuation(cleanPortugueseGenericWords(searchTerms1))),
+          customStopWords,
+        ) || searchTerms1
+      const q2 =
+        applyCustomStopWords(
+          removeStopWords(removePunctuation(cleanPortugueseGenericWords(searchTerms2))),
+          customStopWords,
+        ) || searchTerms2
 
       console.log(`[comparison] Split query: "${q1}" | "${q2}"`)
 
@@ -618,7 +644,9 @@ Deno.serve(async (req: Request) => {
           // ═══ MODO NORMAL ═══
 
           let enrichedQuery = applyCustomStopWords(
-            isHPMode ? cleanPortugueseGenericWords(query) : query,
+            removeStopWords(
+              removePunctuation(isHPMode ? cleanPortugueseGenericWords(query) : query),
+            ),
             customStopWords,
           )
           console.log(
@@ -640,7 +668,11 @@ Deno.serve(async (req: Request) => {
               const manufacturer = currentProductContext.manufacturer
               if (manufacturer && manufacturer !== 'N/A') {
                 enrichedQuery = applyCustomStopWords(
-                  `${isHPMode ? cleanPortugueseGenericWords(query) : query} ${manufacturer}`,
+                  removeStopWords(
+                    removePunctuation(
+                      `${isHPMode ? cleanPortugueseGenericWords(query) : query} ${manufacturer}`,
+                    ),
+                  ),
                   customStopWords,
                 )
               }

@@ -153,6 +153,11 @@ function buildSystemPrompt(context: any): string {
     '- Se for uma comparação, destaque as diferenças técnicas.',
     '- Responda sempre na mesma lingua utilizada na pergunda ou query',
     '- Seja técnico e objetivo.',
+  ]
+
+  parts.push(rules.join('\n'))
+
+  const productMarkerRules = [
     '',
     '',
     'REGRAS DE EXIBIÇÃO DE IMAGENS E MARCADORES DE PRODUTO:',
@@ -166,9 +171,16 @@ function buildSystemPrompt(context: any): string {
     '- REGRA DE OURO: Se há 2 produtos, inclua 2 marcadores `[PRODUCT:id]`. Se há 5, inclua 5.',
     '- Coloque o marcador `[PRODUCT:id]` SEMPRE antes do nome do produto.',
     '- NÃO escreva a URL como texto — o sistema injeta a imagem automaticamente.',
+    '',
+    'EXEMPLO DE USO CORRETO:',
+    '❌ ERRADO: "A **Sony FX3A** é uma câmera cinema..."',
+    '✅ CERTO: "A [PRODUCT:0d986aed-b30e-42e0-a728-80f56f4cbdbc] Sony FX3A é uma câmera cinema..."',
+    '',
+    'AUTOVERIFICAÇÃO OBRIGATÓRIA:',
+    'Conte quantos produtos mencionou → Conte quantas tags [PRODUCT:id] incluiu → Os números precisam ser iguais. Se não forem, adicione a tag faltante.',
   ]
 
-  parts.push(rules.join('\n'))
+  parts.push(productMarkerRules.join('\n'))
   return parts.filter(Boolean).join('\n\n')
 }
 

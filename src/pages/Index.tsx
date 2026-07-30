@@ -7,12 +7,14 @@ import { cn } from '@/lib/utils'
 import { useAiSearch } from '@/hooks/use-ai-search'
 import { AISearchResults } from '@/components/AISearchResults'
 import { HPProductSections } from '@/components/HPProductSections'
+import { useMultipleProductDiscounts } from '@/hooks/useProductDiscount'
 import { SEO } from '@/components/SEO'
 
 export default function Index() {
   const [query, setQuery] = useState('')
   const [featuredProducts, setFeaturedProducts] = useState<any[]>([])
   const { search, isLoading, results, error, clearResults } = useAiSearch()
+  const featuredDiscounts = useMultipleProductDiscounts(featuredProducts)
 
   const section1Ids = useMemo(() => {
     const aiRefs = (results?.ai_referenced_products || []) as any[]
@@ -192,7 +194,7 @@ export default function Index() {
           </h2>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6">
             {featuredProducts.map((p) => (
-              <ProductCard key={p.id} product={p} />
+              <ProductCard key={p.id} product={p} discountData={featuredDiscounts[p.id] ?? null} />
             ))}
           </div>
         </section>

@@ -16,10 +16,21 @@ export function ProductCard({
   product,
   isFavoritesPage,
   onRemove,
+  discountData,
 }: {
   product: any
   isFavoritesPage?: boolean
   onRemove?: (id: string) => void
+  discountData?: {
+    originalPrice: number | null
+    discountedPrice: number | null
+    originalPriceNat: number | null
+    discountedPriceNat: number | null
+    discountPercentage: number
+    ruleName: string | null
+    currency: 'USD' | 'BRL'
+    isRebateActive: boolean
+  } | null
 }) {
   const [showQtyModal, setShowQtyModal] = useState(false)
   const { isSearchActive, searchQuery } = useSearchState()
@@ -27,16 +38,26 @@ export function ProductCard({
   const [favLoading, setFavLoading] = useState(false)
 
   const { secondaryPrice, isLoading: pricingLoading } = usePricing(product)
-  const productDiscount = useProductDiscount(product)
+  const productDiscount = useProductDiscount(product, !!discountData)
 
   if (!product) return null
 
-  const originalPrice = product.originalPrice ?? productDiscount.originalPrice
-  const discountedPrice = product.discountedPrice ?? productDiscount.discountedPrice
-  const originalPriceNat = product.originalPriceNat ?? productDiscount.originalPriceNat
-  const discountedPriceNat = product.discountedPriceNat ?? productDiscount.discountedPriceNat
-  const discountPercentage = product.discountPercentage ?? productDiscount.discountPercentage
-  const isRebateActive = product.isRebateActive ?? productDiscount.isRebateActive
+  const originalPrice =
+    product.originalPrice ?? discountData?.originalPrice ?? productDiscount.originalPrice
+  const discountedPrice =
+    product.discountedPrice ?? discountData?.discountedPrice ?? productDiscount.discountedPrice
+  const originalPriceNat =
+    product.originalPriceNat ?? discountData?.originalPriceNat ?? productDiscount.originalPriceNat
+  const discountedPriceNat =
+    product.discountedPriceNat ??
+    discountData?.discountedPriceNat ??
+    productDiscount.discountedPriceNat
+  const discountPercentage =
+    product.discountPercentage ??
+    discountData?.discountPercentage ??
+    productDiscount.discountPercentage
+  const isRebateActive =
+    product.isRebateActive ?? discountData?.isRebateActive ?? productDiscount.isRebateActive
   const productName = product.name || 'Produto não encontrado'
 
   const triggerFavoriteEffects = (e: React.MouseEvent) => {

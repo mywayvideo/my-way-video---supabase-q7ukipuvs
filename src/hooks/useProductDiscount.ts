@@ -367,7 +367,7 @@ export function useMultipleProductDiscounts(products: any[]) {
   return discountsMap
 }
 
-export function useProductDiscount(product: any) {
+export function useProductDiscount(product: any, skip = false) {
   const [discountedPrice, setDiscountedPrice] = useState<number | null>(null)
   const [originalPrice, setOriginalPrice] = useState<number | null>(null)
   const [discountedPriceNat, setDiscountedPriceNat] = useState<number | null>(null)
@@ -378,7 +378,7 @@ export function useProductDiscount(product: any) {
   const [isRebateActive, setIsRebateActive] = useState<boolean>(false)
 
   useEffect(() => {
-    if (!product) return
+    if (!product || skip) return
 
     const fetchDiscounts = async () => {
       try {
@@ -442,6 +442,7 @@ export function useProductDiscount(product: any) {
     product?.price_cost,
     product?.price_nationalized_sales,
     product?.price_usa_rebate,
+    skip,
   ])
 
   return {

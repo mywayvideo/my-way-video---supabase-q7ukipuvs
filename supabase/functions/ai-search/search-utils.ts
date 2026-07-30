@@ -453,3 +453,104 @@ export function cleanPortugueseGenericWords(query: string): string {
   const cleaned = words.filter((w) => !genericWords.has(w))
   return cleaned.join(' ').trim()
 }
+
+export function checkRecentProductsRelevance(query: string, products: any[]): boolean {
+  if (!query || !products || products.length === 0) return false
+
+  const lowerQuery = query.toLowerCase()
+
+  const pronouns = [
+    'ela',
+    'ele',
+    'esse',
+    'essa',
+    'desse',
+    'dessa',
+    'dela',
+    'dele',
+    'nele',
+    'nela',
+    'este',
+    'esta',
+    'disso',
+    'disto',
+    'isso',
+    'aquilo',
+    'nesse',
+    'nessa',
+    'aquele',
+    'aquela',
+    'naquele',
+    'naquela',
+    'sua',
+    'seu',
+    'deste',
+    'desta',
+    'destes',
+    'destas',
+  ]
+  const words = lowerQuery.split(/\s+/).map((w) => w.replace(/[^\wà-ú-]/g, ''))
+  for (const word of words) {
+    if (pronouns.includes(word)) return true
+  }
+
+  const stopWords = new Set([
+    'para',
+    'de',
+    'a',
+    'o',
+    'em',
+    'que',
+    'um',
+    'uma',
+    'com',
+    'por',
+    'no',
+    'na',
+    'dos',
+    'das',
+    'e',
+    'ou',
+    'as',
+    'os',
+    'se',
+    'mas',
+    'qual',
+    'quais',
+    'do',
+    'da',
+    'ao',
+    'aos',
+    'pelo',
+    'pela',
+    'pelos',
+    'pelas',
+    'nos',
+    'nas',
+    'num',
+    'numa',
+    'nuns',
+    'numas',
+  ])
+
+  const queryTokens = lowerQuery
+    .split(/\s+/)
+    .map((w) => w.replace(/[^\wà-ú-]/g, ''))
+    .filter((w) => w.length > 1 && !stopWords.has(w))
+
+  const productTokens = new Set<string>()
+  for (const p of products) {
+    const name = (p.name || '').toLowerCase()
+    name
+      .split(/\s+/)
+      .map((w) => w.replace(/[^\wà-ú-]/g, ''))
+      .filter((w) => w.length > 1 && !stopWords.has(w))
+      .forEach((w) => productTokens.add(w))
+  }
+
+  for (const token of queryTokens) {
+    if (productTokens.has(token)) return true
+  }
+
+  return false
+}

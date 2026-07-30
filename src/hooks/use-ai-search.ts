@@ -48,6 +48,7 @@ export function useAiSearch() {
     })(),
   )
   const abortControllerRef = useRef<AbortController | null>(null)
+  const recentProductIdsRef = useRef<string[]>([])
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const { toast } = useToast()
 
@@ -99,6 +100,7 @@ export function useAiSearch() {
             query,
             currentProductId,
             session_id: sessionIdRef.current,
+            ...(currentProductId ? {} : { recentProductIds: recentProductIdsRef.current }),
           }),
           signal: controller.signal,
         })
@@ -140,6 +142,7 @@ export function useAiSearch() {
         const aiRefIds = Array.isArray(data.ai_referenced_products)
           ? data.ai_referenced_products.filter((id: any) => typeof id === 'string')
           : []
+        recentProductIdsRef.current = aiRefIds.slice(0, 5)
 
         const fullSearchIds = Array.isArray(data.full_search_results)
           ? data.full_search_results.map((p: any) => p?.id).filter(Boolean)
@@ -210,6 +213,7 @@ export function useAiSearch() {
   const clearResults = useCallback(() => {
     setResults(null)
     setError(null)
+    recentProductIdsRef.current = []
   }, [])
 
   return {

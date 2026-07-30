@@ -1,6 +1,9 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { useToast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase/client'
+
+const AI_SEARCH_TIMEOUT_MS = 60000
+const AI_SEARCH_TIMEOUT_MESSAGE = 'A resposta demorou demais, tente reformular sua busca'
 
 export interface AIResult {
   message?: string
@@ -44,11 +47,39 @@ export function useAiSearch() {
       return id
     })(),
   )
+  const abortControllerRef = useRef<AbortController | null>(null)
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const { toast } = useToast()
+
+  useEffect(() => {
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
+      }
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current)
+      }
+    }
+  }, [])
 
   const search = useCallback(
     async (query: string, currentProductId?: string) => {
       if (!query.trim()) return
+
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
+      }
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current)
+      }
+
+      const controller = new AbortController()
+      abortControllerRef.current = controller
+
+      const timeoutId = setTimeout(() => {
+        controller.abort()
+      }, AI_SEARCH_TIMEOUT_MS)
+      timeoutRef.current = timeoutId
 
       setIsLoading(true)
       setError(null)
@@ -69,6 +100,7 @@ export function useAiSearch() {
             currentProductId,
             session_id: sessionIdRef.current,
           }),
+          signal: controller.signal,
         })
 
         if (!response.ok) {
@@ -146,15 +178,29 @@ export function useAiSearch() {
           products: enrichedProducts,
         })
       } catch (err: any) {
-        console.error('AI Search Error:', err)
-        setError(err.message || 'Ocorreu um erro ao processar sua busca.')
-        toast({
-          title: 'Erro na busca',
-          description: 'Não foi possível completar a análise. Tente novamente.',
-          variant: 'destructive',
-        })
-        setResults(null)
+        if (err?.name === 'AbortError') {
+          console.error('AI Search Timeout:', err)
+          setError(AI_SEARCH_TIMEOUT_MESSAGE)
+          setResults({
+            content: AI_SEARCH_TIMEOUT_MESSAGE,
+            is_intermediate: false,
+          })
+        } else {
+          console.error('AI Search Error:', err)
+          setError(err.message || 'Ocorreu um erro ao processar sua busca.')
+          toast({
+            title: 'Erro na busca',
+            description: 'Não foi possível completar a análise. Tente novamente.',
+            variant: 'destructive',
+          })
+          setResults(null)
+        }
       } finally {
+        if (timeoutRef.current) {
+          clearTimeout(timeoutRef.current)
+          timeoutRef.current = null
+        }
+        abortControllerRef.current = null
         setIsLoading(false)
       }
     },

@@ -114,8 +114,6 @@ function findFirstMention(text: string, names: string[]): { index: number; lengt
     const regex = new RegExp(`(?<!\\w)${escaped}`, 'gi')
     let match: RegExpExecArray | null
     while ((match = regex.exec(text)) !== null) {
-      if (isInsideBold(text, match.index)) continue
-      if (isInsideHeading(text, match.index)) continue
       if (best === null || match.index < best.index) {
         best = { index: match.index, length: match[0].length }
       }

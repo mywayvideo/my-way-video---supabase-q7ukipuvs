@@ -341,6 +341,18 @@ interface MarkdownWithTablesProps {
   className?: string
 }
 
+const fixBrokenImageMarkdown = (text: string): string => {
+  return text.replace(
+    /!\[([^\]]*)\]\(((?:[^()]|\([^()]*\))*)\)/g,
+    (match, alt: string, url: string) => {
+      if (!match.includes('\n')) return match
+      const fixedAlt = alt.replace(/\r?\n/g, ' ').trim()
+      const fixedUrl = url.replace(/\r?\n/g, '').trim()
+      return `![${fixedAlt}](${fixedUrl})`
+    },
+  )
+}
+
 const preprocessHtmlImages = (text: string): string => {
   return text
     .replace(
@@ -438,7 +450,9 @@ const normalizeTableBlocks = (text: string): string => {
 }
 
 const MarkdownWithTables: React.FC<MarkdownWithTablesProps> = ({ markdown, className = '' }) => {
-  const processedMarkdown = normalizeTableBlocks(preprocessHtmlImages(markdown))
+  const processedMarkdown = normalizeTableBlocks(
+    preprocessHtmlImages(fixBrokenImageMarkdown(markdown)),
+  )
   const lines = processedMarkdown.split(/\r?\n/)
   const content = parseMarkdown(lines)
 

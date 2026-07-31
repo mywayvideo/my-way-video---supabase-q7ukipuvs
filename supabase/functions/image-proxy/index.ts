@@ -21,7 +21,32 @@ Deno.serve(async (req: Request) => {
     })
   }
 
-  if (!imageUrl.startsWith('https://www.bhphotovideo.com/')) {
+  const TRUSTED_DOMAINS = [
+    'bhphotovideo.com',
+    'bhphoto.com',
+    'static.bhphoto.com',
+    'images.bhphotovideo.com',
+    'cdn.bhphotovideo.com',
+    'eimagevideo.com',
+    'img.usecurling.com',
+    'm.media-amazon.com',
+    'images-na.ssl-images-amazon.com',
+  ]
+
+  let parsedUrl: URL
+  try {
+    parsedUrl = new URL(imageUrl)
+  } catch {
+    return new Response(JSON.stringify({ error: 'Invalid URL' }), {
+      status: 400,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
+  }
+
+  const hostname = parsedUrl.hostname.toLowerCase().replace(/^www\./, '')
+  const isTrusted = TRUSTED_DOMAINS.some((d) => hostname === d || hostname.endsWith('.' + d))
+
+  if (!isTrusted) {
     return new Response(JSON.stringify({ error: 'Origem não autorizada' }), {
       status: 403,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

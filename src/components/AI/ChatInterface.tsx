@@ -17,6 +17,7 @@ import { useAiSearch } from '@/hooks/use-ai-search'
 import { cn } from '@/lib/utils'
 import { ResponseFormatter } from '@/components/shared/ResponseFormatter'
 import { AILoader } from '@/components/AI/AILoader'
+import { getProxiedImageUrl } from '@/lib/image-proxy'
 
 export function ChatInterface({ productId: propProductId }: { productId?: string } = {}) {
   const params = useParams()
@@ -78,10 +79,15 @@ export function ChatInterface({ productId: propProductId }: { productId?: string
         const lastMsg = prev[prev.length - 1]
         if (lastMsg && lastMsg.role === 'assistant' && lastMsg.is_intermediate) {
           const newMessages = [...prev]
+          const proxiedProducts = productsToRender.map((p: any) =>
+            p && p.image_url
+              ? { ...p, image_url: getProxiedImageUrl(p.image_url) || p.image_url }
+              : p,
+          )
           newMessages[newMessages.length - 1] = {
             role: 'assistant',
             content: res.content || '',
-            products: productsToRender,
+            products: proxiedProducts,
             showWhatsapp: res.should_show_whatsapp_button,
             confidence: res.confidence_level,
             is_intermediate: false,
@@ -94,7 +100,11 @@ export function ChatInterface({ productId: propProductId }: { productId?: string
           {
             role: 'assistant',
             content: res.content || '',
-            products: productsToRender,
+            products: productsToRender.map((p: any) =>
+              p && p.image_url
+                ? { ...p, image_url: getProxiedImageUrl(p.image_url) || p.image_url }
+                : p,
+            ),
             showWhatsapp: res.should_show_whatsapp_button,
             confidence: res.confidence_level,
             is_intermediate: false,

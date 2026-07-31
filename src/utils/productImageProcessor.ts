@@ -141,7 +141,10 @@ const IMAGE_DOMAINS = [
   'bhphoto.com',
   'eimagevideo.com',
   'static.bhphoto.com',
+  'cdn.bhphotovideo.com',
   'img.usecurling.com',
+  'm.media-amazon.com',
+  'images-na.ssl-images-amazon.com',
 ]
 
 function isImageUrl(url: string): boolean {
@@ -155,6 +158,8 @@ function isImageUrl(url: string): boolean {
     return false
   }
 }
+
+import { getProxiedImageUrl, proxyMarkdownImages } from '@/lib/image-proxy'
 
 function fixMissingImageBangs(text: string): string {
   return text.replace(
@@ -172,6 +177,8 @@ export function processProductImages(content: string, products: ProductImageInfo
   let processed = fixMissingImageBangs(content)
   processed = cleanHtmlImages(processed)
   processed = cleanBrokenMarkdownImages(processed)
+
+  processed = proxyMarkdownImages(processed)
 
   const existingUrls = extractExistingImageUrls(processed)
 
@@ -198,11 +205,13 @@ export function processProductImages(content: string, products: ProductImageInfo
 
     const insertPos = findLineEnd(processed, mention.index + mention.length)
     const displayName = normalized || product.name
-    const imageMarkdown = `\n\n![${displayName}](${resolved})\n`
+    const proxiedUrl = getProxiedImageUrl(resolved) || resolved
+    const imageMarkdown = `\n\n![${displayName}](${proxiedUrl})\n`
 
     processed = processed.substring(0, insertPos) + imageMarkdown + processed.substring(insertPos)
     existingUrls.add(product.image_url)
     existingUrls.add(resolved)
+    existingUrls.add(proxiedUrl)
   }
 
   return processed

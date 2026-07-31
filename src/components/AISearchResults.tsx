@@ -7,6 +7,7 @@ import MarkdownWithTables from '@/components/MarkdownWithTables'
 import { ReferencedProducts } from '@/components/ReferencedProducts'
 import { AILoader } from '@/components/AI/AILoader'
 import { processProductImages, type ProductImageInfo } from '@/utils/productImageProcessor'
+import { getProxiedImageUrl } from '@/lib/image-proxy'
 
 interface Product {
   id: string
@@ -65,14 +66,22 @@ export function AISearchResults({
     const refs = result.referenced_internal_products || []
     refs.forEach((item: any) => {
       if (typeof item === 'object' && item !== null && item.name && item.image_url) {
-        images.push({ name: item.name, image_url: item.image_url, id: item.id })
+        images.push({
+          name: item.name,
+          image_url: getProxiedImageUrl(item.image_url) || item.image_url,
+          id: item.id,
+        })
       }
     })
 
     const resultProducts = result.products || []
     resultProducts.forEach((item: any) => {
       if (item && typeof item === 'object' && item.name && item.image_url) {
-        images.push({ name: item.name, image_url: item.image_url, id: item.id })
+        images.push({
+          name: item.name,
+          image_url: getProxiedImageUrl(item.image_url) || item.image_url,
+          id: item.id,
+        })
       }
     })
 

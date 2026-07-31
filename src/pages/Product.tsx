@@ -41,6 +41,7 @@ import { useHeartAnimation } from '@/hooks/useHeartAnimation'
 import { useAuthState } from '@/hooks/useAuthState'
 import { type AIConsultantResult } from '@/hooks/use-ai-consultant'
 import { ProductCard } from '@/components/ProductCard'
+// COMENTARIO PARA FORÇAR DEPLOY - 0001
 
 const formatNCM = (ncm?: string | number | null) => {
   if (ncm === null || ncm === undefined) return ''

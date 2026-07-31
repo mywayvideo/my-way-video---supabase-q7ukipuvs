@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { getProxiedImageUrl } from '@/lib/image-proxy'
 
 interface ProductImagesProps {
   products: any[]
@@ -27,10 +28,14 @@ export function ProductImages({ products, referencedInternalProducts }: ProductI
         <div key={product.id} className="flex flex-col items-center gap-2">
           <div className="w-full aspect-square rounded-lg overflow-hidden bg-zinc-900 border border-zinc-800/60 p-2">
             <img
-              src={product.image_url}
+              src={getProxiedImageUrl(product.image_url) ?? undefined}
               alt={product.name || ''}
-              referrerPolicy="no-referrer"
+              crossOrigin="anonymous"
               className="w-full h-full object-contain"
+              onError={(e) => {
+                ;(e.target as HTMLImageElement).src =
+                  'https://img.usecurling.com/p/400/400?q=professional%20camera&color=gray'
+              }}
             />
           </div>
           {product.name && (

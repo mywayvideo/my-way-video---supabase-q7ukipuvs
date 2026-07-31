@@ -32,6 +32,15 @@ import {
 
 const IMAGE_PROXY_URL = `${Deno.env.get('SUPABASE_URL')}/functions/v1/image-proxy`
 
+function proxyExternalImageUrl(rawUrl: string): string {
+  if (!rawUrl) return ''
+  if (rawUrl.startsWith('https://wsrv.nl/')) return rawUrl
+  if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')) {
+    return `https://wsrv.nl/?url=${encodeURIComponent(rawUrl)}&w=400&h=400&fit=inside`
+  }
+  return rawUrl
+}
+
 const OUT_OF_SCOPE_MESSAGE =
   'Desculpe, só posso responder perguntas relacionadas com o nosso catálogo de produtos e serviços.'
 
@@ -662,9 +671,7 @@ Deno.serve(async (req: Request) => {
                 return {
                   id: fullProduct.id,
                   name: fullProduct.name,
-                  image_url: fullProduct.image_url?.includes('bhphotovideo')
-                    ? `https://wsrv.nl/?url=${encodeURIComponent(fullProduct.image_url)}&w=400&h=400&fit=inside`
-                    : fullProduct.image_url || '',
+                  image_url: proxyExternalImageUrl(fullProduct.image_url || ''),
                   price_usd: fullProduct.price_usd,
                   price_brl: fullProduct.price_brl,
                 }
@@ -941,10 +948,7 @@ Deno.serve(async (req: Request) => {
                   id: p.id,
                   name: p.name,
                   // URLs da B&H passam pelo proxy para evitar hotlinking; demais URLs vão direto
-                  image_url:
-                    rawUrl.includes('bhphotovideo') || rawUrl.includes('bhphoto')
-                      ? `https://wsrv.nl/?url=${encodeURIComponent(rawUrl)}&w=400&h=400&fit=inside`
-                      : rawUrl,
+                  image_url: proxyExternalImageUrl(rawUrl),
                   price_usd: p.price_usd,
                   price_brl: p.price_brl,
                 }
@@ -1102,7 +1106,7 @@ Deno.serve(async (req: Request) => {
             result.referenced_product_data.push({
               id: originProduct.id,
               name: originProduct.name,
-              image_url: originProduct.image_url,
+              image_url: proxyExternalImageUrl(originProduct.image_url),
               price_usd: originProduct.price_usd,
               price_brl: originProduct.price_brl,
             })
@@ -1152,10 +1156,7 @@ Deno.serve(async (req: Request) => {
             continue
           }
 
-          const proxiedUrl =
-            rawUrl.includes('bhphotovideo') || rawUrl.includes('bhphoto')
-              ? `https://wsrv.nl/?url=${encodeURIComponent(rawUrl)}&w=400&h=400&fit=inside`
-              : rawUrl
+          const proxiedUrl = proxyExternalImageUrl(rawUrl)
 
           const productName = (product.name || '').trim() || 'Product'
           const escapedUrl = proxiedUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -1192,10 +1193,7 @@ Deno.serve(async (req: Request) => {
           const rawUrl = product.image_url || ''
           if (!rawUrl) continue
 
-          const proxiedUrl =
-            rawUrl.includes('bhphotovideo') || rawUrl.includes('bhphoto')
-              ? `https://wsrv.nl/?url=${encodeURIComponent(rawUrl)}&w=400&h=400&fit=inside`
-              : rawUrl
+          const proxiedUrl = proxyExternalImageUrl(rawUrl)
 
           const escapedUrl = proxiedUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
           const htmlImgRegex = new RegExp(`<img[^>]*src=["']${escapedUrl}["']`, 'i')
@@ -1212,11 +1210,15 @@ Deno.serve(async (req: Request) => {
           const nameMatch = nameRegex.exec(result.content)
           if (!nameMatch) continue
 
+          let insertPos = nameMatch.index
+          const beforeName = result.content.slice(0, nameMatch.index)
+          const formatTokenMatch = beforeName.match(/(\*{1,2}|#{1,4}\s*)$/)
+          if (formatTokenMatch) {
+            insertPos = nameMatch.index - formatTokenMatch[0].length
+          }
           const markdownImg = `\n\n![${productName}](${proxiedUrl})\n\n`
           result.content =
-            result.content.slice(0, nameMatch.index) +
-            markdownImg +
-            result.content.slice(nameMatch.index)
+            result.content.slice(0, insertPos) + markdownImg + result.content.slice(insertPos)
         }
       }
 

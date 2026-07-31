@@ -21,7 +21,10 @@ function parseInline(text: string): React.ReactNode[] {
           alt={match[2]}
           className="max-w-full h-auto rounded-lg my-2"
           onError={(e) => {
-            ;(e.target as HTMLImageElement).src = '/placeholder-dummy.png'
+            const img = e.target as HTMLImageElement
+            if (img.dataset.fallbackApplied) return
+            img.dataset.fallbackApplied = 'true'
+            img.src = '/placeholder.svg'
           }}
         />,
       )

@@ -130,49 +130,30 @@ export async function generateResponse(
 function buildSystemPrompt(context: GenerateContext): string {
   const agentSettings = context.agentSettings
   const aiSettings = context.aiSettings
-  let prompt = agentSettings?.system_prompt || aiSettings?.system_prompt_template || ''
-  prompt +=
-    '\n\nVocê é um assistente de IA especializado em equipamentos audiovisuais profissionais.'
-  prompt += '\nResponda sempre em português brasileiro, de forma clara e objetiva.'
-  prompt +=
-    '\nQuando mencionar produtos do catálogo, inclua o ID do produto na resposta usando o formato [PRODUCT:id].'
-  prompt += '\n\nREGRAS DE REFERÊNCIA DE PRODUTOS (referenced_internal_products):'
-  prompt +=
-    '\n- Densidade Mínima: Para buscas de categoria, inclua pelo menos os 6 IDs de produtos mais relevantes usando o formato [PRODUCT:id].'
-  prompt +=
-    '\n- Diversidade de Fabricantes: Para buscas de categoria, os IDs referenciados devem representar diferentes fabricantes (ex: Sony, Canon, Datavideo, Blackmagic).'
-  prompt +=
-    '\n- Integridade de Comparação: Para consultas de comparação, pelo menos ambos os produtos comparados (mínimo 2) devem ser referenciados.'
-  prompt +=
-    '\n- Política de Não-Vazio: O array de produtos referenciados nunca deve estar vazio se a busca retornou produtos válidos.'
-  prompt += '\n\nREGRAS DE PREÇOS E COTAÇÃO:'
-  prompt += '\n- Priorize sempre o preço em USD (FOB Miami) quando o valor for maior que 0.'
-  prompt +=
-    '\n- Se o preço USD for 0 ou nulo, NÃO invente ou alucine um preço. Informe que o preço está indisponível.'
-  prompt +=
-    '\n- O preço nacionalizado (price_nationalized_sales) só deve ser mencionado se o usuário perguntar explicitamente sobre preços no Brasil ou em reais.'
-  prompt +=
-    '\n- Use price_nationalized_currency para associar o símbolo correto (USD/BRL) ao preço nacionalizado.'
-  prompt += '\n- NUNCA mencione custos internos, preços de custo ou margens de lucro.'
+  const parts: string[] = []
+
+  const basePrompt = agentSettings?.system_prompt || aiSettings?.system_prompt_template || ''
+  if (basePrompt) parts.push(basePrompt)
+
   if (context.manufacturerList) {
-    prompt += `\n\nFabricantes disponíveis: ${context.manufacturerList}`
-  }
-  if (context.institutionalContext) {
-    prompt += `\n\nInformações institucionais:\n${context.institutionalContext}`
+    parts.push(`Fabricantes disponíveis: ${context.manufacturerList}`)
   }
 
-  prompt +=
-    '\n\nREGRA DE IMAGENS: Sua resposta será REJEITADA se não incluir a imagem de cada produto mencionado.'
+  if (context.institutionalContext) {
+    parts.push(`Informações institucionais:\n${context.institutionalContext}`)
+  }
 
   if (context.currentProductId && context.currentProductName) {
-    prompt += `\n\nCONTEXTO: O usuário está visualizando o produto ${context.currentProductName}. Qualquer pergunta que não mencione explicitamente outro produto refere-se a este produto de origem.`
+    parts.push(
+      `CONTEXTO: O usuário está visualizando o produto ${context.currentProductName}. Qualquer pergunta que não mencione explicitamente outro produto refere-se a este produto de origem.`,
+    )
   }
 
   if (context.aiSettings?.product_page_prompt) {
-    prompt += `\n\n${context.aiSettings.product_page_prompt}`
+    parts.push(context.aiSettings.product_page_prompt)
   }
 
-  return prompt
+  return parts.filter(Boolean).join('\n\n')
 }
 
 function buildMessages(query: string, context: GenerateContext, systemPrompt: string): any[] {

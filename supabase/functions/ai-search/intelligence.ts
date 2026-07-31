@@ -147,52 +147,22 @@ function buildSystemPrompt(context: any): string {
     parts.push(context.productPagePrompt)
   }
 
-  const rules = [
-    'REGRAS DE FORMATAÇÃO DE PREÇOS:',
-    '- Priorize sempre o preço USA (US$) como referência principal.',
-    '- NUNCA troque o símbolo da moeda (US$ ou R$).',
-    '- Se o produto tem preço USA em dólar, use US$.',
-    '- Se o produto tem preço Brasil (price_brl) esse valor é sempre em dólarm, use US$.',
-    '- Preços em reais (R$), quanto price_nationalized_currency indica preços em reais para price_nationalized_sales, usam formato brasileiro: R$ 1.234,56',
-    '- Preços em dólar (US$) usam formato americano: US$ 1,234.56',
-    '',
-    'REGRAS DE COMPORTAMENTO:',
-    '- NÃO inclua produtos que não foram mencionados na sua resposta.',
-    '- Se não tiver produtos relevantes, informe o usuário educadamente.',
-    '- Se for uma comparação, destaque as diferenças técnicas.',
-    '- Responda sempre na mesma lingua utilizada na pergunda ou query',
-    '- Seja técnico e objetivo.',
-  ]
+  if (context.manufacturerList) {
+    parts.push(`Fabricantes disponíveis: ${context.manufacturerList}`)
+  }
 
-  parts.push(rules.join('\n'))
+  if (context.institutionalContext) {
+    parts.push(`Informações institucionais:\n${context.institutionalContext}`)
+  }
 
-  const productMarkerRules = [
-    '',
-    '',
-    'REGRAS DE EXIBIÇÃO DE IMAGENS E MARCADORES DE PRODUTO:',
-    '- Whenever you mention a product, include `[PRODUCT:id]` immediately before the product name.',
-    '- Example: `[PRODUCT:abc123] Datavideo 4K 3G-SDI/HDMI/NDI Auto Tracking PTZ Camera with 30x Optical Zoom`',
-    '- Do not skip this marker for any product.',
-    '- The product ID is provided in the product list as `[PRODUCT:id-do-produto]` before each product name.',
-    '- You do NOT need to include images manually. The system will automatically insert the correct image for each `[PRODUCT:id]` marker.',
-    '- SEMPRE inclua o marcador `[PRODUCT:id]` antes do nome de cada produto mencionado, sem exceção.',
-    '- Em comparações, CADA lado da comparação DEVE ter seu marcador `[PRODUCT:id]`.',
-    '- REGRA DE OURO: Se há 2 produtos, inclua 2 marcadores `[PRODUCT:id]`. Se há 5, inclua 5.',
-    '- Coloque o marcador `[PRODUCT:id]` SEMPRE antes do nome do produto.',
-    '- NÃO escreva a URL como texto — o sistema injeta a imagem automaticamente.',
-    '',
-    'EXEMPLO DE USO CORRETO:',
-    '❌ ERRADO: "A **Sony FX3A** é uma câmera cinema..."',
-    '✅ CERTO: "A [PRODUCT:0d986aed-b30e-42e0-a728-80f56f4cbdbc] Sony FX3A é uma câmera cinema..."',
-    '',
-    'AUTOVERIFICAÇÃO OBRIGATÓRIA:',
-    'Conte quantos produtos mencionou → Conte quantas tags [PRODUCT:id] incluiu → Os números precisam ser iguais. Se não forem, adicione a tag faltante.',
-  ]
+  if (context.currentProductId && context.currentProductName) {
+    parts.push(
+      `CONTEXTO: O usuário está visualizando o produto ${context.currentProductName}. Qualquer pergunta que não mencione explicitamente outro produto refere-se a este produto de origem.`,
+    )
+  }
 
-  parts.push(productMarkerRules.join('\n'))
   return parts.filter(Boolean).join('\n\n')
 }
-
 function buildMessages(
   query: string,
   context: any,

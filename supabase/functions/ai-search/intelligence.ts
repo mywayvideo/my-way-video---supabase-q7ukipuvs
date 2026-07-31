@@ -18,7 +18,14 @@ export interface AIProvider {
   priority: integer
 }
 
+let cachedAgents: AIProvider[] | null = null
+let cachedAgentsAt = 0
+const AGENT_CACHE_TTL = 300_000
+
 export async function getActiveAgents(): Promise<AIProvider[]> {
+  const now = Date.now()
+  if (cachedAgents && now - cachedAgentsAt < AGENT_CACHE_TTL) return cachedAgents
+
   const client = getAdminClient()
   const { data, error } = await client
     .from('ai_providers')
@@ -28,10 +35,12 @@ export async function getActiveAgents(): Promise<AIProvider[]> {
 
   if (error) {
     console.error('[intelligence] Error fetching active agents:', error)
-    return []
+    return cachedAgents ?? []
   }
 
-  return (data ?? []) as AIProvider[]
+  cachedAgents = (data ?? []) as AIProvider[]
+  cachedAgentsAt = now
+  return cachedAgents
 }
 
 function resolveApiKey(secretName: string): string {
@@ -238,10 +247,6 @@ function buildMessages(
           p.price_nationalized_currency === 'BRL' ? 'R$' : 'US$'
         }${natPrice}`
       if (brlRefPrice) userContent += ` | Preço Brasil (referência): US$${brlRefPrice}`
-      // IMAGEM: wsrv.nl com redimensionamento ativo para forçar cache próprio
-      if (p.image_url) {
-        userContent += ` | image: https://wsrv.nl/?url=${encodeURIComponent(p.image_url)}&w=400&h=400&fit=inside`
-      }
     }
   }
 

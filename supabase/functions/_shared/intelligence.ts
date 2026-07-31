@@ -10,14 +10,26 @@ interface AgentConfig {
   priority?: number
 }
 
+let cachedAgents: AgentConfig[] | null = null
+let cachedAgentsAt = 0
+const AGENT_CACHE_TTL = 300_000
+
 export async function getActiveAgents(supabase: any): Promise<AgentConfig[]> {
+  const now = Date.now()
+  if (cachedAgents && now - cachedAgentsAt < AGENT_CACHE_TTL) return cachedAgents
+
   const { data, error } = await supabase
     .from('ai_providers')
     .select('*')
     .eq('is_active', true)
     .order('priority', { ascending: true })
-  if (error || !data || data.length === 0) return []
-  return data as AgentConfig[]
+  if (error || !data || data.length === 0) {
+    cachedAgents = []
+  } else {
+    cachedAgents = data as AgentConfig[]
+  }
+  cachedAgentsAt = now
+  return cachedAgents
 }
 
 interface GenerateContext {
@@ -175,7 +187,11 @@ function buildMessages(query: string, context: GenerateContext, systemPrompt: st
   let userContent = query
   if (context.products && context.products.length > 0) {
     userContent += '\n\nProdutos relevantes do catálogo:\n'
-    userContent += JSON.stringify(context.products, null, 2)
+    const productsWithoutImages = context.products.map((p: any) => {
+      const { image_url, ...rest } = p
+      return rest
+    })
+    userContent += JSON.stringify(productsWithoutImages, null, 2)
   }
   if (context.contextualProductData) {
     userContent += '\n\nProduto de origem (página atual do usuário):\n'

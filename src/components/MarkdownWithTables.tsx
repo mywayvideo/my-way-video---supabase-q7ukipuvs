@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useMemo } from 'react'
 
 function parseInline(text: string): React.ReactNode[] {
   const nodes: React.ReactNode[] = []
@@ -502,10 +502,23 @@ const normalizeTableBlocks = (text: string): string => {
   return result.join('\n')
 }
 
-const MarkdownWithTables: React.FC<MarkdownWithTablesProps> = ({ markdown, className = '' }) => {
-  const processedMarkdown = normalizeTableBlocks(
-    preprocessHtmlImages(fixBrokenImageMarkdown(fixMalformedImageMarkdown(markdown))),
-  )
+const MarkdownWithTablesBase: React.FC<MarkdownWithTablesProps> = ({
+  markdown,
+  className = '',
+}) => {
+  const processedMarkdown = useMemo(() => {
+    if (import.meta.env.DEV) {
+      console.time('MarkdownWithTables:processPipeline')
+    }
+    const result = normalizeTableBlocks(
+      preprocessHtmlImages(fixBrokenImageMarkdown(fixMalformedImageMarkdown(markdown))),
+    )
+    if (import.meta.env.DEV) {
+      console.timeEnd('MarkdownWithTables:processPipeline')
+    }
+    return result
+  }, [markdown])
+
   const lines = processedMarkdown.split(/\r?\n/)
   const content = parseMarkdown(lines)
 
@@ -523,6 +536,8 @@ const MarkdownWithTables: React.FC<MarkdownWithTablesProps> = ({ markdown, class
     </div>
   )
 }
+
+const MarkdownWithTables = React.memo(MarkdownWithTablesBase)
 
 export default MarkdownWithTables
 export { TableBlock }

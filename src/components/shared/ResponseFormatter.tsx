@@ -5,7 +5,6 @@ import MarkdownWithTables from '@/components/MarkdownWithTables'
 import { Button } from '@/components/ui/button'
 import { MessageCircle } from 'lucide-react'
 import { processProductImages, type ProductImageInfo } from '@/utils/productImageProcessor'
-import { getProxiedImageUrl } from '@/lib/image-proxy'
 
 export function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -41,10 +40,10 @@ export function ResponseFormatter({
     }
     const cleaned = content.replace(idRegex, '').trim()
     const productImageInfos: ProductImageInfo[] = (products || [])
-      .filter((p: any) => p?.name && p?.image_url)
+      .filter((p: any) => p?.id && p?.name && p?.image_url)
       .map((p: any) => ({
         name: p.name,
-        image_url: getProxiedImageUrl(p.image_url) || p.image_url,
+        image_url: p.image_url,
         id: p.id,
       }))
     const processed = processProductImages(cleaned, productImageInfos)

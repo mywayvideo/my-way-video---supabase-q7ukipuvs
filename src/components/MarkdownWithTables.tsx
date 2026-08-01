@@ -1,4 +1,32 @@
-import React, { useMemo } from 'react'
+import React, { useMemo, useState } from 'react'
+
+const ProductImageSkeleton: React.FC<{ src: string; alt: string }> = ({ src, alt }) => {
+  const [status, setStatus] = useState<'loading' | 'loaded' | 'error'>('loading')
+
+  return (
+    <span className="inline-block align-top">
+      {status === 'loading' && (
+        <span className="flex w-40 h-28 rounded-lg animate-pulse bg-zinc-800/80" />
+      )}
+      {status === 'error' ? (
+        <img
+          src="https://img.usecurling.com/p/400/300?q=professional%20camera&color=gray"
+          alt={alt}
+          className="max-w-full h-auto rounded-lg max-h-48"
+        />
+      ) : (
+        <img
+          src={src}
+          alt={alt}
+          className="max-w-full h-auto rounded-lg max-h-48"
+          style={{ display: status === 'loading' ? 'none' : 'block' }}
+          onLoad={() => setStatus('loaded')}
+          onError={() => setStatus('error')}
+        />
+      )}
+    </span>
+  )
+}
 
 function parseInline(text: string): React.ReactNode[] {
   const nodes: React.ReactNode[] = []
@@ -14,20 +42,32 @@ function parseInline(text: string): React.ReactNode[] {
     }
 
     if (match[1]) {
-      nodes.push(
-        <img
-          key={key++}
-          src={match[3]}
-          alt={match[2]}
-          className="max-w-full h-auto rounded-lg my-2"
-          onError={(e) => {
-            const img = e.target as HTMLImageElement
-            if (img.dataset.fallbackApplied) return
-            img.dataset.fallbackApplied = 'true'
-            img.style.display = 'none'
-          }}
-        />,
-      )
+      const imgAlt = match[2]
+      const imgSrc = match[3]
+      if (imgAlt.startsWith('PRODUCT_IMAGE:')) {
+        nodes.push(
+          <ProductImageSkeleton
+            key={key++}
+            src={imgSrc}
+            alt={imgAlt.replace('PRODUCT_IMAGE:', '')}
+          />,
+        )
+      } else {
+        nodes.push(
+          <img
+            key={key++}
+            src={imgSrc}
+            alt={imgAlt}
+            className="max-w-full h-auto rounded-lg my-2"
+            onError={(e) => {
+              const img = e.target as HTMLImageElement
+              if (img.dataset.fallbackApplied) return
+              img.dataset.fallbackApplied = 'true'
+              img.style.display = 'none'
+            }}
+          />,
+        )
+      }
     } else if (match[4]) {
       nodes.push(
         <a

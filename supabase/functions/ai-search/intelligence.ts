@@ -161,6 +161,10 @@ function buildSystemPrompt(context: any): string {
     )
   }
 
+  parts.push(
+    `INSTRUÇÃO ESTRUTURAL FIXA (NÃO REMOVER): Na seção "Análise por Produto", insira imediatamente após cada título de produto o marcador <!-- PRODUCT_IMAGE:UUID --> usando o UUID exato do token [PRODUCT:UUID] fornecido no contexto. Na seção "Comparativo Técnico", insira o mesmo marcador <!-- PRODUCT_IMAGE:UUID --> dentro da célula correspondente a cada produto na tabela. O UUID deve ser o identificador exato fornecido nos tokens [PRODUCT:UUID].`,
+  )
+
   return parts.filter(Boolean).join('\n\n')
 }
 function buildMessages(

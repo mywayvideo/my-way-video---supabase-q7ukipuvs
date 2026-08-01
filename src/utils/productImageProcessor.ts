@@ -91,38 +91,6 @@ function hasImageWithName(text: string, names: string[]): boolean {
   return false
 }
 
-function isInsideBold(text: string, position: number): boolean {
-  const lineStart = text.lastIndexOf('\n', position - 1) + 1
-  const lineBefore = text.substring(lineStart, position)
-  const boldCount = (lineBefore.match(/\*\*/g) || []).length
-  return boldCount % 2 === 1
-}
-
-function isInsideHeading(text: string, position: number): boolean {
-  const lineStart = text.lastIndexOf('\n', position - 1) + 1
-  const lineEnd = text.indexOf('\n', position)
-  const line = text.substring(lineStart, lineEnd === -1 ? text.length : lineEnd)
-  return line.trim().startsWith('#')
-}
-
-function findFirstMention(text: string, names: string[]): { index: number; length: number } | null {
-  let best: { index: number; length: number } | null = null
-  for (const name of names) {
-    if (!name || name.length < 4) continue
-    if (!/[a-z0-9]/i.test(name)) continue
-    const escaped = escapeRegex(name)
-    const regex = new RegExp(`(?<!\\w)${escaped}`, 'gi')
-    let match: RegExpExecArray | null
-    while ((match = regex.exec(text)) !== null) {
-      if (best === null || match.index < best.index) {
-        best = { index: match.index, length: match[0].length }
-      }
-      break
-    }
-  }
-  return best
-}
-
 function isTableLine(text: string, position: number): boolean {
   const lineStart = text.lastIndexOf('\n', position - 1) + 1
   const lineEnd = text.indexOf('\n', position)
@@ -133,15 +101,6 @@ function isTableLine(text: string, position: number): boolean {
 function findLineEnd(text: string, position: number): number {
   const idx = text.indexOf('\n', position)
   return idx === -1 ? text.length : idx
-}
-
-function findFormattingPrefixStart(text: string, mentionIndex: number): number {
-  const lineStart = text.lastIndexOf('\n', mentionIndex - 1) + 1
-  const beforeMention = text.substring(lineStart, mentionIndex)
-  if (/^(\s*#{1,6}\s*\**\s*|\s*\**\s*)$/.test(beforeMention)) {
-    return lineStart
-  }
-  return -1
 }
 
 const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp']
@@ -180,17 +139,139 @@ function fixMissingImageBangs(text: string): string {
   )
 }
 
+function stripParentheticals(name: string): string {
+  return name
+    .replace(/\s*\([^)]*\)\s*/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function getFirstWords(name: string, count: number): string {
+  const words = name.split(/\s+/).filter((w) => w.length >= 2)
+  return words.slice(0, count).join(' ').trim()
+}
+
+function getBrandModel(name: string): string {
+  const words = name.split(/\s+/).filter((w) => w.length >= 2)
+  if (words.length < 2) return ''
+  const brand = words[0]
+  const modelMatch = name.match(/\b([A-Z]{1,3}[-]?[A-Z0-9]{1,6})\b/)
+  if (modelMatch) {
+    return `${brand} ${modelMatch[1]}`
+  }
+  return getFirstWords(name, 2)
+}
+
+function generateNameVariants(productName: string): string[] {
+  const variants: string[] = []
+  const seen = new Set<string>()
+
+  const addVariant = (v: string) => {
+    const trimmed = v.trim()
+    if (!trimmed || trimmed.length < 4 || !/[a-z0-9]/i.test(trimmed)) return
+    const key = trimmed.toLowerCase()
+    if (seen.has(key)) return
+    seen.add(key)
+    variants.push(trimmed)
+  }
+
+  addVariant(productName)
+  addVariant(stripParentheticals(productName))
+  addVariant(normalizeProductName(productName))
+  addVariant(stripParentheticals(normalizeProductName(productName)))
+
+  for (let i = 4; i >= 2; i--) {
+    addVariant(getFirstWords(stripParentheticals(productName), i))
+  }
+
+  addVariant(getBrandModel(productName))
+
+  return variants
+}
+
+function findHeadingMatch(
+  text: string,
+  names: string[],
+  sectionStart: number,
+  sectionEnd: number,
+): { insertPos: number; matchIndex: number } | null {
+  const sectionText = text.substring(sectionStart, sectionEnd)
+
+  for (const name of names) {
+    if (!name || name.length < 4) continue
+    const escaped = escapeRegex(name)
+    const headingRegex = new RegExp(`^(#{1,6}\\s+.*${escaped}.*)$`, 'gim')
+    let match: RegExpExecArray | null
+    while ((match = headingRegex.exec(sectionText)) !== null) {
+      const absoluteMatchIndex = sectionStart + match.index
+      const lineEnd = findLineEnd(text, absoluteMatchIndex + match[0].length)
+      return { insertPos: lineEnd, matchIndex: absoluteMatchIndex }
+    }
+  }
+  return null
+}
+
+function findBodyMatch(
+  text: string,
+  names: string[],
+  sectionStart: number,
+  sectionEnd: number,
+): { insertPos: number; matchIndex: number } | null {
+  const sectionText = text.substring(sectionStart, sectionEnd)
+
+  for (const name of names) {
+    if (!name || name.length < 4) continue
+    if (!/[a-z0-9]/i.test(name)) continue
+    const escaped = escapeRegex(name)
+    const regex = new RegExp(`(?<!\\w)${escaped}`, 'gi')
+    let match: RegExpExecArray | null
+    while ((match = regex.exec(sectionText)) !== null) {
+      const absoluteIndex = sectionStart + match.index
+      if (isTableLine(text, absoluteIndex)) continue
+      const lineStart = text.lastIndexOf('\n', absoluteIndex - 1) + 1
+      const lineEnd = text.indexOf('\n', absoluteIndex)
+      const line = text.substring(lineStart, lineEnd === -1 ? text.length : lineEnd)
+      if (line.trim().startsWith('#')) continue
+      return {
+        insertPos: findLineEnd(text, absoluteIndex + match[0].length),
+        matchIndex: absoluteIndex,
+      }
+    }
+  }
+  return null
+}
+
+function findProductSection(text: string): { start: number; end: number } {
+  const sectionRegex = /(^|\n)(#{1,6}\s+.*Análise por Produto.*)/gi
+  const match = sectionRegex.exec(text)
+  if (!match) {
+    return { start: 0, end: text.length }
+  }
+
+  const startLineIdx = match.index + (match[1] ? match[1].length : 0)
+  const headingLevel = (match[2].match(/^#+/) || ['#'])[0].length
+  const afterHeading = findLineEnd(text, startLineIdx + match[2].length)
+
+  const nextSectionRegex = new RegExp(`\\n#{1,${headingLevel}}\\s+`, 'g')
+  nextSectionRegex.lastIndex = afterHeading
+  const nextMatch = nextSectionRegex.exec(text)
+
+  const end = nextMatch ? nextMatch.index + 1 : text.length
+  return { start: startLineIdx, end }
+}
+
 export function processProductImages(content: string, products: ProductImageInfo[]): string {
   if (!content) return content
 
   let processed = fixMissingImageBangs(content)
   processed = cleanHtmlImages(processed)
   processed = cleanBrokenMarkdownImages(processed)
-
   processed = proxyMarkdownImages(processed)
 
   const existingUrls = extractExistingImageUrls(processed)
   const insertedNormalizedNames = new Set<string>()
+
+  const section = findProductSection(processed)
 
   for (const product of products) {
     if (!product?.name || !product?.image_url) continue
@@ -199,38 +280,32 @@ export function processProductImages(content: string, products: ProductImageInfo
 
     const resolved = product.image_url
     if (!resolved) continue
-
     if (existingUrls.has(resolved)) continue
 
     const normalized = normalizeProductName(product.name)
     const normalizedKey = normalized.toLowerCase().trim()
     if (normalizedKey && insertedNormalizedNames.has(normalizedKey)) continue
 
-    const namesToTry = [product.name, normalized].filter(
-      (n, i, arr) => n && n.length >= 4 && /[a-z0-9]/i.test(n) && arr.indexOf(n) === i,
-    )
+    const variants = generateNameVariants(product.name)
 
-    if (hasImageWithName(processed, namesToTry)) continue
+    if (hasImageWithName(processed, variants)) continue
 
-    const mention = findFirstMention(processed, namesToTry)
-    if (!mention) continue
-    if (isTableLine(processed, mention.index)) continue
+    let match = findHeadingMatch(processed, variants, section.start, section.end)
+
+    if (!match) {
+      match = findBodyMatch(processed, variants, section.start, section.end)
+    }
+
+    if (!match) continue
 
     const displayName = normalized || product.name
     const proxiedUrl = getProxiedImageUrl(resolved) || resolved
 
-    const prefixStart = findFormattingPrefixStart(processed, mention.index)
-    let insertPos: number
-    let imageMarkdown: string
-    if (prefixStart !== -1) {
-      insertPos = prefixStart
-      imageMarkdown = `![${displayName}](${proxiedUrl})\n\n`
-    } else {
-      insertPos = findLineEnd(processed, mention.index + mention.length)
-      imageMarkdown = `\n\n![${displayName}](${proxiedUrl})\n`
-    }
+    const imageMarkdown = `\n\n![${displayName}](${proxiedUrl})\n`
 
-    processed = processed.substring(0, insertPos) + imageMarkdown + processed.substring(insertPos)
+    processed =
+      processed.substring(0, match.insertPos) + imageMarkdown + processed.substring(match.insertPos)
+
     existingUrls.add(product.image_url)
     existingUrls.add(resolved)
     existingUrls.add(proxiedUrl)

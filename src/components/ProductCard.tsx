@@ -11,7 +11,6 @@ import { QuantityModal } from '@/components/QuantityModal'
 import { usePricing } from '@/hooks/use-pricing'
 import { useProductDiscount } from '@/hooks/useProductDiscount'
 import { calculateFinalPrice } from '@/utils/pricing'
-import { getProxiedImageUrl } from '@/lib/image-proxy'
 
 export function ProductCard({
   product,
@@ -250,9 +249,8 @@ export function ProductCard({
           className="w-full h-[220px] overflow-hidden flex items-center justify-center relative p-4"
         >
           <img
-            src={getProxiedImageUrl(product?.image_url) ?? undefined}
+            src={product?.image_url}
             alt={productName}
-            crossOrigin="anonymous"
             className="w-full h-full object-contain transition-transform duration-500 group-hover:scale-105"
             loading="lazy"
             onError={(e) => {

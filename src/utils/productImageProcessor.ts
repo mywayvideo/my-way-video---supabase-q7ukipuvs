@@ -135,6 +135,15 @@ function findLineEnd(text: string, position: number): number {
   return idx === -1 ? text.length : idx
 }
 
+function findFormattingPrefixStart(text: string, mentionIndex: number): number {
+  const lineStart = text.lastIndexOf('\n', mentionIndex - 1) + 1
+  const beforeMention = text.substring(lineStart, mentionIndex)
+  if (/^(\s*#{1,6}\s*\**\s*|\s*\**\s*)$/.test(beforeMention)) {
+    return lineStart
+  }
+  return -1
+}
+
 const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp']
 const IMAGE_DOMAINS = [
   'bhphotovideo.com',
@@ -181,6 +190,7 @@ export function processProductImages(content: string, products: ProductImageInfo
   processed = proxyMarkdownImages(processed)
 
   const existingUrls = extractExistingImageUrls(processed)
+  const insertedNormalizedNames = new Set<string>()
 
   for (const product of products) {
     if (!product?.name || !product?.image_url) continue
@@ -193,6 +203,9 @@ export function processProductImages(content: string, products: ProductImageInfo
     if (existingUrls.has(resolved)) continue
 
     const normalized = normalizeProductName(product.name)
+    const normalizedKey = normalized.toLowerCase().trim()
+    if (normalizedKey && insertedNormalizedNames.has(normalizedKey)) continue
+
     const namesToTry = [product.name, normalized].filter(
       (n, i, arr) => n && n.length >= 4 && /[a-z0-9]/i.test(n) && arr.indexOf(n) === i,
     )
@@ -203,15 +216,25 @@ export function processProductImages(content: string, products: ProductImageInfo
     if (!mention) continue
     if (isTableLine(processed, mention.index)) continue
 
-    const insertPos = findLineEnd(processed, mention.index + mention.length)
     const displayName = normalized || product.name
     const proxiedUrl = getProxiedImageUrl(resolved) || resolved
-    const imageMarkdown = `\n\n![${displayName}](${proxiedUrl})\n`
+
+    const prefixStart = findFormattingPrefixStart(processed, mention.index)
+    let insertPos: number
+    let imageMarkdown: string
+    if (prefixStart !== -1) {
+      insertPos = prefixStart
+      imageMarkdown = `![${displayName}](${proxiedUrl})\n\n`
+    } else {
+      insertPos = findLineEnd(processed, mention.index + mention.length)
+      imageMarkdown = `\n\n![${displayName}](${proxiedUrl})\n`
+    }
 
     processed = processed.substring(0, insertPos) + imageMarkdown + processed.substring(insertPos)
     existingUrls.add(product.image_url)
     existingUrls.add(resolved)
     existingUrls.add(proxiedUrl)
+    if (normalizedKey) insertedNormalizedNames.add(normalizedKey)
   }
 
   return processed

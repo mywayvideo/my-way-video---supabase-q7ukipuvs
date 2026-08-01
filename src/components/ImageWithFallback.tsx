@@ -1,7 +1,6 @@
 import { useImageFallback } from '@/hooks/useImageFallback'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
-import { getProxiedImageUrl } from '@/lib/image-proxy'
 
 interface ImageWithFallbackProps {
   src?: string | null
@@ -20,8 +19,7 @@ export function ImageWithFallback({
   width,
   height,
 }: ImageWithFallbackProps) {
-  const proxiedSrc = getProxiedImageUrl(src)
-  const { displayUrl, isLoading, hasError, retry } = useImageFallback(proxiedSrc, productId)
+  const { displayUrl, isLoading, hasError, retry } = useImageFallback(src, productId)
 
   if (isLoading) {
     return <Skeleton className={cn('w-full h-full rounded', className)} style={{ width, height }} />
@@ -33,7 +31,6 @@ export function ImageWithFallback({
         src="https://img.usecurling.com/p/400/400?q=professional%20camera&color=gray"
         alt={alt || 'Imagem indisponível'}
         loading="lazy"
-        crossOrigin="anonymous"
         width={width}
         height={height}
         className={cn('rounded', className)}
@@ -46,7 +43,6 @@ export function ImageWithFallback({
       src={displayUrl}
       alt={alt || 'Product Image'}
       loading="lazy"
-      crossOrigin="anonymous"
       width={width}
       height={height}
       className={cn('rounded', className)}

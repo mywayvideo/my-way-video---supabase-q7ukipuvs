@@ -24,7 +24,7 @@ function parseInline(text: string): React.ReactNode[] {
             const img = e.target as HTMLImageElement
             if (img.dataset.fallbackApplied) return
             img.dataset.fallbackApplied = 'true'
-            img.src = '/placeholder.svg'
+            img.style.display = 'none'
           }}
         />,
       )

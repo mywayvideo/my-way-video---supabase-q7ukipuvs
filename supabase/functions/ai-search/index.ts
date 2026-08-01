@@ -1172,6 +1172,7 @@ Deno.serve(async (req: Request) => {
       if (typeof result.content === 'string' && Array.isArray(result.products)) {
         const productMap = new Map(result.products.map((p: any) => [p.id, p]))
         const processedProductIds = new Set<string>()
+        const insertedNormalizedNames = new Set<string>()
 
         // 1) Replace [PRODUCT:id] markers with image markdown
         const markerRegex =

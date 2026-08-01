@@ -175,7 +175,8 @@ const isCodeStart = (line: string): boolean => {
 
 const isTableStart = (line: string): boolean => {
   const t = line.trim()
-  return t.startsWith('|') && t.includes('|')
+  const pipeCount = (t.match(/\|/g) || []).length
+  return t.startsWith('|') && pipeCount >= 2
 }
 
 const isListStart = (line: string): boolean => {
@@ -263,7 +264,7 @@ const parseMarkdown = (lines: string[]): React.ReactNode[] => {
     if (isTableStart(line)) {
       const tableResult = parseTable(i, lines)
       elements.push(<TableBlock key={elements.length} rows={tableResult.rows} />)
-      i = tableResult.end
+      i = Math.max(tableResult.end, i + 1)
       continue
     }
 

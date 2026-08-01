@@ -41,6 +41,14 @@ function proxyExternalImageUrl(rawUrl: string): string {
   return rawUrl
 }
 
+function normalizeProductName(name: string): string {
+  if (!name) return ''
+  return name
+    .replace(/\s*\([^)]*\)\s*/g, '')
+    .trim()
+    .toLowerCase()
+}
+
 const OUT_OF_SCOPE_MESSAGE =
   'Desculpe, só posso responder perguntas relacionadas com o nosso catálogo de produtos e serviços.'
 
@@ -1120,6 +1128,45 @@ Deno.serve(async (req: Request) => {
           result.ai_referenced_count = result.ai_referenced_products.length
         }
         result.products = result.products.filter((p: any) => p.id !== lastReferencedProductId)
+      }
+
+      if (Array.isArray(result.products)) {
+        const seenProductNames = new Set<string>()
+        result.products = result.products.filter((p: any) => {
+          const normalized = normalizeProductName(p.name || '')
+          if (!normalized || !seenProductNames.has(normalized)) {
+            if (normalized) seenProductNames.add(normalized)
+            return true
+          }
+          console.log(
+            `[dedup] Removed duplicate product by name: "${p.name}" (normalized: "${normalized}")`,
+          )
+          return false
+        })
+        const validProductIds = new Set(result.products.map((p: any) => p.id))
+        if (Array.isArray(result.referenced_internal_products)) {
+          result.referenced_internal_products = result.referenced_internal_products.filter(
+            (id: string) => validProductIds.has(id),
+          )
+        }
+        if (Array.isArray(result.ai_referenced_products)) {
+          result.ai_referenced_products = result.ai_referenced_products.filter((id: string) =>
+            validProductIds.has(id),
+          )
+          result.ai_referenced_count = result.ai_referenced_products.length
+        }
+      }
+      if (Array.isArray(result.referenced_product_data)) {
+        const seenDataNames = new Set<string>()
+        result.referenced_product_data = result.referenced_product_data.filter((p: any) => {
+          const normalized = normalizeProductName(p.name || '')
+          if (!normalized || !seenDataNames.has(normalized)) {
+            if (normalized) seenDataNames.add(normalized)
+            return true
+          }
+          console.log(`[dedup] Removed duplicate referenced_product_data by name: "${p.name}"`)
+          return false
+        })
       }
 
       if (typeof result.content === 'string' && Array.isArray(result.products)) {

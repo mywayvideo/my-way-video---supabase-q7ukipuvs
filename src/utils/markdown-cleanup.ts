@@ -1,4 +1,4 @@
-import { debugLog } from '@/utils/debug-front'
+import { debugLog, debugWarn } from '@/utils/debug-front'
 
 export function extractModelCode(name: string): string | null {
   const hyphenated = name.match(/\b([A-Z]{1,4}-[A-Z]*\d[A-Z0-9]*)\b/)
@@ -13,20 +13,47 @@ export function extractModelCode(name: string): string | null {
 export function removeOrphanBoldMarkers(text: string): string {
   const placeholders: string[] = []
 
-  let result = text.replace(/\*\*((?:[^*]|\*(?!\*))+?)\*\*/g, (match) => {
+  const protectedText = text.replace(/\*\*((?:[^*]|\*(?!\*))+?)\*\*/g, (match) => {
     const idx = placeholders.length
     placeholders.push(match)
     return `\uE000B${idx}\uE001`
   })
 
-  const orphanMatches = result.match(/\*\*/g)
+  const orphanMatches = protectedText.match(/\*\*/g)
   const orphanCount = orphanMatches ? orphanMatches.length : 0
 
+  const inputLen = protectedText.length
+  let result = protectedText
+
   if (orphanCount > 0) {
-    result = result.replace(/\*\*/g, '')
+    const lines = result.split('\n')
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]
+      if (/^\s*\*\*\s*$/.test(line)) {
+        lines[i] = line.replace(/\*\*/g, '')
+        continue
+      }
+      lines[i] = lines[i].replace(/^(\s*)\*\*/, '$1')
+      lines[i] = lines[i].replace(/\*\*(\s*)$/, '$1')
+    }
+    result = lines.join('\n')
+  }
+
+  const outputLen = result.length
+  const charsRemoved = inputLen - outputLen
+
+  if (charsRemoved > orphanCount * 2 + 10) {
+    debugWarn(
+      'removeOrphanBoldMarkers:safetyAbort',
+      `charsRemoved=${charsRemoved} orphanCount=${orphanCount} threshold=${orphanCount * 2 + 10} reason="more characters removed than expected, returning original"`,
+    )
+    return text
+  }
+
+  if (orphanCount > 0) {
     debugLog(
       'removeOrphanBoldMarkers',
-      `orphansRemoved=${orphanCount} inputLen=${text.length} outputLen=${result.length}`,
+      `orphansRemoved=${orphanCount} charsRemoved=${charsRemoved} inputLen=${inputLen} outputLen=${outputLen}`,
     )
   }
 

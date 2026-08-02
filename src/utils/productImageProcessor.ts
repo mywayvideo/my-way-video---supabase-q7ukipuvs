@@ -64,6 +64,55 @@ export function normalizeProductName(name: string): string {
 const HEADING_RE = /^#{1,6}\s+/
 const IMG_TEST = /!\[[^\]]*\]\((?:[^()]|\([^()]*\))*\)/
 
+function matchAndInsert(
+  lines: string[],
+  searchTerms: string[],
+  proxiedUrl: string,
+  displayName: string,
+): boolean {
+  for (const term of searchTerms) {
+    if (!term || term.length < 3) continue
+    const escaped = escapeRegex(term)
+    const regex = new RegExp(`\\b${escaped}\\b`, 'i')
+    let inCodeBlock = false
+
+    for (let i = 0; i < lines.length; i++) {
+      const trimmed = lines[i].trim()
+      if (trimmed.startsWith('```')) {
+        inCodeBlock = !inCodeBlock
+        continue
+      }
+      if (inCodeBlock || IMG_TEST.test(trimmed) || trimmed.startsWith('|')) continue
+      if (!regex.test(lines[i])) continue
+      if (HEADING_RE.test(trimmed)) {
+        lines.splice(i + 1, 0, '', `![${displayName}](${proxiedUrl})`, '')
+        return true
+      }
+    }
+
+    inCodeBlock = false
+    for (let i = 0; i < lines.length; i++) {
+      const trimmed = lines[i].trim()
+      if (trimmed.startsWith('```')) {
+        inCodeBlock = !inCodeBlock
+        continue
+      }
+      if (
+        inCodeBlock ||
+        HEADING_RE.test(trimmed) ||
+        IMG_TEST.test(trimmed) ||
+        trimmed.startsWith('|')
+      ) {
+        continue
+      }
+      if (!regex.test(lines[i])) continue
+      lines.splice(i + 1, 0, '', `![${displayName}](${proxiedUrl})`, '')
+      return true
+    }
+  }
+  return false
+}
+
 function insertImagesByName(
   content: string,
   products: ProductImageInfo[],
@@ -89,19 +138,25 @@ function insertImagesByName(
   }
 
   const lines = content.split('\n')
-  const matchedNames: string[] = []
+  const matchedIds = new Set<string>()
   const usedUrls = new Set<string>(existingUrls)
-  const loggedNormalized = new Set<string>()
 
   for (const product of eligible) {
-    const displayName = normalizeProductName(product.name) || product.name
-    if (!loggedNormalized.has(product.id!)) {
-      loggedNormalized.add(product.id!)
+    if (matchedIds.has(product.id!)) {
       debugLog(
-        'insertImagesByName:normalizedName',
-        `original="${product.name}" normalized="${displayName}" id=${product.id}`,
+        'insertImagesByName:skipped',
+        `name="${product.name}" id=${product.id} reason="already matched by id"`,
       )
+      continue
     }
+
+    const displayName = normalizeProductName(product.name) || product.name
+
+    debugLog(
+      'insertImagesByName:normalizedName',
+      `original="${product.name}" normalized="${displayName}" id=${product.id}`,
+    )
+
     if (displayName.length < 3) {
       debugLog(
         'insertImagesByName:skipped',
@@ -110,23 +165,8 @@ function insertImagesByName(
       continue
     }
 
-    const isSubsumed = matchedNames.some(
-      (m) =>
-        m.toLowerCase().includes(displayName.toLowerCase()) &&
-        m.toLowerCase() !== displayName.toLowerCase(),
-    )
-    const isDuplicate = matchedNames.some((m) => m.toLowerCase() === displayName.toLowerCase())
-    if (isSubsumed || isDuplicate) {
-      debugLog(
-        'insertImagesByName:skipped',
-        `name="${product.name}" displayName="${displayName}" reason="${isSubsumed ? 'subsumed' : 'duplicate'}" url=${product.image_url}`,
-      )
-      continue
-    }
-
-    const escapedName = escapeRegex(displayName)
-    const nameRegex = new RegExp(`\\b${escapedName}\\b`, 'i')
     const proxiedUrl = getProxiedImageUrl(product.image_url) || product.image_url!
+
     if (usedUrls.has(proxiedUrl) || (product.image_url && usedUrls.has(product.image_url))) {
       debugLog(
         'insertImagesByName:skipped',
@@ -135,123 +175,27 @@ function insertImagesByName(
       continue
     }
 
-    let inCodeBlock = false
-    let inserted = false
-
-    for (let i = 0; i < lines.length; i++) {
-      const trimmed = lines[i].trim()
-      if (trimmed.startsWith('```')) {
-        inCodeBlock = !inCodeBlock
-        continue
-      }
-      if (inCodeBlock || IMG_TEST.test(trimmed) || trimmed.startsWith('|')) continue
-      if (!nameRegex.test(lines[i])) continue
-      if (HEADING_RE.test(trimmed)) {
-        lines.splice(i + 1, 0, '', `![${displayName}](${proxiedUrl})`, '')
-        usedUrls.add(proxiedUrl)
-        if (product.image_url) usedUrls.add(product.image_url)
-        insertedIds.add(product.id!)
-        matchedNames.push(displayName)
-        debugLog(
-          'insertImagesByName:matchedHeading',
-          `name="${displayName}" id=${product.id} line=${i} proxiedUrl=${proxiedUrl}`,
-        )
-        inserted = true
-        break
-      }
+    const searchTerms: string[] = [product.name]
+    if (displayName !== product.name) {
+      searchTerms.push(displayName)
+    }
+    const modelCode = extractModelCode(product.name)
+    if (modelCode && modelCode.toLowerCase() !== displayName.toLowerCase()) {
+      searchTerms.push(modelCode)
     }
 
-    if (!inserted) {
-      inCodeBlock = false
-      for (let i = 0; i < lines.length; i++) {
-        const trimmed = lines[i].trim()
-        if (trimmed.startsWith('```')) {
-          inCodeBlock = !inCodeBlock
-          continue
-        }
-        if (
-          inCodeBlock ||
-          HEADING_RE.test(trimmed) ||
-          IMG_TEST.test(trimmed) ||
-          trimmed.startsWith('|')
-        )
-          continue
-        if (!nameRegex.test(lines[i])) continue
-        lines.splice(i + 1, 0, '', `![${displayName}](${proxiedUrl})`, '')
-        usedUrls.add(proxiedUrl)
-        if (product.image_url) usedUrls.add(product.image_url)
-        insertedIds.add(product.id!)
-        matchedNames.push(displayName)
-        debugLog(
-          'insertImagesByName:matchedLine',
-          `name="${displayName}" id=${product.id} line=${i} proxiedUrl=${proxiedUrl}`,
-        )
-        break
-      }
-    }
+    const inserted = matchAndInsert(lines, searchTerms, proxiedUrl, displayName)
 
-    if (!matchedNames.includes(displayName)) {
-      const modelCode = extractModelCode(product.name)
-      if (modelCode && modelCode.toLowerCase() !== displayName.toLowerCase()) {
-        debugLog(
-          'insertImagesByName:fallbackModelCode',
-          `name="${product.name}" displayName="${displayName}" modelCode="${modelCode}" id=${product.id}`,
-        )
-        const modelRegex = new RegExp(`\\b${escapeRegex(modelCode)}\\b`, 'i')
-        inCodeBlock = false
-        for (let i = 0; i < lines.length; i++) {
-          const trimmed = lines[i].trim()
-          if (trimmed.startsWith('```')) {
-            inCodeBlock = !inCodeBlock
-            continue
-          }
-          if (inCodeBlock || IMG_TEST.test(trimmed) || trimmed.startsWith('|')) continue
-          if (!modelRegex.test(lines[i])) continue
-          if (HEADING_RE.test(trimmed)) {
-            lines.splice(i + 1, 0, '', `![${displayName}](${proxiedUrl})`, '')
-            usedUrls.add(proxiedUrl)
-            if (product.image_url) usedUrls.add(product.image_url)
-            insertedIds.add(product.id!)
-            matchedNames.push(displayName)
-            debugLog(
-              'insertImagesByName:fallbackMatchedHeading',
-              `name="${displayName}" modelCode="${modelCode}" id=${product.id} line=${i} proxiedUrl=${proxiedUrl}`,
-            )
-            break
-          }
-        }
-        if (!matchedNames.includes(displayName)) {
-          inCodeBlock = false
-          for (let i = 0; i < lines.length; i++) {
-            const trimmed = lines[i].trim()
-            if (trimmed.startsWith('```')) {
-              inCodeBlock = !inCodeBlock
-              continue
-            }
-            if (
-              inCodeBlock ||
-              HEADING_RE.test(trimmed) ||
-              IMG_TEST.test(trimmed) ||
-              trimmed.startsWith('|')
-            )
-              continue
-            if (!modelRegex.test(lines[i])) continue
-            lines.splice(i + 1, 0, '', `![${displayName}](${proxiedUrl})`, '')
-            usedUrls.add(proxiedUrl)
-            if (product.image_url) usedUrls.add(product.image_url)
-            insertedIds.add(product.id!)
-            matchedNames.push(displayName)
-            debugLog(
-              'insertImagesByName:fallbackMatchedLine',
-              `name="${displayName}" modelCode="${modelCode}" id=${product.id} line=${i} proxiedUrl=${proxiedUrl}`,
-            )
-            break
-          }
-        }
-      }
-    }
-
-    if (!matchedNames.includes(displayName)) {
+    if (inserted) {
+      usedUrls.add(proxiedUrl)
+      if (product.image_url) usedUrls.add(product.image_url)
+      insertedIds.add(product.id!)
+      matchedIds.add(product.id!)
+      debugLog(
+        'insertImagesByName:matched',
+        `name="${displayName}" originalName="${product.name}" id=${product.id} proxiedUrl=${proxiedUrl}`,
+      )
+    } else {
       debugLog(
         'insertImagesByName:notMatched',
         `name="${product.name}" displayName="${displayName}" originalUrl=${product.image_url} proxiedUrl=${proxiedUrl} reason="product name not found in content"`,
@@ -259,11 +203,10 @@ function insertImagesByName(
     }
   }
 
-  const allDisplayNames = eligible.map((p) => normalizeProductName(p.name) || p.name)
-  const unmatchedNames = allDisplayNames.filter((n) => !matchedNames.includes(n))
+  const unmatched = eligible.filter((p) => !matchedIds.has(p.id!))
   debugLog(
     'insertImagesByName:end',
-    `matched=${matchedNames.length} unmatched=${unmatchedNames.length} matchedNames=[${matchedNames.join(', ')}] unmatchedNames=[${unmatchedNames.join(', ')}]`,
+    `matched=${matchedIds.size} unmatched=${unmatched.length} matchedIds=[${[...matchedIds].join(', ')}] unmatchedNames=[${unmatched.map((p) => normalizeProductName(p.name) || p.name).join(', ')}]`,
   )
   return lines.join('\n')
 }
@@ -271,10 +214,30 @@ function insertImagesByName(
 export function processProductImages(content: string, products: ProductImageInfo[]): string {
   if (!content) return content
 
-  debugGroup('processProductImages', `inputLen=${safeLen(content)} products=${products.length}`)
+  const uniqueProducts: ProductImageInfo[] = []
+  const seenIds = new Set<string>()
+  for (const p of products) {
+    if (p?.id && !seenIds.has(p.id)) {
+      seenIds.add(p.id)
+      uniqueProducts.push(p)
+    }
+  }
+  const dedupRemoved = products.length - uniqueProducts.length
+  if (dedupRemoved > 0) {
+    debugLog(
+      'processProductImages:deduplication',
+      `removed=${dedupRemoved} before=${products.length} after=${uniqueProducts.length}`,
+    )
+  }
+  const dedupedProducts = uniqueProducts
+
+  debugGroup(
+    'processProductImages',
+    `inputLen=${safeLen(content)} products=${dedupedProducts.length}`,
+  )
   debugLog(
     'processProductImages:input',
-    `products=[${products.map((p) => `${p.name || '?'}(${p.id || '?'})`).join(', ')}]`,
+    `products=[${dedupedProducts.map((p) => `${p.name || '?'}(${p.id || '?'})`).join(', ')}]`,
   )
 
   let processed = fixMissingImageBangs(content)
@@ -293,7 +256,7 @@ export function processProductImages(content: string, products: ProductImageInfo
   debugLog('processProductImages:sanitizeHeadings', `outputLen=${safeLen(processed)}`)
 
   const productMap = new Map<string, ProductImageInfo>()
-  for (const p of products) {
+  for (const p of dedupedProducts) {
     if (p?.id && p?.image_url) productMap.set(p.id, p)
   }
 
@@ -381,14 +344,14 @@ export function processProductImages(content: string, products: ProductImageInfo
   debugLog('processProductImages:separateImagesFromHeadings', `outputLen=${safeLen(processed)}`)
 
   const imgCountBeforeInsert = (processed.match(/!\[/g) || []).length
-  processed = insertImagesByName(processed, products, insertedIds, existingUrls)
+  processed = insertImagesByName(processed, dedupedProducts, insertedIds, existingUrls)
   const imgCountAfterInsert = (processed.match(/!\[/g) || []).length
   debugLog(
     'processProductImages:insertImagesByName',
     `beforeImgs=${imgCountBeforeInsert} afterImgs=${imgCountAfterInsert} insertedIds=${insertedIds.size}`,
   )
 
-  for (const p of products) {
+  for (const p of dedupedProducts) {
     if (p?.id && !insertedIds.has(p.id) && p?.image_url) {
       const proxied = getProxiedImageUrl(p.image_url) || p.image_url
       debugLog(
@@ -425,7 +388,7 @@ export function processProductImages(content: string, products: ProductImageInfo
     `contentLen=${safeLen(processed)} images=${finalImgCount} h3Headings=${finalH3Count}`,
   )
 
-  for (const p of products) {
+  for (const p of dedupedProducts) {
     if (!p?.name) continue
     const name = normalizeProductName(p.name) || p.name
     const h3Regex = new RegExp(`^###\\s+.*${escapeRegex(name)}`, 'im')

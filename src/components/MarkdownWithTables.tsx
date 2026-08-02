@@ -32,7 +32,7 @@ const ProductImageSkeleton: React.FC<{ src: string; alt: string; thumbnail?: boo
   }
 
   return (
-    <span className="inline-block align-top">
+    <span className="block align-top" style={{ width: 'fit-content' }}>
       {status === 'loading' && (
         <span className="flex w-40 h-28 rounded-lg animate-pulse bg-zinc-800/80" />
       )}

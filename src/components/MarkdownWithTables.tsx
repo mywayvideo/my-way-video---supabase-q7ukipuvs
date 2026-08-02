@@ -9,6 +9,9 @@ function extractOriginalFromProxy(url: string): string | null {
     if (parsed.pathname.includes('image-proxy')) {
       return parsed.searchParams.get('url')
     }
+    if (parsed.hostname === 'wsrv.nl') {
+      return parsed.searchParams.get('url')
+    }
   } catch {
     return null
   }
@@ -20,8 +23,18 @@ function getDirectProxyUrl(url: string): string | null {
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string
     const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string
     if (!supabaseUrl || !supabaseKey) return null
+    let targetUrl = url
+    try {
+      const parsed = new URL(url)
+      if (parsed.hostname === 'wsrv.nl') {
+        const original = parsed.searchParams.get('url')
+        if (original) targetUrl = original
+      }
+    } catch {
+      /* intentionally ignored */
+    }
     const proxyUrl = new URL(`${supabaseUrl}/functions/v1/image-proxy`)
-    proxyUrl.searchParams.set('url', url)
+    proxyUrl.searchParams.set('url', targetUrl)
     proxyUrl.searchParams.set('apikey', supabaseKey)
     return proxyUrl.toString()
   } catch {
@@ -31,7 +44,15 @@ function getDirectProxyUrl(url: string): string | null {
 
 function getFallbackUrl(src: string): string | null {
   const original = extractOriginalFromProxy(src)
-  if (original) return original
+  if (original) {
+    if (src.includes('/functions/v1/image-proxy')) {
+      return `https://wsrv.nl/?url=${encodeURIComponent(original)}&w=400&h=400&fit=inside`
+    }
+    if (src.includes('wsrv.nl')) {
+      return getDirectProxyUrl(original)
+    }
+    return original
+  }
   const proxied = getProxiedImageUrl(src)
   if (proxied && proxied !== src) return proxied
   return getDirectProxyUrl(src)

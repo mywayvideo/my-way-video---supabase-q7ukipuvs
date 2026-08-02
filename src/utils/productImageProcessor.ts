@@ -1,4 +1,4 @@
-import { getProxiedImageUrl, proxyMarkdownImages } from '@/lib/image-proxy'
+import { getProxiedImageUrl, proxyMarkdownImages, normalizeImageUrl } from '@/lib/image-proxy'
 import {
   sanitizeHeadings,
   deduplicateAndLimitImages,
@@ -166,11 +166,16 @@ function insertImagesByName(
     }
 
     const proxiedUrl = getProxiedImageUrl(product.image_url) || product.image_url!
+    const normalizedProxied = normalizeImageUrl(proxiedUrl)
+    const normalizedOriginal = normalizeImageUrl(product.image_url || '')
 
-    if (usedUrls.has(proxiedUrl) || (product.image_url && usedUrls.has(product.image_url))) {
+    if (
+      usedUrls.has(normalizedProxied) ||
+      (normalizedOriginal && usedUrls.has(normalizedOriginal))
+    ) {
       debugLog(
         'insertImagesByName:skipped',
-        `name="${product.name}" displayName="${displayName}" reason="URL already used" originalUrl=${product.image_url} proxiedUrl=${proxiedUrl}`,
+        `name="${product.name}" displayName="${displayName}" reason="URL already used (normalized)" originalUrl=${product.image_url} proxiedUrl=${proxiedUrl} normalizedProxied=${normalizedProxied.substring(0, 80)}`,
       )
       continue
     }
@@ -187,8 +192,8 @@ function insertImagesByName(
     const inserted = matchAndInsert(lines, searchTerms, proxiedUrl, displayName)
 
     if (inserted) {
-      usedUrls.add(proxiedUrl)
-      if (product.image_url) usedUrls.add(product.image_url)
+      usedUrls.add(normalizedProxied)
+      if (normalizedOriginal) usedUrls.add(normalizedOriginal)
       insertedIds.add(product.id!)
       matchedIds.add(product.id!)
       debugLog(
@@ -261,6 +266,8 @@ export function processProductImages(content: string, products: ProductImageInfo
   }
 
   const existingUrls = extractExistingImageUrls(processed)
+  const existingNormalizedUrls = new Set<string>([...existingUrls].map((u) => normalizeImageUrl(u)))
+  const processedPlaceholderIds = new Set<string>()
   const insertedIds = new Set<string>()
   debugLog(
     'processProductImages:existingUrls',
@@ -270,6 +277,14 @@ export function processProductImages(content: string, products: ProductImageInfo
   processed = processed.replace(
     /<!--\s*PRODUCT_IMAGE:([0-9a-fA-F-]{36})\s*-->/g,
     (_match, uuid: string, offset: number) => {
+      if (processedPlaceholderIds.has(uuid)) {
+        debugLog(
+          'processProductImages:placeholderDuplicateRemoved',
+          `type=HTML_COMMENT uuid=${uuid} reason="duplicate placeholder for same product"`,
+        )
+        return ''
+      }
+      processedPlaceholderIds.add(uuid)
       const product = productMap.get(uuid)
       if (!product || !product.image_url) {
         debugLog(
@@ -278,9 +293,18 @@ export function processProductImages(content: string, products: ProductImageInfo
         )
         return ''
       }
+      const normalizedOriginal = normalizeImageUrl(product.image_url)
+      if (existingNormalizedUrls.has(normalizedOriginal)) {
+        debugLog(
+          'processProductImages:placeholderImageAlreadyPresent',
+          `type=HTML_COMMENT uuid=${uuid} reason="image already in content" normalizedUrl=${normalizedOriginal.substring(0, 80)}`,
+        )
+        insertedIds.add(uuid)
+        return ''
+      }
       const proxiedUrl = getProxiedImageUrl(product.image_url) || product.image_url
-      existingUrls.add(proxiedUrl)
-      existingUrls.add(product.image_url)
+      existingNormalizedUrls.add(normalizedOriginal)
+      existingNormalizedUrls.add(normalizeImageUrl(proxiedUrl))
       insertedIds.add(uuid)
       const displayName = normalizeProductName(product.name) || product.name
       const lineStart = processed.lastIndexOf('\n', offset) + 1
@@ -304,6 +328,14 @@ export function processProductImages(content: string, products: ProductImageInfo
   processed = processed.replace(
     /\[PRODUCT:([0-9a-fA-F-]{36})\]/g,
     (_match, uuid: string, offset: number) => {
+      if (processedPlaceholderIds.has(uuid)) {
+        debugLog(
+          'processProductImages:placeholderDuplicateRemoved',
+          `type=PRODUCT_TAG uuid=${uuid} reason="duplicate placeholder for same product"`,
+        )
+        return ''
+      }
+      processedPlaceholderIds.add(uuid)
       const product = productMap.get(uuid)
       if (!product || !product.image_url) {
         debugLog(
@@ -312,9 +344,18 @@ export function processProductImages(content: string, products: ProductImageInfo
         )
         return ''
       }
+      const normalizedOriginal = normalizeImageUrl(product.image_url)
+      if (existingNormalizedUrls.has(normalizedOriginal)) {
+        debugLog(
+          'processProductImages:placeholderImageAlreadyPresent',
+          `type=PRODUCT_TAG uuid=${uuid} reason="image already in content" normalizedUrl=${normalizedOriginal.substring(0, 80)}`,
+        )
+        insertedIds.add(uuid)
+        return ''
+      }
       const proxiedUrl = getProxiedImageUrl(product.image_url) || product.image_url
-      existingUrls.add(proxiedUrl)
-      existingUrls.add(product.image_url)
+      existingNormalizedUrls.add(normalizedOriginal)
+      existingNormalizedUrls.add(normalizeImageUrl(proxiedUrl))
       insertedIds.add(uuid)
       const displayName = normalizeProductName(product.name) || product.name
       const lineStart = processed.lastIndexOf('\n', offset) + 1
@@ -344,7 +385,7 @@ export function processProductImages(content: string, products: ProductImageInfo
   debugLog('processProductImages:separateImagesFromHeadings', `outputLen=${safeLen(processed)}`)
 
   const imgCountBeforeInsert = (processed.match(/!\[/g) || []).length
-  processed = insertImagesByName(processed, dedupedProducts, insertedIds, existingUrls)
+  processed = insertImagesByName(processed, dedupedProducts, insertedIds, existingNormalizedUrls)
   const imgCountAfterInsert = (processed.match(/!\[/g) || []).length
   debugLog(
     'processProductImages:insertImagesByName',

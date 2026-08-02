@@ -1,4 +1,5 @@
 import { debugLog } from '@/utils/debug-front'
+import { normalizeImageUrl } from '@/lib/image-proxy'
 
 const HEADING_RE = /^#{1,6}\s+/
 const IMG_LINE_RE = /^!\[([^\]]*)\]\(([^)]+)\)$/
@@ -35,13 +36,14 @@ export function deduplicateAndLimitImages(content: string): string {
     if (imgMatch) {
       totalImages++
       const url = imgMatch[2]
-      if (seenUrls.has(url)) {
+      const normalizedUrl = normalizeImageUrl(url)
+      if (seenUrls.has(normalizedUrl)) {
         removedDupes.push(url)
         if (result.length > 0 && result[result.length - 1].trim() === '') result.pop()
         if (i + 1 < lines.length && lines[i + 1].trim() === '') i++
         continue
       }
-      seenUrls.add(url)
+      seenUrls.add(normalizedUrl)
       keptImages.push(url)
     }
     result.push(lines[i])

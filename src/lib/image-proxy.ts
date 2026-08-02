@@ -54,6 +54,16 @@ export function getProxiedImageUrl(url: string | null | undefined): string | nul
       )
       return url
     }
+    if (parsed.hostname === 'wsrv.nl') {
+      const originalUrl = parsed.searchParams.get('url')
+      if (originalUrl) {
+        const proxyUrl = new URL(`${SUPABASE_URL}/functions/v1/image-proxy`)
+        proxyUrl.searchParams.set('url', originalUrl)
+        proxyUrl.searchParams.set('apikey', SUPABASE_ANON_KEY)
+        debugLog('getProxiedImageUrl:wsrv', `original=${originalUrl.substring(0, 80)}`)
+        return proxyUrl.toString()
+      }
+    }
   } catch {
     // Not a valid URL, continue
   }
@@ -66,6 +76,27 @@ export function getProxiedImageUrl(url: string | null | undefined): string | nul
   }
   debugLog('getProxiedImageUrl:skip', `reason="not trusted domain" url=${url.substring(0, 120)}`)
   return url
+}
+
+export function normalizeImageUrl(url: string): string {
+  if (!url) return ''
+  try {
+    const parsed = new URL(url)
+
+    if (parsed.hostname === 'wsrv.nl') {
+      const originalUrl = parsed.searchParams.get('url')
+      if (originalUrl) return originalUrl
+    }
+
+    if (parsed.pathname.includes('/functions/v1/image-proxy')) {
+      const originalUrl = parsed.searchParams.get('url')
+      if (originalUrl) return originalUrl
+    }
+
+    return url
+  } catch {
+    return url
+  }
 }
 
 export function proxyMarkdownImages(markdown: string): string {

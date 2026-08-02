@@ -8,7 +8,7 @@ const corsHeaders = {
     'authorization, x-client-info, x-supabase-client-platform, apikey, content-type',
 }
 
-import { getActiveAgents, generateResponse } from './intelligence.ts'
+import { getActiveAgents, generateResponse } from '../_shared/intelligence.ts'
 import { classifyIntent } from './intention.ts'
 import {
   sanitizeInput,

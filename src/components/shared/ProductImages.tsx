@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import { getProxiedImageUrl } from '@/lib/image-proxy'
+import { normalizeProductName } from '@/utils/productImageProcessor'
 
 interface ProductImagesProps {
   products: any[]
@@ -17,7 +18,18 @@ export function ProductImages({ products, referencedInternalProducts }: ProductI
   const filteredProducts = useMemo(() => {
     const refs = normalizeRefs(referencedInternalProducts)
     if (!refs.length) return []
-    return products.filter((p) => p?.id && p?.image_url && refs.includes(String(p.id)))
+    const seenNames = new Set<string>()
+    const seenUrls = new Set<string>()
+    return products
+      .filter((p) => p?.id && p?.image_url && refs.includes(String(p.id)))
+      .filter((p) => {
+        const nameKey = normalizeProductName(p.name || '').toLowerCase()
+        const urlKey = p.image_url
+        if (seenNames.has(nameKey) || seenUrls.has(urlKey)) return false
+        seenNames.add(nameKey)
+        seenUrls.add(urlKey)
+        return true
+      })
   }, [products, referencedInternalProducts])
 
   if (filteredProducts.length === 0) return null

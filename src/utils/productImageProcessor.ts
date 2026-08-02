@@ -1,5 +1,10 @@
 import { getProxiedImageUrl, proxyMarkdownImages } from '@/lib/image-proxy'
 import {
+  sanitizeHeadings,
+  deduplicateAndLimitImages,
+  enforceLayoutOrder,
+} from '@/utils/image-layout'
+import {
   escapeRegex,
   sanitizeEmptyHeadings,
   separateImagesFromHeadings,
@@ -70,43 +75,73 @@ function insertImagesByName(
   if (!eligible.length) return content
 
   const lines = content.split('\n')
-  const processedRanges: Array<{ start: number; end: number }> = []
+  const matchedNames: string[] = []
+  const usedUrls = new Set<string>(existingUrls)
 
   for (const product of eligible) {
     const displayName = normalizeProductName(product.name) || product.name
     if (displayName.length < 3) continue
+
+    const isSubsumed = matchedNames.some(
+      (m) =>
+        m.toLowerCase().includes(displayName.toLowerCase()) &&
+        m.toLowerCase() !== displayName.toLowerCase(),
+    )
+    const isDuplicate = matchedNames.some((m) => m.toLowerCase() === displayName.toLowerCase())
+    if (isSubsumed || isDuplicate) continue
+
     const escapedName = escapeRegex(displayName)
     const nameRegex = new RegExp(`\\b${escapedName}\\b`, 'i')
     const proxiedUrl = getProxiedImageUrl(product.image_url) || product.image_url!
-
-    if (existingUrls.has(proxiedUrl) || (product.image_url && existingUrls.has(product.image_url)))
-      continue
+    if (usedUrls.has(proxiedUrl) || (product.image_url && usedUrls.has(product.image_url))) continue
 
     let inCodeBlock = false
+    let inserted = false
+
     for (let i = 0; i < lines.length; i++) {
       const trimmed = lines[i].trim()
       if (trimmed.startsWith('```')) {
         inCodeBlock = !inCodeBlock
         continue
       }
-      if (inCodeBlock) continue
-      if (HEADING_RE.test(trimmed)) continue
-      if (IMG_TEST.test(trimmed)) continue
-      if (trimmed.startsWith('|')) continue
+      if (inCodeBlock || IMG_TEST.test(trimmed) || trimmed.startsWith('|')) continue
       if (!nameRegex.test(lines[i])) continue
+      if (HEADING_RE.test(trimmed)) {
+        lines.splice(i + 1, 0, '', `![${displayName}](${proxiedUrl})`, '')
+        usedUrls.add(proxiedUrl)
+        if (product.image_url) usedUrls.add(product.image_url)
+        insertedIds.add(product.id!)
+        matchedNames.push(displayName)
+        inserted = true
+        break
+      }
+    }
 
-      const overlaps = processedRanges.some((r) => i >= r.start - 1 && i <= r.end + 1)
-      if (overlaps) continue
-
-      lines.splice(i + 1, 0, '', `![${displayName}](${proxiedUrl})`, '')
-      processedRanges.push({ start: i, end: i + 3 })
-      existingUrls.add(proxiedUrl)
-      if (product.image_url) existingUrls.add(product.image_url)
-      insertedIds.add(product.id!)
-      break
+    if (!inserted) {
+      inCodeBlock = false
+      for (let i = 0; i < lines.length; i++) {
+        const trimmed = lines[i].trim()
+        if (trimmed.startsWith('```')) {
+          inCodeBlock = !inCodeBlock
+          continue
+        }
+        if (
+          inCodeBlock ||
+          HEADING_RE.test(trimmed) ||
+          IMG_TEST.test(trimmed) ||
+          trimmed.startsWith('|')
+        )
+          continue
+        if (!nameRegex.test(lines[i])) continue
+        lines.splice(i + 1, 0, '', `![${displayName}](${proxiedUrl})`, '')
+        usedUrls.add(proxiedUrl)
+        if (product.image_url) usedUrls.add(product.image_url)
+        insertedIds.add(product.id!)
+        matchedNames.push(displayName)
+        break
+      }
     }
   }
-
   return lines.join('\n')
 }
 
@@ -117,6 +152,7 @@ export function processProductImages(content: string, products: ProductImageInfo
   processed = cleanHtmlImages(processed)
   processed = cleanBrokenMarkdownImages(processed)
   processed = sanitizeEmptyHeadings(processed)
+  processed = sanitizeHeadings(processed)
 
   const productMap = new Map<string, ProductImageInfo>()
   for (const p of products) {
@@ -162,12 +198,15 @@ export function processProductImages(content: string, products: ProductImageInfo
       if (line.trim().startsWith('|')) {
         return `![PRODUCT_IMAGE:${displayName}](${proxiedUrl})`
       }
-      return ` ![PRODUCT_IMAGE:${displayName}](${proxiedUrl}) `
+      return `\n\n![PRODUCT_IMAGE:${displayName}](${proxiedUrl})\n`
     },
   )
 
   processed = separateImagesFromHeadings(processed)
   processed = insertImagesByName(processed, products, insertedIds, existingUrls)
+  processed = deduplicateAndLimitImages(processed)
+  processed = enforceLayoutOrder(processed)
+  processed = sanitizeHeadings(processed)
   processed = proxyMarkdownImages(processed)
 
   return processed

@@ -13,12 +13,26 @@ function extractOriginalFromProxy(url: string): string | null {
   return null
 }
 
+function getDirectProxyUrl(url: string): string | null {
+  try {
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string
+    const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string
+    if (!supabaseUrl || !supabaseKey) return null
+    const proxyUrl = new URL(`${supabaseUrl}/functions/v1/image-proxy`)
+    proxyUrl.searchParams.set('url', url)
+    proxyUrl.searchParams.set('apikey', supabaseKey)
+    return proxyUrl.toString()
+  } catch {
+    return null
+  }
+}
+
 function getFallbackUrl(src: string): string | null {
   const original = extractOriginalFromProxy(src)
   if (original) return original
   const proxied = getProxiedImageUrl(src)
   if (proxied && proxied !== src) return proxied
-  return null
+  return getDirectProxyUrl(src)
 }
 
 const ProductImageSkeleton: React.FC<{ src: string; alt: string; thumbnail?: boolean }> = ({
@@ -38,7 +52,7 @@ const ProductImageSkeleton: React.FC<{ src: string; alt: string; thumbnail?: boo
 
   const handleError = () => {
     if (!triedFallback) {
-      const fallback = getFallbackUrl(src)
+      const fallback = getFallbackUrl(currentSrc)
       if (fallback) {
         setTriedFallback(true)
         setCurrentSrc(fallback)
@@ -601,6 +615,10 @@ const normalizeTableBlocks = (text: string): string => {
   return result.join('\n')
 }
 
+const sanitizeRenderedHeadings = (text: string): string => {
+  return text.replace(/^#{1,6}\s*$/gm, '').replace(/\n{3,}/g, '\n\n')
+}
+
 const MarkdownWithTablesBase: React.FC<MarkdownWithTablesProps> = ({
   markdown,
   className = '',
@@ -610,8 +628,10 @@ const MarkdownWithTablesBase: React.FC<MarkdownWithTablesProps> = ({
       console.time('MarkdownWithTables:processPipeline')
     }
     const result = proxyMarkdownImages(
-      normalizeTableBlocks(
-        preprocessHtmlImages(fixBrokenImageMarkdown(fixMalformedImageMarkdown(markdown))),
+      sanitizeRenderedHeadings(
+        normalizeTableBlocks(
+          preprocessHtmlImages(fixBrokenImageMarkdown(fixMalformedImageMarkdown(markdown))),
+        ),
       ),
     )
     if (import.meta.env.DEV) {

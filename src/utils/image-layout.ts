@@ -1,3 +1,5 @@
+import { debugLog } from '@/utils/debug-front'
+
 const HEADING_RE = /^#{1,6}\s+/
 const IMG_LINE_RE = /^!\[([^\]]*)\]\(([^)]+)\)$/
 
@@ -10,7 +12,9 @@ export function deduplicateAndLimitImages(content: string): string {
   const seenUrls = new Set<string>()
   const result: string[] = []
   let inCodeBlock = false
-  let imageInSection = false
+  const keptImages: string[] = []
+  const removedDupes: string[] = []
+  let totalImages = 0
 
   for (let i = 0; i < lines.length; i++) {
     const trimmed = lines[i].trim()
@@ -24,23 +28,38 @@ export function deduplicateAndLimitImages(content: string): string {
       continue
     }
     if (HEADING_RE.test(trimmed)) {
-      imageInSection = false
       result.push(lines[i])
       continue
     }
     const imgMatch = trimmed.match(IMG_LINE_RE)
     if (imgMatch) {
+      totalImages++
       const url = imgMatch[2]
-      if (seenUrls.has(url) || imageInSection) {
+      if (seenUrls.has(url)) {
+        removedDupes.push(url)
         if (result.length > 0 && result[result.length - 1].trim() === '') result.pop()
         if (i + 1 < lines.length && lines[i + 1].trim() === '') i++
         continue
       }
       seenUrls.add(url)
-      imageInSection = true
+      keptImages.push(url)
     }
     result.push(lines[i])
   }
+
+  debugLog(
+    'deduplicateAndLimitImages',
+    `totalImages=${totalImages} kept=${keptImages.length} removedDuplicates=${removedDupes.length} beforeLines=${lines.length} afterLines=${result.length}`,
+  )
+  debugLog(
+    'deduplicateAndLimitImages:kept',
+    `urls=[${keptImages.map((u) => u.substring(0, 80)).join(', ')}]`,
+  )
+  debugLog(
+    'deduplicateAndLimitImages:removedDuplicates',
+    `urls=[${removedDupes.map((u) => u.substring(0, 80)).join(', ')}]`,
+  )
+
   return result.join('\n')
 }
 

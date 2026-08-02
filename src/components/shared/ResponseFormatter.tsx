@@ -38,7 +38,6 @@ export function ResponseFormatter({
     while ((match = idRegex.exec(content)) !== null) {
       ids.push(match[1])
     }
-    const cleaned = content.replace(idRegex, '').trim()
     const productImageInfos: ProductImageInfo[] = (products || [])
       .filter((p: any) => p?.id && p?.name && p?.image_url)
       .map((p: any) => ({
@@ -46,7 +45,7 @@ export function ResponseFormatter({
         image_url: p.image_url,
         id: p.id,
       }))
-    const processed = processProductImages(cleaned, productImageInfos)
+    const processed = processProductImages(content, productImageInfos)
     return { cleanedContent: processed, parsedProductIds: ids }
   }, [content, products])
 

@@ -1,11 +1,53 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
+import { getProxiedImageUrl, proxyMarkdownImages } from '@/lib/image-proxy'
+
+function extractOriginalFromProxy(url: string): string | null {
+  try {
+    const parsed = new URL(url)
+    if (parsed.pathname.includes('image-proxy')) {
+      return parsed.searchParams.get('url')
+    }
+  } catch {
+    return null
+  }
+  return null
+}
+
+function getFallbackUrl(src: string): string | null {
+  const original = extractOriginalFromProxy(src)
+  if (original) return original
+  const proxied = getProxiedImageUrl(src)
+  if (proxied && proxied !== src) return proxied
+  return null
+}
 
 const ProductImageSkeleton: React.FC<{ src: string; alt: string; thumbnail?: boolean }> = ({
   src,
   alt,
   thumbnail = false,
 }) => {
+  const [currentSrc, setCurrentSrc] = useState(src)
   const [status, setStatus] = useState<'loading' | 'loaded' | 'error'>('loading')
+  const [triedFallback, setTriedFallback] = useState(false)
+
+  useEffect(() => {
+    setCurrentSrc(src)
+    setStatus('loading')
+    setTriedFallback(false)
+  }, [src])
+
+  const handleError = () => {
+    if (!triedFallback) {
+      const fallback = getFallbackUrl(src)
+      if (fallback) {
+        setTriedFallback(true)
+        setCurrentSrc(fallback)
+        setStatus('loading')
+        return
+      }
+    }
+    setStatus('error')
+  }
 
   if (thumbnail) {
     return (
@@ -19,12 +61,12 @@ const ProductImageSkeleton: React.FC<{ src: string; alt: string; thumbnail?: boo
           </span>
         ) : (
           <img
-            src={src}
+            src={currentSrc}
             alt={alt}
             className="w-10 h-10 rounded object-contain shrink-0"
             style={{ display: status === 'loading' ? 'none' : 'block' }}
             onLoad={() => setStatus('loaded')}
-            onError={() => setStatus('error')}
+            onError={handleError}
           />
         )}
       </span>
@@ -42,12 +84,12 @@ const ProductImageSkeleton: React.FC<{ src: string; alt: string; thumbnail?: boo
         </span>
       ) : (
         <img
-          src={src}
+          src={currentSrc}
           alt={alt}
           className="max-w-full h-auto rounded-lg max-h-48"
           style={{ display: status === 'loading' ? 'none' : 'block' }}
           onLoad={() => setStatus('loaded')}
-          onError={() => setStatus('error')}
+          onError={handleError}
         />
       )}
     </span>
@@ -567,8 +609,10 @@ const MarkdownWithTablesBase: React.FC<MarkdownWithTablesProps> = ({
     if (import.meta.env.DEV) {
       console.time('MarkdownWithTables:processPipeline')
     }
-    const result = normalizeTableBlocks(
-      preprocessHtmlImages(fixBrokenImageMarkdown(fixMalformedImageMarkdown(markdown))),
+    const result = proxyMarkdownImages(
+      normalizeTableBlocks(
+        preprocessHtmlImages(fixBrokenImageMarkdown(fixMalformedImageMarkdown(markdown))),
+      ),
     )
     if (import.meta.env.DEV) {
       console.timeEnd('MarkdownWithTables:processPipeline')

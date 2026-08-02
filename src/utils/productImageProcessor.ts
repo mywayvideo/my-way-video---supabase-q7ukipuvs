@@ -1,4 +1,13 @@
 import { getProxiedImageUrl, proxyMarkdownImages } from '@/lib/image-proxy'
+import {
+  escapeRegex,
+  sanitizeEmptyHeadings,
+  separateImagesFromHeadings,
+  cleanHtmlImages,
+  cleanBrokenMarkdownImages,
+  fixMissingImageBangs,
+  extractExistingImageUrls,
+} from '@/utils/markdown-sanitizer'
 
 export interface ProductImageInfo {
   name: string
@@ -41,72 +50,64 @@ export function normalizeProductName(name: string): string {
   return name.replace(new RegExp(`\\s*\\((?:${pattern})\\)\\s*`, 'gi'), '').trim()
 }
 
-function cleanHtmlImages(text: string): string {
-  return text
-    .replace(
-      /<img\s+[^>]*?src=["']([^"']+)["'][^>]*?(?:alt=["']([^"']*)["'])?[^>]*?\/?>/gi,
-      (_m, src: string, alt?: string) => `\n\n![${alt || ''}](${src})\n\n`,
-    )
-    .replace(
-      /<img\s+[^>]*?(?:alt=["']([^"']*)["'])?[^>]*?src=["']([^"']+)["'][^>]*?\/?>/gi,
-      (_m, alt?: string, src?: string) => `\n\n![${alt || ''}](${src ?? ''})\n\n`,
-    )
-}
+const HEADING_RE = /^#{1,6}\s+/
+const IMG_TEST = /!\[[^\]]*\]\((?:[^()]|\([^()]*\))*\)/
 
-function cleanBrokenMarkdownImages(text: string): string {
-  const img = '(!\\[[^\\]]*\\]\\((?:[^()]|\\([^()]*\\))*\\))'
-  return text
-    .replace(new RegExp(`""${img}`, 'g'), '$1')
-    .replace(new RegExp(`"${img}`, 'g'), '$1')
-    .replace(new RegExp(`${img}"`, 'g'), '$1')
-    .replace(new RegExp(`\\*\\*${img}\\*\\*`, 'g'), '$1')
-    .replace(new RegExp(`\\*${img}\\*`, 'g'), '$1')
-    .replace(new RegExp(`${img}\\*\\*`, 'g'), '$1')
-    .replace(new RegExp(`\\*\\*${img}`, 'g'), '$1')
-}
+function insertImagesByName(
+  content: string,
+  products: ProductImageInfo[],
+  insertedIds: Set<string>,
+  existingUrls: Set<string>,
+): string {
+  const eligible = products
+    .filter((p) => p?.id && p?.name && p?.image_url && !insertedIds.has(p.id))
+    .sort((a, b) => {
+      const aName = normalizeProductName(a.name) || a.name
+      const bName = normalizeProductName(b.name) || b.name
+      return bName.length - aName.length
+    })
 
-const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp']
-const IMAGE_DOMAINS = [
-  'bhphotovideo.com',
-  'bhphoto.com',
-  'eimagevideo.com',
-  'static.bhphoto.com',
-  'cdn.bhphotovideo.com',
-  'img.usecurling.com',
-  'm.media-amazon.com',
-  'images-na.ssl-images-amazon.com',
-]
+  if (!eligible.length) return content
 
-function isImageUrl(url: string): boolean {
-  const lower = url.toLowerCase().split('?')[0].split('#')[0]
-  if (IMAGE_EXTENSIONS.some((ext) => lower.endsWith(ext))) return true
-  try {
-    const parsed = new URL(url)
-    const host = parsed.hostname.toLowerCase().replace(/^www\./, '')
-    return IMAGE_DOMAINS.some((d) => host === d || host.endsWith('.' + d))
-  } catch {
-    return false
+  const lines = content.split('\n')
+  const processedRanges: Array<{ start: number; end: number }> = []
+
+  for (const product of eligible) {
+    const displayName = normalizeProductName(product.name) || product.name
+    if (displayName.length < 3) continue
+    const escapedName = escapeRegex(displayName)
+    const nameRegex = new RegExp(`\\b${escapedName}\\b`, 'i')
+    const proxiedUrl = getProxiedImageUrl(product.image_url) || product.image_url!
+
+    if (existingUrls.has(proxiedUrl) || (product.image_url && existingUrls.has(product.image_url)))
+      continue
+
+    let inCodeBlock = false
+    for (let i = 0; i < lines.length; i++) {
+      const trimmed = lines[i].trim()
+      if (trimmed.startsWith('```')) {
+        inCodeBlock = !inCodeBlock
+        continue
+      }
+      if (inCodeBlock) continue
+      if (HEADING_RE.test(trimmed)) continue
+      if (IMG_TEST.test(trimmed)) continue
+      if (trimmed.startsWith('|')) continue
+      if (!nameRegex.test(lines[i])) continue
+
+      const overlaps = processedRanges.some((r) => i >= r.start - 1 && i <= r.end + 1)
+      if (overlaps) continue
+
+      lines.splice(i + 1, 0, '', `![${displayName}](${proxiedUrl})`, '')
+      processedRanges.push({ start: i, end: i + 3 })
+      existingUrls.add(proxiedUrl)
+      if (product.image_url) existingUrls.add(product.image_url)
+      insertedIds.add(product.id!)
+      break
+    }
   }
-}
 
-function fixMissingImageBangs(text: string): string {
-  return text.replace(
-    /(?<!!)(?<!\\)\[([^\]]*)\]\(([^)\s]*?)(?:\s+"[^"]*")?\)/g,
-    (match, alt: string, url: string) => {
-      if (!isImageUrl(url)) return match
-      return `![${alt}](${url})`
-    },
-  )
-}
-
-function extractExistingImageUrls(text: string): Set<string> {
-  const urls = new Set<string>()
-  const regex = /!\[[^\]]*\]\(((?:[^()]|\([^()]*\))*)\)/g
-  let match: RegExpExecArray | null
-  while ((match = regex.exec(text)) !== null) {
-    urls.add(match[1])
-  }
-  return urls
+  return lines.join('\n')
 }
 
 export function processProductImages(content: string, products: ProductImageInfo[]): string {
@@ -115,62 +116,59 @@ export function processProductImages(content: string, products: ProductImageInfo
   let processed = fixMissingImageBangs(content)
   processed = cleanHtmlImages(processed)
   processed = cleanBrokenMarkdownImages(processed)
-  processed = proxyMarkdownImages(processed)
+  processed = sanitizeEmptyHeadings(processed)
 
   const productMap = new Map<string, ProductImageInfo>()
   for (const p of products) {
-    if (p?.id && p?.image_url) {
-      productMap.set(p.id, p)
-    }
+    if (p?.id && p?.image_url) productMap.set(p.id, p)
   }
 
   const existingUrls = extractExistingImageUrls(processed)
+  const insertedIds = new Set<string>()
 
   processed = processed.replace(
     /<!--\s*PRODUCT_IMAGE:([0-9a-fA-F-]{36})\s*-->/g,
     (_match, uuid: string, offset: number) => {
       const product = productMap.get(uuid)
       if (!product || !product.image_url) return ''
-
       const proxiedUrl = getProxiedImageUrl(product.image_url) || product.image_url
       existingUrls.add(proxiedUrl)
       existingUrls.add(product.image_url)
-
+      insertedIds.add(uuid)
       const displayName = normalizeProductName(product.name) || product.name
       const lineStart = processed.lastIndexOf('\n', offset) + 1
       const lineEnd = processed.indexOf('\n', offset)
       const line = processed.substring(lineStart, lineEnd === -1 ? processed.length : lineEnd)
-
       if (line.trim().startsWith('|')) {
         return `![PRODUCT_IMAGE:${displayName}](${proxiedUrl})`
       }
-
       return `\n\n![PRODUCT_IMAGE:${displayName}](${proxiedUrl})\n`
     },
   )
 
   processed = processed.replace(
     /\[PRODUCT:([0-9a-fA-F-]{36})\]/g,
-    (match, uuid: string, offset: number) => {
+    (_match, uuid: string, offset: number) => {
       const product = productMap.get(uuid)
       if (!product || !product.image_url) return ''
-
       const proxiedUrl = getProxiedImageUrl(product.image_url) || product.image_url
       existingUrls.add(proxiedUrl)
       existingUrls.add(product.image_url)
-
+      insertedIds.add(uuid)
       const displayName = normalizeProductName(product.name) || product.name
       const lineStart = processed.lastIndexOf('\n', offset) + 1
       const lineEnd = processed.indexOf('\n', offset)
       const line = processed.substring(lineStart, lineEnd === -1 ? processed.length : lineEnd)
-
       if (line.trim().startsWith('|')) {
         return `![PRODUCT_IMAGE:${displayName}](${proxiedUrl})`
       }
-
       return ` ![PRODUCT_IMAGE:${displayName}](${proxiedUrl}) `
     },
   )
+
+  processed = separateImagesFromHeadings(processed)
+  processed = insertImagesByName(processed, products, insertedIds, existingUrls)
+  processed = proxyMarkdownImages(processed)
 
   return processed
 }

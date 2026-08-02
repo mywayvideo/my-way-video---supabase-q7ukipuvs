@@ -27,14 +27,12 @@ export function ImageWithFallback({
 
   if (hasError || !displayUrl) {
     return (
-      <img
-        src="https://img.usecurling.com/p/400/400?q=professional%20camera&color=gray"
-        alt={alt || 'Imagem indisponível'}
-        loading="lazy"
-        width={width}
-        height={height}
-        className={cn('rounded', className)}
-      />
+      <div
+        className={cn('flex items-center justify-center rounded bg-zinc-800/60', className)}
+        style={{ width, height }}
+      >
+        <span className="text-zinc-500 text-xs">Sem imagem</span>
+      </div>
     )
   }
 

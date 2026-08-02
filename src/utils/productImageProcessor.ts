@@ -149,5 +149,28 @@ export function processProductImages(content: string, products: ProductImageInfo
     },
   )
 
+  processed = processed.replace(
+    /\[PRODUCT:([0-9a-fA-F-]{36})\]/g,
+    (match, uuid: string, offset: number) => {
+      const product = productMap.get(uuid)
+      if (!product || !product.image_url) return ''
+
+      const proxiedUrl = getProxiedImageUrl(product.image_url) || product.image_url
+      existingUrls.add(proxiedUrl)
+      existingUrls.add(product.image_url)
+
+      const displayName = normalizeProductName(product.name) || product.name
+      const lineStart = processed.lastIndexOf('\n', offset) + 1
+      const lineEnd = processed.indexOf('\n', offset)
+      const line = processed.substring(lineStart, lineEnd === -1 ? processed.length : lineEnd)
+
+      if (line.trim().startsWith('|')) {
+        return `![PRODUCT_IMAGE:${displayName}](${proxiedUrl})`
+      }
+
+      return ` ![PRODUCT_IMAGE:${displayName}](${proxiedUrl}) `
+    },
+  )
+
   return processed
 }

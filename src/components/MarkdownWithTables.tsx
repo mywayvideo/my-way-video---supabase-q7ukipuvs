@@ -1,7 +1,35 @@
 import React, { useMemo, useState } from 'react'
 
-const ProductImageSkeleton: React.FC<{ src: string; alt: string }> = ({ src, alt }) => {
+const ProductImageSkeleton: React.FC<{ src: string; alt: string; thumbnail?: boolean }> = ({
+  src,
+  alt,
+  thumbnail = false,
+}) => {
   const [status, setStatus] = useState<'loading' | 'loaded' | 'error'>('loading')
+
+  if (thumbnail) {
+    return (
+      <span className="inline-flex items-center justify-center align-middle shrink-0">
+        {status === 'loading' && (
+          <span className="flex w-10 h-10 rounded shrink-0 animate-pulse bg-zinc-800/80" />
+        )}
+        {status === 'error' ? (
+          <span className="flex w-10 h-10 rounded shrink-0 bg-zinc-800/60 items-center justify-center">
+            <span className="text-zinc-600 text-[10px]">N/A</span>
+          </span>
+        ) : (
+          <img
+            src={src}
+            alt={alt}
+            className="w-10 h-10 rounded object-contain shrink-0"
+            style={{ display: status === 'loading' ? 'none' : 'block' }}
+            onLoad={() => setStatus('loaded')}
+            onError={() => setStatus('error')}
+          />
+        )}
+      </span>
+    )
+  }
 
   return (
     <span className="inline-block align-top">
@@ -9,11 +37,9 @@ const ProductImageSkeleton: React.FC<{ src: string; alt: string }> = ({ src, alt
         <span className="flex w-40 h-28 rounded-lg animate-pulse bg-zinc-800/80" />
       )}
       {status === 'error' ? (
-        <img
-          src="https://img.usecurling.com/p/400/300?q=professional%20camera&color=gray"
-          alt={alt}
-          className="max-w-full h-auto rounded-lg max-h-48"
-        />
+        <span className="flex w-40 h-28 rounded-lg bg-zinc-800/60 items-center justify-center">
+          <span className="text-zinc-500 text-xs">Imagem indisponível</span>
+        </span>
       ) : (
         <img
           src={src}
@@ -28,7 +54,7 @@ const ProductImageSkeleton: React.FC<{ src: string; alt: string }> = ({ src, alt
   )
 }
 
-function parseInline(text: string): React.ReactNode[] {
+function parseInline(text: string, isTable: boolean = false): React.ReactNode[] {
   const nodes: React.ReactNode[] = []
   const regex =
     /(!\[([^\]]*)\]\(((?:[^()]|\([^()]*\))*)\))|(\[([^\]]+)\]\(([^)]*)\))|(\*\*([^*]+)\*\*)|(\*([^*]+)\*)|(`([^`]+)`)/g
@@ -50,22 +76,12 @@ function parseInline(text: string): React.ReactNode[] {
             key={key++}
             src={imgSrc}
             alt={imgAlt.replace('PRODUCT_IMAGE:', '')}
+            thumbnail={isTable}
           />,
         )
       } else {
         nodes.push(
-          <img
-            key={key++}
-            src={imgSrc}
-            alt={imgAlt}
-            className="max-w-full h-auto rounded-lg my-2"
-            onError={(e) => {
-              const img = e.target as HTMLImageElement
-              if (img.dataset.fallbackApplied) return
-              img.dataset.fallbackApplied = 'true'
-              img.style.display = 'none'
-            }}
-          />,
+          <ProductImageSkeleton key={key++} src={imgSrc} alt={imgAlt} thumbnail={isTable} />,
         )
       }
     } else if (match[4]) {
@@ -188,7 +204,7 @@ const TableBlock: React.FC<TableBlockProps> = ({ rows }) => {
           <tr>
             {rows[0].cells.map((header, index) => (
               <th key={index} style={thStyle}>
-                {parseInline(header)}
+                {parseInline(header, true)}
               </th>
             ))}
           </tr>
@@ -198,7 +214,7 @@ const TableBlock: React.FC<TableBlockProps> = ({ rows }) => {
             <tr key={rowIndex}>
               {Array.from({ length: headerCellCount }).map((_, cellIndex) => (
                 <td key={cellIndex} style={tdStyle}>
-                  {parseInline(row.cells[cellIndex] || '')}
+                  {parseInline(row.cells[cellIndex] || '', true)}
                 </td>
               ))}
             </tr>

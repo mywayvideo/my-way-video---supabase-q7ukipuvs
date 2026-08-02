@@ -1,4 +1,4 @@
-import { debugLog, debugWarn } from '@/utils/debug-front'
+import { debugLog } from '@/utils/debug-front'
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string
@@ -35,17 +35,36 @@ export function isTrustedImageUrl(url: string | null | undefined): boolean {
 export function getProxiedImageUrl(url: string | null | undefined): string | null {
   if (!url) return null
   if (url.includes('/functions/v1/image-proxy')) {
-    debugWarn(
-      'getProxiedImageUrl:duplicateProxy',
-      `URL already contains proxy: ${url.substring(0, 120)}`,
-    )
+    debugLog('getProxiedImageUrl:skip', `reason="already proxied" url=${url.substring(0, 120)}`)
+    return url
+  }
+  try {
+    const parsed = new URL(url)
+    if (parsed.searchParams.has('apikey')) {
+      debugLog(
+        'getProxiedImageUrl:skip',
+        `reason="already has apikey" url=${url.substring(0, 120)}`,
+      )
+      return url
+    }
+    if (parsed.searchParams.has('url') && parsed.pathname.includes('proxy')) {
+      debugLog(
+        'getProxiedImageUrl:skip',
+        `reason="already uses proxy service" url=${url.substring(0, 120)}`,
+      )
+      return url
+    }
+  } catch {
+    // Not a valid URL, continue
   }
   if (isTrustedImageUrl(url)) {
     const proxyUrl = new URL(`${SUPABASE_URL}/functions/v1/image-proxy`)
     proxyUrl.searchParams.set('url', url)
     proxyUrl.searchParams.set('apikey', SUPABASE_ANON_KEY)
+    debugLog('getProxiedImageUrl:proxied', `original=${url.substring(0, 80)}`)
     return proxyUrl.toString()
   }
+  debugLog('getProxiedImageUrl:skip', `reason="not trusted domain" url=${url.substring(0, 120)}`)
   return url
 }
 

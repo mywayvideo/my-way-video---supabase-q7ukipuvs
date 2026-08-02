@@ -13,6 +13,7 @@ import {
   fixMissingImageBangs,
   extractExistingImageUrls,
 } from '@/utils/markdown-sanitizer'
+import { extractModelCode, removeOrphanBoldMarkers } from '@/utils/markdown-cleanup'
 import { debugLog, debugGroup, debugGroupEnd, safeLen } from '@/utils/debug-front'
 
 export interface ProductImageInfo {
@@ -90,9 +91,17 @@ function insertImagesByName(
   const lines = content.split('\n')
   const matchedNames: string[] = []
   const usedUrls = new Set<string>(existingUrls)
+  const loggedNormalized = new Set<string>()
 
   for (const product of eligible) {
     const displayName = normalizeProductName(product.name) || product.name
+    if (!loggedNormalized.has(product.id!)) {
+      loggedNormalized.add(product.id!)
+      debugLog(
+        'insertImagesByName:normalizedName',
+        `original="${product.name}" normalized="${displayName}" id=${product.id}`,
+      )
+    }
     if (displayName.length < 3) {
       debugLog(
         'insertImagesByName:skipped',
@@ -178,6 +187,67 @@ function insertImagesByName(
           `name="${displayName}" id=${product.id} line=${i} proxiedUrl=${proxiedUrl}`,
         )
         break
+      }
+    }
+
+    if (!matchedNames.includes(displayName)) {
+      const modelCode = extractModelCode(product.name)
+      if (modelCode && modelCode.toLowerCase() !== displayName.toLowerCase()) {
+        debugLog(
+          'insertImagesByName:fallbackModelCode',
+          `name="${product.name}" displayName="${displayName}" modelCode="${modelCode}" id=${product.id}`,
+        )
+        const modelRegex = new RegExp(`\\b${escapeRegex(modelCode)}\\b`, 'i')
+        inCodeBlock = false
+        for (let i = 0; i < lines.length; i++) {
+          const trimmed = lines[i].trim()
+          if (trimmed.startsWith('```')) {
+            inCodeBlock = !inCodeBlock
+            continue
+          }
+          if (inCodeBlock || IMG_TEST.test(trimmed) || trimmed.startsWith('|')) continue
+          if (!modelRegex.test(lines[i])) continue
+          if (HEADING_RE.test(trimmed)) {
+            lines.splice(i + 1, 0, '', `![${displayName}](${proxiedUrl})`, '')
+            usedUrls.add(proxiedUrl)
+            if (product.image_url) usedUrls.add(product.image_url)
+            insertedIds.add(product.id!)
+            matchedNames.push(displayName)
+            debugLog(
+              'insertImagesByName:fallbackMatchedHeading',
+              `name="${displayName}" modelCode="${modelCode}" id=${product.id} line=${i} proxiedUrl=${proxiedUrl}`,
+            )
+            break
+          }
+        }
+        if (!matchedNames.includes(displayName)) {
+          inCodeBlock = false
+          for (let i = 0; i < lines.length; i++) {
+            const trimmed = lines[i].trim()
+            if (trimmed.startsWith('```')) {
+              inCodeBlock = !inCodeBlock
+              continue
+            }
+            if (
+              inCodeBlock ||
+              HEADING_RE.test(trimmed) ||
+              IMG_TEST.test(trimmed) ||
+              trimmed.startsWith('|')
+            )
+              continue
+            if (!modelRegex.test(lines[i])) continue
+            lines.splice(i + 1, 0, '', `![${displayName}](${proxiedUrl})`, '')
+            usedUrls.add(proxiedUrl)
+            if (product.image_url) usedUrls.add(product.image_url)
+            insertedIds.add(product.id!)
+            matchedNames.push(displayName)
+            debugLog(
+              'insertImagesByName:fallbackMatchedLine',
+              `name="${displayName}" modelCode="${modelCode}" id=${product.id} line=${i} proxiedUrl=${proxiedUrl}`,
+            )
+            break
+          }
+        }
       }
     }
 
@@ -344,6 +414,9 @@ export function processProductImages(content: string, products: ProductImageInfo
 
   processed = proxyMarkdownImages(processed)
   debugLog('processProductImages:proxyMarkdownImages', `outputLen=${safeLen(processed)}`)
+
+  processed = removeOrphanBoldMarkers(processed)
+  debugLog('processProductImages:removeOrphanBoldMarkers', `outputLen=${safeLen(processed)}`)
 
   const finalImgCount = (processed.match(/!\[/g) || []).length
   const finalH3Count = (processed.match(/^###\s/gm) || []).length

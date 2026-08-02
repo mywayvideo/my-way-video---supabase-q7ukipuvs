@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { getProxiedImageUrl, proxyMarkdownImages } from '@/lib/image-proxy'
 import { debugLog, debugGroup, debugGroupEnd } from '@/utils/debug-front'
+import { removeOrphanBoldMarkers } from '@/utils/markdown-cleanup'
 
 function extractOriginalFromProxy(url: string): string | null {
   try {
@@ -687,6 +688,8 @@ const MarkdownWithTablesBase: React.FC<MarkdownWithTablesProps> = ({
     debugLog('step:sanitizeRenderedHeadings', `outputLen=${step.length}`)
     step = proxyMarkdownImages(step)
     debugLog('step:proxyMarkdownImages', `outputLen=${step.length}`)
+    step = removeOrphanBoldMarkers(step)
+    debugLog('step:removeOrphanBoldMarkers', `outputLen=${step.length}`)
 
     const finalH3Count = (step.match(/^###\s/gm) || []).length
     const finalImgCount = (step.match(/!\[/g) || []).length

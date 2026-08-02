@@ -125,19 +125,14 @@ export function processProductImages(content: string, products: ProductImageInfo
   }
 
   const existingUrls = extractExistingImageUrls(processed)
-  const insertedUuids = new Set<string>()
 
   processed = processed.replace(
     /<!--\s*PRODUCT_IMAGE:([0-9a-fA-F-]{36})\s*-->/g,
-    (match, uuid: string, offset: number) => {
+    (_match, uuid: string, offset: number) => {
       const product = productMap.get(uuid)
       if (!product || !product.image_url) return ''
-      if (insertedUuids.has(uuid)) return ''
 
       const proxiedUrl = getProxiedImageUrl(product.image_url) || product.image_url
-      if (existingUrls.has(proxiedUrl) || existingUrls.has(product.image_url)) return ''
-
-      insertedUuids.add(uuid)
       existingUrls.add(proxiedUrl)
       existingUrls.add(product.image_url)
 

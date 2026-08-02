@@ -9,7 +9,7 @@ const ProductImageSkeleton: React.FC<{ src: string; alt: string; thumbnail?: boo
 
   if (thumbnail) {
     return (
-      <span className="inline-flex items-center justify-center align-middle shrink-0">
+      <span className="flex items-center justify-center align-middle shrink-0 w-full">
         {status === 'loading' && (
           <span className="flex w-10 h-10 rounded shrink-0 animate-pulse bg-zinc-800/80" />
         )}

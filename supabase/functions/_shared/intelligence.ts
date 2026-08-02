@@ -287,7 +287,7 @@ export async function generateResponse(
   const messages = buildMessages(queryOrMessages, context, systemPrompt)
   const content = await _callAIProvider(messages, { temperature: 0.3 }, supabase)
 
-  return parseAIResponse({ content }, context)
+  return parseAIResponse(content, context)
 }
 
 async function _callAIProvider(

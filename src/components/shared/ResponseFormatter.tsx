@@ -5,6 +5,7 @@ import MarkdownWithTables from '@/components/MarkdownWithTables'
 import { Button } from '@/components/ui/button'
 import { MessageCircle } from 'lucide-react'
 import { processProductImages, type ProductImageInfo } from '@/utils/productImageProcessor'
+import { debugLog, debugGroup, debugGroupEnd, safeLen } from '@/utils/debug-front'
 
 export function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -32,12 +33,18 @@ export function ResponseFormatter({
   hideProductImages = false,
 }: ResponseFormatterProps) {
   const { cleanedContent, parsedProductIds } = useMemo(() => {
+    debugGroup('ResponseFormatter:process')
+    debugLog(
+      'ResponseFormatter:rawContent',
+      `len=${safeLen(content)} products=${products?.length || 0}`,
+    )
     const idRegex = /\[PRODUCT:([0-9a-fA-F-]{36})\]/g
     const ids: string[] = []
     let match: RegExpExecArray | null
     while ((match = idRegex.exec(content)) !== null) {
       ids.push(match[1])
     }
+    debugLog('ResponseFormatter:parsedProductIds', `count=${ids.length} ids=[${ids.join(', ')}]`)
     const productImageInfos: ProductImageInfo[] = (products || [])
       .filter((p: any) => p?.id && p?.name && p?.image_url)
       .map((p: any) => ({
@@ -45,7 +52,16 @@ export function ResponseFormatter({
         image_url: p.image_url,
         id: p.id,
       }))
+    debugLog(
+      'ResponseFormatter:preparedImages',
+      `count=${productImageInfos.length} names=[${productImageInfos.map((p) => p.name).join(', ')}]`,
+    )
     const processed = processProductImages(content, productImageInfos)
+    debugLog(
+      'ResponseFormatter:processedContent',
+      `inputLen=${safeLen(content)} outputLen=${safeLen(processed)}`,
+    )
+    debugGroupEnd()
     return { cleanedContent: processed, parsedProductIds: ids }
   }, [content, products])
 

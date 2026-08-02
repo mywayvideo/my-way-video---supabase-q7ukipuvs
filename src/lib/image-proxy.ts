@@ -1,3 +1,5 @@
+import { debugLog, debugWarn } from '@/utils/debug-front'
+
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string
 
@@ -32,6 +34,12 @@ export function isTrustedImageUrl(url: string | null | undefined): boolean {
 
 export function getProxiedImageUrl(url: string | null | undefined): string | null {
   if (!url) return null
+  if (url.includes('/functions/v1/image-proxy')) {
+    debugWarn(
+      'getProxiedImageUrl:duplicateProxy',
+      `URL already contains proxy: ${url.substring(0, 120)}`,
+    )
+  }
   if (isTrustedImageUrl(url)) {
     const proxyUrl = new URL(`${SUPABASE_URL}/functions/v1/image-proxy`)
     proxyUrl.searchParams.set('url', url)
@@ -43,14 +51,25 @@ export function getProxiedImageUrl(url: string | null | undefined): string | nul
 
 export function proxyMarkdownImages(markdown: string): string {
   if (!markdown) return markdown
-  return markdown.replace(
+  let proxiedCount = 0
+  let alreadyProxiedCount = 0
+  const result = markdown.replace(
     /!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g,
     (match, alt: string, url: string) => {
+      if (url.includes('/functions/v1/image-proxy')) {
+        alreadyProxiedCount++
+      }
       const proxied = getProxiedImageUrl(url)
       if (proxied && proxied !== url) {
+        proxiedCount++
         return `![${alt}](${proxied})`
       }
       return match
     },
   )
+  debugLog(
+    'proxyMarkdownImages',
+    `inputLen=${markdown.length} outputLen=${result.length} proxied=${proxiedCount} alreadyProxied=${alreadyProxiedCount}`,
+  )
+  return result
 }

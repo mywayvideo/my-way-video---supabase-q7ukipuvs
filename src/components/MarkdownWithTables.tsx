@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { getProxiedImageUrl, proxyMarkdownImages } from '@/lib/image-proxy'
+import { debugLog, debugGroup, debugGroupEnd } from '@/utils/debug-front'
 
 function extractOriginalFromProxy(url: string): string | null {
   try {
@@ -299,6 +300,13 @@ const isListStart = (line: string): boolean => {
 const GREEN_400 = 'rgb(74 222 128)'
 
 const parseMarkdown = (lines: string[]): React.ReactNode[] => {
+  const h3Count = lines.filter((l) => l.trim().startsWith('### ')).length
+  const imgCount = lines.filter((l) => /!\[/.test(l)).length
+  const tableLineCount = lines.filter((l) => l.trim().startsWith('|')).length
+  debugLog(
+    'parseMarkdown:input',
+    `lines=${lines.length} h3Headings=${h3Count} imageLines=${imgCount} tableLines=${tableLineCount}`,
+  )
   const elements: React.ReactNode[] = []
   let i = 0
 
@@ -460,6 +468,8 @@ interface MarkdownWithTablesProps {
 const IMAGE_EXTENSIONS_REGEX = /\.(jpg|jpeg|png|gif|webp|svg|bmp|tiff)(\?[^\s)]*)?$/i
 
 const fixMalformedImageMarkdown = (text: string): string => {
+  const inputLen = text.length
+  const imgCountBefore = (text.match(/!\[/g) || []).length
   let result = text
 
   // Step 1: Rejoin broken multi-line image tags (with ! prefix)
@@ -504,41 +514,65 @@ const fixMalformedImageMarkdown = (text: string): string => {
   // Step 4: Collapse any double ! prefixes introduced by previous steps (idempotency guard)
   result = result.replace(/!{2,}\[/g, '![')
 
+  const imgCountAfter = (result.match(/!\[/g) || []).length
+  debugLog(
+    'fixMalformedImageMarkdown',
+    `inputLen=${inputLen} outputLen=${result.length} imgTagsBefore=${imgCountBefore} imgTagsAfter=${imgCountAfter}`,
+  )
   return result
 }
 
 const fixBrokenImageMarkdown = (text: string): string => {
-  return text.replace(
+  const inputLen = text.length
+  let repairedCount = 0
+  const result = text.replace(
     /!\[([^\]]*)\]\(((?:[^()]|\([^()]*\))*)\)/g,
     (match, alt: string, url: string) => {
       if (!match.includes('\n')) return match
+      repairedCount++
       const fixedAlt = alt.replace(/\r?\n/g, ' ').trim()
       const fixedUrl = url.replace(/\r?\n/g, '').trim()
       return `![${fixedAlt}](${fixedUrl})`
     },
   )
+  debugLog(
+    'fixBrokenImageMarkdown',
+    `inputLen=${inputLen} outputLen=${result.length} repairedTags=${repairedCount}`,
+  )
+  return result
 }
 
 const preprocessHtmlImages = (text: string): string => {
-  return text
+  const inputLen = text.length
+  let convertedCount = 0
+  const result = text
     .replace(
       /<img\s+[^>]*?src=["']([^"']+)["'][^>]*?(?:alt=["']([^"']*)["'])?[^>]*?\/?>/gi,
       (_match, src: string, alt: string | undefined) => {
+        convertedCount++
         return `![${alt ?? ''}](${src})`
       },
     )
     .replace(
       /<img\s+[^>]*?(?:alt=["']([^"']*)["'])?[^>]*?src=["']([^"']+)["'][^>]*?\/?>/gi,
       (_match, alt: string | undefined, src: string) => {
+        convertedCount++
         return `![${alt ?? ''}](${src})`
       },
     )
+  debugLog(
+    'preprocessHtmlImages',
+    `inputLen=${inputLen} outputLen=${result.length} convertedTags=${convertedCount}`,
+  )
+  return result
 }
 
 const normalizeTableBlocks = (text: string): string => {
+  const inputLen = text.length
   const lines = text.split(/\r?\n/)
   const result: string[] = []
   let i = 0
+  let tableBlocksNormalized = 0
 
   const isPotentialTableLine = (line: string): boolean => {
     const trimmed = line.trim()
@@ -606,17 +640,30 @@ const normalizeTableBlocks = (text: string): string => {
       }
 
       result.push(...normalizedBlock)
+      tableBlocksNormalized++
     } else {
       result.push(lines[i])
       i++
     }
   }
 
-  return result.join('\n')
+  const output = result.join('\n')
+  debugLog(
+    'normalizeTableBlocks',
+    `inputLen=${inputLen} outputLen=${output.length} tableBlocksNormalized=${tableBlocksNormalized}`,
+  )
+  return output
 }
 
 const sanitizeRenderedHeadings = (text: string): string => {
-  return text.replace(/^#{1,6}\s*$/gm, '').replace(/\n{3,}/g, '\n\n')
+  const inputLen = text.length
+  const emptyHeadingsRemoved = (text.match(/^#{1,6}\s*$/gm) || []).length
+  const result = text.replace(/^#{1,6}\s*$/gm, '').replace(/\n{3,}/g, '\n\n')
+  debugLog(
+    'sanitizeRenderedHeadings',
+    `inputLen=${inputLen} outputLen=${result.length} emptyHeadingsRemoved=${emptyHeadingsRemoved}`,
+  )
+  return result
 }
 
 const MarkdownWithTablesBase: React.FC<MarkdownWithTablesProps> = ({
@@ -624,20 +671,36 @@ const MarkdownWithTablesBase: React.FC<MarkdownWithTablesProps> = ({
   className = '',
 }) => {
   const processedMarkdown = useMemo(() => {
+    debugGroup('MarkdownWithTables:preprocessing', `inputLen=${markdown?.length || 0}`)
     if (import.meta.env.DEV) {
       console.time('MarkdownWithTables:processPipeline')
     }
-    const result = proxyMarkdownImages(
-      sanitizeRenderedHeadings(
-        normalizeTableBlocks(
-          preprocessHtmlImages(fixBrokenImageMarkdown(fixMalformedImageMarkdown(markdown))),
-        ),
-      ),
+    let step = fixMalformedImageMarkdown(markdown)
+    debugLog('step:fixMalformedImageMarkdown', `outputLen=${step.length}`)
+    step = fixBrokenImageMarkdown(step)
+    debugLog('step:fixBrokenImageMarkdown', `outputLen=${step.length}`)
+    step = preprocessHtmlImages(step)
+    debugLog('step:preprocessHtmlImages', `outputLen=${step.length}`)
+    step = normalizeTableBlocks(step)
+    debugLog('step:normalizeTableBlocks', `outputLen=${step.length}`)
+    step = sanitizeRenderedHeadings(step)
+    debugLog('step:sanitizeRenderedHeadings', `outputLen=${step.length}`)
+    step = proxyMarkdownImages(step)
+    debugLog('step:proxyMarkdownImages', `outputLen=${step.length}`)
+
+    const finalH3Count = (step.match(/^###\s/gm) || []).length
+    const finalImgCount = (step.match(/!\[/g) || []).length
+    const finalTableLines = (step.match(/^\|/gm) || []).length
+    debugLog(
+      'preprocessing:final',
+      `h3Headings=${finalH3Count} images=${finalImgCount} tableLines=${finalTableLines}`,
     )
+    debugGroupEnd()
+
     if (import.meta.env.DEV) {
       console.timeEnd('MarkdownWithTables:processPipeline')
     }
-    return result
+    return step
   }, [markdown])
 
   const lines = processedMarkdown.split(/\r?\n/)

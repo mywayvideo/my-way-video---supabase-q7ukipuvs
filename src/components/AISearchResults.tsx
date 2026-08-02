@@ -8,6 +8,7 @@ import { ReferencedProducts } from '@/components/ReferencedProducts'
 import { AILoader } from '@/components/AI/AILoader'
 import { processProductImages, type ProductImageInfo } from '@/utils/productImageProcessor'
 import { getProxiedImageUrl } from '@/lib/image-proxy'
+import { debugLog, debugGroup, debugGroupEnd, safeLen } from '@/utils/debug-front'
 
 interface Product {
   id: string
@@ -63,27 +64,44 @@ export function AISearchResults({
     if (!result) return []
     const images: ProductImageInfo[] = []
 
+    debugGroup('AISearchResults:productImages', `resultContentLen=${safeLen(result.content)}`)
+
     const refs = result.referenced_internal_products || []
+    debugLog('AISearchResults:referenced_internal_products', `count=${refs.length}`)
     refs.forEach((item: any) => {
       if (typeof item === 'object' && item !== null && item.name && item.image_url) {
+        const proxied = getProxiedImageUrl(item.image_url) || item.image_url
         images.push({
           name: item.name,
-          image_url: getProxiedImageUrl(item.image_url) || item.image_url,
+          image_url: proxied,
           id: item.id,
         })
+        debugLog(
+          'AISearchResults:collectedImage',
+          `source=ref name="${item.name}" id=${item.id} originalUrl=${item.image_url?.substring(0, 80)} proxiedUrl=${proxied?.substring(0, 80)}`,
+        )
       }
     })
 
     const resultProducts = result.products || []
+    debugLog('AISearchResults:products', `count=${resultProducts.length}`)
     resultProducts.forEach((item: any) => {
       if (item && typeof item === 'object' && item.name && item.image_url) {
+        const proxied = getProxiedImageUrl(item.image_url) || item.image_url
         images.push({
           name: item.name,
-          image_url: getProxiedImageUrl(item.image_url) || item.image_url,
+          image_url: proxied,
           id: item.id,
         })
+        debugLog(
+          'AISearchResults:collectedImage',
+          `source=product name="${item.name}" id=${item.id} originalUrl=${item.image_url?.substring(0, 80)} proxiedUrl=${proxied?.substring(0, 80)}`,
+        )
       }
     })
+
+    debugLog('AISearchResults:totalCollectedImages', `count=${images.length}`)
+    debugGroupEnd()
 
     return images
   }, [result])
@@ -91,7 +109,18 @@ export function AISearchResults({
   const processedContent = useMemo(() => {
     if (!result?.content) return ''
     const rawContent = result.content.replace(/realizando busca profunda my way/gi, '').trim()
-    return processProductImages(rawContent, productImages)
+    debugGroup('AISearchResults:processedContent')
+    debugLog(
+      'AISearchResults:rawContent',
+      `len=${safeLen(rawContent)} productImages=${productImages.length}`,
+    )
+    const processed = processProductImages(rawContent, productImages)
+    debugLog(
+      'AISearchResults:processedContent',
+      `inputLen=${safeLen(rawContent)} outputLen=${safeLen(processed)}`,
+    )
+    debugGroupEnd()
+    return processed
   }, [result?.content, productImages])
 
   if (isLoading && (!result || !result.is_intermediate)) {

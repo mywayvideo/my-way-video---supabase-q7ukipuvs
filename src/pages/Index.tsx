@@ -9,6 +9,7 @@ import { AISearchResults } from '@/components/AISearchResults'
 import { HPProductSections } from '@/components/HPProductSections'
 import { useMultipleProductDiscounts } from '@/hooks/useProductDiscount'
 import { SEO } from '@/components/SEO'
+import { debugLog, debugGroup, debugGroupEnd, safeLen } from '@/utils/debug-front'
 
 export default function Index() {
   const [query, setQuery] = useState('')
@@ -65,6 +66,18 @@ export default function Index() {
       .then(({ data }) => setFeaturedProducts(data || []))
       .catch((err) => console.error('Error fetching featured products:', err))
   }, [])
+
+  useEffect(() => {
+    if (results) {
+      debugGroup('Index:AIResultReceived')
+      debugLog(
+        'Index:rawResult',
+        `contentLen=${safeLen(results.content)} products=${results.products?.length || 0} referenced=${results.referenced_internal_products?.length || 0} confidence=${results.confidence_level || 'none'} shouldShowWhatsApp=${results.should_show_whatsapp_button || false}`,
+      )
+      debugLog('Index:forwarding', 'Data forwarded to AISearchResults component')
+      debugGroupEnd()
+    }
+  }, [results])
 
   const handleSearch = () => {
     if (!query.trim()) return

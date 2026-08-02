@@ -18,6 +18,7 @@ import { cn } from '@/lib/utils'
 import { ResponseFormatter } from '@/components/shared/ResponseFormatter'
 import { AILoader } from '@/components/AI/AILoader'
 import { getProxiedImageUrl } from '@/lib/image-proxy'
+import { debugLog, debugGroup, debugGroupEnd, safeLen } from '@/utils/debug-front'
 
 export function ChatInterface({ productId: propProductId }: { productId?: string } = {}) {
   const params = useParams()
@@ -73,6 +74,13 @@ export function ChatInterface({ productId: propProductId }: { productId?: string
 
     const res = await search(userQuery, productId)
     if (res) {
+      debugGroup('ChatInterface:AIResponse')
+      debugLog(
+        'ChatInterface:rawContent',
+        `len=${safeLen(res.content)} products=${res.products?.length || 0} referenced=${res.referenced_internal_products?.length || 0} confidence=${res.confidence_level || 'none'}`,
+      )
+      debugLog('ChatInterface:forwarding', 'Forwarding to ResponseFormatter')
+      debugGroupEnd()
       const productsToRender = res.products || []
 
       setMessages((prev) => {

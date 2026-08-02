@@ -48,9 +48,6 @@ function getFallbackUrl(src: string): string | null {
     if (src.includes('/functions/v1/image-proxy')) {
       return `https://wsrv.nl/?url=${encodeURIComponent(original)}&w=400&h=400&fit=inside`
     }
-    if (src.includes('wsrv.nl')) {
-      return getDirectProxyUrl(original)
-    }
     return original
   }
   const proxied = getProxiedImageUrl(src)
@@ -65,23 +62,21 @@ const ProductImageSkeleton: React.FC<{ src: string; alt: string; thumbnail?: boo
 }) => {
   const [currentSrc, setCurrentSrc] = useState(src)
   const [status, setStatus] = useState<'loading' | 'loaded' | 'error'>('loading')
-  const [triedFallback, setTriedFallback] = useState(false)
+  const [triedUrls, setTriedUrls] = useState<Set<string>>(new Set([src]))
 
   useEffect(() => {
     setCurrentSrc(src)
     setStatus('loading')
-    setTriedFallback(false)
+    setTriedUrls(new Set([src]))
   }, [src])
 
   const handleError = () => {
-    if (!triedFallback) {
-      const fallback = getFallbackUrl(currentSrc)
-      if (fallback) {
-        setTriedFallback(true)
-        setCurrentSrc(fallback)
-        setStatus('loading')
-        return
-      }
+    const fallback = getFallbackUrl(currentSrc)
+    if (fallback && !triedUrls.has(fallback)) {
+      setTriedUrls((prev) => new Set(prev).add(fallback))
+      setCurrentSrc(fallback)
+      setStatus('loading')
+      return
     }
     setStatus('error')
   }

@@ -234,12 +234,12 @@ function buildMessages(
         p.price_nationalized_sales,
         p.price_nationalized_currency || 'BRL',
       )
-      const brlRefPrice = !natPrice ? formatPrice(p.price_brl, 'BRL') : null
+      const brlRefPrice = !natPrice ? formatPrice(p.price_brl, 'USD') : null
 
       userContent += `- [PRODUCT:${p.id}] ${p.name}`
       if (usdPrice) userContent += ` | Preço USA (retirada Miami): ${usdPrice}`
       if (natPrice) userContent += ` | Preço Brasil (entrega SP): ${natPrice}`
-      if (brlRefPrice) userContent += ` | Preço Brasil (referência): ${brlRefPrice}`
+      if (brlRefPrice) userContent += ` | Preço Brasil (referência USD): ${brlRefPrice}`
     }
   }
 

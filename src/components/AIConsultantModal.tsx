@@ -128,6 +128,9 @@ export function AIConsultantModal({
             setCurrentProductName(productData.name || productName || '')
             setFullProductData({
               ...productData,
+              manufacturer:
+                productData.manufacturer?.name ||
+                (typeof productData.manufacturer === 'string' ? productData.manufacturer : null),
               technical_info: productData.technical_info || technicalInfo || '',
             })
           } else if (productName) {

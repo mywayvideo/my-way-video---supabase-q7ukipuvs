@@ -49,6 +49,10 @@ interface GenerateContext {
   history?: any[]
   currentProductId?: string | null
   currentProductName?: string | null
+  currentProductImageUrl?: string | null
+  currentProductDescription?: string | null
+  currentProductTechnicalInfo?: string | null
+  currentProductPriceUsd?: number | null
   contextualProductData?: any
   institutionalContext?: string
   productPagePrompt?: string
@@ -177,9 +181,25 @@ function buildSystemPrompt(context: GenerateContext): string {
   }
 
   if (context.currentProductId && context.currentProductName) {
-    parts.push(
-      `CONTEXTO: O usuário está visualizando o produto ${context.currentProductName}. Qualquer pergunta que não mencione explicitamente outro produto refere-se a este produto de origem.`,
-    )
+    const ctxParts: string[] = [
+      `CONTEXTO: O usuário está visualizando o produto ${context.currentProductName} (ID: ${context.currentProductId}).`,
+      'Qualquer pergunta que não mencione explicitamente outro produto refere-se a este produto de origem.',
+    ]
+    if (context.currentProductImageUrl) {
+      ctxParts.push(`Imagem do produto: ${context.currentProductImageUrl}`)
+    }
+    if (context.currentProductDescription) {
+      ctxParts.push(`Descrição: ${context.currentProductDescription.slice(0, 800)}`)
+    }
+    if (context.currentProductTechnicalInfo) {
+      ctxParts.push(
+        `Especificações técnicas: ${context.currentProductTechnicalInfo.slice(0, 1500)}`,
+      )
+    }
+    if (context.currentProductPriceUsd) {
+      ctxParts.push(`Preço USD (FOB Miami): $${context.currentProductPriceUsd}`)
+    }
+    parts.push(ctxParts.join('\n'))
   }
 
   parts.push(
@@ -231,6 +251,10 @@ function buildMessages(
         name: context.contextualProductData.name,
         price_usd: context.contextualProductData.price_usd,
         manufacturer: context.contextualProductData.manufacturer,
+        image_url: context.contextualProductData.image_url || null,
+        technical_info: context.contextualProductData.technical_info || null,
+        description: context.contextualProductData.description || null,
+        category: context.contextualProductData.category || null,
       },
       null,
       2,

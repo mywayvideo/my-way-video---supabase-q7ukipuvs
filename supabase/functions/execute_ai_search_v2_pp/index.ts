@@ -437,7 +437,16 @@ function buildDynamicSystemPrompt(
   companyInfo: any,
   manufacturerList: string,
   userName: string | null,
-  productContext: { id: string; name: string; technicalInfo?: string } | null,
+  productContext: {
+    id: string
+    name: string
+    technicalInfo?: string
+    image_url?: string
+    price_usd?: number | null
+    category?: string | null
+    description?: string | null
+    manufacturer?: string | null
+  } | null,
   isFirstInteraction: boolean,
 ): string {
   const parts: string[] = []
@@ -465,10 +474,14 @@ function buildDynamicSystemPrompt(
     parts.push(
       [
         'CONTEXTO OBRIGATORIO DE PAGINA DE PRODUTO:',
-        `Voce esta na pagina do produto "${productContext.name}".`,
+        `Voce esta na pagina do produto "${productContext.name}" (ID: ${productContext.id}).`,
+        productContext.image_url ? `Imagem do produto: ${productContext.image_url}` : '',
         productContext.technicalInfo
           ? `Especificacoes tecnicas: ${productContext.technicalInfo.slice(0, 1500)}`
           : '',
+        productContext.price_usd ? `Preco USD (FOB Miami): $${productContext.price_usd}` : '',
+        productContext.category ? `Categoria: ${productContext.category}` : '',
+        productContext.manufacturer ? `Fabricante: ${productContext.manufacturer}` : '',
         '',
         'REGRAS ABSOLUTAS:',
         '1. Regra Geral: Sua funcao e sugerir APENAS produtos COMPLEMENTARES (acessorios, lentes, baterias, grips, tripes, monitores, cabos, adaptadores, cases, etc.) que sejam compativeis com o produto atual.',
@@ -477,6 +490,7 @@ function buildDynamicSystemPrompt(
         '4. PROIBIDO confundir cameras com lentes ou acessorios. Um produto com "Camera" ou "Camera" no nome e uma camera, nao uma lente.',
         '5. Se nao encontrar acessorios compativeis, seja honesto: "Nao localizei acessorios compativeis especificos para este produto em nosso catalogo."',
         '6. Sempre que mencionar precos, use a moeda correta: precos Miami sao em USD (US$), precos Brasil podem ser em BRL (R$) ou em USD (US$), dependendo de price_nationalized_currency.',
+        '7. PROIBIDO escrever a tag literal [PRODUCT:UUID] como texto generico ou placeholder. Use SEMPRE o UUID real do produto fornecido no catalogo abaixo. O formato correto e [PRODUCT:uuid-real-do-produto].',
       ].join('\n'),
     )
   }
@@ -749,6 +763,10 @@ serve(async (req: Request) => {
       name: string
       technicalInfo?: string
       image_url?: string
+      price_usd?: number | null
+      category?: string | null
+      description?: string | null
+      manufacturer?: string | null
     } | null = null
 
     if (body?.currentProductContext) {
@@ -759,11 +777,20 @@ serve(async (req: Request) => {
         name: pData.name,
         technicalInfo: typeof rawSpecs === 'string' ? rawSpecs : JSON.stringify(rawSpecs),
         image_url: pData.image_url || '',
+        price_usd: pData.price_usd || null,
+        category: pData.category || null,
+        description: pData.description || null,
+        manufacturer:
+          typeof pData.manufacturer === 'string'
+            ? pData.manufacturer
+            : pData.manufacturer?.name || null,
       }
     } else if (lastReferencedProductId) {
       const { data: prodData } = await supabase
         .from('products')
-        .select('id, name, technical_info, description, image_url')
+        .select(
+          'id, name, technical_info, description, image_url, price_usd, category, manufacturer:manufacturers(name)',
+        )
         .eq('id', lastReferencedProductId)
         .single()
 
@@ -774,6 +801,12 @@ serve(async (req: Request) => {
           name: prodData.name,
           technicalInfo: typeof rawSpecs === 'string' ? rawSpecs : JSON.stringify(rawSpecs),
           image_url: prodData.image_url || '',
+          price_usd: prodData.price_usd || null,
+          category: prodData.category || null,
+          description: prodData.description || null,
+          manufacturer:
+            prodData.manufacturer?.name ||
+            (typeof prodData.manufacturer === 'string' ? prodData.manufacturer : null),
         }
       }
     }
@@ -1015,6 +1048,29 @@ serve(async (req: Request) => {
           }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
         )
+      }
+
+      // Inject current product as a real catalog item so the AI can reference it with [PRODUCT:UUID]
+      if (body?.currentProductContext && validCurrentProductId) {
+        const ctx = body.currentProductContext
+        const alreadyInList = allFoundProducts.some((p: any) => p.id === validCurrentProductId)
+        if (!alreadyInList) {
+          allFoundProducts.unshift({
+            id: validCurrentProductId,
+            name: ctx.name,
+            description: ctx.description || '',
+            manufacturer:
+              typeof ctx.manufacturer === 'string'
+                ? ctx.manufacturer
+                : ctx.manufacturer?.name || null,
+            category: ctx.category || null,
+            price_usd: ctx.price_usd || null,
+            price_nationalized_sales: ctx.price_nationalized_sales || null,
+            price_nationalized_currency: ctx.price_nationalized_currency || 'BRL',
+            image_url: ctx.image_url || '',
+            technical_info: ctx.technical_info || '',
+          })
+        }
       }
 
       const productIds = Array.from(allowedIds)

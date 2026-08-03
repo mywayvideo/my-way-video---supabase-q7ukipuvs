@@ -64,6 +64,27 @@ export function normalizeProductName(name: string): string {
 const HEADING_RE = /^#{1,6}\s+/
 const IMG_TEST = /!\[[^\]]*\]\((?:[^()]|\([^()]*\))*\)/
 
+function findFirstParagraphEnd(lines: string[], headingIdx: number): number {
+  let i = headingIdx + 1
+  while (i < lines.length && lines[i].trim() === '') i++
+  if (i >= lines.length) return -1
+  while (i < lines.length) {
+    const trimmed = lines[i].trim()
+    if (trimmed === '' || HEADING_RE.test(trimmed)) break
+    i++
+  }
+  return i - 1
+}
+
+function hasImageNearby(lines: string[], centerIdx: number, radius: number): boolean {
+  const start = Math.max(0, centerIdx - radius)
+  const end = Math.min(lines.length - 1, centerIdx + radius)
+  for (let i = start; i <= end; i++) {
+    if (IMG_TEST.test(lines[i].trim())) return true
+  }
+  return false
+}
+
 function matchAndInsert(
   lines: string[],
   searchTerms: string[],
@@ -85,7 +106,12 @@ function matchAndInsert(
       if (inCodeBlock || IMG_TEST.test(trimmed) || trimmed.startsWith('|')) continue
       if (!regex.test(lines[i])) continue
       if (HEADING_RE.test(trimmed)) {
-        lines.splice(i + 1, 0, '', `![${displayName}](${proxiedUrl})`, '')
+        const paraEndIdx = findFirstParagraphEnd(lines, i)
+        if (paraEndIdx >= 0) {
+          lines.splice(paraEndIdx + 1, 0, '', `![${displayName}](${proxiedUrl})`, '')
+        } else {
+          lines.splice(i + 1, 0, '', `![${displayName}](${proxiedUrl})`, '')
+        }
         return true
       }
     }
@@ -106,6 +132,8 @@ function matchAndInsert(
         continue
       }
       if (!regex.test(lines[i])) continue
+      if (i + 1 < lines.length && HEADING_RE.test(lines[i + 1].trim())) continue
+      if (hasImageNearby(lines, i + 1, 2)) continue
       lines.splice(i + 1, 0, '', `![${displayName}](${proxiedUrl})`, '')
       return true
     }

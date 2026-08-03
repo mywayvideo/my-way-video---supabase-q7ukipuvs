@@ -106,6 +106,13 @@ export function enforceLayoutOrder(content: string): string {
       if (imgIdx < section.length && section[imgIdx].trim() === '') section.splice(imgIdx, 1)
       let pos = 0
       while (pos < section.length && section[pos].trim() === '') pos++
+      if (pos < section.length) {
+        while (pos < section.length) {
+          const t = section[pos].trim()
+          if (t === '' || HEADING_RE.test(t) || IMG_LINE_RE.test(t)) break
+          pos++
+        }
+      }
       section.splice(pos, 0, img, '')
     }
     result.push(...section)

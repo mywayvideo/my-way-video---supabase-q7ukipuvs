@@ -3,6 +3,65 @@ import { normalizeImageUrl } from '@/lib/image-proxy'
 
 const HEADING_RE = /^#{1,6}\s+/
 const IMG_LINE_RE = /^!\[([^\]]*)\]\(([^)]+)\)$/
+const BOLD_TITLE_RE = /^\*\*[^*]+\*\*$/
+
+function isTitleLine(trimmed: string): boolean {
+  return HEADING_RE.test(trimmed) || BOLD_TITLE_RE.test(trimmed)
+}
+
+function findImageInsertionPoint(section: string[]): number {
+  let pos = 0
+  while (pos < section.length && section[pos].trim() === '') pos++
+  if (pos < section.length) {
+    while (pos < section.length) {
+      const t = section[pos].trim()
+      if (t === '' || isTitleLine(t) || IMG_LINE_RE.test(t)) break
+      pos++
+    }
+  }
+  return pos
+}
+
+function finalAntiErrorSweep(lines: string[]): string[] {
+  let result = [...lines]
+  let changed = true
+  while (changed) {
+    changed = false
+    let inCodeBlock = false
+    for (let i = 0; i < result.length; i++) {
+      const trimmed = result[i].trim()
+      if (trimmed.startsWith('```')) {
+        inCodeBlock = !inCodeBlock
+        continue
+      }
+      if (inCodeBlock) continue
+      if (!IMG_LINE_RE.test(trimmed)) continue
+      let nextIdx = i + 1
+      while (nextIdx < result.length && result[nextIdx].trim() === '') nextIdx++
+      if (nextIdx >= result.length || !isTitleLine(result[nextIdx].trim())) continue
+      const img = result[i]
+      result.splice(i, 1)
+      if (i < result.length && result[i].trim() === '') result.splice(i, 1)
+      let titleIdx = i
+      while (titleIdx < result.length && result[titleIdx].trim() === '') titleIdx++
+      if (titleIdx >= result.length || !isTitleLine(result[titleIdx].trim())) {
+        result.splice(i, 0, img)
+        continue
+      }
+      let insertPos = titleIdx + 1
+      while (insertPos < result.length && result[insertPos].trim() === '') insertPos++
+      while (insertPos < result.length) {
+        const t = result[insertPos].trim()
+        if (t === '' || isTitleLine(t) || IMG_LINE_RE.test(t)) break
+        insertPos++
+      }
+      result.splice(insertPos, 0, '', img)
+      changed = true
+      break
+    }
+  }
+  return result
+}
 
 export function sanitizeHeadings(content: string): string {
   return content.replace(/^#{1,6}\s*$/gm, '').replace(/\n{3,}/g, '\n\n')
@@ -79,7 +138,7 @@ export function enforceLayoutOrder(content: string): string {
       i++
       continue
     }
-    if (inCodeBlock || !HEADING_RE.test(trimmed)) {
+    if (inCodeBlock || !isTitleLine(trimmed)) {
       result.push(lines[i])
       i++
       continue
@@ -89,7 +148,7 @@ export function enforceLayoutOrder(content: string): string {
     const section: string[] = []
     while (i < lines.length) {
       const s = lines[i].trim()
-      if (s.startsWith('```') || HEADING_RE.test(s)) break
+      if (s.startsWith('```') || isTitleLine(s)) break
       section.push(lines[i])
       i++
     }
@@ -104,18 +163,12 @@ export function enforceLayoutOrder(content: string): string {
       const img = section[imgIdx]
       section.splice(imgIdx, 1)
       if (imgIdx < section.length && section[imgIdx].trim() === '') section.splice(imgIdx, 1)
-      let pos = 0
-      while (pos < section.length && section[pos].trim() === '') pos++
-      if (pos < section.length) {
-        while (pos < section.length) {
-          const t = section[pos].trim()
-          if (t === '' || HEADING_RE.test(t) || IMG_LINE_RE.test(t)) break
-          pos++
-        }
-      }
+      const pos = findImageInsertionPoint(section)
       section.splice(pos, 0, img, '')
     }
     result.push(...section)
   }
-  return result.join('\n').replace(/\n{3,}/g, '\n\n')
+
+  const swept = finalAntiErrorSweep(result)
+  return swept.join('\n').replace(/\n{3,}/g, '\n\n')
 }

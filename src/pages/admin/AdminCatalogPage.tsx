@@ -30,6 +30,7 @@ import {
   ArrowDown,
   Package,
   Star,
+  RefreshCw,
 } from 'lucide-react'
 import { Link, Navigate } from 'react-router-dom'
 import { toast } from '@/hooks/use-toast'
@@ -60,6 +61,7 @@ import { AdminLayout } from '@/components/admin/AdminLayout'
 import { cn } from '@/lib/utils'
 import { useDebounce } from '@/hooks/use-debounce'
 import { BulkReviewModal } from '@/components/admin/BulkReviewModal'
+import { BatchPriceBrlModal } from '@/components/admin/BatchPriceBrlModal'
 import { productService } from '@/services/productService'
 
 const PAGE_SIZE = 50
@@ -103,6 +105,7 @@ export default function AdminCatalogPage() {
   const [isProcessingCSV, setIsProcessingCSV] = useState(false)
   const [csvProgress, setCsvProgress] = useState({ current: 0, total: 0, currentName: '' })
   const [showBulkReview, setShowBulkReview] = useState(false)
+  const [showRecalcModal, setShowRecalcModal] = useState(false)
   const [extractedProducts, setExtractedProducts] = useState<any[]>([])
   const [categories, setCategories] = useState<any[]>([])
 
@@ -500,6 +503,13 @@ export default function AdminCatalogPage() {
               onSuccess={fetchData}
               onAddManufacturer={fetchData}
             />
+            <Button
+              variant="outline"
+              className="shadow-sm"
+              onClick={() => setShowRecalcModal(true)}
+            >
+              <RefreshCw className="w-4 h-4 mr-2" /> Recalcular Preço BRL
+            </Button>
             <Button
               className="bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg"
               onClick={() => {
@@ -935,6 +945,12 @@ export default function AdminCatalogPage() {
             onAddManufacturer={handleAddManufacturer}
           />
         )}
+
+        <BatchPriceBrlModal
+          isOpen={showRecalcModal}
+          onClose={() => setShowRecalcModal(false)}
+          onSuccess={fetchData}
+        />
       </div>
     </AdminLayout>
   )

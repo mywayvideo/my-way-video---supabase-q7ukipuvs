@@ -489,7 +489,7 @@ function buildDynamicSystemPrompt(
         '3. Caso contrario (sem pedido explicito): PROIBIDO sugerir produtos substitutos da mesma categoria principal. Se o produto atual e uma camera, NUNCA sugira outras cameras.',
         '4. PROIBIDO confundir cameras com lentes ou acessorios. Um produto com "Camera" ou "Camera" no nome e uma camera, nao uma lente.',
         '5. Se nao encontrar acessorios compativeis, seja honesto: "Nao localizei acessorios compativeis especificos para este produto em nosso catalogo."',
-        '6. Sempre que mencionar precos, use a moeda correta: precos Miami sao em USD (US$), precos Brasil podem ser em BRL (R$) ou em USD (US$), dependendo de price_nationalized_currency.',
+        '6. REGRAS DE PRECO: price_usd (Miami) e o UNICO preco exibido por padrao, em USD (US$). price_nationalized_sales e price_brl SO devem ser mencionados quando o cliente perguntar explicitamente sobre preco de entrega no Brasil. price_nationalized_currency define se o valor esta em BRL (R$) ou USD (US$). price_brl e sempre em USD e so usado se nao houver price_nationalized_sales.',
         '7. PROIBIDO escrever a tag literal [PRODUCT:UUID] como texto generico ou placeholder. Use SEMPRE o UUID real do produto fornecido no catalogo abaixo. O formato correto e [PRODUCT:uuid-real-do-produto].',
       ].join('\n'),
     )

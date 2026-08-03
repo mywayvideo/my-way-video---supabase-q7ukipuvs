@@ -63,6 +63,75 @@ export function normalizeProductName(name: string): string {
 
 const HEADING_RE = /^#{1,6}\s+/
 const IMG_TEST = /!\[[^\]]*\]\((?:[^()]|\([^()]*\))*\)/
+const IMG_URL_RE = /!\[[^\]]*\]\(([^)]+)\)/
+
+function scanExistingProductImages(
+  content: string,
+  products: ProductImageInfo[],
+  existingUrls: Set<string>,
+): Set<string> {
+  const lines = content.split('\n')
+  const illustratedIds = new Set<string>()
+
+  for (const product of products) {
+    if (!product?.id || !product?.name) continue
+
+    const displayName = normalizeProductName(product.name) || product.name
+    if (displayName.length < 3) continue
+
+    const searchTerms: string[] = [product.name]
+    if (displayName !== product.name) searchTerms.push(displayName)
+    const modelCode = extractModelCode(product.name)
+    if (modelCode && modelCode.toLowerCase() !== displayName.toLowerCase()) {
+      searchTerms.push(modelCode)
+    }
+
+    let found = false
+    for (const term of searchTerms) {
+      if (found) break
+      if (!term || term.length < 3) continue
+      const escaped = escapeRegex(term)
+      const regex = new RegExp(`\\b${escaped}\\b`, 'i')
+
+      let inCodeBlock = false
+      for (let i = 0; i < lines.length; i++) {
+        const trimmed = lines[i].trim()
+        if (trimmed.startsWith('```')) {
+          inCodeBlock = !inCodeBlock
+          continue
+        }
+        if (inCodeBlock) continue
+        if (!regex.test(lines[i])) continue
+
+        const radius = 5
+        const start = Math.max(0, i - radius)
+        const end = Math.min(lines.length - 1, i + radius)
+        for (let j = start; j <= end; j++) {
+          const lineTrimmed = lines[j].trim()
+          if (IMG_TEST.test(lineTrimmed)) {
+            illustratedIds.add(product.id!)
+            const imgMatch = lineTrimmed.match(IMG_URL_RE)
+            if (imgMatch && imgMatch[1]) {
+              existingUrls.add(normalizeImageUrl(imgMatch[1]))
+            }
+            found = true
+            break
+          }
+        }
+        if (found) break
+      }
+    }
+  }
+
+  if (illustratedIds.size > 0) {
+    debugLog(
+      'scanExistingProductImages',
+      `illustratedCount=${illustratedIds.size} ids=[${[...illustratedIds].join(', ')}]`,
+    )
+  }
+
+  return illustratedIds
+}
 
 function findFirstParagraphEnd(lines: string[], headingIdx: number): number {
   let i = headingIdx + 1
@@ -295,8 +364,17 @@ export function processProductImages(content: string, products: ProductImageInfo
 
   const existingUrls = extractExistingImageUrls(processed)
   const existingNormalizedUrls = new Set<string>([...existingUrls].map((u) => normalizeImageUrl(u)))
+  const preScannedIds = scanExistingProductImages(
+    processed,
+    dedupedProducts,
+    existingNormalizedUrls,
+  )
   const processedPlaceholderIds = new Set<string>()
-  const insertedIds = new Set<string>()
+  const insertedIds = new Set<string>(preScannedIds)
+  debugLog(
+    'processProductImages:preScan',
+    `preScannedIds=${preScannedIds.size} ids=[${[...preScannedIds].join(', ')}]`,
+  )
   debugLog(
     'processProductImages:existingUrls',
     `count=${existingUrls.size} urls=[${[...existingUrls].slice(0, 10).join(', ')}]`,

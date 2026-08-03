@@ -64,6 +64,12 @@ export function normalizeProductName(name: string): string {
 const HEADING_RE = /^#{1,6}\s+/
 const IMG_TEST = /!\[[^\]]*\]\((?:[^()]|\([^()]*\))*\)/
 const IMG_URL_RE = /!\[[^\]]*\]\(([^)]+)\)/
+const IMG_ALT_RE = /^!\[([^\]]*)\]/
+const BOLD_TITLE_RE = /^\*\*[^*]+\*\*$/
+
+function isTitleLine(trimmed: string): boolean {
+  return HEADING_RE.test(trimmed) || BOLD_TITLE_RE.test(trimmed)
+}
 
 function scanExistingProductImages(
   content: string,
@@ -75,7 +81,6 @@ function scanExistingProductImages(
 
   for (const product of products) {
     if (!product?.id || !product?.name) continue
-
     const displayName = normalizeProductName(product.name) || product.name
     if (displayName.length < 3) continue
 
@@ -92,7 +97,6 @@ function scanExistingProductImages(
       if (!term || term.length < 3) continue
       const escaped = escapeRegex(term)
       const regex = new RegExp(`\\b${escaped}\\b`, 'i')
-
       let inCodeBlock = false
       for (let i = 0; i < lines.length; i++) {
         const trimmed = lines[i].trim()
@@ -102,7 +106,6 @@ function scanExistingProductImages(
         }
         if (inCodeBlock) continue
         if (!regex.test(lines[i])) continue
-
         const radius = 5
         const start = Math.max(0, i - radius)
         const end = Math.min(lines.length - 1, i + radius)
@@ -111,9 +114,7 @@ function scanExistingProductImages(
           if (IMG_TEST.test(lineTrimmed)) {
             illustratedIds.add(product.id!)
             const imgMatch = lineTrimmed.match(IMG_URL_RE)
-            if (imgMatch && imgMatch[1]) {
-              existingUrls.add(normalizeImageUrl(imgMatch[1]))
-            }
+            if (imgMatch && imgMatch[1]) existingUrls.add(normalizeImageUrl(imgMatch[1]))
             found = true
             break
           }
@@ -129,7 +130,6 @@ function scanExistingProductImages(
       `illustratedCount=${illustratedIds.size} ids=[${[...illustratedIds].join(', ')}]`,
     )
   }
-
   return illustratedIds
 }
 
@@ -154,12 +154,40 @@ function hasImageNearby(lines: string[], centerIdx: number, radius: number): boo
   return false
 }
 
+function countSectionsMatchingName(lines: string[], name: string): number {
+  if (!name || name.length < 3) return 0
+  const escaped = escapeRegex(name)
+  const regex = new RegExp(`\\b${escaped}\\b`, 'i')
+  let count = 0
+  let inCodeBlock = false
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (trimmed.startsWith('```')) {
+      inCodeBlock = !inCodeBlock
+      continue
+    }
+    if (inCodeBlock) continue
+    if (HEADING_RE.test(trimmed) && regex.test(trimmed)) count++
+  }
+  return count
+}
+
 function matchAndInsert(
   lines: string[],
   searchTerms: string[],
   proxiedUrl: string,
   displayName: string,
+  productInsertMap: Map<string, number>,
+  productId: string,
 ): boolean {
+  if (productInsertMap.has(productId)) {
+    debugLog(
+      'matchAndInsert:skipped',
+      `productId=${productId} reason="product already in productInsertMap"`,
+    )
+    return false
+  }
+
   for (const term of searchTerms) {
     if (!term || term.length < 3) continue
     const escaped = escapeRegex(term)
@@ -178,8 +206,10 @@ function matchAndInsert(
         const paraEndIdx = findFirstParagraphEnd(lines, i)
         if (paraEndIdx >= 0) {
           lines.splice(paraEndIdx + 1, 0, '', `![${displayName}](${proxiedUrl})`, '')
+          productInsertMap.set(productId, paraEndIdx + 2)
         } else {
           lines.splice(i + 1, 0, '', `![${displayName}](${proxiedUrl})`, '')
+          productInsertMap.set(productId, i + 2)
         }
         return true
       }
@@ -197,13 +227,13 @@ function matchAndInsert(
         HEADING_RE.test(trimmed) ||
         IMG_TEST.test(trimmed) ||
         trimmed.startsWith('|')
-      ) {
+      )
         continue
-      }
       if (!regex.test(lines[i])) continue
       if (i + 1 < lines.length && HEADING_RE.test(lines[i + 1].trim())) continue
       if (hasImageNearby(lines, i + 1, 2)) continue
       lines.splice(i + 1, 0, '', `![${displayName}](${proxiedUrl})`, '')
+      productInsertMap.set(productId, i + 2)
       return true
     }
   }
@@ -237,12 +267,20 @@ function insertImagesByName(
   const lines = content.split('\n')
   const matchedIds = new Set<string>()
   const usedUrls = new Set<string>(existingUrls)
+  const productInsertMap = new Map<string, number>()
 
   for (const product of eligible) {
     if (matchedIds.has(product.id!)) {
       debugLog(
         'insertImagesByName:skipped',
         `name="${product.name}" id=${product.id} reason="already matched by id"`,
+      )
+      continue
+    }
+    if (productInsertMap.has(product.id!)) {
+      debugLog(
+        'insertImagesByName:skipped',
+        `name="${product.name}" id=${product.id} reason="already in productInsertMap"`,
       )
       continue
     }
@@ -262,6 +300,17 @@ function insertImagesByName(
       continue
     }
 
+    if (displayName !== product.name) {
+      const sectionCount = countSectionsMatchingName(lines, displayName)
+      if (sectionCount > 1) {
+        debugLog(
+          'insertImagesByName:skipped',
+          `name="${product.name}" displayName="${displayName}" reason="normalized name matches ${sectionCount} sections, ambiguous"`,
+        )
+        continue
+      }
+    }
+
     const proxiedUrl = getProxiedImageUrl(product.image_url) || product.image_url!
     const normalizedProxied = normalizeImageUrl(proxiedUrl)
     const normalizedOriginal = normalizeImageUrl(product.image_url || '')
@@ -272,30 +321,36 @@ function insertImagesByName(
     ) {
       debugLog(
         'insertImagesByName:skipped',
-        `name="${product.name}" displayName="${displayName}" reason="URL already used (normalized)" originalUrl=${product.image_url} proxiedUrl=${proxiedUrl} normalizedProxied=${normalizedProxied.substring(0, 80)}`,
+        `name="${product.name}" displayName="${displayName}" reason="URL already used (normalized)" originalUrl=${product.image_url} proxiedUrl=${proxiedUrl}`,
       )
       continue
     }
 
     const searchTerms: string[] = [product.name]
-    if (displayName !== product.name) {
-      searchTerms.push(displayName)
-    }
+    if (displayName !== product.name) searchTerms.push(displayName)
     const modelCode = extractModelCode(product.name)
     if (modelCode && modelCode.toLowerCase() !== displayName.toLowerCase()) {
       searchTerms.push(modelCode)
     }
 
-    const inserted = matchAndInsert(lines, searchTerms, proxiedUrl, displayName)
+    const inserted = matchAndInsert(
+      lines,
+      searchTerms,
+      proxiedUrl,
+      displayName,
+      productInsertMap,
+      product.id!,
+    )
 
     if (inserted) {
       usedUrls.add(normalizedProxied)
       if (normalizedOriginal) usedUrls.add(normalizedOriginal)
       insertedIds.add(product.id!)
       matchedIds.add(product.id!)
+      const lineIdx = productInsertMap.get(product.id!)
       debugLog(
         'insertImagesByName:matched',
-        `name="${displayName}" originalName="${product.name}" id=${product.id} proxiedUrl=${proxiedUrl}`,
+        `name="${displayName}" originalName="${product.name}" id=${product.id} proxiedUrl=${proxiedUrl} lineIndex=${lineIdx}`,
       )
     } else {
       debugLog(
@@ -311,6 +366,112 @@ function insertImagesByName(
     `matched=${matchedIds.size} unmatched=${unmatched.length} matchedIds=[${[...matchedIds].join(', ')}] unmatchedNames=[${unmatched.map((p) => normalizeProductName(p.name) || p.name).join(', ')}]`,
   )
   return lines.join('\n')
+}
+
+function finalAntiDuplicateSweep(content: string, products: ProductImageInfo[]): string {
+  const lines = content.split('\n')
+
+  const fullNameToProductId = new Map<string, string>()
+  const normalizedNameToProductIds = new Map<string, string[]>()
+  for (const p of products) {
+    if (!p?.id || !p?.name) continue
+    fullNameToProductId.set(p.name.toLowerCase(), p.id)
+    const normalized = normalizeProductName(p.name) || p.name
+    if (!normalizedNameToProductIds.has(normalized.toLowerCase())) {
+      normalizedNameToProductIds.set(normalized.toLowerCase(), [])
+    }
+    normalizedNameToProductIds.get(normalized.toLowerCase())!.push(p.id)
+  }
+
+  const productImageLines = new Map<string, number[]>()
+  let inCodeBlock = false
+  let lastHeadingText = ''
+
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim()
+    if (trimmed.startsWith('```')) {
+      inCodeBlock = !inCodeBlock
+      continue
+    }
+    if (inCodeBlock) continue
+
+    if (isTitleLine(trimmed)) {
+      lastHeadingText = trimmed
+    }
+
+    if (trimmed.startsWith('|')) continue
+
+    const imgMatch = trimmed.match(IMG_ALT_RE)
+    if (!imgMatch) continue
+
+    const alt = (imgMatch[1] || '').replace(/^PRODUCT_IMAGE:/, '').trim()
+    let matchedProductId: string | null = null
+
+    if (alt) {
+      matchedProductId = fullNameToProductId.get(alt.toLowerCase()) || null
+      if (!matchedProductId) {
+        const ids = normalizedNameToProductIds.get(alt.toLowerCase())
+        if (ids && ids.length === 1) matchedProductId = ids[0]
+      }
+    }
+
+    if (!matchedProductId && lastHeadingText) {
+      const headingLower = lastHeadingText.toLowerCase()
+      for (const [name, id] of fullNameToProductId) {
+        if (name.length >= 3 && headingLower.includes(name)) {
+          matchedProductId = id
+          break
+        }
+      }
+      if (!matchedProductId) {
+        for (const [name, ids] of normalizedNameToProductIds) {
+          if (name.length >= 3 && ids.length === 1 && headingLower.includes(name)) {
+            matchedProductId = ids[0]
+            break
+          }
+        }
+      }
+    }
+
+    if (matchedProductId) {
+      if (!productImageLines.has(matchedProductId)) {
+        productImageLines.set(matchedProductId, [])
+      }
+      productImageLines.get(matchedProductId)!.push(i)
+    }
+  }
+
+  const linesToRemove = new Set<number>()
+  let removedCount = 0
+
+  for (const [productId, indices] of productImageLines) {
+    if (indices.length > 1) {
+      for (let k = 1; k < indices.length; k++) {
+        linesToRemove.add(indices[k])
+        const lineContent = lines[indices[k]].trim().substring(0, 100)
+        debugLog(
+          'finalAntiDuplicateSweep:removed',
+          `productId=${productId} lineIndex=${indices[k]} content="${lineContent}"`,
+        )
+        removedCount++
+      }
+    }
+  }
+
+  if (removedCount === 0) {
+    debugLog('finalAntiDuplicateSweep', 'no duplicates found')
+    return content
+  }
+
+  debugLog(
+    'finalAntiDuplicateSweep',
+    `removedCount=${removedCount} products=[${[...productImageLines.entries()]
+      .filter(([, v]) => v.length > 1)
+      .map(([k]) => k)
+      .join(', ')}]`,
+  )
+  const result = lines.filter((_, i) => !linesToRemove.has(i))
+  return result.join('\n').replace(/\n{3,}/g, '\n\n')
 }
 
 export function processProductImages(content: string, products: ProductImageInfo[]): string {
@@ -386,11 +547,18 @@ export function processProductImages(content: string, products: ProductImageInfo
       if (processedPlaceholderIds.has(uuid)) {
         debugLog(
           'processProductImages:placeholderDuplicateRemoved',
-          `type=HTML_COMMENT uuid=${uuid} reason="duplicate placeholder for same product"`,
+          `type=HTML_COMMENT uuid=${uuid} reason="duplicate placeholder"`,
         )
         return ''
       }
       processedPlaceholderIds.add(uuid)
+      if (insertedIds.has(uuid)) {
+        debugLog(
+          'processProductImages:placeholderAlreadyInserted',
+          `type=HTML_COMMENT uuid=${uuid} reason="product already in insertedIds from pre-scan"`,
+        )
+        return ''
+      }
       const product = productMap.get(uuid)
       if (!product || !product.image_url) {
         debugLog(
@@ -403,7 +571,7 @@ export function processProductImages(content: string, products: ProductImageInfo
       if (existingNormalizedUrls.has(normalizedOriginal)) {
         debugLog(
           'processProductImages:placeholderImageAlreadyPresent',
-          `type=HTML_COMMENT uuid=${uuid} reason="image already in content" normalizedUrl=${normalizedOriginal.substring(0, 80)}`,
+          `type=HTML_COMMENT uuid=${uuid} reason="image already in content"`,
         )
         insertedIds.add(uuid)
         return ''
@@ -437,11 +605,18 @@ export function processProductImages(content: string, products: ProductImageInfo
       if (processedPlaceholderIds.has(uuid)) {
         debugLog(
           'processProductImages:placeholderDuplicateRemoved',
-          `type=PRODUCT_TAG uuid=${uuid} reason="duplicate placeholder for same product"`,
+          `type=PRODUCT_TAG uuid=${uuid} reason="duplicate placeholder"`,
         )
         return ''
       }
       processedPlaceholderIds.add(uuid)
+      if (insertedIds.has(uuid)) {
+        debugLog(
+          'processProductImages:placeholderAlreadyInserted',
+          `type=PRODUCT_TAG uuid=${uuid} reason="product already in insertedIds from pre-scan"`,
+        )
+        return ''
+      }
       const product = productMap.get(uuid)
       if (!product || !product.image_url) {
         debugLog(
@@ -454,7 +629,7 @@ export function processProductImages(content: string, products: ProductImageInfo
       if (existingNormalizedUrls.has(normalizedOriginal)) {
         debugLog(
           'processProductImages:placeholderImageAlreadyPresent',
-          `type=PRODUCT_TAG uuid=${uuid} reason="image already in content" normalizedUrl=${normalizedOriginal.substring(0, 80)}`,
+          `type=PRODUCT_TAG uuid=${uuid} reason="image already in content"`,
         )
         insertedIds.add(uuid)
         return ''
@@ -503,7 +678,7 @@ export function processProductImages(content: string, products: ProductImageInfo
       const proxied = getProxiedImageUrl(p.image_url) || p.image_url
       debugLog(
         'processProductImages:imageNotInserted',
-        `name="${p.name}" id=${p.id} originalUrl=${p.image_url} proxiedUrl=${proxied} reason="not matched in content or already inserted via placeholder"`,
+        `name="${p.name}" id=${p.id} originalUrl=${p.image_url} proxiedUrl=${proxied}`,
       )
     }
   }
@@ -527,6 +702,14 @@ export function processProductImages(content: string, products: ProductImageInfo
 
   processed = removeOrphanBoldMarkers(processed)
   debugLog('processProductImages:removeOrphanBoldMarkers', `outputLen=${safeLen(processed)}`)
+
+  const imgCountBeforeSweep = (processed.match(/!\[/g) || []).length
+  processed = finalAntiDuplicateSweep(processed, dedupedProducts)
+  const imgCountAfterSweep = (processed.match(/!\[/g) || []).length
+  debugLog(
+    'processProductImages:finalAntiDuplicateSweep',
+    `beforeImgs=${imgCountBeforeSweep} afterImgs=${imgCountAfterSweep} removed=${imgCountBeforeSweep - imgCountAfterSweep}`,
+  )
 
   const finalImgCount = (processed.match(/!\[/g) || []).length
   const finalH3Count = (processed.match(/^###\s/gm) || []).length

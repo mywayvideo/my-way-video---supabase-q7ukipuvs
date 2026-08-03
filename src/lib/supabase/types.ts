@@ -1816,6 +1816,15 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      batch_recalculate_price_brl: {
+        Args: {
+          p_all?: boolean
+          p_category_ids?: string[]
+          p_manufacturer_ids?: string[]
+          p_product_ids?: string[]
+        }
+        Returns: number
+      }
       check_is_admin: { Args: never; Returns: boolean }
       check_legacy_user: {
         Args: { email_input: string }

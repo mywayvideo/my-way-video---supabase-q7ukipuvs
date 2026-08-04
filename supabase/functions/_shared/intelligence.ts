@@ -246,8 +246,10 @@ function buildMessages(
 
       userContent += `- [PRODUCT:${p.id}] ${p.name}`
       if (usdPrice) userContent += ` | Preço USA (retirada Miami): ${usdPrice}`
-      if (natPrice) userContent += ` | Preço Brasil (entrega SP): ${natPrice}`
-      if (brlRefPrice) userContent += ` | Preço Brasil (referência USD): ${brlRefPrice}`
+      if (natPrice)
+        userContent += ` | [INTERNO - não exibir a menos que solicitado] Preço Brasil: ${natPrice}`
+      if (brlRefPrice)
+        userContent += ` | [INTERNO - não exibir a menos que solicitado] Ref. Brasil: ${brlRefPrice}`
     }
   }
 

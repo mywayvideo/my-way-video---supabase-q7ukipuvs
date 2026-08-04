@@ -1864,6 +1864,10 @@ export type Database = {
       execute_ai_search_v3: { Args: { search_term: string }; Returns: Json }
       get_current_customer_id: { Args: never; Returns: string }
       is_admin: { Args: never; Returns: boolean }
+      search_market_intelligence: {
+        Args: { search_term: string }
+        Returns: Json
+      }
       search_products_v2: {
         Args: { boost_multiplier?: number; search_term: string }
         Returns: {

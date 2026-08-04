@@ -206,6 +206,14 @@ function buildSystemPrompt(context: GenerateContext): string {
     `INSTRUÇÃO ESTRUTURAL FIXA (NÃO REMOVER): Na seção "Análise por Produto", insira imediatamente após cada título de produto o marcador <!-- PRODUCT_IMAGE:UUID --> usando o UUID exato do token [PRODUCT:UUID] fornecido no contexto. Na seção "Comparativo Técnico", insira o mesmo marcador <!-- PRODUCT_IMAGE:UUID --> dentro da célula correspondente a cada produto na tabela. O UUID deve ser o identificador exato fornecido nos tokens [PRODUCT:UUID].`,
   )
 
+  parts.push(
+    `REGRA DE PREÇO (OBRIGATÓRIO): O preço padrão a ser exibido é sempre o preço USA (retirada em Miami), em dólares (US$). O preço entregue no Brasil / preço nacionalizado (valores em reais — R$) NÃO deve ser informado ao usuário a menos que ele solicite explicitamente o preço no Brasil, o preço com entrega, o preço nacionalizado ou o preço em reais. Nunca exiba valores em BRL por iniciativa própria.`,
+  )
+
+  parts.push(
+    `REGRA DE IDENTIFICADORES (OBRIGATÓRIO): IDs de produtos, UUIDs e tokens internos como [PRODUCT:UUID] NUNCA devem aparecer na resposta visível ao usuário — nem em texto, títulos, listas, tabelas ou qualquer outra seção. Apenas o nome limpo do produto deve ser exibido. Remova completamente qualquer UUID ou token interno do texto final apresentado ao usuário.`,
+  )
+
   return parts.filter(Boolean).join('\n\n')
 }
 

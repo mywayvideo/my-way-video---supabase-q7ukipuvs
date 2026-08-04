@@ -125,7 +125,7 @@ function buildRequestBody(
     const userMsgs = messages.filter((m) => m.role !== 'system')
     return {
       model: config.model,
-      max_tokens: 2000,
+      max_tokens: 4000,
       temperature,
       system: systemMsg?.content ?? '',
       messages: userMsgs.map((m) => ({
@@ -138,7 +138,7 @@ function buildRequestBody(
     model: config.model,
     messages,
     temperature,
-    max_tokens: 2000,
+    max_tokens: 4000,
   }
 }
 
@@ -373,7 +373,7 @@ async function _callAIProvider(
           model: 'gpt-4o-mini',
           messages,
           temperature,
-          max_tokens: 2000,
+          max_tokens: 4000,
         }),
       })
       if (response.ok) {

@@ -19,6 +19,87 @@ export interface AIResult {
   full_search_results?: any[]
 }
 
+const STOP_WORDS = new Set([
+  'camera',
+  'cinema',
+  'body',
+  'lens',
+  'lenses',
+  'sony',
+  'canon',
+  'nikon',
+  'panasonic',
+  'blackmagic',
+  'fuji',
+  'fujifilm',
+  'lumix',
+  'alpha',
+  'mirrorless',
+  'dslr',
+  'full',
+  'frame',
+  'pro',
+  'professional',
+  'kit',
+  'set',
+  'series',
+  'model',
+  'modelo',
+  'produto',
+  'product',
+  'the',
+  'and',
+  'for',
+  'with',
+  'camera',
+  'video',
+  'audio',
+  'light',
+  'lighting',
+  'tripod',
+  'microphone',
+  'mic',
+  'drone',
+  'gimbal',
+  'monitor',
+  'recorder',
+  'cable',
+  'cabo',
+])
+
+function normalizeText(text: string): string {
+  return text
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[()]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function getSignificantWords(productName: string): string[] {
+  const normalized = normalizeText(productName)
+  const words = normalized.split(' ').filter(Boolean)
+  return words.filter((w) => w.length > 3 && !STOP_WORDS.has(w))
+}
+
+function isContinuationQuestion(query: string, productName: string): boolean {
+  if (!productName) return false
+  const normalizedQuery = normalizeText(query)
+  const significantWords = getSignificantWords(productName)
+
+  if (significantWords.length === 0) return false
+
+  let matchCount = 0
+  for (const word of significantWords) {
+    if (normalizedQuery.includes(word)) {
+      matchCount++
+    }
+  }
+
+  return matchCount < 2
+}
+
 const fetchProductDetails = async (ids: string[]): Promise<any[]> => {
   if (!ids || ids.length === 0) return []
   try {
@@ -49,6 +130,7 @@ export function useAiSearch() {
   )
   const abortControllerRef = useRef<AbortController | null>(null)
   const recentProductIdsRef = useRef<string[]>([])
+  const lastReferencedProductNameRef = useRef<string>('')
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const { toast } = useToast()
 
@@ -87,6 +169,14 @@ export function useAiSearch() {
       setResults(null)
 
       try {
+        let finalQuery = query
+
+        if (!currentProductId && lastReferencedProductNameRef.current) {
+          if (isContinuationQuestion(query, lastReferencedProductNameRef.current)) {
+            finalQuery = `${query} (considerando: ${lastReferencedProductNameRef.current})`
+          }
+        }
+
         const functionName = 'ai-search'
         const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${functionName}`
 
@@ -97,7 +187,7 @@ export function useAiSearch() {
             Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
           },
           body: JSON.stringify({
-            query,
+            query: finalQuery,
             currentProductId,
             session_id: sessionIdRef.current,
             ...(currentProductId ? {} : { recentProductIds: recentProductIdsRef.current }),
@@ -112,7 +202,6 @@ export function useAiSearch() {
 
         const data = await response.json()
 
-        // Ensure content is always a plain string (not a JSON object string)
         let contentStr = data.content
         if (typeof contentStr === 'object' && contentStr !== null) {
           contentStr = contentStr.content || contentStr.message || JSON.stringify(contentStr)
@@ -124,12 +213,11 @@ export function useAiSearch() {
               if (typeof parsed.content === 'string') contentStr = parsed.content
               else if (typeof parsed.message === 'string') contentStr = parsed.message
             } catch {
-              // Keep original if parse fails
+              /* intentionally ignored */
             }
           }
         }
 
-        // ← ADICIONE ESTA LINHA:
         contentStr = typeof contentStr === 'string' ? contentStr.replace(/\\n/g, '\n') : contentStr
 
         const rawRefs = Array.isArray(data.referenced_internal_products)
@@ -162,7 +250,6 @@ export function useAiSearch() {
           }
         }
 
-        // Ensure manufacturer mapping matches what frontend expects
         enrichedProducts = enrichedProducts.map((p: any) => ({
           ...p,
           image_url: p.image_url || p.imageUrl,
@@ -173,6 +260,13 @@ export function useAiSearch() {
               ? p.manufacturer.name
               : p.manufacturer),
         }))
+
+        if (enrichedProducts.length > 0) {
+          const firstProduct = enrichedProducts[0]
+          if (firstProduct?.name) {
+            lastReferencedProductNameRef.current = firstProduct.name
+          }
+        }
 
         setResults({
           ...data,

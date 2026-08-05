@@ -205,6 +205,10 @@ Deno.serve(async (req: Request) => {
     const isHPMode = !lastReferencedProductId
     let query = originalQuery
 
+    const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? ''
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+    const supabase = createClient(supabaseUrl, supabaseServiceKey)
+
     console.log(`[ai-search][execution] execution_id=${execution_id} query="${originalQuery}"`)
 
     if (isHPMode && recentProductIds.length > 0) {
@@ -235,10 +239,6 @@ Deno.serve(async (req: Request) => {
         console.error('[ai-search] recentProductIds fetch failed:', err?.message || err)
       }
     }
-
-    const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? ''
-    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-    const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
     let history: any[] = []
     if (session_id) {

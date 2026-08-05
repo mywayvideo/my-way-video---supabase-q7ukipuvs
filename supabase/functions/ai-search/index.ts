@@ -219,20 +219,104 @@ Deno.serve(async (req: Request) => {
           .in('id', recentProductIds.slice(0, 5))
 
         if (!recentError && recentProducts && recentProducts.length > 0) {
-          const contextParts = recentProducts.map((p: any) => {
-            const parts: string[] = [p.name]
-            if (p.category) parts.push(p.category)
-            const mfr = p.manufacturer?.name
-            if (mfr) parts.push(mfr)
-            return parts.join(', ')
-          })
-          const contextString = contextParts.join('; ')
+          const lastProductName = recentProducts[0]?.name || ''
 
-          if (checkRecentProductsRelevance(originalQuery, recentProducts)) {
-            query = `${originalQuery} (considerando produtos: ${contextString})`
-            console.log(`[ai-search] recent products context injected: "${contextString}"`)
+          const ptPronouns = [
+            'esse',
+            'essa',
+            'este',
+            'esta',
+            'nesse',
+            'nessa',
+            'ele',
+            'ela',
+            'disso',
+            'dessa',
+            'aquilo',
+            'aquela',
+          ]
+          const enPronouns = ['this', 'that', 'it', 'its', 'these', 'those', 'this one', 'that one']
+          const allPronouns = [...ptPronouns, ...enPronouns]
+          const lowerQuery = originalQuery.toLowerCase()
+          const hasPronoun = allPronouns.some((p) => {
+            return new RegExp(`\\b${p.replace(/\s+/g, '\\s+')}\\b`, 'i').test(lowerQuery)
+          })
+
+          if (hasPronoun && lastProductName) {
+            const genericNouns = [
+              'câmera',
+              'camera',
+              'produto',
+              'product',
+              'equipamento',
+              'equipment',
+              'dispositivo',
+              'device',
+              'item',
+              'modelo',
+              'model',
+              'sistema',
+              'system',
+              'aparelho',
+              'unidade',
+              'unit',
+              'kit',
+              'máquina',
+              'maquina',
+              'lente',
+              'lens',
+              'microfone',
+              'microphone',
+              'iluminador',
+              'light',
+              'tripé',
+              'tripod',
+              'gravador',
+              'recorder',
+              'monitor',
+              'switcher',
+              'acessório',
+              'accessory',
+            ]
+
+            let modifiedQuery = originalQuery
+            for (const pronoun of allPronouns) {
+              const pronounEscaped = pronoun.replace(/\s+/g, '\\s+')
+              for (const noun of genericNouns) {
+                const nounEscaped = noun.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+                const pattern = new RegExp(
+                  `\\b${pronounEscaped}\\s+(?:d[aeo]s?\\s+)?${nounEscaped}\\b`,
+                  'gi',
+                )
+                modifiedQuery = modifiedQuery.replace(pattern, lastProductName)
+              }
+              const standalonePattern = new RegExp(
+                `\\b${pronounEscaped}\\b(?![\\s\\w]*(?:câmera|camera|produto|product|equipamento|equipment|dispositivo|device|item|modelo|model|sistema|system|aparelho|unidade|unit|kit|máquina|maquina|lente|lens|microfone|microphone|iluminador|light|tripé|tripod|gravador|recorder|monitor|switcher|acessório|accessory))`,
+                'gi',
+              )
+              modifiedQuery = modifiedQuery.replace(standalonePattern, lastProductName)
+            }
+
+            query = modifiedQuery
+            console.log(
+              `[ai-search] pronoun replacement: original="${originalQuery}" modified="${query}" productName="${lastProductName}"`,
+            )
           } else {
-            console.log('[ai-search] recent products context skipped (no relevance)')
+            const contextParts = recentProducts.map((p: any) => {
+              const parts: string[] = [p.name]
+              if (p.category) parts.push(p.category)
+              const mfr = p.manufacturer?.name
+              if (mfr) parts.push(mfr)
+              return parts.join(', ')
+            })
+            const contextString = contextParts.join('; ')
+
+            if (checkRecentProductsRelevance(originalQuery, recentProducts)) {
+              query = `${originalQuery} (considerando produtos: ${contextString})`
+              console.log(`[ai-search] recent products context injected: "${contextString}"`)
+            } else {
+              console.log('[ai-search] recent products context skipped (no relevance)')
+            }
           }
         }
       } catch (err: any) {

@@ -142,7 +142,9 @@ export function useAiSearch() {
         const aiRefIds = Array.isArray(data.ai_referenced_products)
           ? data.ai_referenced_products.filter((id: any) => typeof id === 'string')
           : []
-        recentProductIdsRef.current = aiRefIds.slice(0, 5)
+        if (aiRefIds.length > 0) {
+          recentProductIdsRef.current = aiRefIds.slice(0, 5)
+        }
 
         const fullSearchIds = Array.isArray(data.full_search_results)
           ? data.full_search_results.map((p: any) => p?.id).filter(Boolean)
@@ -213,7 +215,6 @@ export function useAiSearch() {
   const clearResults = useCallback(() => {
     setResults(null)
     setError(null)
-    recentProductIdsRef.current = []
   }, [])
 
   return {

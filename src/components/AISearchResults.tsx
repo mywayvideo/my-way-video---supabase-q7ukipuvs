@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { useCart } from '@/hooks/useCart'
 import MarkdownWithTables from '@/components/MarkdownWithTables'
-import { ReferencedProducts } from '@/components/ReferencedProducts'
+
 import { AILoader } from '@/components/AI/AILoader'
 import { processProductImages, type ProductImageInfo } from '@/utils/productImageProcessor'
 import { getProxiedImageUrl } from '@/lib/image-proxy'
@@ -211,20 +211,8 @@ export function AISearchResults({
         {result.is_intermediate ? (
           <AILoader size="default" />
         ) : (
-          <>
-            <MarkdownWithTables markdown={processedContent} />
-            {Array.isArray(result.referenced_internal_products) &&
-              result.referenced_internal_products.length > 0 && (
-                <div className="mt-4">
-                  <ReferencedProducts
-                    products={result.referenced_internal_products.filter(
-                      (item: any) => typeof item === 'object' && item !== null,
-                    )}
-                  />
-                </div>
-              )}
-          </>
-        )}
+          <MarkdownWithTables markdown={processedContent} />
+        </>        )}
       </div>
 
       {result.should_show_whatsapp_button && !result.is_intermediate && (

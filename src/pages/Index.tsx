@@ -18,11 +18,17 @@ export default function Index() {
   const featuredDiscounts = useMultipleProductDiscounts(featuredProducts)
 
   const section1Ids = useMemo(() => {
-    const aiRefs = (results?.ai_referenced_products || []) as any[]
-    return aiRefs
-      .map((item: any) => (typeof item === 'object' && item !== null ? item.id : item))
-      .filter((id: any) => typeof id === 'string' && id.trim() !== '')
-  }, [results?.ai_referenced_products])
+    if (!results?.content) return []
+    const markerRegex = /<!--\s*PRODUCT_IMAGE:([0-9a-fA-F-]{36})\s*-->/g
+    const ids: string[] = []
+    let match: RegExpExecArray | null
+    while ((match = markerRegex.exec(results.content)) !== null) {
+      if (match[1] && !ids.includes(match[1])) {
+        ids.push(match[1])
+      }
+    }
+    return ids
+  }, [results?.content])
 
   const section2Products = useMemo(() => {
     if (!results?.full_search_results || !Array.isArray(results.full_search_results)) return []

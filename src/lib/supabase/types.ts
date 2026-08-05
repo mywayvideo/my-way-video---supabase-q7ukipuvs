@@ -1025,6 +1025,164 @@ export type Database = {
           },
         ]
       }
+      imp_sim_quote_items: {
+        Row: {
+          cif_usd: number | null
+          cofins_rate: number | null
+          cofins_val: number | null
+          custom_val_brl: number | null
+          description: string
+          fob_usd: number | null
+          gross_weight: number | null
+          has_st: boolean | null
+          icms_base: number | null
+          icms_rate: number | null
+          icms_val: number | null
+          id: string
+          ii_rate: number | null
+          ii_val: number | null
+          ipi_rate: number | null
+          ipi_val: number | null
+          mva_rate: number | null
+          ncm: string | null
+          net_weight: number | null
+          pis_rate: number | null
+          pis_val: number | null
+          proportional_cost: number | null
+          quantity: number | null
+          quote_id: string
+          sales_price: number | null
+          siscomex_fee: number | null
+          st_val: number | null
+          total_item_cost: number | null
+          unit: string | null
+          unit_item_cost: number | null
+        }
+        Insert: {
+          cif_usd?: number | null
+          cofins_rate?: number | null
+          cofins_val?: number | null
+          custom_val_brl?: number | null
+          description: string
+          fob_usd?: number | null
+          gross_weight?: number | null
+          has_st?: boolean | null
+          icms_base?: number | null
+          icms_rate?: number | null
+          icms_val?: number | null
+          id?: string
+          ii_rate?: number | null
+          ii_val?: number | null
+          ipi_rate?: number | null
+          ipi_val?: number | null
+          mva_rate?: number | null
+          ncm?: string | null
+          net_weight?: number | null
+          pis_rate?: number | null
+          pis_val?: number | null
+          proportional_cost?: number | null
+          quantity?: number | null
+          quote_id: string
+          sales_price?: number | null
+          siscomex_fee?: number | null
+          st_val?: number | null
+          total_item_cost?: number | null
+          unit?: string | null
+          unit_item_cost?: number | null
+        }
+        Update: {
+          cif_usd?: number | null
+          cofins_rate?: number | null
+          cofins_val?: number | null
+          custom_val_brl?: number | null
+          description?: string
+          fob_usd?: number | null
+          gross_weight?: number | null
+          has_st?: boolean | null
+          icms_base?: number | null
+          icms_rate?: number | null
+          icms_val?: number | null
+          id?: string
+          ii_rate?: number | null
+          ii_val?: number | null
+          ipi_rate?: number | null
+          ipi_val?: number | null
+          mva_rate?: number | null
+          ncm?: string | null
+          net_weight?: number | null
+          pis_rate?: number | null
+          pis_val?: number | null
+          proportional_cost?: number | null
+          quantity?: number | null
+          quote_id?: string
+          sales_price?: number | null
+          siscomex_fee?: number | null
+          st_val?: number | null
+          total_item_cost?: number | null
+          unit?: string | null
+          unit_item_cost?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'imp_sim_quote_items_quote_id_fkey'
+            columns: ['quote_id']
+            isOneToOne: false
+            referencedRelation: 'imp_sim_quotes'
+            referencedColumns: ['id']
+          },
+        ]
+      }
+      imp_sim_quotes: {
+        Row: {
+          additions_count: number | null
+          created_at: string
+          customer_name: string
+          dispatcher_fee: number | null
+          exchange_rate: number
+          icms_rate: number
+          id: string
+          markup_rate: number
+          origin_expenses: number | null
+          storage_period: number | null
+          total_cost: number
+          total_sales_value: number
+          total_taxes: number
+          user_id: string | null
+        }
+        Insert: {
+          additions_count?: number | null
+          created_at?: string
+          customer_name: string
+          dispatcher_fee?: number | null
+          exchange_rate?: number
+          icms_rate?: number
+          id?: string
+          markup_rate?: number
+          origin_expenses?: number | null
+          storage_period?: number | null
+          total_cost?: number
+          total_sales_value?: number
+          total_taxes?: number
+          user_id?: string | null
+        }
+        Update: {
+          additions_count?: number | null
+          created_at?: string
+          customer_name?: string
+          dispatcher_fee?: number | null
+          exchange_rate?: number
+          icms_rate?: number
+          id?: string
+          markup_rate?: number
+          origin_expenses?: number | null
+          storage_period?: number | null
+          total_cost?: number
+          total_sales_value?: number
+          total_taxes?: number
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       manufacturers: {
         Row: {
           created_at: string
@@ -1772,6 +1930,42 @@ export type Database = {
           customer_id?: string
           id?: string
           updated_at?: string | null
+        }
+        Relationships: []
+      }
+      simulations: {
+        Row: {
+          created_at: string
+          description: string | null
+          id: string
+          is_preset: boolean | null
+          items: Json
+          name: string
+          parameters: Json
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          is_preset?: boolean | null
+          items?: Json
+          name: string
+          parameters?: Json
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          is_preset?: boolean | null
+          items?: Json
+          name?: string
+          parameters?: Json
+          updated_at?: string
+          user_id?: string | null
         }
         Relationships: []
       }

@@ -616,6 +616,9 @@ Deno.serve(async (req: Request) => {
       'product',
       'features',
       'accessory',
+      'pricing',
+      'recommendation',
+      'compatibility',
     ]
 
     // ── Stage C: Search Products ──
@@ -1355,6 +1358,18 @@ Deno.serve(async (req: Request) => {
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 },
       )
     }
+
+    return new Response(
+      JSON.stringify({
+        content: 'Não encontrei resultados para sua busca. Tente reformular sua pergunta.',
+        confidence_level: 'low',
+        referenced_internal_products: [],
+        should_show_whatsapp_button: false,
+        ai_referenced_count: 0,
+        full_search_results: [],
+      }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 },
+    )
   } catch (error: any) {
     console.error('[ERRO GLOBAL]', error)
     return new Response(

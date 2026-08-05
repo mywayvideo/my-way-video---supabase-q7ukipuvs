@@ -426,11 +426,15 @@ const parseMarkdown = (lines: string[]): React.ReactNode[] => {
 
       const listKey = `list-${currentI}`
       const listElement = isOrdered ? (
-        <ol key={listKey} style={{ margin: '0.5em 0', paddingLeft: '1.5em' }}>
+        <ol
+          key={listKey}
+          className="list-decimal"
+          style={{ margin: '0.5em 0', paddingLeft: '1.5em' }}
+        >
           {listItems}
         </ol>
       ) : (
-        <ul key={listKey} style={{ margin: '0.5em 0', paddingLeft: '1.5em' }}>
+        <ul key={listKey} className="list-disc" style={{ margin: '0.5em 0', paddingLeft: '1.5em' }}>
           {listItems}
         </ul>
       )

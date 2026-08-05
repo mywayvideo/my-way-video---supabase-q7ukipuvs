@@ -61,6 +61,28 @@ export function normalizeProductName(name: string): string {
   return normalized
 }
 
+function hasColorVariants(product: ProductImageInfo, allProducts: ProductImageInfo[]): boolean {
+  if (!product.name) return false
+  const normalized = normalizeProductName(product.name)
+  if (normalized === product.name) return false
+  return allProducts.some(
+    (p) =>
+      p.id !== product.id &&
+      p.name &&
+      normalizeProductName(p.name) === normalized &&
+      p.name !== normalized,
+  )
+}
+
+function buildSearchRegex(term: string): RegExp {
+  const escaped = escapeRegex(term)
+  const lastChar = term[term.length - 1]
+  if (/[a-zA-Z0-9_]/.test(lastChar)) {
+    return new RegExp(`\\b${escaped}\\b`, 'i')
+  }
+  return new RegExp(`\\b${escaped}`, 'i')
+}
+
 const HEADING_RE = /^#{1,6}\s+/
 const IMG_TEST = /!\[[^\]]*\]\((?:[^()]|\([^()]*\))*\)/
 const IMG_URL_RE = /!\[[^\]]*\]\(([^)]+)\)/
@@ -84,10 +106,11 @@ function scanExistingProductImages(
     const displayName = normalizeProductName(product.name) || product.name
     if (displayName.length < 3) continue
 
+    const hasVariants = hasColorVariants(product, products)
     const searchTerms: string[] = [product.name]
-    if (displayName !== product.name) searchTerms.push(displayName)
+    if (!hasVariants && displayName !== product.name) searchTerms.push(displayName)
     const modelCode = extractModelCode(product.name)
-    if (modelCode && modelCode.toLowerCase() !== displayName.toLowerCase()) {
+    if (!hasVariants && modelCode && modelCode.toLowerCase() !== displayName.toLowerCase()) {
       searchTerms.push(modelCode)
     }
 
@@ -95,8 +118,7 @@ function scanExistingProductImages(
     for (const term of searchTerms) {
       if (found) break
       if (!term || term.length < 3) continue
-      const escaped = escapeRegex(term)
-      const regex = new RegExp(`\\b${escaped}\\b`, 'i')
+      const regex = buildSearchRegex(term)
       let inCodeBlock = false
       for (let i = 0; i < lines.length; i++) {
         const trimmed = lines[i].trim()
@@ -156,8 +178,7 @@ function hasImageNearby(lines: string[], centerIdx: number, radius: number): boo
 
 function countSectionsMatchingName(lines: string[], name: string): number {
   if (!name || name.length < 3) return 0
-  const escaped = escapeRegex(name)
-  const regex = new RegExp(`\\b${escaped}\\b`, 'i')
+  const regex = buildSearchRegex(name)
   let count = 0
   let inCodeBlock = false
   for (const line of lines) {
@@ -190,8 +211,7 @@ function matchAndInsert(
 
   for (const term of searchTerms) {
     if (!term || term.length < 3) continue
-    const escaped = escapeRegex(term)
-    const regex = new RegExp(`\\b${escaped}\\b`, 'i')
+    const regex = buildSearchRegex(term)
     let inCodeBlock = false
 
     for (let i = 0; i < lines.length; i++) {
@@ -285,7 +305,10 @@ function insertImagesByName(
       continue
     }
 
-    const displayName = normalizeProductName(product.name) || product.name
+    const hasVariants = hasColorVariants(product, products)
+    const displayName = hasVariants
+      ? product.name
+      : normalizeProductName(product.name) || product.name
 
     debugLog(
       'insertImagesByName:normalizedName',
@@ -300,7 +323,7 @@ function insertImagesByName(
       continue
     }
 
-    if (displayName !== product.name) {
+    if (!hasVariants && displayName !== product.name) {
       const sectionCount = countSectionsMatchingName(lines, displayName)
       if (sectionCount > 1) {
         debugLog(
@@ -327,9 +350,9 @@ function insertImagesByName(
     }
 
     const searchTerms: string[] = [product.name]
-    if (displayName !== product.name) searchTerms.push(displayName)
+    if (!hasVariants && displayName !== product.name) searchTerms.push(displayName)
     const modelCode = extractModelCode(product.name)
-    if (modelCode && modelCode.toLowerCase() !== displayName.toLowerCase()) {
+    if (!hasVariants && modelCode && modelCode.toLowerCase() !== displayName.toLowerCase()) {
       searchTerms.push(modelCode)
     }
 

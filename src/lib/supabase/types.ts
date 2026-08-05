@@ -1025,6 +1025,78 @@ export type Database = {
           },
         ]
       }
+      imp_sim_customers: {
+        Row: {
+          company_name: string | null
+          cpf: string | null
+          created_at: string
+          email: string | null
+          id: string
+          name: string
+          phone: string | null
+          source_site_customer_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          company_name?: string | null
+          cpf?: string | null
+          created_at?: string
+          email?: string | null
+          id?: string
+          name: string
+          phone?: string | null
+          source_site_customer_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          company_name?: string | null
+          cpf?: string | null
+          created_at?: string
+          email?: string | null
+          id?: string
+          name?: string
+          phone?: string | null
+          source_site_customer_id?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      imp_sim_products: {
+        Row: {
+          created_at: string
+          description: string | null
+          id: string
+          name: string
+          ncm: string | null
+          source_site_product_id: string | null
+          updated_at: string
+          value: number | null
+          weight: number | null
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          name: string
+          ncm?: string | null
+          source_site_product_id?: string | null
+          updated_at?: string
+          value?: number | null
+          weight?: number | null
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          name?: string
+          ncm?: string | null
+          source_site_product_id?: string | null
+          updated_at?: string
+          value?: number | null
+          weight?: number | null
+        }
+        Relationships: []
+      }
       imp_sim_quote_items: {
         Row: {
           cif_usd: number | null
@@ -1136,6 +1208,7 @@ export type Database = {
         Row: {
           additions_count: number | null
           created_at: string
+          customer_id: string | null
           customer_name: string
           dispatcher_fee: number | null
           exchange_rate: number
@@ -1152,6 +1225,7 @@ export type Database = {
         Insert: {
           additions_count?: number | null
           created_at?: string
+          customer_id?: string | null
           customer_name: string
           dispatcher_fee?: number | null
           exchange_rate?: number
@@ -1168,6 +1242,7 @@ export type Database = {
         Update: {
           additions_count?: number | null
           created_at?: string
+          customer_id?: string | null
           customer_name?: string
           dispatcher_fee?: number | null
           exchange_rate?: number
@@ -1181,7 +1256,15 @@ export type Database = {
           total_taxes?: number
           user_id?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: 'imp_sim_quotes_customer_id_fkey'
+            columns: ['customer_id']
+            isOneToOne: false
+            referencedRelation: 'imp_sim_customers'
+            referencedColumns: ['id']
+          },
+        ]
       }
       manufacturers: {
         Row: {

@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { useToast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase/client'
+import { safeJsonResponse, SafeFetchError } from '@/lib/safe-fetch'
 
 const AI_SEARCH_TIMEOUT_MS = 60000
 const AI_SEARCH_TIMEOUT_MESSAGE = 'A resposta demorou demais, tente reformular sua busca'
@@ -197,10 +198,14 @@ export function useAiSearch() {
 
         if (!response.ok) {
           const errText = await response.text()
-          throw new Error(`Erro na busca: ${response.statusText} - ${errText}`)
+          throw new Error(
+            errText.trim().startsWith('<')
+              ? 'O serviço de IA está temporariamente indisponível. Tente novamente em instantes.'
+              : `Erro na busca: ${response.statusText} - ${errText.slice(0, 200)}`,
+          )
         }
 
-        const data = await response.json()
+        const data = await safeJsonResponse(response)
 
         let contentStr = data.content
         if (typeof contentStr === 'object' && contentStr !== null) {
@@ -286,10 +291,14 @@ export function useAiSearch() {
           })
         } else {
           console.error('AI Search Error:', err)
-          setError(err.message || 'Ocorreu um erro ao processar sua busca.')
+          const errorMessage =
+            err instanceof SafeFetchError
+              ? err.message
+              : err.message || 'Ocorreu um erro ao processar sua busca.'
+          setError(errorMessage)
           toast({
             title: 'Erro na busca',
-            description: 'Não foi possível completar a análise. Tente novamente.',
+            description: errorMessage,
             variant: 'destructive',
           })
           setResults(null)

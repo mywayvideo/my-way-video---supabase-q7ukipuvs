@@ -1,3 +1,5 @@
+import { safeJsonResponse, SafeFetchError } from '@/lib/safe-fetch'
+
 export interface AISearchResponse {
   success: boolean
   response: string
@@ -21,13 +23,20 @@ export const performAISearch = async (query: string): Promise<{ data: any; error
       const errText = await response.text()
       return {
         data: null,
-        error: new Error(`Erro na busca: ${response.statusText} - ${errText}`),
+        error: new Error(
+          errText.trim().startsWith('<')
+            ? 'O serviço de busca está temporariamente indisponível. Tente novamente em instantes.'
+            : `Erro na busca: ${response.statusText} - ${errText.slice(0, 200)}`,
+        ),
       }
     }
 
-    const data = await response.json()
+    const data = await safeJsonResponse(response)
     return { data, error: null }
   } catch (err: any) {
+    if (err instanceof SafeFetchError) {
+      return { data: null, error: new Error(err.message) }
+    }
     return { data: null, error: err }
   }
 }

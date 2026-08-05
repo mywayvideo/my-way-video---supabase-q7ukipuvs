@@ -212,7 +212,7 @@ export function AISearchResults({
           <AILoader size="default" />
         ) : (
           <MarkdownWithTables markdown={processedContent} />
-        </>        )}
+        )}
       </div>
 
       {result.should_show_whatsapp_button && !result.is_intermediate && (

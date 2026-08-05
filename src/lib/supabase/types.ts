@@ -1266,6 +1266,84 @@ export type Database = {
           },
         ]
       }
+      imp_sim_siscomex_fees: {
+        Row: {
+          created_at: string
+          fee_value_brl: number
+          id: string
+          legal_basis: string
+          max_additions: number | null
+          min_additions: number
+          source: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          fee_value_brl: number
+          id?: string
+          legal_basis?: string
+          max_additions?: number | null
+          min_additions: number
+          source?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          fee_value_brl?: number
+          id?: string
+          legal_basis?: string
+          max_additions?: number | null
+          min_additions?: number
+          source?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      imp_sim_tax_rates: {
+        Row: {
+          cofins_rate: number | null
+          created_at: string
+          has_ex_tarifario: boolean | null
+          id: string
+          ii_rate: number | null
+          ipi_rate: number | null
+          last_updated_at: string
+          legal_basis: Json | null
+          ncm: string
+          pis_rate: number | null
+          source: string | null
+          updated_by_user_id: string | null
+        }
+        Insert: {
+          cofins_rate?: number | null
+          created_at?: string
+          has_ex_tarifario?: boolean | null
+          id?: string
+          ii_rate?: number | null
+          ipi_rate?: number | null
+          last_updated_at?: string
+          legal_basis?: Json | null
+          ncm: string
+          pis_rate?: number | null
+          source?: string | null
+          updated_by_user_id?: string | null
+        }
+        Update: {
+          cofins_rate?: number | null
+          created_at?: string
+          has_ex_tarifario?: boolean | null
+          id?: string
+          ii_rate?: number | null
+          ipi_rate?: number | null
+          last_updated_at?: string
+          legal_basis?: Json | null
+          ncm?: string
+          pis_rate?: number | null
+          source?: string | null
+          updated_by_user_id?: string | null
+        }
+        Relationships: []
+      }
       manufacturers: {
         Row: {
           created_at: string

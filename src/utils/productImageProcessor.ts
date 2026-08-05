@@ -22,39 +22,8 @@ export interface ProductImageInfo {
   id?: string
 }
 
-const COLOR_SUFFIXES = [
-  'white',
-  'black',
-  'red',
-  'blue',
-  'green',
-  'gray',
-  'grey',
-  'silver',
-  'gold',
-  'graphite',
-  'space gray',
-  'space grey',
-  'midnight',
-  'starlight',
-  'rose gold',
-  'titanium',
-  'natural',
-  'purple',
-  'pink',
-  'orange',
-  'yellow',
-  'brown',
-  'beige',
-  'navy',
-  'charcoal',
-  'bronze',
-  'copper',
-]
-
 export function normalizeProductName(name: string): string {
-  const pattern = COLOR_SUFFIXES.join('|')
-  const normalized = name.replace(new RegExp(`\\s*\\((?:${pattern})\\)\\s*`, 'gi'), '').trim()
+  const normalized = name.replace(/(\s*\([^)]*\))+\s*$/i, '').trim()
   if (normalized !== name) {
     debugLog('normalizeProductName', `"${name}" → "${normalized}"`)
   }
@@ -72,6 +41,20 @@ function hasColorVariants(product: ProductImageInfo, allProducts: ProductImageIn
       normalizeProductName(p.name) === normalized &&
       p.name !== normalized,
   )
+}
+
+function isValidImageUrl(url: string | null | undefined): boolean {
+  if (!url || typeof url !== 'string') return false
+  const trimmed = url.trim()
+  if (!trimmed) return false
+  try {
+    const parsed = new URL(trimmed)
+    if (!['http:', 'https:'].includes(parsed.protocol)) return false
+    if (!parsed.hostname) return false
+    return true
+  } catch {
+    return false
+  }
 }
 
 function buildSearchRegex(term: string): RegExp {
@@ -267,7 +250,10 @@ function insertImagesByName(
   existingUrls: Set<string>,
 ): string {
   const eligible = products
-    .filter((p) => p?.id && p?.name && p?.image_url && !insertedIds.has(p.id))
+    .filter(
+      (p) =>
+        p?.id && p?.name && p?.image_url && isValidImageUrl(p.image_url) && !insertedIds.has(p.id),
+    )
     .sort((a, b) => {
       const aName = normalizeProductName(a.name) || a.name
       const bName = normalizeProductName(b.name) || b.name
@@ -396,19 +382,27 @@ function finalAntiDuplicateSweep(content: string, products: ProductImageInfo[]):
 
   const fullNameToProductId = new Map<string, string>()
   const normalizedNameToProductIds = new Map<string, string[]>()
+  const productIdToNormalizedName = new Map<string, string>()
   for (const p of products) {
     if (!p?.id || !p?.name) continue
     fullNameToProductId.set(p.name.toLowerCase(), p.id)
     const normalized = normalizeProductName(p.name) || p.name
-    if (!normalizedNameToProductIds.has(normalized.toLowerCase())) {
-      normalizedNameToProductIds.set(normalized.toLowerCase(), [])
+    const normLower = normalized.toLowerCase()
+    if (!normalizedNameToProductIds.has(normLower)) {
+      normalizedNameToProductIds.set(normLower, [])
     }
-    normalizedNameToProductIds.get(normalized.toLowerCase())!.push(p.id)
+    normalizedNameToProductIds.get(normLower)!.push(p.id)
+    productIdToNormalizedName.set(p.id, normLower)
   }
 
   const productImageLines = new Map<string, number[]>()
+  const linesToRemove = new Set<number>()
+  let removedCount = 0
   let inCodeBlock = false
   let lastHeadingText = ''
+  const sectionSeenNormalized = new Set<string>()
+  let sectionHasValidImage = false
+  let sectionIndisponivelLines: number[] = []
 
   for (let i = 0; i < lines.length; i++) {
     const trimmed = lines[i].trim()
@@ -420,6 +414,9 @@ function finalAntiDuplicateSweep(content: string, products: ProductImageInfo[]):
 
     if (isTitleLine(trimmed)) {
       lastHeadingText = trimmed
+      sectionSeenNormalized.clear()
+      sectionHasValidImage = false
+      sectionIndisponivelLines = []
     }
 
     if (trimmed.startsWith('|')) continue
@@ -440,36 +437,106 @@ function finalAntiDuplicateSweep(content: string, products: ProductImageInfo[]):
 
     if (!matchedProductId && lastHeadingText) {
       const headingLower = lastHeadingText.toLowerCase()
+      const headingClean = headingLower
+        .replace(/^#{1,6}\s+/, '')
+        .replace(/^\*\*|\*\*$/g, '')
+        .trim()
       for (const [name, id] of fullNameToProductId) {
-        if (name.length >= 3 && headingLower.includes(name)) {
+        if (name.length >= 3 && (headingLower.includes(name) || headingClean.includes(name))) {
           matchedProductId = id
           break
         }
       }
       if (!matchedProductId) {
         for (const [name, ids] of normalizedNameToProductIds) {
-          if (name.length >= 3 && ids.length === 1 && headingLower.includes(name)) {
+          if (
+            name.length >= 3 &&
+            ids.length === 1 &&
+            (headingLower.includes(name) ||
+              headingClean.includes(name) ||
+              name.includes(headingClean))
+          ) {
             matchedProductId = ids[0]
             break
+          }
+        }
+      }
+      if (!matchedProductId) {
+        for (const p of products) {
+          if (!p?.id || !p?.name) continue
+          const modelCode = extractModelCode(p.name)
+          if (
+            modelCode &&
+            modelCode.length >= 3 &&
+            headingClean.includes(modelCode.toLowerCase())
+          ) {
+            const normName = (normalizeProductName(p.name) || p.name).toLowerCase()
+            const ids = normalizedNameToProductIds.get(normName)
+            if (ids && ids.length === 1) {
+              matchedProductId = ids[0]
+              break
+            }
           }
         }
       }
     }
 
     if (matchedProductId) {
+      const normName = productIdToNormalizedName.get(matchedProductId)
+      if (normName) {
+        if (sectionSeenNormalized.has(normName)) {
+          linesToRemove.add(i)
+          const lineContent = lines[i].trim().substring(0, 100)
+          debugLog(
+            'finalAntiDuplicateSweep:removedSectionDupe',
+            `productId=${matchedProductId} normalized="${normName}" lineIndex=${i} content="${lineContent}"`,
+          )
+          removedCount++
+          continue
+        }
+        sectionSeenNormalized.add(normName)
+      }
+
+      if (!sectionHasValidImage) {
+        sectionHasValidImage = true
+        for (const idx of sectionIndisponivelLines) {
+          if (!linesToRemove.has(idx)) {
+            linesToRemove.add(idx)
+            const lc = lines[idx].trim().substring(0, 100)
+            debugLog(
+              'finalAntiDuplicateSweep:removedUnavailablePlaceholder',
+              `lineIndex=${idx} content="${lc}"`,
+            )
+            removedCount++
+          }
+        }
+        sectionIndisponivelLines = []
+      }
+
       if (!productImageLines.has(matchedProductId)) {
         productImageLines.set(matchedProductId, [])
       }
       productImageLines.get(matchedProductId)!.push(i)
+    } else if (/indispon[ií]vel/i.test(alt)) {
+      if (sectionHasValidImage) {
+        linesToRemove.add(i)
+        const lineContent = lines[i].trim().substring(0, 100)
+        debugLog(
+          'finalAntiDuplicateSweep:removedUnavailablePlaceholder',
+          `lineIndex=${i} content="${lineContent}"`,
+        )
+        removedCount++
+        continue
+      } else {
+        sectionIndisponivelLines.push(i)
+      }
     }
   }
-
-  const linesToRemove = new Set<number>()
-  let removedCount = 0
 
   for (const [productId, indices] of productImageLines) {
     if (indices.length > 1) {
       for (let k = 1; k < indices.length; k++) {
+        if (linesToRemove.has(indices[k])) continue
         linesToRemove.add(indices[k])
         const lineContent = lines[indices[k]].trim().substring(0, 100)
         debugLog(
@@ -583,10 +650,10 @@ export function processProductImages(content: string, products: ProductImageInfo
         return ''
       }
       const product = productMap.get(uuid)
-      if (!product || !product.image_url) {
+      if (!product || !product.image_url || !isValidImageUrl(product.image_url)) {
         debugLog(
           'processProductImages:placeholderNotFound',
-          `type=HTML_COMMENT uuid=${uuid} reason="product not in map or no image_url"`,
+          `type=HTML_COMMENT uuid=${uuid} reason="product not in map, no image_url, or invalid URL"`,
         )
         return ''
       }
@@ -641,10 +708,10 @@ export function processProductImages(content: string, products: ProductImageInfo
         return ''
       }
       const product = productMap.get(uuid)
-      if (!product || !product.image_url) {
+      if (!product || !product.image_url || !isValidImageUrl(product.image_url)) {
         debugLog(
           'processProductImages:placeholderNotFound',
-          `type=PRODUCT_TAG uuid=${uuid} reason="product not in map or no image_url"`,
+          `type=PRODUCT_TAG uuid=${uuid} reason="product not in map, no image_url, or invalid URL"`,
         )
         return ''
       }

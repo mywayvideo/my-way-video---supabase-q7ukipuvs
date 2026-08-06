@@ -564,8 +564,16 @@ function finalAntiDuplicateSweep(content: string, products: ProductImageInfo[]):
   return result.join('\n').replace(/\n{3,}/g, '\n\n')
 }
 
-export function processProductImages(content: string, products: ProductImageInfo[]): string {
-  if (!content) return content
+export interface ProcessProductImagesResult {
+  content: string
+  insertedProductIds: string[]
+}
+
+export function processProductImages(
+  content: string,
+  products: ProductImageInfo[],
+): ProcessProductImagesResult {
+  if (!content) return { content, insertedProductIds: [] }
 
   const uniqueProducts: ProductImageInfo[] = []
   const seenIds = new Set<string>()
@@ -829,5 +837,5 @@ export function processProductImages(content: string, products: ProductImageInfo
   }
 
   debugGroupEnd()
-  return processed
+  return { content: processed, insertedProductIds: [...insertedIds] }
 }

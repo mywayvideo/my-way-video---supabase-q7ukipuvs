@@ -4,7 +4,11 @@ import { ReferencedProducts } from '@/components/ReferencedProducts'
 import MarkdownWithTables from '@/components/MarkdownWithTables'
 import { Button } from '@/components/ui/button'
 import { MessageCircle } from 'lucide-react'
-import { processProductImages, type ProductImageInfo } from '@/utils/productImageProcessor'
+import {
+  processProductImages,
+  type ProductImageInfo,
+  type ProcessProductImagesResult,
+} from '@/utils/productImageProcessor'
 import { debugLog, debugGroup, debugGroupEnd, safeLen } from '@/utils/debug-front'
 
 export function escapeRegex(str: string): string {
@@ -32,19 +36,12 @@ export function ResponseFormatter({
   onProductClick,
   hideProductImages = false,
 }: ResponseFormatterProps) {
-  const { cleanedContent, parsedProductIds } = useMemo(() => {
+  const { cleanedContent, insertedProductIds } = useMemo(() => {
     debugGroup('ResponseFormatter:process')
     debugLog(
       'ResponseFormatter:rawContent',
       `len=${safeLen(content)} products=${products?.length || 0}`,
     )
-    const idRegex = /\[PRODUCT:([0-9a-fA-F-]{36})\]/g
-    const ids: string[] = []
-    let match: RegExpExecArray | null
-    while ((match = idRegex.exec(content)) !== null) {
-      ids.push(match[1])
-    }
-    debugLog('ResponseFormatter:parsedProductIds', `count=${ids.length} ids=[${ids.join(', ')}]`)
     const productImageInfos: ProductImageInfo[] = (products || [])
       .filter((p: any) => p?.id && p?.name && p?.image_url)
       .map((p: any) => ({
@@ -56,25 +53,25 @@ export function ResponseFormatter({
       'ResponseFormatter:preparedImages',
       `count=${productImageInfos.length} names=[${productImageInfos.map((p) => p.name).join(', ')}]`,
     )
-    const processed = processProductImages(content, productImageInfos)
+    const result = processProductImages(content, productImageInfos)
     debugLog(
       'ResponseFormatter:processedContent',
-      `inputLen=${safeLen(content)} outputLen=${safeLen(processed)}`,
+      `inputLen=${safeLen(content)} outputLen=${safeLen(result.content)} insertedIds=${result.insertedProductIds.length}`,
     )
     debugGroupEnd()
-    return { cleanedContent: processed, parsedProductIds: ids }
+    return { cleanedContent: result.content, insertedProductIds: result.insertedProductIds }
   }, [content, products])
 
   const allReferencedIds = useMemo(() => {
-    const refIds = (referenced_internal_products || [])
-      .map((item: any) => (typeof item === 'object' && item !== null ? item.id : item))
-      .filter((id: any): id is string => typeof id === 'string' && id.trim() !== '')
-    return [...new Set([...parsedProductIds, ...refIds])].filter((id) => id !== currentProductId)
-  }, [parsedProductIds, referenced_internal_products, currentProductId])
+    return [...new Set(insertedProductIds)].filter((id) => id !== currentProductId)
+  }, [insertedProductIds, currentProductId])
 
   const filteredProducts = useMemo(() => {
-    return (products || []).filter((p: any) => p?.id && p.id !== currentProductId)
-  }, [products, currentProductId])
+    const idSet = new Set(allReferencedIds)
+    return (products || []).filter(
+      (p: any) => p?.id && idSet.has(p.id) && p.id !== currentProductId,
+    )
+  }, [products, allReferencedIds, currentProductId])
 
   return (
     <div className="space-y-4 w-full">

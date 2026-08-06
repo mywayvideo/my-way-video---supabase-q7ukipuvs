@@ -488,7 +488,8 @@ interface MarkdownWithTablesProps {
 
 const IMAGE_EXTENSIONS_REGEX = /\.(jpg|jpeg|png|gif|webp|svg|bmp|tiff)(\?[^\s)]*)?$/i
 
-const fixMalformedImageMarkdown = (text: string): string => {
+const fixMalformedImageMarkdown = (text: unknown): string => {
+  if (typeof text !== 'string') return ''
   const inputLen = text.length
   const imgCountBefore = (text.match(/!\[/g) || []).length
   let result = text
@@ -692,11 +693,12 @@ const MarkdownWithTablesBase: React.FC<MarkdownWithTablesProps> = ({
   className = '',
 }) => {
   const processedMarkdown = useMemo(() => {
-    debugGroup('MarkdownWithTables:preprocessing', `inputLen=${markdown?.length || 0}`)
+    const safeMarkdown = typeof markdown === 'string' ? markdown : ''
+    debugGroup('MarkdownWithTables:preprocessing', `inputLen=${safeMarkdown?.length || 0}`)
     if (import.meta.env.DEV) {
       console.time('MarkdownWithTables:processPipeline')
     }
-    let step = fixMalformedImageMarkdown(markdown)
+    let step = fixMalformedImageMarkdown(safeMarkdown)
     debugLog('step:fixMalformedImageMarkdown', `outputLen=${step.length}`)
     step = fixBrokenImageMarkdown(step)
     debugLog('step:fixBrokenImageMarkdown', `outputLen=${step.length}`)

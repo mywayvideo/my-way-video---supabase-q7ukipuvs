@@ -222,20 +222,13 @@ Deno.serve(async (req: Request) => {
           const lastProductName = recentProducts[0]?.name || ''
 
           const ptPronouns = [
-            'esse',
-            'essa',
-            'este',
-            'esta',
-            'nesse',
-            'nessa',
-            'ele',
-            'ela',
-            'disso',
-            'dessa',
-            'aquilo',
-            'aquela',
+            'esse', 'essa', 'este', 'esta', 'nesse', 'nessa',
+            'ele', 'ela', 'disso', 'dessa', 'aquilo', 'aquela',
           ]
-          const enPronouns = ['this', 'that', 'it', 'its', 'these', 'those', 'this one', 'that one']
+          const enPronouns = [
+            'this', 'that', 'it', 'its', 'these', 'those',
+            'this one', 'that one',
+          ]
           const allPronouns = [...ptPronouns, ...enPronouns]
           const lowerQuery = originalQuery.toLowerCase()
           const hasPronoun = allPronouns.some((p) => {
@@ -244,39 +237,11 @@ Deno.serve(async (req: Request) => {
 
           if (hasPronoun && lastProductName) {
             const genericNouns = [
-              'câmera',
-              'camera',
-              'produto',
-              'product',
-              'equipamento',
-              'equipment',
-              'dispositivo',
-              'device',
-              'item',
-              'modelo',
-              'model',
-              'sistema',
-              'system',
-              'aparelho',
-              'unidade',
-              'unit',
-              'kit',
-              'máquina',
-              'maquina',
-              'lente',
-              'lens',
-              'microfone',
-              'microphone',
-              'iluminador',
-              'light',
-              'tripé',
-              'tripod',
-              'gravador',
-              'recorder',
-              'monitor',
-              'switcher',
-              'acessório',
-              'accessory',
+              'câmera', 'camera', 'produto', 'product', 'equipamento', 'equipment',
+              'dispositivo', 'device', 'item', 'modelo', 'model', 'sistema', 'system',
+              'aparelho', 'unidade', 'unit', 'kit', 'máquina', 'maquina', 'lente',
+              'lens', 'microfone', 'microphone', 'iluminador', 'light', 'tripé', 'tripod',
+              'gravador', 'recorder', 'monitor', 'switcher', 'acessório', 'accessory',
             ]
 
             let modifiedQuery = originalQuery
@@ -779,16 +744,41 @@ Deno.serve(async (req: Request) => {
         } else {
           // ═══ MODO NORMAL ═══
 
-          let enrichedQuery = applyCustomStopWords(
-            removeStopWords(
-              removePunctuation(isHPMode ? cleanPortugueseGenericWords(query) : query),
-            ),
-            customStopWords,
-          )
+          let enrichedQuery: string
+          if (
+            (classificationIntent === 'accessory' || classificationIntent === 'compatibility') &&
+            classificationTerms.length > 0
+          ) {
+            const manufacturerNames = new Set(
+              (manufacturers || []).map((m: any) => m.name.toLowerCase()),
+            )
+            const filteredTerms = classificationTerms.filter(
+              (t) => !manufacturerNames.has(t.toLowerCase()),
+            )
+            const termsToUse = filteredTerms.length > 0 ? filteredTerms : classificationTerms
+            enrichedQuery = applyCustomStopWords(
+              removeStopWords(removePunctuation(termsToUse.join(' '))),
+              customStopWords,
+            )
+            console.log(
+              `[enriched-query] accessory/compatibility — classifier terms: ${JSON.stringify(classificationTerms)} → filtered: ${JSON.stringify(filteredTerms)} → query="${enrichedQuery}"`,
+            )
+          } else {
+            enrichedQuery = applyCustomStopWords(
+              removeStopWords(
+                removePunctuation(isHPMode ? cleanPortugueseGenericWords(query) : query),
+              ),
+              customStopWords,
+            )
+          }
           console.log(
             `[enriched-query] original="${query}" cleaned="${isHPMode ? cleanPortugueseGenericWords(query) : query}" afterStopWords="${enrichedQuery}" mode=${isHPMode ? 'HP' : 'PP'}`,
           )
-          if (currentProductContext?.name) {
+          if (
+            currentProductContext?.name &&
+            classificationIntent !== 'accessory' &&
+            classificationIntent !== 'compatibility'
+          ) {
             // SE for query comparativa, NÃO adiciona manufacturer do produto atual
             const lowerQuery = query.toLowerCase()
             const isComparisonQuery =
@@ -921,10 +911,14 @@ Deno.serve(async (req: Request) => {
             cards = level1Products
           } else {
             // ═══ Verifica se a query menciona um fabricante específico ═══
+            // Skip manufacturer filter for accessory/compatibility intents
             const queryLower = query.toLowerCase()
-            const mentionedManufacturer = manufacturers?.find((m: any) =>
-              queryLower.includes(m.name.toLowerCase()),
-            )
+            const mentionedManufacturer =
+              classificationIntent === 'accessory' || classificationIntent === 'compatibility'
+                ? undefined
+                : manufacturers?.find((m: any) =>
+                    queryLower.includes(m.name.toLowerCase()),
+                  )
 
             if (mentionedManufacturer) {
               // Filtra APENAS produtos do fabricante mencionado
@@ -1445,7 +1439,8 @@ Deno.serve(async (req: Request) => {
 
     return new Response(
       JSON.stringify({
-        content: 'Não encontrei resultados para sua busca. Tente reformular sua pergunta.',
+        content:
+          'Não encontrei resultados para sua busca. Tente reformular sua pergunta.',
         confidence_level: 'low',
         referenced_internal_products: [],
         should_show_whatsapp_button: false,

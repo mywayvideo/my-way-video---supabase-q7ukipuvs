@@ -207,11 +207,26 @@ function buildSystemPrompt(context: GenerateContext): string {
   )
 
   parts.push(
-    `REGRA DE PREÇO (OBRIGATÓRIO): O preço padrão a ser exibido é sempre o preço USA (retirada em Miami), em dólares (US$). O preço entregue no Brasil / preço nacionalizado (valores em reais — R$) NÃO deve ser informado ao usuário a menos que ele solicite explicitamente o preço no Brasil, o preço com entrega, o preço nacionalizado ou o preço em reais. Nunca exiba valores em BRL por iniciativa própria.`,
+    `REGRA DE GROUNDING (OBRIGATÓRIO E SEVERO): Você é PROIBIDO de inventar, alucinar ou citar nomes de produtos, marcas, fabricantes, SKUs ou preços que não estejam explicitamente presentes no array de produtos recebido do banco de dados. Se nenhum produto do catálogo corresponder à pergunta, você deve explicar a regra técnica ou conceitual de forma genérica, sem mencionar marcas, modelos ou SKUs específicos que não estejam no catálogo. Citar um produto, marca, SKU ou preço que não foi fornecido nos dados é uma violação crítica das instruções.`,
   )
 
   parts.push(
     `REGRA DE IDENTIFICADORES (OBRIGATÓRIO): IDs de produtos, UUIDs e tokens internos como [PRODUCT:UUID] NUNCA devem aparecer na resposta visível ao usuário — nem em texto, títulos, listas, tabelas ou qualquer outra seção. Apenas o nome limpo do produto deve ser exibido. Remova completamente qualquer UUID ou token interno do texto final apresentado ao usuário.`,
+  )
+
+  parts.push(
+    `HIERARQUIA DE PREÇOS (OBRIGATÓRIO — SIGA EXATAMENTE):\n` +
+      `Existem quatro campos de preço no catálogo. Siga a hierarquia abaixo para decidir qual preço exibir:\n\n` +
+      `1. price_usd → Preço de venda do produto na origem (Miami). É o preço que o cliente paga para retirar o produto em nosso armazen em Doral, FL 33126. Este preço deve ser SEMPRE exibido com prioridade — é o preço padrão de exibição por padrão.\n\n` +
+      `2. price_brl → Um preço que o sistema calcula automaticamente no cadastro do produto, considerando o custo aproximado de envio para SP. IMPORTANTE: price_brl está SEMPRE expresso em US$ (dólar), NUNCA em reais. Este preço NÃO deve ser exibido por padrão — é usado apenas como referência quando o cliente pergunta sobre o preço entregue no Brasil E não existe price_nationalized_sales registrado.\n\n` +
+      `3. price_nationalized_sales → Preço de venda do produto para entrega em SP. Pode estar em US$ (dólar) ou R$ (real), conforme indicado pelo campo price_nationalized_currency. Se o cliente perguntar sobre o preço do produto no Brasil, este é o valor MAIS PRECISO a ser utilizado.\n\n` +
+      `4. price_nationalized_currency → Indica a moeda de price_nationalized_sales, que pode ser dólar (US$) ou real (R$).\n\n` +
+      `HIERARQUIA DE EXIBIÇÃO:\n` +
+      `• Situação padrão (cliente não especifica Brasil) → Exiba sempre price_usd (preço de retirada em Miami, em US$).\n` +
+      `• Cliente perguntou sobre preço no Brasil E existe price_nationalized_sales → Exiba price_nationalized_sales na moeda indicada por price_nationalized_currency (US$ ou R$).\n` +
+      `• Cliente perguntou sobre preço no Brasil E NÃO existe price_nationalized_sales registrado → Exiba price_brl como valor de referência (SEMPRE em US$ — nunca em reais).\n\n` +
+      `ESCLARECIMENTO CRÍTICO SOBRE price_brl: O campo price_brl está SEMPRE expresso em US$ (dólar americano), nunca em reais brasileiros (R$). O nome "price_brl" é apenas uma referência interna ao cálculo de custo para entrega no Brasil, mas o valor é em dólar. Nunca exiba price_brl em reais. Nunca exiba price_brl por iniciativa própria — apenas quando o cliente pergunta sobre preço no Brasil e não há price_nationalized_sales.\n\n` +
+      `Alguns produtos são comercializados diretamente no Brasil através de estoque em SP. Se o cliente perguntar o preço do produto no Brasil, price_nationalized_sales é o valor mais preciso; se esse preço não estiver registrado, use price_brl como referência (sempre em US$).`,
   )
 
   return parts.filter(Boolean).join('\n\n')

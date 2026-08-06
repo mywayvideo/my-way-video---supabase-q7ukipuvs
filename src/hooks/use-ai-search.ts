@@ -52,7 +52,6 @@ const STOP_WORDS = new Set([
   'and',
   'for',
   'with',
-  'camera',
   'video',
   'audio',
   'light',
@@ -68,6 +67,35 @@ const STOP_WORDS = new Set([
   'cabo',
 ])
 
+const BRAND_KEYWORDS = new Set([
+  'sony',
+  'canon',
+  'nikon',
+  'panasonic',
+  'blackmagic',
+  'fuji',
+  'fujifilm',
+  'lumix',
+  'alpha',
+  'sigma',
+  'tamron',
+  'zeiss',
+  'godox',
+  'dji',
+  'sennheiser',
+  'rode',
+  'shure',
+  'atomos',
+  'aputure',
+  'red',
+  'kowa',
+  'samyang',
+  'fujinon',
+  'cabrio',
+  'venice',
+  'ursa',
+])
+
 function normalizeText(text: string): string {
   return text
     .toLowerCase()
@@ -78,27 +106,16 @@ function normalizeText(text: string): string {
     .trim()
 }
 
-function getSignificantWords(productName: string): string[] {
-  const normalized = normalizeText(productName)
+function getSignificantWords(text: string): string[] {
+  const normalized = normalizeText(text)
   const words = normalized.split(' ').filter(Boolean)
-  return words.filter((w) => w.length > 3 && !STOP_WORDS.has(w))
+  return words.filter((w) => (w.length > 2 || /\d/.test(w)) && !STOP_WORDS.has(w))
 }
 
-function isContinuationQuestion(query: string, productName: string): boolean {
-  if (!productName) return false
-  const normalizedQuery = normalizeText(query)
-  const significantWords = getSignificantWords(productName)
-
-  if (significantWords.length === 0) return false
-
-  let matchCount = 0
-  for (const word of significantWords) {
-    if (normalizedQuery.includes(word)) {
-      matchCount++
-    }
-  }
-
-  return matchCount < 2
+function hasBrandKeyword(text: string): boolean {
+  const normalized = normalizeText(text)
+  const words = normalized.split(' ').filter(Boolean)
+  return words.some((w) => BRAND_KEYWORDS.has(w))
 }
 
 const fetchProductDetails = async (ids: string[]): Promise<any[]> => {
@@ -131,7 +148,7 @@ export function useAiSearch() {
   )
   const abortControllerRef = useRef<AbortController | null>(null)
   const recentProductIdsRef = useRef<string[]>([])
-  const lastReferencedProductNameRef = useRef<string>('')
+  const productReferenceRef = useRef<string>('')
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const { toast } = useToast()
 
@@ -172,9 +189,27 @@ export function useAiSearch() {
       try {
         let finalQuery = query
 
-        if (!currentProductId && lastReferencedProductNameRef.current) {
-          if (isContinuationQuestion(query, lastReferencedProductNameRef.current)) {
-            finalQuery = `${query} (considerando: ${lastReferencedProductNameRef.current})`
+        if (!currentProductId) {
+          const reference = productReferenceRef.current
+
+          if (!reference) {
+            productReferenceRef.current = query
+          } else {
+            const normalizedQuery = normalizeText(query)
+            const significantWords = getSignificantWords(reference)
+            const hasSignificantWord =
+              significantWords.length > 0 &&
+              significantWords.some((word) => normalizedQuery.includes(word))
+
+            if (hasSignificantWord) {
+              // Same product context — no injection, no update
+            } else if (hasBrandKeyword(query)) {
+              // New product search — no injection, update reference
+              productReferenceRef.current = query
+            } else {
+              // Continuation — inject stored reference
+              finalQuery = `${query} (considerando: ${reference})`
+            }
           }
         }
 
@@ -265,13 +300,6 @@ export function useAiSearch() {
               ? p.manufacturer.name
               : p.manufacturer),
         }))
-
-        if (enrichedProducts.length > 0) {
-          const firstProduct = enrichedProducts[0]
-          if (firstProduct?.name) {
-            lastReferencedProductNameRef.current = firstProduct.name
-          }
-        }
 
         setResults({
           ...data,

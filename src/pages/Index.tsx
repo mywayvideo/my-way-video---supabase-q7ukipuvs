@@ -195,10 +195,10 @@ export default function Index() {
         </div>
       </section>
 
-      {!isLoading && results && (section1Ids.length > 0 || section2Products.length > 0) && (
+      {!isLoading && results && section2Products.length > 0 && (
         <section className="container mx-auto px-4 pb-16">
           <HPProductSections
-            section1Ids={section1Ids}
+            section1Ids={[]}
             section2Results={section2Products}
             allProductsData={allProductsData}
           />

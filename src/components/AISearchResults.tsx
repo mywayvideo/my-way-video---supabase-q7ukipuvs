@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { useCart } from '@/hooks/useCart'
 import MarkdownWithTables from '@/components/MarkdownWithTables'
+import { ReferencedProducts } from '@/components/ReferencedProducts'
 
 import { AILoader } from '@/components/AI/AILoader'
 import { processProductImages, type ProductImageInfo } from '@/utils/productImageProcessor'
@@ -106,8 +107,8 @@ export function AISearchResults({
     return images
   }, [result])
 
-  const processedContent = useMemo(() => {
-    if (!result?.content) return ''
+  const { processedContent, mentionedProductIds } = useMemo(() => {
+    if (!result?.content) return { processedContent: '', mentionedProductIds: [] as string[] }
     const rawContent = result.content.replace(/realizando busca profunda my way/gi, '').trim()
     debugGroup('AISearchResults:processedContent')
     debugLog(
@@ -117,11 +118,29 @@ export function AISearchResults({
     const processed = processProductImages(rawContent, productImages)
     debugLog(
       'AISearchResults:processedContent',
-      `inputLen=${safeLen(rawContent)} outputLen=${safeLen(processed)}`,
+      `inputLen=${safeLen(rawContent)} outputLen=${safeLen(processed.content)}`,
     )
     debugGroupEnd()
-    return processed
+    return {
+      processedContent: processed.content,
+      mentionedProductIds: processed.mentionedProductIds,
+    }
   }, [result?.content, productImages])
+
+  const mentionedProducts = useMemo(() => {
+    if (!mentionedProductIds.length) return []
+    const idSet = new Set(mentionedProductIds)
+    const allProducts = [
+      ...(result?.products || []),
+      ...(result?.referenced_internal_products || []),
+    ]
+    const seen = new Set<string>()
+    return allProducts.filter((p: any) => {
+      if (!p?.id || !idSet.has(p.id) || seen.has(p.id)) return false
+      seen.add(p.id)
+      return true
+    })
+  }, [mentionedProductIds, result?.products, result?.referenced_internal_products])
 
   if (isLoading && (!result || !result.is_intermediate)) {
     return (
@@ -214,6 +233,21 @@ export function AISearchResults({
           <MarkdownWithTables markdown={processedContent} />
         )}
       </div>
+
+      {mentionedProducts.length > 0 && !result.is_intermediate && (
+        <div className="mt-6">
+          <div className="flex items-center gap-3 mb-4">
+            <span className="w-8 h-[1px] bg-green-900/50" />
+            <h4 className="text-xs font-bold tracking-widest text-zinc-500 uppercase">
+              Produtos Mencionados
+            </h4>
+            <span className="flex-1 h-[1px] bg-green-900/30" />
+          </div>
+          <div className="not-prose overflow-hidden max-w-full">
+            <ReferencedProducts products={mentionedProducts} />
+          </div>
+        </div>
+      )}
 
       {result.should_show_whatsapp_button && !result.is_intermediate && (
         <div className="mt-6 rounded-lg border border-green-500/20 bg-green-500/10 p-4">

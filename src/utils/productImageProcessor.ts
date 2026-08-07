@@ -564,16 +564,68 @@ function finalAntiDuplicateSweep(content: string, products: ProductImageInfo[]):
   return result.join('\n').replace(/\n{3,}/g, '\n\n')
 }
 
+function scanMentionedProducts(content: string, products: ProductImageInfo[]): string[] {
+  const lines = content.split('\n')
+  const mentionedIds: string[] = []
+
+  for (const product of products) {
+    if (!product?.id || !product?.name) continue
+    const displayName = normalizeProductName(product.name) || product.name
+    if (displayName.length < 3) continue
+
+    const hasVariants = hasColorVariants(product, products)
+    const searchTerms: string[] = [product.name]
+    if (!hasVariants && displayName !== product.name) searchTerms.push(displayName)
+    const modelCode = extractModelCode(product.name)
+    if (!hasVariants && modelCode && modelCode.toLowerCase() !== displayName.toLowerCase()) {
+      searchTerms.push(modelCode)
+    }
+
+    let found = false
+    for (const term of searchTerms) {
+      if (found) break
+      if (!term || term.length < 3) continue
+      const regex = buildSearchRegex(term)
+      let inCodeBlock = false
+      for (const line of lines) {
+        const trimmed = line.trim()
+        if (trimmed.startsWith('```')) {
+          inCodeBlock = !inCodeBlock
+          continue
+        }
+        if (inCodeBlock) continue
+        if (regex.test(line)) {
+          found = true
+          break
+        }
+      }
+    }
+
+    if (found) {
+      mentionedIds.push(product.id)
+    }
+  }
+
+  if (mentionedIds.length > 0) {
+    debugLog(
+      'scanMentionedProducts',
+      `mentionedCount=${mentionedIds.length} ids=[${mentionedIds.join(', ')}]`,
+    )
+  }
+  return mentionedIds
+}
+
 export interface ProcessProductImagesResult {
   content: string
   insertedProductIds: string[]
+  mentionedProductIds: string[]
 }
 
 export function processProductImages(
   content: string,
   products: ProductImageInfo[],
 ): ProcessProductImagesResult {
-  if (!content) return { content, insertedProductIds: [] }
+  if (!content) return { content, insertedProductIds: [], mentionedProductIds: [] }
 
   const uniqueProducts: ProductImageInfo[] = []
   const seenIds = new Set<string>()
@@ -836,6 +888,12 @@ export function processProductImages(
     }
   }
 
+  const mentionedProductIds = scanMentionedProducts(processed, dedupedProducts)
+  debugLog(
+    'processProductImages:mentioned',
+    `mentionedIds=${mentionedProductIds.length} ids=[${mentionedProductIds.join(', ')}]`,
+  )
+
   debugGroupEnd()
-  return { content: processed, insertedProductIds: [...insertedIds] }
+  return { content: processed, insertedProductIds: [...insertedIds], mentionedProductIds }
 }

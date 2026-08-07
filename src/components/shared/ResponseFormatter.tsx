@@ -36,7 +36,7 @@ export function ResponseFormatter({
   onProductClick,
   hideProductImages = false,
 }: ResponseFormatterProps) {
-  const { cleanedContent, insertedProductIds } = useMemo(() => {
+  const { cleanedContent, mentionedProductIds } = useMemo(() => {
     debugGroup('ResponseFormatter:process')
     debugLog(
       'ResponseFormatter:rawContent',
@@ -56,15 +56,18 @@ export function ResponseFormatter({
     const result = processProductImages(content, productImageInfos)
     debugLog(
       'ResponseFormatter:processedContent',
-      `inputLen=${safeLen(content)} outputLen=${safeLen(result.content)} insertedIds=${result.insertedProductIds.length}`,
+      `inputLen=${safeLen(content)} outputLen=${safeLen(result.content)} insertedIds=${result.insertedProductIds.length} mentionedIds=${result.mentionedProductIds.length}`,
     )
     debugGroupEnd()
-    return { cleanedContent: result.content, insertedProductIds: result.insertedProductIds }
+    return {
+      cleanedContent: result.content,
+      mentionedProductIds: result.mentionedProductIds,
+    }
   }, [content, products])
 
   const allReferencedIds = useMemo(() => {
-    return [...new Set(insertedProductIds)].filter((id) => id !== currentProductId)
-  }, [insertedProductIds, currentProductId])
+    return [...new Set(mentionedProductIds)].filter((id) => id !== currentProductId)
+  }, [mentionedProductIds, currentProductId])
 
   const filteredProducts = useMemo(() => {
     const idSet = new Set(allReferencedIds)

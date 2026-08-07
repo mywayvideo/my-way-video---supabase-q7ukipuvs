@@ -222,13 +222,20 @@ Deno.serve(async (req: Request) => {
           const lastProductName = recentProducts[0]?.name || ''
 
           const ptPronouns = [
-            'esse', 'essa', 'este', 'esta', 'nesse', 'nessa',
-            'ele', 'ela', 'disso', 'dessa', 'aquilo', 'aquela',
+            'esse',
+            'essa',
+            'este',
+            'esta',
+            'nesse',
+            'nessa',
+            'ele',
+            'ela',
+            'disso',
+            'dessa',
+            'aquilo',
+            'aquela',
           ]
-          const enPronouns = [
-            'this', 'that', 'it', 'its', 'these', 'those',
-            'this one', 'that one',
-          ]
+          const enPronouns = ['this', 'that', 'it', 'its', 'these', 'those', 'this one', 'that one']
           const allPronouns = [...ptPronouns, ...enPronouns]
           const lowerQuery = originalQuery.toLowerCase()
           const hasPronoun = allPronouns.some((p) => {
@@ -237,11 +244,39 @@ Deno.serve(async (req: Request) => {
 
           if (hasPronoun && lastProductName) {
             const genericNouns = [
-              'câmera', 'camera', 'produto', 'product', 'equipamento', 'equipment',
-              'dispositivo', 'device', 'item', 'modelo', 'model', 'sistema', 'system',
-              'aparelho', 'unidade', 'unit', 'kit', 'máquina', 'maquina', 'lente',
-              'lens', 'microfone', 'microphone', 'iluminador', 'light', 'tripé', 'tripod',
-              'gravador', 'recorder', 'monitor', 'switcher', 'acessório', 'accessory',
+              'câmera',
+              'camera',
+              'produto',
+              'product',
+              'equipamento',
+              'equipment',
+              'dispositivo',
+              'device',
+              'item',
+              'modelo',
+              'model',
+              'sistema',
+              'system',
+              'aparelho',
+              'unidade',
+              'unit',
+              'kit',
+              'máquina',
+              'maquina',
+              'lente',
+              'lens',
+              'microfone',
+              'microphone',
+              'iluminador',
+              'light',
+              'tripé',
+              'tripod',
+              'gravador',
+              'recorder',
+              'monitor',
+              'switcher',
+              'acessório',
+              'accessory',
             ]
 
             let modifiedQuery = originalQuery
@@ -316,6 +351,12 @@ Deno.serve(async (req: Request) => {
       .select('keyword, weight, is_blocking')
     const { data: manufacturers } = await supabase.from('manufacturers').select('name')
     const manufacturerList = manufacturers ? manufacturers.map((m) => m.name).join(', ') : ''
+
+    const { data: cacheSettingsRow } = await supabase
+      .from('cache_settings')
+      .select('mi_expiration_days')
+      .maybeSingle()
+    const miExpirationDays = cacheSettingsRow?.mi_expiration_days ?? 365
 
     const globalSettingsMap: Record<string, string> = {}
     if (Array.isArray(globalSettings))
@@ -670,6 +711,35 @@ Deno.serve(async (req: Request) => {
       'compatibility',
     ]
 
+    // ── Market Intelligence search ──
+    const miSearchTerm =
+      applyCustomStopWords(
+        removeStopWords(removePunctuation(isHPMode ? cleanPortugueseGenericWords(query) : query)),
+        customStopWords,
+      ) || query
+
+    let marketIntelligenceData: Array<any> = []
+    try {
+      const { data: miRaw, error: miError } = await supabase.rpc('search_market_intelligence', {
+        search_term: miSearchTerm,
+      })
+      if (!miError && Array.isArray(miRaw)) {
+        const now = Date.now()
+        const maxAgeMs = miExpirationDays * 24 * 60 * 60 * 1000
+        marketIntelligenceData = miRaw
+          .filter((mi: any) => {
+            if (!mi.created_at) return false
+            return now - new Date(mi.created_at).getTime() <= maxAgeMs
+          })
+          .slice(0, 3)
+        console.log(
+          `[ai-search] market_intelligence: term="${miSearchTerm}" raw=${miRaw.length} filtered=${marketIntelligenceData.length}`,
+        )
+      }
+    } catch (miErr: any) {
+      console.error('[ai-search] market_intelligence search failed:', miErr?.message || miErr)
+    }
+
     // ── Stage C: Search Products ──
     if (SEARCHABLE.includes(classificationIntent) && query && query.trim().length > 0) {
       try {
@@ -715,6 +785,7 @@ Deno.serve(async (req: Request) => {
             productPagePrompt: productPagePrompt || undefined,
             currentProductContext: currentProductContext || undefined,
             imageProxyUrl: IMAGE_PROXY_URL, // ← ADICIONE AQUI
+            marketIntelligence: marketIntelligenceData,
           }
 
           // ✅ GERAR RESPOSTA AI ANTES DE RETORNAR
@@ -916,9 +987,7 @@ Deno.serve(async (req: Request) => {
             const mentionedManufacturer =
               classificationIntent === 'accessory' || classificationIntent === 'compatibility'
                 ? undefined
-                : manufacturers?.find((m: any) =>
-                    queryLower.includes(m.name.toLowerCase()),
-                  )
+                : manufacturers?.find((m: any) => queryLower.includes(m.name.toLowerCase()))
 
             if (mentionedManufacturer) {
               // Filtra APENAS produtos do fabricante mencionado
@@ -1024,6 +1093,7 @@ Deno.serve(async (req: Request) => {
             productPagePrompt: productPagePrompt || undefined,
             currentProductContext: currentProductContext || undefined,
             imageProxyUrl: IMAGE_PROXY_URL, // ← ADICIONE AQUI
+            marketIntelligence: marketIntelligenceData,
           }
 
           aiResult = await generateResponse(query, contextForAI, undefined, supabase)
@@ -1064,6 +1134,7 @@ Deno.serve(async (req: Request) => {
           productPagePrompt: productPagePrompt || undefined,
           currentProductContext: currentProductContext || undefined,
           imageProxyUrl: IMAGE_PROXY_URL, // ← ADICIONE AQUI
+          marketIntelligence: marketIntelligenceData,
         }
 
         console.log(
@@ -1439,8 +1510,7 @@ Deno.serve(async (req: Request) => {
 
     return new Response(
       JSON.stringify({
-        content:
-          'Não encontrei resultados para sua busca. Tente reformular sua pergunta.',
+        content: 'Não encontrei resultados para sua busca. Tente reformular sua pergunta.',
         confidence_level: 'low',
         referenced_internal_products: [],
         should_show_whatsapp_button: false,

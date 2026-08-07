@@ -16,27 +16,35 @@ Deno.serve(async (req: Request) => {
     }
 
     const body = await req.json()
-    const { storage_period, items, exchange_rate, freight_usd, insurance_usd, other_expenses_usd } =
-      body
+    const {
+      storage_period,
+      items,
+      exchange_rate,
+      freight_usd,
+      insurance_usd,
+      other_expenses_usd,
+    } = body
 
     if (typeof storage_period !== 'number' || !Array.isArray(items)) {
-      return new Response(JSON.stringify({ error: 'Parametros invalidos.' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+      return new Response(
+        JSON.stringify({ error: 'Parametros invalidos.' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      )
     }
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL') || ''
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || ''
     const supabase = createClient(supabaseUrl, supabaseKey)
 
-    const { data: fees, error: fetchErr } = await supabase.from('imp_sim_storage_fees').select('*')
+    const { data: fees, error: fetchErr } = await supabase
+      .from('imp_sim_storage_fees')
+      .select('*')
 
     if (fetchErr || !fees) {
-      return new Response(JSON.stringify({ error: 'Erro ao buscar taxas de armazenagem.' }), {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+      return new Response(
+        JSON.stringify({ error: 'Erro ao buscar taxas de armazenagem.' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      )
     }
 
     const tiers = fees
@@ -88,17 +96,13 @@ Deno.serve(async (req: Request) => {
       if (period <= 2) {
         storagePercentage = tiers.find((t: any) => t.maxDays === 2)?.percentage ?? 0.55
       } else if (period <= 5) {
-        storagePercentage =
-          tiers.find((t: any) => t.minDays === 3 && t.maxDays === 5)?.percentage ?? 1.1
+        storagePercentage = tiers.find((t: any) => t.minDays === 3 && t.maxDays === 5)?.percentage ?? 1.1
       } else if (period <= 10) {
-        storagePercentage =
-          tiers.find((t: any) => t.minDays === 6 && t.maxDays === 10)?.percentage ?? 1.65
+        storagePercentage = tiers.find((t: any) => t.minDays === 6 && t.maxDays === 10)?.percentage ?? 1.65
       } else if (period <= 20) {
-        storagePercentage =
-          tiers.find((t: any) => t.minDays === 11 && t.maxDays === 20)?.percentage ?? 3.3
+        storagePercentage = tiers.find((t: any) => t.minDays === 11 && t.maxDays === 20)?.percentage ?? 3.3
       } else {
-        const basePct =
-          tiers.find((t: any) => t.minDays === 11 && t.maxDays === 20)?.percentage ?? 3.3
+        const basePct = tiers.find((t: any) => t.minDays === 11 && t.maxDays === 20)?.percentage ?? 3.3
         const incPct = Number(incremental?.percentage) || 1.65
         const incDays = incremental?.incremental_days || 10
         const additionalPeriods = Math.ceil((period - 20) / incDays)
@@ -122,7 +126,8 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    const totalStorageCapataziaBrl = storageAmountBrl + capataziaAmountBrl + highValueAmountBrl
+    const totalStorageCapataziaBrl =
+      storageAmountBrl + capataziaAmountBrl + highValueAmountBrl
 
     const itemShares = items.map((i: any) => {
       const fobUsd = (Number(i.quantity) || 1) * (Number(i.unit_price_usd) || 0)
@@ -147,9 +152,9 @@ Deno.serve(async (req: Request) => {
     )
   } catch (error: any) {
     console.error('calculate-storage-fees error:', error.stack || error.message)
-    return new Response(JSON.stringify({ error: 'Erro interno no servidor.' }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
+    return new Response(
+      JSON.stringify({ error: 'Erro interno no servidor.' }),
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+    )
   }
 })

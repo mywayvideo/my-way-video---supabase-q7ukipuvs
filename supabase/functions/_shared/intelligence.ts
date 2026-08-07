@@ -208,17 +208,17 @@ function buildSystemPrompt(context: GenerateContext): string {
 
   parts.push(
     `REGRA DE GROUNDING (OBRIGATÓRIO E SEVERO — 4 PONTOS):\n` +
-      `1. Você é PROIBIDA de inventar, alucinar ou citar nomes de produtos, marcas, fabricantes, SKUs ou preços que não estejam explicitamente presentes no array de produtos recebido do banco de dados na mensagem atual.\n` +
-      `2. Se o usuário perguntar sobre um produto que NÃO está no catálogo (ausente do array de produtos recebido), você deve informar ao usuário que o item não existe no catálogo, SEM fornecer preço, especificação ou qualquer outra informação sobre ele.\n` +
-      `3. Se a pergunta exigir "Análise por Produto" ou "Comparativo Técnico" e NÃO houver produtos correspondentes no banco de dados, você NÃO deve criar essas seções com modelos fictícios. Você deve informar imediatamente que o item não está no catálogo.\n` +
-      `4. O fato de um nome ser mencionado na pergunta do usuário NÃO significa que o produto existe no catálogo. A ÚNICA fonte de verdade é o array de produtos fornecido na mensagem atual.`,
+    `1. Você é PROIBIDA de inventar, alucinar ou citar nomes de produtos, marcas, fabricantes, SKUs ou preços que não estejam explicitamente presentes no array de produtos recebido do banco de dados na mensagem atual.\n` +
+    `2. Se o usuário perguntar sobre um produto que NÃO está no catálogo (ausente do array de produtos recebido), você deve informar ao usuário que o item não existe no catálogo, SEM fornecer preço, especificação ou qualquer outra informação sobre ele.\n` +
+    `3. Se a pergunta exigir "Análise por Produto" ou "Comparativo Técnico" e NÃO houver produtos correspondentes no banco de dados, você NÃO deve criar essas seções com modelos fictícios. Você deve informar imediatamente que o item não está no catálogo.\n` +
+    `4. O fato de um nome ser mencionado na pergunta do usuário NÃO significa que o produto existe no catálogo. A ÚNICA fonte de verdade é o array de produtos fornecido na mensagem atual.`,
   )
 
   parts.push(
     `REGRA DE ISOLAMENTO DE HISTÓRICO (OBRIGATÓRIO):\n` +
-      `Produtos, marcas, modelos ou preços citados em mensagens anteriores da conversa NÃO devem ser tratados como itens do catálogo.\n` +
-      `A ÚNICA fonte de verdade é o array de produtos fornecido na mensagem atual.\n` +
-      `Se um produto foi mencionado anteriormente na conversa, mas NÃO está presente no array de produtos atual, você deve informar ao usuário que ele não existe no catálogo.`,
+    `Produtos, marcas, modelos ou preços citados em mensagens anteriores da conversa NÃO devem ser tratados como itens do catálogo.\n` +
+    `A ÚNICA fonte de verdade é o array de produtos fornecido na mensagem atual.\n` +
+    `Se um produto foi mencionado anteriormente na conversa, mas NÃO está presente no array de produtos atual, você deve informar ao usuário que ele não existe no catálogo.`,
   )
 
   parts.push(
@@ -227,17 +227,17 @@ function buildSystemPrompt(context: GenerateContext): string {
 
   parts.push(
     `HIERARQUIA DE PREÇOS (OBRIGATÓRIO — SIGA EXATAMENTE):\n` +
-      `Existem quatro campos de preço no catálogo. Siga a hierarquia abaixo para decidir qual preço exibir:\n\n` +
-      `1. price_usd → Preço de venda do produto na origem (Miami). É o preço que o cliente paga para retirar o produto em nosso armazen em Doral, FL 33126. Este preço deve ser SEMPRE exibido com prioridade — é o preço padrão de exibição por padrão.\n\n` +
-      `2. price_brl → Um preço que o sistema calcula automaticamente no cadastro do produto, considerando o custo aproximado de envio para SP. IMPORTANTE: price_brl está SEMPRE expresso em US$ (dólar), NUNCA em reais. Este preço NÃO deve ser exibido por padrão — é usado apenas como referência quando o cliente pergunta sobre o preço entregue no Brasil E não existe price_nationalized_sales registrado.\n\n` +
-      `3. price_nationalized_sales → Preço de venda do produto para entrega em SP. Pode estar em US$ (dólar) ou R$ (real), conforme indicado pelo campo price_nationalized_currency. Se o cliente perguntar sobre o preço do produto no Brasil, este é o valor MAIS PRECISO a ser utilizado.\n\n` +
-      `4. price_nationalized_currency → Indica a moeda de price_nationalized_sales, que pode ser dólar (US$) ou real (R$).\n\n` +
-      `HIERARQUIA DE EXIBIÇÃO:\n` +
-      `• Situação padrão (cliente não especifica Brasil) → Exiba sempre price_usd (preço de retirada em Miami, em US$).\n` +
-      `• Cliente perguntou sobre preço no Brasil E existe price_nationalized_sales → Exiba price_nationalized_sales na moeda indicada por price_nationalized_currency (US$ ou R$).\n` +
-      `• Cliente perguntou sobre preço no Brasil E NÃO existe price_nationalized_sales registrado → Exiba price_brl como valor de referência (SEMPRE em US$ — nunca em reais).\n\n` +
-      `ESCLARECIMENTO CRÍTICO SOBRE price_brl: O campo price_brl está SEMPRE expresso em US$ (dólar americano), nunca em reais brasileiros (R$). O nome "price_brl" é apenas uma referência interna ao cálculo de custo para entrega no Brasil, mas o valor é em dólar. Nunca exiba price_brl em reais. Nunca exiba price_brl por iniciativa própria — apenas quando o cliente pergunta sobre preço no Brasil e não há price_nationalized_sales.\n\n` +
-      `Alguns produtos são comercializados diretamente no Brasil através de estoque em SP. Se o cliente perguntar o preço do produto no Brasil, price_nationalized_sales é o valor mais preciso; se esse preço não estiver registrado, use price_brl como referência (sempre em US$).`,
+    `Existem quatro campos de preço no catálogo. Siga a hierarquia abaixo para decidir qual preço exibir:\n\n` +
+    `1. price_usd → Preço de venda do produto na origem (Miami). É o preço que o cliente paga para retirar o produto em nosso armazen em Doral, FL 33126. Este preço deve ser SEMPRE exibido com prioridade — é o preço padrão de exibição por padrão.\n\n` +
+    `2. price_brl → Um preço que o sistema calcula automaticamente no cadastro do produto, considerando o custo aproximado de envio para SP. IMPORTANTE: price_brl está SEMPRE expresso em US$ (dólar), NUNCA em reais. Este preço NÃO deve ser exibido por padrão — é usado apenas como referência quando o cliente pergunta sobre o preço entregue no Brasil E não existe price_nationalized_sales registrado.\n\n` +
+    `3. price_nationalized_sales → Preço de venda do produto para entrega em SP. Pode estar em US$ (dólar) ou R$ (real), conforme indicado pelo campo price_nationalized_currency. Se o cliente perguntar sobre o preço do produto no Brasil, este é o valor MAIS PRECISO a ser utilizado.\n\n` +
+    `4. price_nationalized_currency → Indica a moeda de price_nationalized_sales, que pode ser dólar (US$) ou real (R$).\n\n` +
+    `HIERARQUIA DE EXIBIÇÃO:\n` +
+    `• Situação padrão (cliente não especifica Brasil) → Exiba sempre price_usd (preço de retirada em Miami, em US$).\n` +
+    `• Cliente perguntou sobre preço no Brasil E existe price_nationalized_sales → Exiba price_nationalized_sales na moeda indicada por price_nationalized_currency (US$ ou R$).\n` +
+    `• Cliente perguntou sobre preço no Brasil E NÃO existe price_nationalized_sales registrado → Exiba price_brl como valor de referência (SEMPRE em US$ — nunca em reais).\n\n` +
+    `ESCLARECIMENTO CRÍTICO SOBRE price_brl: O campo price_brl está SEMPRE expresso em US$ (dólar americano), nunca em reais brasileiros (R$). O nome "price_brl" é apenas uma referência interna ao cálculo de custo para entrega no Brasil, mas o valor é em dólar. Nunca exiba price_brl em reais. Nunca exiba price_brl por iniciativa própria — apenas quando o cliente pergunta sobre preço no Brasil e não há price_nationalized_sales.\n\n` +
+    `Alguns produtos são comercializados diretamente no Brasil através de estoque em SP. Se o cliente perguntar o preço do produto no Brasil, price_nationalized_sales é o valor mais preciso; se esse preço não estiver registrado, use price_brl como referência (sempre em US$).`,
   )
 
   parts.push(
@@ -280,7 +280,8 @@ function buildMessages(
         userContent += ` | [INTERNO - não exibir a menos que solicitado] Preço Brasil: ${natPrice}`
       if (brlRefPrice)
         userContent += ` | [INTERNO - não exibir a menos que solicitado] Ref. Brasil: ${brlRefPrice}`
-      if (!usdPrice && !natPrice && !brlRefPrice) userContent += ` | Preço: Sob Consulta`
+      if (!usdPrice && !natPrice && !brlRefPrice)
+        userContent += ` | Preço: Sob Consulta`
     }
   }
 

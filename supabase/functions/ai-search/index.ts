@@ -222,13 +222,20 @@ Deno.serve(async (req: Request) => {
           const lastProductName = recentProducts[0]?.name || ''
 
           const ptPronouns = [
-            'esse', 'essa', 'este', 'esta', 'nesse', 'nessa',
-            'ele', 'ela', 'disso', 'dessa', 'aquilo', 'aquela',
+            'esse',
+            'essa',
+            'este',
+            'esta',
+            'nesse',
+            'nessa',
+            'ele',
+            'ela',
+            'disso',
+            'dessa',
+            'aquilo',
+            'aquela',
           ]
-          const enPronouns = [
-            'this', 'that', 'it', 'its', 'these', 'those',
-            'this one', 'that one',
-          ]
+          const enPronouns = ['this', 'that', 'it', 'its', 'these', 'those', 'this one', 'that one']
           const allPronouns = [...ptPronouns, ...enPronouns]
           const lowerQuery = originalQuery.toLowerCase()
           const hasPronoun = allPronouns.some((p) => {
@@ -237,11 +244,39 @@ Deno.serve(async (req: Request) => {
 
           if (hasPronoun && lastProductName) {
             const genericNouns = [
-              'câmera', 'camera', 'produto', 'product', 'equipamento', 'equipment',
-              'dispositivo', 'device', 'item', 'modelo', 'model', 'sistema', 'system',
-              'aparelho', 'unidade', 'unit', 'kit', 'máquina', 'maquina', 'lente',
-              'lens', 'microfone', 'microphone', 'iluminador', 'light', 'tripé', 'tripod',
-              'gravador', 'recorder', 'monitor', 'switcher', 'acessório', 'accessory',
+              'câmera',
+              'camera',
+              'produto',
+              'product',
+              'equipamento',
+              'equipment',
+              'dispositivo',
+              'device',
+              'item',
+              'modelo',
+              'model',
+              'sistema',
+              'system',
+              'aparelho',
+              'unidade',
+              'unit',
+              'kit',
+              'máquina',
+              'maquina',
+              'lente',
+              'lens',
+              'microfone',
+              'microphone',
+              'iluminador',
+              'light',
+              'tripé',
+              'tripod',
+              'gravador',
+              'recorder',
+              'monitor',
+              'switcher',
+              'acessório',
+              'accessory',
             ]
 
             let modifiedQuery = originalQuery
@@ -677,16 +712,17 @@ Deno.serve(async (req: Request) => {
     ]
 
     // ── Market Intelligence search ──
-    const miSearchTerm =
-      applyCustomStopWords(
-        removeStopWords(removePunctuation(isHPMode ? cleanPortugueseGenericWords(query) : query)),
-        customStopWords,
-      ) || query
+    // Extract keywords from the user's original, clean query — NOT the full context-injected question.
+    const miCleaned = applyCustomStopWords(
+      removeStopWords(removePunctuation(cleanPortugueseGenericWords(originalQuery))),
+      customStopWords,
+    )
+    const miKeywords: string[] = miCleaned.split(/\s+/).filter((w) => w.length > 2)
 
     let marketIntelligenceData: Array<any> = []
     try {
       const { data: miRaw, error: miError } = await supabase.rpc('search_market_intelligence', {
-        search_term: miSearchTerm,
+        keywords: miKeywords,
       })
       if (!miError && Array.isArray(miRaw)) {
         const now = Date.now()
@@ -698,7 +734,7 @@ Deno.serve(async (req: Request) => {
           })
           .slice(0, 3)
         console.log(
-          `[ai-search] market_intelligence: term="${miSearchTerm}" raw=${miRaw.length} filtered=${marketIntelligenceData.length}`,
+          `[ai-search] market_intelligence: keywords=[${miKeywords.join(', ')}] raw=${miRaw.length} filtered=${marketIntelligenceData.length}`,
         )
       }
     } catch (miErr: any) {
@@ -952,9 +988,7 @@ Deno.serve(async (req: Request) => {
             const mentionedManufacturer =
               classificationIntent === 'accessory' || classificationIntent === 'compatibility'
                 ? undefined
-                : manufacturers?.find((m: any) =>
-                    queryLower.includes(m.name.toLowerCase()),
-                  )
+                : manufacturers?.find((m: any) => queryLower.includes(m.name.toLowerCase()))
 
             if (mentionedManufacturer) {
               // Filtra APENAS produtos do fabricante mencionado
@@ -1477,8 +1511,7 @@ Deno.serve(async (req: Request) => {
 
     return new Response(
       JSON.stringify({
-        content:
-          'Não encontrei resultados para sua busca. Tente reformular sua pergunta.',
+        content: 'Não encontrei resultados para sua busca. Tente reformular sua pergunta.',
         confidence_level: 'low',
         referenced_internal_products: [],
         should_show_whatsapp_button: false,

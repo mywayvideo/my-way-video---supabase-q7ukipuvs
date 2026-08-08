@@ -222,13 +222,20 @@ Deno.serve(async (req: Request) => {
           const lastProductName = recentProducts[0]?.name || ''
 
           const ptPronouns = [
-            'esse', 'essa', 'este', 'esta', 'nesse', 'nessa',
-            'ele', 'ela', 'disso', 'dessa', 'aquilo', 'aquela',
+            'esse',
+            'essa',
+            'este',
+            'esta',
+            'nesse',
+            'nessa',
+            'ele',
+            'ela',
+            'disso',
+            'dessa',
+            'aquilo',
+            'aquela',
           ]
-          const enPronouns = [
-            'this', 'that', 'it', 'its', 'these', 'those',
-            'this one', 'that one',
-          ]
+          const enPronouns = ['this', 'that', 'it', 'its', 'these', 'those', 'this one', 'that one']
           const allPronouns = [...ptPronouns, ...enPronouns]
           const lowerQuery = originalQuery.toLowerCase()
           const hasPronoun = allPronouns.some((p) => {
@@ -237,11 +244,39 @@ Deno.serve(async (req: Request) => {
 
           if (hasPronoun && lastProductName) {
             const genericNouns = [
-              'câmera', 'camera', 'produto', 'product', 'equipamento', 'equipment',
-              'dispositivo', 'device', 'item', 'modelo', 'model', 'sistema', 'system',
-              'aparelho', 'unidade', 'unit', 'kit', 'máquina', 'maquina', 'lente',
-              'lens', 'microfone', 'microphone', 'iluminador', 'light', 'tripé', 'tripod',
-              'gravador', 'recorder', 'monitor', 'switcher', 'acessório', 'accessory',
+              'câmera',
+              'camera',
+              'produto',
+              'product',
+              'equipamento',
+              'equipment',
+              'dispositivo',
+              'device',
+              'item',
+              'modelo',
+              'model',
+              'sistema',
+              'system',
+              'aparelho',
+              'unidade',
+              'unit',
+              'kit',
+              'máquina',
+              'maquina',
+              'lente',
+              'lens',
+              'microfone',
+              'microphone',
+              'iluminador',
+              'light',
+              'tripé',
+              'tripod',
+              'gravador',
+              'recorder',
+              'monitor',
+              'switcher',
+              'acessório',
+              'accessory',
             ]
 
             let modifiedQuery = originalQuery
@@ -682,9 +717,7 @@ Deno.serve(async (req: Request) => {
       removeStopWords(removePunctuation(cleanPortugueseGenericWords(originalQuery))),
       customStopWords,
     )
-    const miKeywords: string[] = miCleaned
-      .split(/\s+/)
-      .filter((w) => w.length > 2)
+    const miKeywords: string[] = miCleaned.split(/\s+/).filter((w) => w.length > 2)
 
     let marketIntelligenceData: Array<any> = []
     try {
@@ -955,9 +988,7 @@ Deno.serve(async (req: Request) => {
             const mentionedManufacturer =
               classificationIntent === 'accessory' || classificationIntent === 'compatibility'
                 ? undefined
-                : manufacturers?.find((m: any) =>
-                    queryLower.includes(m.name.toLowerCase()),
-                  )
+                : manufacturers?.find((m: any) => queryLower.includes(m.name.toLowerCase()))
 
             if (mentionedManufacturer) {
               // Filtra APENAS produtos do fabricante mencionado
@@ -1478,10 +1509,39 @@ Deno.serve(async (req: Request) => {
       )
     }
 
+    if (marketIntelligenceData.length > 0) {
+      console.log(
+        `[ai-search] No products found but ${marketIntelligenceData.length} MI articles available — generating MI-only response`,
+      )
+      contextForAI = {
+        agentSettings,
+        aiSettings,
+        products: [],
+        manufacturerList,
+        history,
+        currentProductId: lastReferencedProductId,
+        contextualProductData,
+        productPagePrompt: productPagePrompt || undefined,
+        currentProductContext: currentProductContext || undefined,
+        imageProxyUrl: IMAGE_PROXY_URL,
+        marketIntelligence: marketIntelligenceData,
+      }
+      aiResult = await generateResponse(query, contextForAI, undefined, supabase)
+      return await persistAndReturn(
+        {
+          ...aiResult,
+          referenced_internal_products: [],
+          referenced_product_data: [],
+          ai_referenced_count: 0,
+          full_search_results: [],
+        },
+        'market_intelligence',
+      )
+    }
+
     return new Response(
       JSON.stringify({
-        content:
-          'Não encontrei resultados para sua busca. Tente reformular sua pergunta.',
+        content: 'Não encontrei resultados para sua busca. Tente reformular sua pergunta.',
         confidence_level: 'low',
         referenced_internal_products: [],
         should_show_whatsapp_button: false,

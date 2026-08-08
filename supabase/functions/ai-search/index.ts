@@ -222,20 +222,13 @@ Deno.serve(async (req: Request) => {
           const lastProductName = recentProducts[0]?.name || ''
 
           const ptPronouns = [
-            'esse',
-            'essa',
-            'este',
-            'esta',
-            'nesse',
-            'nessa',
-            'ele',
-            'ela',
-            'disso',
-            'dessa',
-            'aquilo',
-            'aquela',
+            'esse', 'essa', 'este', 'esta', 'nesse', 'nessa',
+            'ele', 'ela', 'disso', 'dessa', 'aquilo', 'aquela',
           ]
-          const enPronouns = ['this', 'that', 'it', 'its', 'these', 'those', 'this one', 'that one']
+          const enPronouns = [
+            'this', 'that', 'it', 'its', 'these', 'those',
+            'this one', 'that one',
+          ]
           const allPronouns = [...ptPronouns, ...enPronouns]
           const lowerQuery = originalQuery.toLowerCase()
           const hasPronoun = allPronouns.some((p) => {
@@ -244,39 +237,11 @@ Deno.serve(async (req: Request) => {
 
           if (hasPronoun && lastProductName) {
             const genericNouns = [
-              'câmera',
-              'camera',
-              'produto',
-              'product',
-              'equipamento',
-              'equipment',
-              'dispositivo',
-              'device',
-              'item',
-              'modelo',
-              'model',
-              'sistema',
-              'system',
-              'aparelho',
-              'unidade',
-              'unit',
-              'kit',
-              'máquina',
-              'maquina',
-              'lente',
-              'lens',
-              'microfone',
-              'microphone',
-              'iluminador',
-              'light',
-              'tripé',
-              'tripod',
-              'gravador',
-              'recorder',
-              'monitor',
-              'switcher',
-              'acessório',
-              'accessory',
+              'câmera', 'camera', 'produto', 'product', 'equipamento', 'equipment',
+              'dispositivo', 'device', 'item', 'modelo', 'model', 'sistema', 'system',
+              'aparelho', 'unidade', 'unit', 'kit', 'máquina', 'maquina', 'lente',
+              'lens', 'microfone', 'microphone', 'iluminador', 'light', 'tripé', 'tripod',
+              'gravador', 'recorder', 'monitor', 'switcher', 'acessório', 'accessory',
             ]
 
             let modifiedQuery = originalQuery
@@ -717,32 +682,26 @@ Deno.serve(async (req: Request) => {
       removeStopWords(removePunctuation(cleanPortugueseGenericWords(originalQuery))),
       customStopWords,
     )
-    const miKeywords: string[] = miCleaned.split(/\s+/).filter((w) => w.length > 2)
+    const miKeywords: string[] = miCleaned
+      .split(/\s+/)
+      .filter((w) => w.length > 2)
 
     let marketIntelligenceData: Array<any> = []
     try {
-      console.log(
-        `[MI][1] Keywords sent to search_market_intelligence RPC: [${miKeywords.join(', ')}]`,
-      )
       const { data: miRaw, error: miError } = await supabase.rpc('search_market_intelligence', {
         keywords: miKeywords,
       })
       if (!miError && Array.isArray(miRaw)) {
-        console.log(
-          `[MI][2] RPC returned ${miRaw.length} raw items — titles: ${miRaw.map((mi: any) => mi.title || 'untitled').join(' | ')}`,
-        )
         const now = Date.now()
         const maxAgeMs = miExpirationDays * 24 * 60 * 60 * 1000
-        const filteredMi = miRaw.filter((mi: any) => {
-          if (!mi.created_at) return false
-          return now - new Date(mi.created_at).getTime() <= maxAgeMs
-        })
+        marketIntelligenceData = miRaw
+          .filter((mi: any) => {
+            if (!mi.created_at) return false
+            return now - new Date(mi.created_at).getTime() <= maxAgeMs
+          })
+          .slice(0, 3)
         console.log(
-          `[MI][3] After expiration filter: ${filteredMi.length} items remain (expiration=${miExpirationDays} days)`,
-        )
-        marketIntelligenceData = filteredMi.slice(0, 3)
-        console.log(
-          `[MI][4] Final MI data after slice(0,3): ${marketIntelligenceData.length} items — titles: ${marketIntelligenceData.map((mi: any) => mi.title || 'untitled').join(' | ')}`,
+          `[ai-search] market_intelligence: keywords=[${miKeywords.join(', ')}] raw=${miRaw.length} filtered=${marketIntelligenceData.length}`,
         )
       }
     } catch (miErr: any) {
@@ -996,7 +955,9 @@ Deno.serve(async (req: Request) => {
             const mentionedManufacturer =
               classificationIntent === 'accessory' || classificationIntent === 'compatibility'
                 ? undefined
-                : manufacturers?.find((m: any) => queryLower.includes(m.name.toLowerCase()))
+                : manufacturers?.find((m: any) =>
+                    queryLower.includes(m.name.toLowerCase()),
+                  )
 
             if (mentionedManufacturer) {
               // Filtra APENAS produtos do fabricante mencionado
@@ -1104,9 +1065,6 @@ Deno.serve(async (req: Request) => {
             imageProxyUrl: IMAGE_PROXY_URL, // ← ADICIONE AQUI
             marketIntelligence: marketIntelligenceData,
           }
-          console.log(
-            `[MI][5] Injected ${marketIntelligenceData.length} MI items into contextForAI (normal mode)`,
-          )
 
           aiResult = await generateResponse(query, contextForAI, undefined, supabase)
           return await persistAndReturn(
@@ -1148,9 +1106,6 @@ Deno.serve(async (req: Request) => {
           imageProxyUrl: IMAGE_PROXY_URL, // ← ADICIONE AQUI
           marketIntelligence: marketIntelligenceData,
         }
-        console.log(
-          `[MI][5] Injected ${marketIntelligenceData.length} MI items into contextForAI (Stage C final)`,
-        )
 
         console.log(
           `[price-check] Stage C final: level1=${level1Products.length} featured=${featured.length} cards=${cards.length}`,
@@ -1525,7 +1480,8 @@ Deno.serve(async (req: Request) => {
 
     return new Response(
       JSON.stringify({
-        content: 'Não encontrei resultados para sua busca. Tente reformular sua pergunta.',
+        content:
+          'Não encontrei resultados para sua busca. Tente reformular sua pergunta.',
         confidence_level: 'low',
         referenced_internal_products: [],
         should_show_whatsapp_button: false,

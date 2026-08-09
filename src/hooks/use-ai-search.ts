@@ -301,10 +301,33 @@ export function useAiSearch() {
               : p.manufacturer),
         }))
 
+        const citedIdsSet = new Set(refIds)
+        const citedProducts = enrichedProducts.filter((p: any) => citedIdsSet.has(p.id))
+
+        const enrichedIdSet = new Set(enrichedProducts.map((p: any) => p.id))
+        const rawCitedObjects = rawRefs
+          .filter(
+            (item: any) =>
+              typeof item === 'object' && item !== null && item.id && !enrichedIdSet.has(item.id),
+          )
+          .map((p: any) => ({
+            ...p,
+            image_url: p.image_url || p.imageUrl,
+            manufacturer:
+              p.manufacturer?.name ||
+              p.manufacturers?.name ||
+              (typeof p.manufacturer === 'object' && p.manufacturer !== null
+                ? p.manufacturer.name
+                : p.manufacturer),
+          }))
+
+        const finalReferencedProducts = [...citedProducts, ...rawCitedObjects]
+
         setResults({
           ...data,
           content: contentStr,
-          referenced_internal_products: enrichedProducts.length > 0 ? enrichedProducts : refIds,
+          referenced_internal_products:
+            finalReferencedProducts.length > 0 ? finalReferencedProducts : refIds,
           ai_referenced_products: aiRefIds,
           full_search_results: data.full_search_results || [],
           products: enrichedProducts,

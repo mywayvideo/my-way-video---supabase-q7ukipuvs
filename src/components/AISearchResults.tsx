@@ -84,23 +84,6 @@ export function AISearchResults({
       }
     })
 
-    const resultProducts = result.products || []
-    debugLog('AISearchResults:products', `count=${resultProducts.length}`)
-    resultProducts.forEach((item: any) => {
-      if (item && typeof item === 'object' && item.name && item.image_url) {
-        const proxied = getProxiedImageUrl(item.image_url) || item.image_url
-        images.push({
-          name: item.name,
-          image_url: proxied,
-          id: item.id,
-        })
-        debugLog(
-          'AISearchResults:collectedImage',
-          `source=product name="${item.name}" id=${item.id} originalUrl=${item.image_url?.substring(0, 80)} proxiedUrl=${proxied?.substring(0, 80)}`,
-        )
-      }
-    })
-
     debugLog('AISearchResults:totalCollectedImages', `count=${images.length}`)
     debugGroupEnd()
 

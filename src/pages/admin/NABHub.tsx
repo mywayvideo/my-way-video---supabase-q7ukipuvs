@@ -1,12 +1,21 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
 import { useToast } from '@/hooks/use-toast'
-import { Loader2, Trash2, Edit2, Link as LinkIcon, FileText, Sparkles } from 'lucide-react'
+import {
+  Loader2,
+  Trash2,
+  Edit2,
+  Link as LinkIcon,
+  FileText,
+  Sparkles,
+  BarChart3,
+} from 'lucide-react'
 import { AdminLayout } from '@/components/admin/AdminLayout'
+import { ProductSelector } from '@/components/admin/ProductSelector'
 import {
   Dialog,
   DialogContent,
@@ -15,6 +24,15 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog'
 import { supabase } from '@/lib/supabase/client'
+
+interface SelectedProduct {
+  id: string
+  name: string
+  sku: string | null
+  image_url: string | null
+  manufacturer_id: string | null
+  manufacturer_name?: string | null
+}
 
 async function getIntelligences() {
   const { data, error } = await supabase
@@ -34,10 +52,14 @@ async function updateIntelligenceStatus(id: string, status: any) {
   return true
 }
 
-async function updateIntelligenceSummary(id: string, summary: string) {
+async function updateIntelligenceSummary(
+  id: string,
+  summary: string,
+  referencedProductIds: string[],
+) {
   const { error } = await supabase
     .from('market_intelligence')
-    .update({ ai_summary: summary })
+    .update({ ai_summary: summary, referenced_product_ids: referencedProductIds })
     .eq('id', id)
   if (error) throw error
   return true
@@ -47,6 +69,23 @@ async function deleteIntelligence(id: string) {
   const { error } = await supabase.from('market_intelligence').delete().eq('id', id)
   if (error) throw error
   return true
+}
+
+async function fetchProductDetails(ids: string[]): Promise<SelectedProduct[]> {
+  if (!ids || ids.length === 0) return []
+  const { data, error } = await supabase
+    .from('products')
+    .select('id, name, sku, image_url, manufacturer_id, manufacturers(name)')
+    .in('id', ids)
+  if (error) return []
+  return (data || []).map((p: any) => ({
+    id: p.id,
+    name: p.name,
+    sku: p.sku,
+    image_url: p.image_url,
+    manufacturer_id: p.manufacturer_id,
+    manufacturer_name: p.manufacturers?.name ?? null,
+  }))
 }
 
 export default function NABHub() {
@@ -59,10 +98,15 @@ export default function NABHub() {
   const [content, setContent] = useState('')
   const [activeProvider, setActiveProvider] = useState<string>('')
 
+  const [selectedProductIds, setSelectedProductIds] = useState<string[]>([])
+  const [selectedProducts, setSelectedProducts] = useState<SelectedProduct[]>([])
+
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [editingItem, setEditingItem] = useState<any>(null)
   const [editedSummary, setEditedSummary] = useState('')
   const [isSavingSummary, setIsSavingSummary] = useState(false)
+  const [editSelectedProductIds, setEditSelectedProductIds] = useState<string[]>([])
+  const [editSelectedProducts, setEditSelectedProducts] = useState<SelectedProduct[]>([])
 
   const { toast } = useToast()
 
@@ -131,6 +175,7 @@ export default function NABHub() {
           title: title.trim() || undefined,
           url: url.trim() || undefined,
           raw_content: content.trim() || undefined,
+          referenced_product_ids: selectedProductIds,
         },
       })
 
@@ -148,6 +193,8 @@ export default function NABHub() {
       setTitle('')
       setUrl('')
       setContent('')
+      setSelectedProductIds([])
+      setSelectedProducts([])
       fetchIntelligences()
     } catch (error: any) {
       console.error(error)
@@ -176,17 +223,25 @@ export default function NABHub() {
     }
   }
 
-  const handleEditClick = (item: any) => {
+  const handleEditClick = useCallback(async (item: any) => {
     setEditingItem(item)
     setEditedSummary(item.ai_summary || '')
+    const existingIds: string[] = item.referenced_product_ids || []
+    setEditSelectedProductIds(existingIds)
+    if (existingIds.length > 0) {
+      const products = await fetchProductDetails(existingIds)
+      setEditSelectedProducts(products)
+    } else {
+      setEditSelectedProducts([])
+    }
     setIsEditDialogOpen(true)
-  }
+  }, [])
 
   const handleSaveSummary = async () => {
     if (!editingItem) return
     setIsSavingSummary(true)
     try {
-      await updateIntelligenceSummary(editingItem.id, editedSummary)
+      await updateIntelligenceSummary(editingItem.id, editedSummary, editSelectedProductIds)
       toast({
         title: 'Sucesso',
         description: 'Resumo atualizado com sucesso.',
@@ -290,6 +345,16 @@ export default function NABHub() {
                 />
               </div>
 
+              <div className="space-y-2">
+                <label className="text-sm font-semibold">Produtos Vinculados</label>
+                <ProductSelector
+                  selectedProductIds={selectedProductIds}
+                  onSelectionChange={setSelectedProductIds}
+                  selectedProducts={selectedProducts}
+                  onSelectedProductsChange={setSelectedProducts}
+                />
+              </div>
+
               <Button
                 onClick={handleIngest}
                 disabled={isLoading}
@@ -326,65 +391,75 @@ export default function NABHub() {
                 </div>
               ) : (
                 <div className="divide-y max-h-[600px] overflow-y-auto">
-                  {intelligences.map((item) => (
-                    <div
-                      key={item.id}
-                      className="flex items-center justify-between p-4 hover:bg-muted/10 transition-colors"
-                    >
-                      <div className="space-y-1.5 overflow-hidden pr-4 flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          <p className="font-semibold text-sm truncate" title={item.title}>
-                            {item.title}
-                          </p>
-                          <span className="text-xs text-muted-foreground shrink-0">
-                            • {new Date(item.created_at).toLocaleDateString('pt-BR')}
-                          </span>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                          <span
-                            className={`px-2.5 py-0.5 rounded-full font-medium ${item.status === 'published' ? 'bg-green-500/10 text-green-600 border border-green-500/20' : 'bg-yellow-500/10 text-yellow-600 border border-yellow-500/20'}`}
-                          >
-                            {item.status === 'published' ? 'Publicado' : 'Rascunho'}
-                          </span>
-                          {item.source_url && (
-                            <a
-                              href={item.source_url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="truncate max-w-[200px] hover:underline hover:text-primary transition-colors"
+                  {intelligences.map((item) => {
+                    const linkedCount = item.referenced_product_ids?.length || 0
+                    return (
+                      <div
+                        key={item.id}
+                        className="flex items-center justify-between p-4 hover:bg-muted/10 transition-colors"
+                      >
+                        <div className="space-y-1.5 overflow-hidden pr-4 flex-1">
+                          <div className="flex items-center gap-2 mb-1">
+                            <p className="font-semibold text-sm truncate" title={item.title}>
+                              {item.title}
+                            </p>
+                            <span className="text-xs text-muted-foreground shrink-0">
+                              • {new Date(item.created_at).toLocaleDateString('pt-BR')}
+                            </span>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                            <span
+                              className={`px-2.5 py-0.5 rounded-full font-medium ${item.status === 'published' ? 'bg-green-500/10 text-green-600 border border-green-500/20' : 'bg-yellow-500/10 text-yellow-600 border border-yellow-500/20'}`}
                             >
-                              {item.source_url}
-                            </a>
-                          )}
+                              {item.status === 'published' ? 'Publicado' : 'Rascunho'}
+                            </span>
+                            {linkedCount > 0 && (
+                              <span className="px-2.5 py-0.5 rounded-full font-medium bg-blue-500/10 text-blue-600 border border-blue-500/20 flex items-center gap-1">
+                                <BarChart3 className="w-3 h-3" />
+                                {linkedCount}{' '}
+                                {linkedCount === 1 ? 'produto vinculado' : 'produtos vinculados'}
+                              </span>
+                            )}
+                            {item.source_url && (
+                              <a
+                                href={item.source_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="truncate max-w-[200px] hover:underline hover:text-primary transition-colors"
+                              >
+                                {item.source_url}
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3 shrink-0">
+                          <Switch
+                            checked={item.status === 'published'}
+                            onCheckedChange={() => handleToggleStatus(item.id, item.status)}
+                            title={item.status === 'published' ? 'Despublicar' : 'Publicar'}
+                          />
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleEditClick(item)}
+                            className="h-8 w-8 hover:bg-primary/10 hover:text-primary text-muted-foreground transition-colors"
+                            title="Editar Resumo"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleDelete(item.id)}
+                            className="h-8 w-8 hover:bg-destructive/10 hover:text-destructive text-muted-foreground transition-colors"
+                            title="Excluir"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
                         </div>
                       </div>
-                      <div className="flex items-center gap-3 shrink-0">
-                        <Switch
-                          checked={item.status === 'published'}
-                          onCheckedChange={() => handleToggleStatus(item.id, item.status)}
-                          title={item.status === 'published' ? 'Despublicar' : 'Publicar'}
-                        />
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleEditClick(item)}
-                          className="h-8 w-8 hover:bg-primary/10 hover:text-primary text-muted-foreground transition-colors"
-                          title="Editar Resumo"
-                        >
-                          <Edit2 className="w-4 h-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleDelete(item.id)}
-                          className="h-8 w-8 hover:bg-destructive/10 hover:text-destructive text-muted-foreground transition-colors"
-                          title="Excluir"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
             </CardContent>
@@ -397,13 +472,22 @@ export default function NABHub() {
           <DialogHeader>
             <DialogTitle>Editar Resumo da IA</DialogTitle>
           </DialogHeader>
-          <div className="py-4">
+          <div className="py-4 space-y-4">
             <Textarea
               className="min-h-[300px] text-sm resize-y"
               value={editedSummary}
               onChange={(e) => setEditedSummary(e.target.value)}
               placeholder="O resumo da IA aparecerá aqui..."
             />
+            <div className="space-y-2">
+              <label className="text-sm font-semibold">Produtos Vinculados</label>
+              <ProductSelector
+                selectedProductIds={editSelectedProductIds}
+                onSelectionChange={setEditSelectedProductIds}
+                selectedProducts={editSelectedProducts}
+                onSelectedProductsChange={setEditSelectedProducts}
+              />
+            </div>
           </div>
           <DialogFooter>
             <Button

@@ -15,7 +15,7 @@ Deno.serve(async (req: Request) => {
 
   try {
     const body = await req.json()
-    const { url, raw_content, manufacturer_id, record_id, title } = body
+    const { url, raw_content, manufacturer_id, record_id, title, referenced_product_ids } = body
 
     if (!url && !raw_content) {
       return new Response(JSON.stringify({ error: 'URL or text content is required' }), {
@@ -157,6 +157,9 @@ Return ONLY a valid JSON in this format:
           ai_summary: combinedContent,
           raw_content: truncatedContent,
           status: 'published',
+          referenced_product_ids: Array.isArray(referenced_product_ids)
+            ? referenced_product_ids
+            : [],
         })
         .eq('id', targetRecordId)
         .select()
@@ -181,6 +184,9 @@ Return ONLY a valid JSON in this format:
           ai_summary: combinedContent,
           raw_content: truncatedContent,
           status: 'published',
+          referenced_product_ids: Array.isArray(referenced_product_ids)
+            ? referenced_product_ids
+            : [],
         })
         .select()
         .single()

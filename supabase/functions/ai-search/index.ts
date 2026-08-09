@@ -49,6 +49,24 @@ function normalizeProductName(name: string): string {
     .toLowerCase()
 }
 
+function mergeWithMiProducts(catalogProducts: any[], miProducts: any[]): any[] {
+  if (!miProducts || miProducts.length === 0) return catalogProducts
+  const seenIds = new Set(catalogProducts.map((p: any) => p.id))
+  const seenNames = new Set(
+    catalogProducts.map((p: any) => normalizeProductName(p.name || '')).filter(Boolean),
+  )
+  const result = [...catalogProducts]
+  for (const miP of miProducts) {
+    const normName = normalizeProductName(miP.name || '')
+    if (!seenIds.has(miP.id) && !seenNames.has(normName)) {
+      seenIds.add(miP.id)
+      if (normName) seenNames.add(normName)
+      result.push(miP)
+    }
+  }
+  return result
+}
+
 const OUT_OF_SCOPE_MESSAGE =
   'Desculpe, só posso responder perguntas relacionadas com o nosso catálogo de produtos e serviços.'
 
@@ -222,13 +240,20 @@ Deno.serve(async (req: Request) => {
           const lastProductName = recentProducts[0]?.name || ''
 
           const ptPronouns = [
-            'esse', 'essa', 'este', 'esta', 'nesse', 'nessa',
-            'ele', 'ela', 'disso', 'dessa', 'aquilo', 'aquela',
+            'esse',
+            'essa',
+            'este',
+            'esta',
+            'nesse',
+            'nessa',
+            'ele',
+            'ela',
+            'disso',
+            'dessa',
+            'aquilo',
+            'aquela',
           ]
-          const enPronouns = [
-            'this', 'that', 'it', 'its', 'these', 'those',
-            'this one', 'that one',
-          ]
+          const enPronouns = ['this', 'that', 'it', 'its', 'these', 'those', 'this one', 'that one']
           const allPronouns = [...ptPronouns, ...enPronouns]
           const lowerQuery = originalQuery.toLowerCase()
           const hasPronoun = allPronouns.some((p) => {
@@ -237,11 +262,39 @@ Deno.serve(async (req: Request) => {
 
           if (hasPronoun && lastProductName) {
             const genericNouns = [
-              'câmera', 'camera', 'produto', 'product', 'equipamento', 'equipment',
-              'dispositivo', 'device', 'item', 'modelo', 'model', 'sistema', 'system',
-              'aparelho', 'unidade', 'unit', 'kit', 'máquina', 'maquina', 'lente',
-              'lens', 'microfone', 'microphone', 'iluminador', 'light', 'tripé', 'tripod',
-              'gravador', 'recorder', 'monitor', 'switcher', 'acessório', 'accessory',
+              'câmera',
+              'camera',
+              'produto',
+              'product',
+              'equipamento',
+              'equipment',
+              'dispositivo',
+              'device',
+              'item',
+              'modelo',
+              'model',
+              'sistema',
+              'system',
+              'aparelho',
+              'unidade',
+              'unit',
+              'kit',
+              'máquina',
+              'maquina',
+              'lente',
+              'lens',
+              'microfone',
+              'microphone',
+              'iluminador',
+              'light',
+              'tripé',
+              'tripod',
+              'gravador',
+              'recorder',
+              'monitor',
+              'switcher',
+              'acessório',
+              'accessory',
             ]
 
             let modifiedQuery = originalQuery
@@ -682,9 +735,7 @@ Deno.serve(async (req: Request) => {
       removeStopWords(removePunctuation(cleanPortugueseGenericWords(originalQuery))),
       customStopWords,
     )
-    const miKeywords: string[] = miCleaned
-      .split(/\s+/)
-      .filter((w) => w.length > 2)
+    const miKeywords: string[] = miCleaned.split(/\s+/).filter((w) => w.length > 2)
 
     let marketIntelligenceData: Array<any> = []
     try {
@@ -712,6 +763,37 @@ Deno.serve(async (req: Request) => {
       }
     } catch (miErr: any) {
       console.error('[ai-search] market_intelligence search failed:', miErr?.message || miErr)
+    }
+
+    // ── Resolve MI referenced products ──
+    let miReferencedProducts: any[] = []
+    if (marketIntelligenceData.length > 0) {
+      const allMiProductIds: string[] = []
+      for (const mi of marketIntelligenceData) {
+        if (Array.isArray(mi.referenced_product_ids)) {
+          for (const pid of mi.referenced_product_ids) {
+            if (typeof pid === 'string' && !allMiProductIds.includes(pid)) {
+              allMiProductIds.push(pid)
+            }
+          }
+        }
+      }
+      if (allMiProductIds.length > 0) {
+        const { data: miProducts } = await supabase
+          .from('products')
+          .select(
+            'id, name, sku, category, description, technical_info, image_url, price_usd, price_brl, price_nationalized_sales, price_nationalized_currency, manufacturer_id, manufacturers(name)',
+          )
+          .in('id', allMiProductIds)
+        if (miProducts && miProducts.length > 0) {
+          miReferencedProducts = miProducts
+            .map((p: any) => ({ ...p, manufacturer: p.manufacturers?.name || null }))
+            .slice(0, 5)
+          console.log(
+            `[ai-search] MI referenced products resolved: ${miReferencedProducts.length} (from ${allMiProductIds.length} ids)`,
+          )
+        }
+      }
     }
 
     // ── Stage C: Search Products ──
@@ -751,14 +833,14 @@ Deno.serve(async (req: Request) => {
           contextForAI = {
             agentSettings,
             aiSettings,
-            products: featured,
+            products: mergeWithMiProducts(featured, miReferencedProducts),
             manufacturerList,
             history,
             currentProductId: lastReferencedProductId,
             contextualProductData,
             productPagePrompt: productPagePrompt || undefined,
             currentProductContext: currentProductContext || undefined,
-            imageProxyUrl: IMAGE_PROXY_URL, // ← ADICIONE AQUI
+            imageProxyUrl: IMAGE_PROXY_URL,
             marketIntelligence: marketIntelligenceData,
           }
 
@@ -961,9 +1043,7 @@ Deno.serve(async (req: Request) => {
             const mentionedManufacturer =
               classificationIntent === 'accessory' || classificationIntent === 'compatibility'
                 ? undefined
-                : manufacturers?.find((m: any) =>
-                    queryLower.includes(m.name.toLowerCase()),
-                  )
+                : manufacturers?.find((m: any) => queryLower.includes(m.name.toLowerCase()))
 
             if (mentionedManufacturer) {
               // Filtra APENAS produtos do fabricante mencionado
@@ -1069,9 +1149,7 @@ Deno.serve(async (req: Request) => {
             const beforeRelevance = featured.length
             const relevanceFiltered = featured.filter((p: any) => {
               const productName = (p.name || '').toLowerCase()
-              return relevanceTerms.some((term: string) =>
-                productName.includes(term.toLowerCase()),
-              )
+              return relevanceTerms.some((term: string) => productName.includes(term.toLowerCase()))
             })
             if (relevanceFiltered.length === 0) {
               console.log(
@@ -1095,7 +1173,7 @@ Deno.serve(async (req: Request) => {
             contextForAI = {
               agentSettings,
               aiSettings,
-              products: featured,
+              products: mergeWithMiProducts(featured, miReferencedProducts),
               manufacturerList,
               history,
               currentProductId: lastReferencedProductId,
@@ -1526,10 +1604,13 @@ Deno.serve(async (req: Request) => {
       console.log(
         `[ai-search] No products found but ${marketIntelligenceData.length} MI articles available — generating MI-only response`,
       )
+      const miProductLookup = new Map(miReferencedProducts.map((p: any) => [p.id, p]))
+      cards = miReferencedProducts
+      level1Products = miReferencedProducts
       contextForAI = {
         agentSettings,
         aiSettings,
-        products: [],
+        products: miReferencedProducts,
         manufacturerList,
         history,
         currentProductId: lastReferencedProductId,
@@ -1540,13 +1621,29 @@ Deno.serve(async (req: Request) => {
         marketIntelligence: marketIntelligenceData,
       }
       aiResult = await generateResponse(query, contextForAI, undefined, supabase)
+      const miReferencedIds: string[] = Array.isArray(aiResult.referenced_internal_products)
+        ? aiResult.referenced_internal_products
+        : []
+      const miReferencedProductData = miReferencedIds
+        .map((id: string) => {
+          const p = miProductLookup.get(id)
+          if (!p) return null
+          return {
+            id: p.id,
+            name: p.name,
+            image_url: proxyExternalImageUrl(p.image_url || ''),
+            price_usd: p.price_usd,
+            price_brl: p.price_brl,
+          }
+        })
+        .filter((p: any) => p !== null)
       return await persistAndReturn(
         {
           ...aiResult,
-          referenced_internal_products: [],
-          referenced_product_data: [],
-          ai_referenced_count: 0,
-          full_search_results: [],
+          referenced_internal_products: miReferencedIds,
+          referenced_product_data: miReferencedProductData,
+          ai_referenced_count: miReferencedIds.length,
+          full_search_results: miReferencedProducts,
         },
         'market_intelligence',
       )
@@ -1554,8 +1651,7 @@ Deno.serve(async (req: Request) => {
 
     return new Response(
       JSON.stringify({
-        content:
-          'Não encontrei resultados para sua busca. Tente reformular sua pergunta.',
+        content: 'Não encontrei resultados para sua busca. Tente reformular sua pergunta.',
         confidence_level: 'low',
         referenced_internal_products: [],
         should_show_whatsapp_button: false,

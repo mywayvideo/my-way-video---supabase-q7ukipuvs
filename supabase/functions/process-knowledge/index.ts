@@ -173,6 +173,8 @@ Return ONLY a valid JSON in this format:
       const { data, error } = await supabase
         .from('market_intelligence')
         .insert({
+          id: crypto.randomUUID(),
+          created_at: new Date().toISOString(),
           title: title || aiTitle || 'Processado Automaticamente',
           source_url: url || null,
           manufacturer_id: manufacturer_id || null,

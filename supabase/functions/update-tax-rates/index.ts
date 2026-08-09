@@ -112,14 +112,17 @@ async function fetchNcmFromSiscomex(ncm: string): Promise<any | null> {
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), 15000)
 
-      const res = await fetch(`${SISCOMEX_API}/busca-por-codigo?codigo=${normalized}`, {
-        method: 'GET',
-        headers: {
-          Accept: 'application/json',
-          'User-Agent': 'SimuImport/1.0',
+      const res = await fetch(
+        `${SISCOMEX_API}/busca-por-codigo?codigo=${normalized}`,
+        {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/json',
+            'User-Agent': 'SimuImport/1.0',
+          },
+          signal: controller.signal,
         },
-        signal: controller.signal,
-      })
+      )
       clearTimeout(timeoutId)
 
       if (res.ok) {
@@ -232,18 +235,20 @@ Deno.serve(async (req: Request) => {
         } else {
           const parsed = parseTaxRates(siscomexData)
 
-          const { error: upsertError } = await supabaseClient.from('imp_sim_tax_rates').upsert({
-            ncm: ncmCode,
-            ii_rate: parsed.ii_rate,
-            ipi_rate: parsed.ipi_rate,
-            pis_rate: parsed.pis_rate,
-            cofins_rate: parsed.cofins_rate,
-            has_ex_tarifario: parsed.has_ex_tarifario,
-            legal_basis: parsed.legal_basis,
-            source: 'siscomex',
-            updated_by_user_id: userId,
-            last_updated_at: new Date().toISOString(),
-          })
+          const { error: upsertError } = await supabaseClient
+            .from('imp_sim_tax_rates')
+            .upsert({
+              ncm: ncmCode,
+              ii_rate: parsed.ii_rate,
+              ipi_rate: parsed.ipi_rate,
+              pis_rate: parsed.pis_rate,
+              cofins_rate: parsed.cofins_rate,
+              has_ex_tarifario: parsed.has_ex_tarifario,
+              legal_basis: parsed.legal_basis,
+              source: 'siscomex',
+              updated_by_user_id: userId,
+              last_updated_at: new Date().toISOString(),
+            })
 
           if (upsertError) {
             results.push({
@@ -296,9 +301,9 @@ Deno.serve(async (req: Request) => {
     )
   } catch (error: any) {
     console.error('Unhandled error in update-tax-rates:', error)
-    return new Response(JSON.stringify({ error: error.message || 'Erro interno' }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
+    return new Response(
+      JSON.stringify({ error: error.message || 'Erro interno' }),
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+    )
   }
 })

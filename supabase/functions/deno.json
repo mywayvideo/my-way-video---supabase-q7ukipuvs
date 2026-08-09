@@ -24,7 +24,6 @@
     "send-confirmation-email": 149,
     "cleanup-spam-customers": 149,
     "execute-ai-search-v3": 150,
-    "enrich-product-specs": 148,
     "execute_ai_search_v2": 16,
     "extract-product-bhphoto": 16,
     "generate-cart-whatsapp-message": 16,

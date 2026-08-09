@@ -119,12 +119,16 @@ export function ProductSelector({
       {selectedProductIds.length > 0 && (
         <div className="flex flex-wrap gap-2">
           {selectedProducts.map((p) => (
-            <Badge key={p.id} variant="secondary" className="flex items-center gap-1.5 pr-1.5 py-1">
-              <Package className="w-3 h-3 text-muted-foreground" />
-              <span className="text-xs">{p.name}</span>
+            <Badge
+              key={p.id}
+              variant="secondary"
+              className="flex items-center gap-1.5 pr-1.5 py-1 max-w-full min-w-0"
+            >
+              <Package className="w-3 h-3 text-muted-foreground shrink-0" />
+              <span className="text-xs truncate min-w-0">{p.name}</span>
               <button
                 onClick={() => removeProduct(p.id)}
-                className="ml-0.5 rounded-full hover:bg-muted-foreground/20 p-0.5 transition-colors"
+                className="ml-0.5 rounded-full hover:bg-muted-foreground/20 p-0.5 transition-colors shrink-0"
               >
                 <X className="w-3 h-3" />
               </button>
@@ -132,7 +136,6 @@ export function ProductSelector({
           ))}
         </div>
       )}
-
       {showResults && search.trim() && (
         <div className="border rounded-md max-h-[240px] overflow-y-auto bg-background">
           {results.length === 0 && !isSearching ? (
@@ -163,9 +166,9 @@ export function ProductSelector({
                     <Package className="w-4 h-4 text-muted-foreground" />
                   </div>
                 )}
-                <div className="flex-1 min-w-0">
+                <div className="flex-1 min-w-0 overflow-hidden">
                   <p className="text-sm font-medium truncate">{p.name}</p>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-xs text-muted-foreground truncate">
                     {p.sku && `SKU: ${p.sku}`}
                     {p.sku && p.manufacturer_name && ' • '}
                     {p.manufacturer_name && p.manufacturer_name}

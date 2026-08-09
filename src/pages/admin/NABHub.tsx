@@ -396,25 +396,28 @@ export default function NABHub() {
                     return (
                       <div
                         key={item.id}
-                        className="flex items-center justify-between p-4 hover:bg-muted/10 transition-colors"
+                        className="flex items-center justify-between p-4 hover:bg-muted/10 transition-colors gap-3"
                       >
-                        <div className="space-y-1.5 overflow-hidden pr-4 flex-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            <p className="font-semibold text-sm truncate" title={item.title}>
+                        <div className="space-y-1.5 overflow-hidden pr-1 flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1 min-w-0">
+                            <p
+                              className="font-semibold text-sm truncate min-w-0"
+                              title={item.title}
+                            >
                               {item.title}
                             </p>
                             <span className="text-xs text-muted-foreground shrink-0">
                               • {new Date(item.created_at).toLocaleDateString('pt-BR')}
                             </span>
                           </div>
-                          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground min-w-0">
                             <span
-                              className={`px-2.5 py-0.5 rounded-full font-medium ${item.status === 'published' ? 'bg-green-500/10 text-green-600 border border-green-500/20' : 'bg-yellow-500/10 text-yellow-600 border border-yellow-500/20'}`}
+                              className={`px-2.5 py-0.5 rounded-full font-medium shrink-0 ${item.status === 'published' ? 'bg-green-500/10 text-green-600 border border-green-500/20' : 'bg-yellow-500/10 text-yellow-600 border border-yellow-500/20'}`}
                             >
                               {item.status === 'published' ? 'Publicado' : 'Rascunho'}
                             </span>
                             {linkedCount > 0 && (
-                              <span className="px-2.5 py-0.5 rounded-full font-medium bg-blue-500/10 text-blue-600 border border-blue-500/20 flex items-center gap-1">
+                              <span className="px-2.5 py-0.5 rounded-full font-medium bg-blue-500/10 text-blue-600 border border-blue-500/20 flex items-center gap-1 shrink-0">
                                 <BarChart3 className="w-3 h-3" />
                                 {linkedCount}{' '}
                                 {linkedCount === 1 ? 'produto vinculado' : 'produtos vinculados'}
@@ -425,7 +428,7 @@ export default function NABHub() {
                                 href={item.source_url}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="truncate max-w-[200px] hover:underline hover:text-primary transition-colors"
+                                className="truncate min-w-0 max-w-[200px] hover:underline hover:text-primary transition-colors"
                               >
                                 {item.source_url}
                               </a>
@@ -468,13 +471,13 @@ export default function NABHub() {
       </div>
 
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
+        <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col gap-0 overflow-hidden p-0">
+          <DialogHeader className="shrink-0 px-6 py-4 border-b">
             <DialogTitle>Editar Resumo da IA</DialogTitle>
           </DialogHeader>
-          <div className="py-4 space-y-4">
+          <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4 min-h-0">
             <Textarea
-              className="min-h-[300px] text-sm resize-y"
+              className="min-h-[160px] text-sm resize-y"
               value={editedSummary}
               onChange={(e) => setEditedSummary(e.target.value)}
               placeholder="O resumo da IA aparecerá aqui..."
@@ -489,7 +492,7 @@ export default function NABHub() {
               />
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="shrink-0 px-6 py-4 border-t bg-background">
             <Button
               variant="outline"
               onClick={() => setIsEditDialogOpen(false)}

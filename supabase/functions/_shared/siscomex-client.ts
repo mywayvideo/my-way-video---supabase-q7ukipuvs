@@ -77,7 +77,13 @@ async function tlsRequest(
   const dec = new TextDecoder()
   let raw = ''
   const buf = new Uint8Array(16384)
-  const timeout = setTimeout(() => { try { conn.close() } catch { /* noop */ } }, 30000)
+  const timeout = setTimeout(() => {
+    try {
+      conn.close()
+    } catch {
+      /* noop */
+    }
+  }, 30000)
   try {
     while (true) {
       const n = await conn.read(buf)
@@ -86,7 +92,11 @@ async function tlsRequest(
     }
   } finally {
     clearTimeout(timeout)
-    try { conn.close() } catch { /* noop */ }
+    try {
+      conn.close()
+    } catch {
+      /* noop */
+    }
   }
 
   const sep = raw.indexOf('\r\n\r\n')
@@ -111,8 +121,8 @@ export async function authenticate(host?: string): Promise<SiscomexTokens> {
   const h = host || getSiscomexHost()
   const resp = await tlsRequest(h, 'POST', '/portal/api/autenticar', {
     'Role-Type': 'IMPEXP',
-    'CNPJ': CNPJ,
-    'Accept': 'application/json',
+    CNPJ: CNPJ,
+    Accept: 'application/json',
   })
 
   if (resp.status !== 200 && resp.status !== 201) {
@@ -137,7 +147,11 @@ export async function authenticate(host?: string): Promise<SiscomexTokens> {
 
 export async function getValidTokens(host?: string): Promise<SiscomexTokens> {
   const now = Date.now()
-  if (cachedTokens && now < cachedTokens.csrfExpiration && now - cachedTokens.fetchedAt < MAX_TOKEN_AGE_MS) {
+  if (
+    cachedTokens &&
+    now < cachedTokens.csrfExpiration &&
+    now - cachedTokens.fetchedAt < MAX_TOKEN_AGE_MS
+  ) {
     return cachedTokens
   }
   return authenticate(host)
@@ -153,9 +167,9 @@ export async function queryTTCE(ncm: string, host?: string): Promise<any | null>
   for (let attempt = 0; attempt <= 2; attempt++) {
     const tokens = await getValidTokens(h)
     const resp = await tlsRequest(h, 'GET', path, {
-      'Token': tokens.token,
+      Token: tokens.token,
       'X-CSRF-Token': tokens.csrfToken,
-      'Accept': 'application/json',
+      Accept: 'application/json',
     })
 
     if (resp.status === 401 || resp.status === 403) {

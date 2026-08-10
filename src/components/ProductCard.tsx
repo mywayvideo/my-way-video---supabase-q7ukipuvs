@@ -5,6 +5,7 @@ import { ShoppingCart, Heart, MessageCircle, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useSearchState } from '@/hooks/useSearchState'
 import { ImageWithFallback } from '@/components/ImageWithFallback'
+import { getProxiedImageUrl } from '@/lib/image-proxy'
 import { useFavorites } from '@/hooks/useFavorites'
 import { useState } from 'react'
 import { QuantityModal } from '@/components/QuantityModal'
@@ -252,7 +253,7 @@ export function ProductCard({
         >
           {!imgLoaded && <Skeleton className="absolute inset-4 rounded-lg" />}
           <img
-            src={product?.image_url}
+            src={getProxiedImageUrl(product?.image_url) || product?.image_url}
             alt={productName}
             className={cn(
               'w-full h-full object-contain transition-all duration-300 group-hover:scale-105',

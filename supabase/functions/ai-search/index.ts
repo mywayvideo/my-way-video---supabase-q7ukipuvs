@@ -1391,8 +1391,7 @@ Deno.serve(async (req: Request) => {
 
         // 1) Replace [PRODUCT:id] markers with image markdown
         const markerRegex =
-          /\[PRODUCT:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\]/gi
-        let markerMatch: RegExpExecArray | null
+          /(?:\[PRODUCT:|<!--\s*PRODUCT(?:_IMAGE)?:\s*)([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\s*-->|\])/gi        let markerMatch: RegExpExecArray | null
         const markerReplacements: { start: number; end: number; replacement: string }[] = []
 
         while ((markerMatch = markerRegex.exec(result.content)) !== null) {

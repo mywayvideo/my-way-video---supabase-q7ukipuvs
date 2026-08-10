@@ -692,7 +692,7 @@ export function processProductImages(
   )
 
   processed = processed.replace(
-    /<!--\s*PRODUCT_IMAGE:([0-9a-fA-F-]{36})\s*-->/g,
+    /<!--\s*PRODUCT(?:_IMAGE)?:([0-9a-fA-F-]{36})\s*-->/g,
     (_match, uuid: string, offset: number) => {
       if (processedPlaceholderIds.has(uuid)) {
         debugLog(

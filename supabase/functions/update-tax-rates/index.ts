@@ -85,9 +85,7 @@ function parseTaxRates(rawData: any): ParsedTaxRates {
 
   const flText = rawData?.fundamentosLegais || rawData?.fundamentoLegal || JSON.stringify(rawData)
   if (ii_rate === null) {
-    ii_rate = extractRate(flText, [
-      /(?:ii|imposto\s+de\s+importa[çc][ãa]o)\s*:?\s*(\d+[,.]?\d*)\s*%/i,
-    ])
+    ii_rate = extractRate(flText, [/(?:ii|imposto\s+de\s+importa[çc][ãa]o)\s*:?\s*(\d+[,.]?\d*)\s*%/i])
   }
   if (ipi_rate === null) {
     ipi_rate = extractRate(flText, [/(?:ipi)\s*:?\s*(\d+[,.]?\d*)\s*%/i])
@@ -211,18 +209,20 @@ Deno.serve(async (req: Request) => {
         } else {
           const parsed = parseTaxRates(ttceData)
 
-          const { error: upsertError } = await supabaseClient.from('imp_sim_tax_rates').upsert({
-            ncm: ncmCode,
-            ii_rate: parsed.ii_rate,
-            ipi_rate: parsed.ipi_rate,
-            pis_rate: parsed.pis_rate,
-            cofins_rate: parsed.cofins_rate,
-            has_ex_tarifario: parsed.has_ex_tarifario,
-            legal_basis: parsed.legal_basis,
-            source: 'siscomex',
-            updated_by_user_id: userId,
-            last_updated_at: new Date().toISOString(),
-          })
+          const { error: upsertError } = await supabaseClient
+            .from('imp_sim_tax_rates')
+            .upsert({
+              ncm: ncmCode,
+              ii_rate: parsed.ii_rate,
+              ipi_rate: parsed.ipi_rate,
+              pis_rate: parsed.pis_rate,
+              cofins_rate: parsed.cofins_rate,
+              has_ex_tarifario: parsed.has_ex_tarifario,
+              legal_basis: parsed.legal_basis,
+              source: 'siscomex',
+              updated_by_user_id: userId,
+              last_updated_at: new Date().toISOString(),
+            })
 
           if (upsertError) {
             results.push({
@@ -275,9 +275,9 @@ Deno.serve(async (req: Request) => {
     )
   } catch (error: any) {
     console.error('Unhandled error in update-tax-rates:', error)
-    return new Response(JSON.stringify({ error: error.message || 'Erro interno' }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
+    return new Response(
+      JSON.stringify({ error: error.message || 'Erro interno' }),
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+    )
   }
 })

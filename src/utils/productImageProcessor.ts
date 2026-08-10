@@ -257,7 +257,7 @@ function insertImagesByName(
     .sort((a, b) => {
       const aName = normalizeProductName(a.name) || a.name
       const bName = normalizeProductName(b.name) || b.name
-      return bName.length - aName.length
+      return aName.length - bName.length
     })
 
   debugLog(

@@ -336,7 +336,6 @@ export function detectComparison(query: string): boolean {
   const comparisonKeywords = [
     'vs',
     'versus',
-    'ou',
     'melhor que',
     'comparar',
     'comparação',
@@ -344,8 +343,11 @@ export function detectComparison(query: string): boolean {
     'diferença',
     'diferenca',
     'qual o melhor',
+    'qual é o melhor',
+    'qual é melhor',
     'qual escolher',
     'qual comprar',
+    'compare',
   ]
   const lower = query.toLowerCase()
   return comparisonKeywords.some((kw) => lower.includes(kw))

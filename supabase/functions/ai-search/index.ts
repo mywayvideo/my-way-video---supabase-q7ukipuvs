@@ -240,13 +240,20 @@ Deno.serve(async (req: Request) => {
           const lastProductName = recentProducts[0]?.name || ''
 
           const ptPronouns = [
-            'esse', 'essa', 'este', 'esta', 'nesse', 'nessa',
-            'ele', 'ela', 'disso', 'dessa', 'aquilo', 'aquela',
+            'esse',
+            'essa',
+            'este',
+            'esta',
+            'nesse',
+            'nessa',
+            'ele',
+            'ela',
+            'disso',
+            'dessa',
+            'aquilo',
+            'aquela',
           ]
-          const enPronouns = [
-            'this', 'that', 'it', 'its', 'these', 'those',
-            'this one', 'that one',
-          ]
+          const enPronouns = ['this', 'that', 'it', 'its', 'these', 'those', 'this one', 'that one']
           const allPronouns = [...ptPronouns, ...enPronouns]
           const lowerQuery = originalQuery.toLowerCase()
           const hasPronoun = allPronouns.some((p) => {
@@ -255,11 +262,39 @@ Deno.serve(async (req: Request) => {
 
           if (hasPronoun && lastProductName) {
             const genericNouns = [
-              'câmera', 'camera', 'produto', 'product', 'equipamento', 'equipment',
-              'dispositivo', 'device', 'item', 'modelo', 'model', 'sistema', 'system',
-              'aparelho', 'unidade', 'unit', 'kit', 'máquina', 'maquina', 'lente',
-              'lens', 'microfone', 'microphone', 'iluminador', 'light', 'tripé', 'tripod',
-              'gravador', 'recorder', 'monitor', 'switcher', 'acessório', 'accessory',
+              'câmera',
+              'camera',
+              'produto',
+              'product',
+              'equipamento',
+              'equipment',
+              'dispositivo',
+              'device',
+              'item',
+              'modelo',
+              'model',
+              'sistema',
+              'system',
+              'aparelho',
+              'unidade',
+              'unit',
+              'kit',
+              'máquina',
+              'maquina',
+              'lente',
+              'lens',
+              'microfone',
+              'microphone',
+              'iluminador',
+              'light',
+              'tripé',
+              'tripod',
+              'gravador',
+              'recorder',
+              'monitor',
+              'switcher',
+              'acessório',
+              'accessory',
             ]
 
             let modifiedQuery = originalQuery
@@ -311,12 +346,16 @@ Deno.serve(async (req: Request) => {
     if (session_id) {
       const { data: histRows } = await supabase
         .from('chat_messages')
-        .select('role, content')
+        .select('role, content, type')
         .eq('session_id', session_id)
         .order('created_at', { ascending: false })
         .limit(10)
       if (Array.isArray(histRows))
-        history = histRows.reverse().map((row) => ({ role: row.role, content: row.content }))
+        history = histRows.reverse().map((row) => ({
+          role: row.role,
+          content: row.content,
+          type: row.type || 'general',
+        }))
     }
 
     const { data: agentSettings } = await supabase
@@ -413,6 +452,16 @@ Deno.serve(async (req: Request) => {
       )
     } catch (err: any) {
       console.error('[ai-search] classifier failed, using fallback:', err?.message || err)
+    }
+
+    if (classificationIntent !== 'comparison') {
+      const beforeFilter = history.length
+      history = history.filter((h: any) => h.type !== 'comparison')
+      if (beforeFilter !== history.length) {
+        console.log(
+          `[ai-search] filtered ${beforeFilter - history.length} comparison history messages (intent=${classificationIntent || 'unknown'})`,
+        )
+      }
     }
 
     const hpSearchTerm = isHPMode ? cleanPortugueseGenericWords(query) : query
@@ -515,9 +564,10 @@ Deno.serve(async (req: Request) => {
       const comparisonPatterns = [
         /compare\s+(.+?)\s+(?:com|e|vs|versus|contra|x)\s+(.+)/i,
         /comparar\s+(.+?)\s+(?:com|e|vs|versus|contra|x)\s+(.+)/i,
-        /(.+?)\s+(?:vs|versus|x|ou|e)\s+(.+)/i,
+        /(.+?)\s+(?:vs|versus|x)\s+(.+)/i,
         /melhores?\s+(.+?)\s+(?:e|com)\s+(.+)/i,
         /diferença\s+(?:entre\s+)?(.+?)\s+(?:e|com)\s+(.+)/i,
+        /qual\s+(?:é|e)?\s*(?:o\s+)?melhor\s+(?:entre|de)\s+(.+?)\s+(?:e|ou|com)\s+(.+)/i,
       ]
 
       let match: RegExpExecArray | null = null
@@ -526,36 +576,7 @@ Deno.serve(async (req: Request) => {
         if (match) break
       }
 
-      // ✅ NOVO BLOCO AQUI:
-      // Se não detectou padrão A vs B, mas está em PP
-      if (!match && currentProductContext) {
-        const ppCleaned =
-          applyCustomStopWords(
-            removeStopWords(removePunctuation(cleanPortugueseGenericWords(query))),
-            customStopWords,
-          ) || query
-        console.log(
-          `[comparison] PP mode — single target search: "${query}" cleaned="${ppCleaned}"`,
-        )
-        const searchResult = await supabase.rpc('execute_ai_search_v3', {
-          search_term: ppCleaned,
-        })
-        const foundProducts = searchResult.data?.stock || []
-        if (foundProducts.length > 0) {
-          const targetIds = foundProducts.map((p: any) => p.id)
-          const { data: fullProducts } = await supabase
-            .from('products')
-            .select('*, manufacturer_id, manufacturers(name)')
-            .in('id', targetIds)
-          const mappedProducts = (fullProducts || []).map((p: any) => ({
-            ...p,
-            manufacturer: p.manufacturers?.name || p.manufacturer || null,
-          }))
-          return mappedProducts.slice(0, 10)
-        }
-      }
-
-      // Se não detectou padrão E não está em PP, retorna vazio
+      // No comparison pattern detected — return empty so normal search handles the query
       if (!match) return []
 
       // Extrai as duas partes da comparação
@@ -700,9 +721,7 @@ Deno.serve(async (req: Request) => {
       removeStopWords(removePunctuation(cleanPortugueseGenericWords(originalQuery))),
       customStopWords,
     )
-    const miKeywords: string[] = miCleaned
-      .split(/\s+/)
-      .filter((w) => w.length > 2)
+    const miKeywords: string[] = miCleaned.split(/\s+/).filter((w) => w.length > 2)
 
     let marketIntelligenceData: Array<any> = []
     try {
@@ -1010,9 +1029,7 @@ Deno.serve(async (req: Request) => {
             const mentionedManufacturer =
               classificationIntent === 'accessory' || classificationIntent === 'compatibility'
                 ? undefined
-                : manufacturers?.find((m: any) =>
-                    queryLower.includes(m.name.toLowerCase()),
-                  )
+                : manufacturers?.find((m: any) => queryLower.includes(m.name.toLowerCase()))
 
             if (mentionedManufacturer) {
               // Filtra APENAS produtos do fabricante mencionado
@@ -1118,9 +1135,7 @@ Deno.serve(async (req: Request) => {
             const beforeRelevance = featured.length
             const relevanceFiltered = featured.filter((p: any) => {
               const productName = (p.name || '').toLowerCase()
-              return relevanceTerms.some((term: string) =>
-                productName.includes(term.toLowerCase()),
-              )
+              return relevanceTerms.some((term: string) => productName.includes(term.toLowerCase()))
             })
             if (relevanceFiltered.length === 0) {
               console.log(
@@ -1614,8 +1629,7 @@ Deno.serve(async (req: Request) => {
 
     return new Response(
       JSON.stringify({
-        content:
-          'Não encontrei resultados para sua busca. Tente reformular sua pergunta.',
+        content: 'Não encontrei resultados para sua busca. Tente reformular sua pergunta.',
         confidence_level: 'low',
         referenced_internal_products: [],
         should_show_whatsapp_button: false,

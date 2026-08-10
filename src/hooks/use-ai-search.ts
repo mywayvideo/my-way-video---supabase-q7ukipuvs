@@ -96,6 +96,63 @@ const BRAND_KEYWORDS = new Set([
   'ursa',
 ])
 
+const TECHNICAL_TERMS = new Set([
+  'ptz',
+  '4k',
+  '8k',
+  'zoom',
+  'drone',
+  'gimbal',
+  'tripod',
+  'microphone',
+  'mic',
+  'monitor',
+  'recorder',
+  'switcher',
+  'streaming',
+  'encoder',
+  'decoder',
+  'wireless',
+  'mixer',
+  'lighting',
+  'led',
+  'stabilizer',
+  'slider',
+  'crane',
+  'jib',
+  'rig',
+  'battery',
+  'charger',
+  'adapter',
+  'converter',
+  'intercom',
+  'headset',
+  'transmitter',
+  'receiver',
+  'capture',
+  'ssd',
+  'storage',
+  'sensor',
+  'mirrorless',
+  'dslr',
+  'camcorder',
+  'prime',
+  'telephoto',
+  'fisheye',
+  'macro',
+  'anamorphic',
+  'matte',
+  'teleprompter',
+  'router',
+  'genlock',
+  'timecode',
+  'multiviewer',
+  'tally',
+  'beltpack',
+  'steadicam',
+  'prompter',
+])
+
 function normalizeText(text: string): string {
   return text
     .toLowerCase()
@@ -116,6 +173,12 @@ function hasBrandKeyword(text: string): boolean {
   const normalized = normalizeText(text)
   const words = normalized.split(' ').filter(Boolean)
   return words.some((w) => BRAND_KEYWORDS.has(w))
+}
+
+function getTechnicalTerms(text: string): string[] {
+  const normalized = normalizeText(text)
+  const words = normalized.split(' ').filter(Boolean)
+  return words.filter((w) => TECHNICAL_TERMS.has(w))
 }
 
 const fetchProductDetails = async (ids: string[]): Promise<any[]> => {
@@ -195,20 +258,31 @@ export function useAiSearch() {
           if (!reference) {
             productReferenceRef.current = query
           } else {
-            const normalizedQuery = normalizeText(query)
-            const significantWords = getSignificantWords(reference)
-            const hasSignificantWord =
-              significantWords.length > 0 &&
-              significantWords.some((word) => normalizedQuery.includes(word))
+            const queryTechTerms = getTechnicalTerms(query)
+            const referenceTechTerms = getTechnicalTerms(reference)
+            const hasNewTechTerms =
+              queryTechTerms.length > 0 &&
+              queryTechTerms.some((term) => !referenceTechTerms.includes(term))
 
-            if (hasSignificantWord) {
-              // Same product context — no injection, no update
-            } else if (hasBrandKeyword(query)) {
-              // New product search — no injection, update reference
+            if (hasNewTechTerms) {
               productReferenceRef.current = query
+              recentProductIdsRef.current = []
             } else {
-              // Continuation — inject stored reference
-              finalQuery = `${query} (considerando: ${reference})`
+              const normalizedQuery = normalizeText(query)
+              const significantWords = getSignificantWords(reference)
+              const hasSignificantWord =
+                significantWords.length > 0 &&
+                significantWords.some((word) => normalizedQuery.includes(word))
+
+              if (hasSignificantWord) {
+                // Same product context — no injection, no update
+              } else if (hasBrandKeyword(query)) {
+                // New product search — no injection, update reference
+                productReferenceRef.current = query
+              } else {
+                // Continuation — inject stored reference
+                finalQuery = `${query} (considerando: ${reference})`
+              }
             }
           }
         }

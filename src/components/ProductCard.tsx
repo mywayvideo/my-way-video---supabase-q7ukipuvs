@@ -5,11 +5,9 @@ import { ShoppingCart, Heart, MessageCircle, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useSearchState } from '@/hooks/useSearchState'
 import { ImageWithFallback } from '@/components/ImageWithFallback'
-import { getProxiedImageUrl } from '@/lib/image-proxy'
 import { useFavorites } from '@/hooks/useFavorites'
 import { useState } from 'react'
 import { QuantityModal } from '@/components/QuantityModal'
-import { Skeleton } from '@/components/ui/skeleton'
 import { usePricing } from '@/hooks/use-pricing'
 import { useProductDiscount } from '@/hooks/useProductDiscount'
 import { calculateFinalPrice } from '@/utils/pricing'
@@ -38,7 +36,6 @@ export function ProductCard({
   const { isSearchActive, searchQuery } = useSearchState()
   const { isFavorite, addFavorite, removeFavorite } = useFavorites()
   const [favLoading, setFavLoading] = useState(false)
-  const [imgLoaded, setImgLoaded] = useState(false)
 
   const { secondaryPrice, isLoading: pricingLoading } = usePricing(product)
   const productDiscount = useProductDiscount(product, !!discountData)
@@ -251,20 +248,11 @@ export function ProductCard({
           onClick={handleLinkClick}
           className="w-full h-[220px] overflow-hidden flex items-center justify-center relative p-4"
         >
-          {!imgLoaded && <Skeleton className="absolute inset-4 rounded-lg" />}
-          <img
-            src={getProxiedImageUrl(product?.image_url) || product?.image_url}
+          <ImageWithFallback
+            src={product?.image_url}
             alt={productName}
-            className={cn(
-              'w-full h-full object-contain transition-all duration-300 group-hover:scale-105',
-              imgLoaded ? 'opacity-100' : 'opacity-0',
-            )}
-            loading="lazy"
-            onLoad={() => setImgLoaded(true)}
-            onError={(e) => {
-              setImgLoaded(true)
-              ;(e.target as HTMLImageElement).src = '/placeholder-dummy.png'
-            }}
+            productId={product.id}
+            className="w-full h-full object-contain transition-all duration-300 group-hover:scale-105"
           />
         </Link>
       </CardHeader>

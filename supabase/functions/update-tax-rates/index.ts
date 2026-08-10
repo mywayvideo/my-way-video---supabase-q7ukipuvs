@@ -1,10 +1,9 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { corsHeaders } from '../_shared/cors.ts'
+import { queryTTCE, authenticate, getSiscomexHost } from '../_shared/siscomex-client.ts'
 
-const SISCOMEX_API = 'https://portalunico.siscomex.gov.br/classif/api/publico/nomenclatura'
 const REQUEST_DELAY_MS = 1500
-const MAX_RETRIES = 2
 
 interface ParsedTaxRates {
   ii_rate: number
@@ -46,48 +45,56 @@ function parseTaxRates(rawData: any): ParsedTaxRates {
   let cofins_rate: number | null = null
   let has_ex_tarifario = false
 
-  if (rawData?.tratamentoTributario) {
-    const tt = rawData.tratamentoTributario
-    if (tt.ii?.aliquota !== undefined) ii_rate = Number(tt.ii.aliquota)
-    if (tt.ipi?.aliquota !== undefined) ipi_rate = Number(tt.ipi.aliquota)
-    if (tt.pis?.aliquota !== undefined) pis_rate = Number(tt.pis.aliquota)
-    if (tt.cofins?.aliquota !== undefined) cofins_rate = Number(tt.cofins.aliquota)
-    if (tt.ii?.fundamentoLegal) legal_basis.ii = String(tt.ii.fundamentoLegal)
-    if (tt.ipi?.fundamentoLegal) legal_basis.ipi = String(tt.ipi.fundamentoLegal)
-    if (tt.pis?.fundamentoLegal) legal_basis.pis = String(tt.pis.fundamentoLegal)
-    if (tt.cofins?.fundamentoLegal) legal_basis.cofins = String(tt.cofins.fundamentoLegal)
-    has_ex_tarifario = detectExTarifario(JSON.stringify(tt))
+  const ttArray = rawData?.tratamentosTributarios
+  if (Array.isArray(ttArray)) {
+    for (const item of ttArray) {
+      const imp = String(item.imposto || item.tipo || '').toUpperCase()
+      const aliq = Number(item.aliquota)
+      if (isNaN(aliq)) continue
+      if (imp === 'II' || imp.includes('IMPORTACAO')) ii_rate = aliq
+      else if (imp === 'IPI' || imp.includes('PRODUTO')) ipi_rate = aliq
+      else if (imp === 'PIS') pis_rate = aliq
+      else if (imp === 'COFINS') cofins_rate = aliq
+      if (item.fundamentoLegal) legal_basis[imp.toLowerCase()] = String(item.fundamentoLegal)
+    }
+    has_ex_tarifario = detectExTarifario(JSON.stringify(ttArray))
+  } else {
+    const tt = rawData?.tratamentosTributarios || rawData?.tratamentoTributario
+    if (tt && typeof tt === 'object') {
+      if (tt.ii?.aliquota !== undefined) ii_rate = Number(tt.ii.aliquota)
+      if (tt.ipi?.aliquota !== undefined) ipi_rate = Number(tt.ipi.aliquota)
+      if (tt.pis?.aliquota !== undefined) pis_rate = Number(tt.pis.aliquota)
+      if (tt.cofins?.aliquota !== undefined) cofins_rate = Number(tt.cofins.aliquota)
+      if (ii_rate === null && tt.impostoImportacao?.aliquota !== undefined) {
+        ii_rate = Number(tt.impostoImportacao.aliquota)
+      }
+      if (ipi_rate === null && tt.impostoProdutosIndustrializados?.aliquota !== undefined) {
+        ipi_rate = Number(tt.impostoProdutosIndustrializados.aliquota)
+      }
+      if (tt.ii?.fundamentoLegal) legal_basis.ii = String(tt.ii.fundamentoLegal)
+      if (tt.ipi?.fundamentoLegal) legal_basis.ipi = String(tt.ipi.fundamentoLegal)
+      if (tt.pis?.fundamentoLegal) legal_basis.pis = String(tt.pis.fundamentoLegal)
+      if (tt.cofins?.fundamentoLegal) legal_basis.cofins = String(tt.cofins.fundamentoLegal)
+      has_ex_tarifario = detectExTarifario(JSON.stringify(tt))
+    }
   }
 
-  const flText = rawData?.fundamentosLegais || rawData?.fundamentoLegal || ''
-  if (flText) {
-    legal_basis.raw = String(flText)
-    has_ex_tarifario = has_ex_tarifario || detectExTarifario(flText)
+  if (rawData?.exTarifario || rawData?.exTarifarios) {
+    has_ex_tarifario = true
   }
 
+  const flText = rawData?.fundamentosLegais || rawData?.fundamentoLegal || JSON.stringify(rawData)
   if (ii_rate === null) {
-    ii_rate = extractRate(flText, [
-      /(?:imposto\s+de\s+importa[çc][ãa]o|ii)\s*:?\s*(\d+[,.]?\d*)\s*%/i,
-      /(?:al[ií]quota)\s+(?:do\s+)?(?:imposto\s+de\s+importa[çc][ãa]o)\s*:?\s*(\d+[,.]?\d*)/i,
-    ])
+    ii_rate = extractRate(flText, [/(?:ii|imposto\s+de\s+importa[çc][ãa]o)\s*:?\s*(\d+[,.]?\d*)\s*%/i])
   }
   if (ipi_rate === null) {
-    ipi_rate = extractRate(flText, [
-      /(?:ipi|imposto\s+sobre\s+produtos\s+industrializados)\s*:?\s*(\d+[,.]?\d*)\s*%/i,
-      /(?:al[ií]quota)\s+(?:do\s+)?(?:ipi)\s*:?\s*(\d+[,.]?\d*)/i,
-    ])
+    ipi_rate = extractRate(flText, [/(?:ipi)\s*:?\s*(\d+[,.]?\d*)\s*%/i])
   }
   if (pis_rate === null) {
-    pis_rate = extractRate(flText, [
-      /(?:pis)\s*:?\s*(\d+[,.]?\d*)\s*%/i,
-      /(?:al[ií]quota)\s+(?:do\s+)?(?:pis)\s*:?\s*(\d+[,.]?\d*)/i,
-    ])
+    pis_rate = extractRate(flText, [/(?:pis)\s*:?\s*(\d+[,.]?\d*)\s*%/i])
   }
   if (cofins_rate === null) {
-    cofins_rate = extractRate(flText, [
-      /(?:cofins)\s*:?\s*(\d+[,.]?\d*)\s*%/i,
-      /(?:al[ií]quota)\s+(?:do\s+)?(?:cofins)\s*:?\s*(\d+[,.]?\d*)/i,
-    ])
+    cofins_rate = extractRate(flText, [/(?:cofins)\s*:?\s*(\d+[,.]?\d*)\s*%/i])
   }
 
   if (pis_rate === null) pis_rate = 2.1
@@ -101,50 +108,6 @@ function parseTaxRates(rawData: any): ParsedTaxRates {
     has_ex_tarifario,
     legal_basis,
   }
-}
-
-async function fetchNcmFromSiscomex(ncm: string): Promise<any | null> {
-  const normalized = normalizeNcm(ncm)
-  if (!normalized) return null
-
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    try {
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 15000)
-
-      const res = await fetch(`${SISCOMEX_API}/busca-por-codigo?codigo=${normalized}`, {
-        method: 'GET',
-        headers: {
-          Accept: 'application/json',
-          'User-Agent': 'SimuImport/1.0',
-        },
-        signal: controller.signal,
-      })
-      clearTimeout(timeoutId)
-
-      if (res.ok) {
-        const data = await res.json()
-        if (Array.isArray(data) && data.length > 0) return data[0]
-        if (!Array.isArray(data)) return data
-        return null
-      }
-
-      if (res.status === 429 || res.status === 503) {
-        if (attempt < MAX_RETRIES) {
-          await new Promise((r) => setTimeout(r, (attempt + 1) * 3000))
-          continue
-        }
-      }
-      return null
-    } catch {
-      if (attempt < MAX_RETRIES) {
-        await new Promise((r) => setTimeout(r, (attempt + 1) * 2000))
-        continue
-      }
-      return null
-    }
-  }
-  return null
 }
 
 Deno.serve(async (req: Request) => {
@@ -215,35 +178,51 @@ Deno.serve(async (req: Request) => {
       )
     }
 
+    const host = getSiscomexHost()
+
+    try {
+      await authenticate(host)
+    } catch (authErr: any) {
+      return new Response(
+        JSON.stringify({
+          error: `Falha na autenticação Siscomex (mTLS): ${authErr.message}`,
+          results: [],
+        }),
+        { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      )
+    }
+
     const results: any[] = []
 
     for (let i = 0; i < ncms.length; i++) {
       const ncmCode = ncms[i]
 
       try {
-        const siscomexData = await fetchNcmFromSiscomex(ncmCode)
+        const ttceData = await queryTTCE(ncmCode, host)
 
-        if (!siscomexData) {
+        if (!ttceData) {
           results.push({
             ncm: ncmCode,
             success: false,
-            message: 'NCM nao encontrado na fonte Siscomex ou fonte indisponivel.',
+            message: 'NCM não encontrado na fonte TTCE ou indisponível após retentativas.',
           })
         } else {
-          const parsed = parseTaxRates(siscomexData)
+          const parsed = parseTaxRates(ttceData)
 
-          const { error: upsertError } = await supabaseClient.from('imp_sim_tax_rates').upsert({
-            ncm: ncmCode,
-            ii_rate: parsed.ii_rate,
-            ipi_rate: parsed.ipi_rate,
-            pis_rate: parsed.pis_rate,
-            cofins_rate: parsed.cofins_rate,
-            has_ex_tarifario: parsed.has_ex_tarifario,
-            legal_basis: parsed.legal_basis,
-            source: 'siscomex',
-            updated_by_user_id: userId,
-            last_updated_at: new Date().toISOString(),
-          })
+          const { error: upsertError } = await supabaseClient
+            .from('imp_sim_tax_rates')
+            .upsert({
+              ncm: ncmCode,
+              ii_rate: parsed.ii_rate,
+              ipi_rate: parsed.ipi_rate,
+              pis_rate: parsed.pis_rate,
+              cofins_rate: parsed.cofins_rate,
+              has_ex_tarifario: parsed.has_ex_tarifario,
+              legal_basis: parsed.legal_basis,
+              source: 'siscomex',
+              updated_by_user_id: userId,
+              last_updated_at: new Date().toISOString(),
+            })
 
           if (upsertError) {
             results.push({
@@ -256,7 +235,7 @@ Deno.serve(async (req: Request) => {
               ncm: ncmCode,
               success: true,
               message: parsed.has_ex_tarifario
-                ? 'Atualizado com Ex-Tarifario detectado.'
+                ? 'Atualizado com Ex-Tarifário detectado.'
                 : 'Atualizado com sucesso.',
               data: parsed,
             })
@@ -296,9 +275,9 @@ Deno.serve(async (req: Request) => {
     )
   } catch (error: any) {
     console.error('Unhandled error in update-tax-rates:', error)
-    return new Response(JSON.stringify({ error: error.message || 'Erro interno' }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
+    return new Response(
+      JSON.stringify({ error: error.message || 'Erro interno' }),
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+    )
   }
 })

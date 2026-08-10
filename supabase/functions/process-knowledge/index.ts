@@ -157,9 +157,7 @@ Return ONLY a valid JSON in this format:
           ai_summary: combinedContent,
           raw_content: truncatedContent,
           status: 'published',
-          referenced_product_ids: Array.isArray(referenced_product_ids)
-            ? referenced_product_ids
-            : [],
+          referenced_product_ids: Array.isArray(referenced_product_ids) ? referenced_product_ids : [],
         })
         .eq('id', targetRecordId)
         .select()
@@ -184,9 +182,7 @@ Return ONLY a valid JSON in this format:
           ai_summary: combinedContent,
           raw_content: truncatedContent,
           status: 'published',
-          referenced_product_ids: Array.isArray(referenced_product_ids)
-            ? referenced_product_ids
-            : [],
+          referenced_product_ids: Array.isArray(referenced_product_ids) ? referenced_product_ids : [],
         })
         .select()
         .single()

@@ -126,6 +126,7 @@ export function AdminProductForm({ initialData, onSuccess, onAddManufacturer }: 
                         <img
                           src={field.value}
                           alt="Preview"
+                          referrerPolicy="no-referrer"
                           className="h-32 object-contain mb-3 rounded"
                         />
                         <p className="text-xs">Arraste nova imagem para substituir</p>

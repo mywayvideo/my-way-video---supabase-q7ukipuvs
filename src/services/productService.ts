@@ -1,7 +1,73 @@
 import { supabase } from '@/lib/supabase/client'
 import { ProductFormData } from '@/types/product'
+import { isStorageImageUrl } from '@/lib/image-proxy'
+
+export async function persistExternalProductImage(
+  imageUrl: string | null | undefined,
+  productId?: string | null,
+): Promise<string | null> {
+  if (!imageUrl || typeof imageUrl !== 'string' || !imageUrl.trim()) {
+    return null
+  }
+
+  const trimmedUrl = imageUrl.trim()
+
+  // Se a URL já for do Supabase Storage, retorna direto
+  if (
+    isStorageImageUrl(trimmedUrl) ||
+    trimmedUrl.includes('/storage/v1/object/public/product-images')
+  ) {
+    return trimmedUrl
+  }
+
+  try {
+    const { data, error } = await supabase.functions.invoke('image-proxy', {
+      body: {
+        url: trimmedUrl,
+        forceUpload: true,
+        json: true,
+        productId: productId || undefined,
+      },
+    })
+
+    if (!error && data?.success && data?.storageUrl) {
+      return data.storageUrl
+    }
+
+    const failureReason = error?.message || data?.error || 'Failed to persist external image'
+
+    // Em caso de falha, insere registro em image_migration_failures sem bloquear o cadastro
+    try {
+      await supabase.from('image_migration_failures').insert({
+        product_id: productId || null,
+        external_url: trimmedUrl,
+        error_message: failureReason,
+        attempt_count: 1,
+      })
+    } catch (_insertErr) {
+      console.warn('Falha ao registrar em image_migration_failures:', _insertErr)
+    }
+
+    return trimmedUrl
+  } catch (err: any) {
+    console.warn('Erro ao invocar persistência de imagem externa:', err)
+    try {
+      await supabase.from('image_migration_failures').insert({
+        product_id: productId || null,
+        external_url: trimmedUrl,
+        error_message: err?.message || 'Exception invoking image-proxy',
+        attempt_count: 1,
+      })
+    } catch (_insertErr) {
+      // Ignora erro no log da falha
+    }
+    // O cadastro nunca deve falhar por causa de imagem: retorna a URL original
+    return trimmedUrl
+  }
+}
 
 export const productService = {
+  persistExternalProductImage,
   async getCategories() {
     const { data, error } = await supabase.from('categories').select('id, name').order('name')
     if (error) throw error
@@ -56,6 +122,15 @@ export const productService = {
   },
 
   async createProduct(productData: any) {
+    let finalImageUrl = productData.image_url || null
+    if (finalImageUrl) {
+      try {
+        finalImageUrl = await persistExternalProductImage(finalImageUrl)
+      } catch (_imgErr) {
+        // Fallback para URL original caso erro inesperado
+      }
+    }
+
     const payload = {
       name: productData.name,
       sku: productData.sku,
@@ -67,7 +142,7 @@ export const productService = {
       dimensions: productData.dimensions || null,
       stock: productData.stock || 0,
       ncm: productData.ncm || null,
-      image_url: productData.image_url || null,
+      image_url: finalImageUrl,
       description: productData.description !== undefined ? productData.description : null,
       technical_info: productData.technical_info !== undefined ? productData.technical_info : null,
       is_special: productData.is_special || false,
@@ -93,7 +168,16 @@ export const productService = {
   },
 
   async updateProduct(id: string, productData: any) {
-    const payload = {
+    let finalImageUrl = productData.image_url !== undefined ? productData.image_url : undefined
+    if (finalImageUrl) {
+      try {
+        finalImageUrl = await persistExternalProductImage(finalImageUrl, id)
+      } catch (_imgErr) {
+        // Fallback para URL original caso erro inesperado
+      }
+    }
+
+    const payload: any = {
       name: productData.name,
       sku: productData.sku,
       manufacturer_id: productData.manufacturer_id || null,
@@ -104,7 +188,7 @@ export const productService = {
       dimensions: productData.dimensions || null,
       stock: productData.stock || 0,
       ncm: productData.ncm || null,
-      image_url: productData.image_url || null,
+      image_url: finalImageUrl || null,
       description: productData.description !== undefined ? productData.description : null,
       technical_info: productData.technical_info !== undefined ? productData.technical_info : null,
       is_special: productData.is_special || false,

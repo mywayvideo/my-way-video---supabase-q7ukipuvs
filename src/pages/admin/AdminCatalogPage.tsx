@@ -63,6 +63,7 @@ import { useDebounce } from '@/hooks/use-debounce'
 import { BulkReviewModal } from '@/components/admin/BulkReviewModal'
 import { BatchPriceBrlModal } from '@/components/admin/BatchPriceBrlModal'
 import { productService } from '@/services/productService'
+import { ImageWithFallback } from '@/components/ImageWithFallback'
 
 const PAGE_SIZE = 50
 
@@ -664,9 +665,10 @@ export default function AdminCatalogPage() {
                     </TableCell>
                     <TableCell>
                       {p.image_url ? (
-                        <img
+                        <ImageWithFallback
                           src={p.image_url}
-                          alt="thumb"
+                          alt={p.name || 'thumb'}
+                          productId={p.id}
                           className="w-10 h-10 object-contain rounded bg-white/5 border border-white/10"
                         />
                       ) : (

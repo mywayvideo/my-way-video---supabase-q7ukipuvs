@@ -34,6 +34,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Card, CardContent } from '@/components/ui/card'
 import { ProductCard } from '@/components/ProductCard'
+import { ImageWithFallback } from '@/components/ImageWithFallback'
 
 export default function Cart() {
   const { currentUser: user } = useAuthContext()
@@ -478,9 +479,10 @@ export default function Cart() {
               >
                 <Link to={`/product/${item.product_id}`} className="shrink-0">
                   {item.productDetails?.image_url ? (
-                    <img
+                    <ImageWithFallback
                       src={item.productDetails.image_url}
                       alt={item.productDetails?.name}
+                      productId={item.product_id}
                       className="w-24 h-24 object-contain rounded-md bg-muted/30 p-2"
                     />
                   ) : (

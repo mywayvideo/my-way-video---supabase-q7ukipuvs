@@ -18,6 +18,7 @@ import { UploadCloud, Plus, Wand2, X, Star, Ban, Sparkles } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import { AdminManufacturerDialog } from './AdminManufacturerDialog'
+import { ImageWithFallback } from '@/components/ImageWithFallback'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Checkbox } from '@/components/ui/checkbox'
 import ReactMarkdown from 'react-markdown'
@@ -123,10 +124,10 @@ export function AdminProductForm({ initialData, onSuccess, onAddManufacturer }: 
                       <p className="animate-pulse">Fazendo upload...</p>
                     ) : field.value ? (
                       <div className="flex flex-col items-center">
-                        <img
+                        <ImageWithFallback
                           src={field.value}
                           alt="Preview"
-                          referrerPolicy="no-referrer"
+                          productId={initialData?.id || ''}
                           className="h-32 object-contain mb-3 rounded"
                         />
                         <p className="text-xs">Arraste nova imagem para substituir</p>

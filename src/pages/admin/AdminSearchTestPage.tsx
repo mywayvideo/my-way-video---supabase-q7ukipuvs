@@ -6,6 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Card, CardContent } from '@/components/ui/card'
 import { supabase } from '@/lib/supabase/client'
 import { AdminLayout } from '@/components/admin/AdminLayout'
+import { ImageWithFallback } from '@/components/ImageWithFallback'
 
 export default function AdminSearchTestPage() {
   const [query, setQuery] = useState('')
@@ -100,9 +101,10 @@ export default function AdminSearchTestPage() {
                     <Card key={product.id || idx} className="overflow-hidden flex flex-col">
                       <div className="aspect-square relative bg-white/5 dark:bg-white/10 flex items-center justify-center p-4 border-b">
                         {product.image_url ? (
-                          <img
+                          <ImageWithFallback
                             src={product.image_url}
                             alt={product.name}
+                            productId={product.id}
                             className="object-contain w-full h-full"
                           />
                         ) : (

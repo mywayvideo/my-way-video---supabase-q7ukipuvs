@@ -1,5 +1,6 @@
 import { useState, useRef, DragEvent } from 'react'
 import { supabase } from '@/lib/supabase/client'
+import { persistExternalProductImage } from '@/services/productService'
 import { Button } from '@/components/ui/button'
 import { Upload, Plus, CheckCircle2 } from 'lucide-react'
 import { toast } from '@/hooks/use-toast'
@@ -296,29 +297,7 @@ export function AdminCSVUploader({ manufacturers, onSuccess, onAddManufacturer }
     setProgressMsg('Importando produtos...')
 
     try {
-      let invalidImagesCount = 0
-
-      const validateImageUrl = (url: string): Promise<boolean> => {
-        return new Promise((resolve) => {
-          const img = new Image()
-          const timeoutId = setTimeout(() => {
-            img.src = ''
-            resolve(false)
-          }, 15000)
-
-          img.onload = () => {
-            clearTimeout(timeoutId)
-            resolve(true)
-          }
-
-          img.onerror = () => {
-            clearTimeout(timeoutId)
-            resolve(false)
-          }
-
-          img.src = url
-        })
-      }
+      let imagesPersistedCount = 0
 
       const parseRow = (p: any) => {
         const prod: any = { manufacturer_id: mfgId }
@@ -353,18 +332,27 @@ export function AdminCSVUploader({ manufacturers, onSuccess, onAddManufacturer }
 
       if (report.rowsToCreate.length > 0) {
         const productsToInsert = report.rowsToCreate.map(parseRow)
-        for (const prod of productsToInsert) {
+        for (let i = 0; i < productsToInsert.length; i++) {
+          const prod = productsToInsert[i]
           if (
             prod.image_url &&
             typeof prod.image_url === 'string' &&
             prod.image_url.trim() !== ''
           ) {
-            setProgressMsg(`Validando imagem para ${prod.name || prod.sku}...`)
-            const isValid = await validateImageUrl(prod.image_url)
-            if (!isValid) {
-              console.warn(`Imagem invalida para produto ${prod.name || prod.sku}. URL removida.`)
-              prod.image_url = null
-              invalidImagesCount++
+            setProgressMsg(
+              `Persistindo imagem ${i + 1}/${productsToInsert.length} (${prod.sku || prod.name})...`,
+            )
+            try {
+              const persistedUrl = await persistExternalProductImage(prod.image_url)
+              if (persistedUrl) {
+                prod.image_url = persistedUrl
+                if (persistedUrl.includes('/storage/v1/object/public/product-images')) {
+                  imagesPersistedCount++
+                }
+              }
+            } catch (imgErr) {
+              console.warn(`Erro ao persistir imagem do produto ${prod.sku}:`, imgErr)
+              // Preserva URL externa original mesmo se falhar
             }
           }
         }
@@ -374,7 +362,8 @@ export function AdminCSVUploader({ manufacturers, onSuccess, onAddManufacturer }
       }
 
       if (report.rowsToUpdate.length > 0) {
-        for (const p of report.rowsToUpdate) {
+        for (let i = 0; i < report.rowsToUpdate.length; i++) {
+          const p = report.rowsToUpdate[i]
           const dbId = p._dbId
           const prod = parseRow(p)
 
@@ -383,12 +372,20 @@ export function AdminCSVUploader({ manufacturers, onSuccess, onAddManufacturer }
             typeof prod.image_url === 'string' &&
             prod.image_url.trim() !== ''
           ) {
-            setProgressMsg(`Validando imagem para ${prod.name || prod.sku}...`)
-            const isValid = await validateImageUrl(prod.image_url)
-            if (!isValid) {
-              console.warn(`Imagem invalida para produto ${prod.name || prod.sku}. URL removida.`)
-              prod.image_url = null
-              invalidImagesCount++
+            setProgressMsg(
+              `Persistindo imagem ${i + 1}/${report.rowsToUpdate.length} (${prod.sku || prod.name})...`,
+            )
+            try {
+              const persistedUrl = await persistExternalProductImage(prod.image_url, dbId)
+              if (persistedUrl) {
+                prod.image_url = persistedUrl
+                if (persistedUrl.includes('/storage/v1/object/public/product-images')) {
+                  imagesPersistedCount++
+                }
+              }
+            } catch (imgErr) {
+              console.warn(`Erro ao persistir imagem do produto ${prod.sku}:`, imgErr)
+              // Preserva URL externa original
             }
           }
 
@@ -401,7 +398,7 @@ export function AdminCSVUploader({ manufacturers, onSuccess, onAddManufacturer }
 
       toast({
         title: 'Sucesso',
-        description: `Importacao concluida. ${report.rowsToCreate.length + report.rowsToUpdate.length} produtos importados. ${invalidImagesCount} imagens invalidas removidas.`,
+        description: `Importação concluída. ${report.rowsToCreate.length + report.rowsToUpdate.length} produtos importados/atualizados. Imagens preservadas com sucesso (${imagesPersistedCount} persistidas no Storage).`,
       })
       handleReset()
       onSuccess()

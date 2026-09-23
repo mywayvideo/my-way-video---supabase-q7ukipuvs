@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge'
 import { X, Search, Loader2, Package } from 'lucide-react'
 import { supabase } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
+import { ImageWithFallback } from '@/components/ImageWithFallback'
 
 interface ProductResult {
   id: string
@@ -156,9 +157,10 @@ export function ProductSelector({
                   onCheckedChange={() => toggleProduct(p)}
                 />
                 {p.image_url ? (
-                  <img
+                  <ImageWithFallback
                     src={p.image_url}
                     alt={p.name}
+                    productId={p.id}
                     className="w-8 h-8 rounded object-cover border"
                   />
                 ) : (

@@ -1,8 +1,6 @@
-import { useMemo, useState } from 'react'
-import { getProxiedImageUrl } from '@/lib/image-proxy'
+import { useMemo } from 'react'
 import { normalizeProductName } from '@/utils/productImageProcessor'
-import { Skeleton } from '@/components/ui/skeleton'
-import { cn } from '@/lib/utils'
+import { ImageWithFallback } from '@/components/ImageWithFallback'
 
 interface ProductImagesProps {
   products: any[]
@@ -17,21 +15,14 @@ function normalizeRefs(refs: string[]): string[] {
 }
 
 function ProductImageItem({ product }: { product: any }) {
-  const [loaded, setLoaded] = useState(false)
-
   return (
     <div className="flex flex-col items-center gap-2">
-      <div className="w-full aspect-square rounded-lg overflow-hidden bg-zinc-900 border border-zinc-800/60 p-2 relative">
-        {!loaded && <Skeleton className="absolute inset-2 rounded-lg" />}
-        <img
-          src={getProxiedImageUrl(product.image_url) || product.image_url}
+      <div className="w-full aspect-square rounded-lg overflow-hidden bg-zinc-900 border border-zinc-800/60 p-2 relative flex items-center justify-center">
+        <ImageWithFallback
+          src={product.image_url}
           alt={product.name || ''}
-          referrerPolicy="no-referrer"
-          className={cn(
-            'w-full h-full object-contain transition-all duration-300',
-            loaded ? 'opacity-100' : 'opacity-0',
-          )}
-          onLoad={() => setLoaded(true)}
+          productId={product.id}
+          className="w-full h-full object-contain"
         />
       </div>
       {product.name && (

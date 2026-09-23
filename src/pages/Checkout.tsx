@@ -43,6 +43,7 @@ import {
 } from 'lucide-react'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
 import { cn } from '@/lib/utils'
+import { ImageWithFallback } from '@/components/ImageWithFallback'
 
 const btnPrimary =
   'bg-[hsl(152,68%,40%)] text-[hsl(0,0%,100%)] font-semibold py-3 px-6 rounded-lg border-none cursor-pointer transition-all duration-200 ease-out hover:bg-[hsl(152,68%,35%)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[hsl(152,68%,40%)] focus-visible:outline-offset-2 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center text-center'
@@ -2480,9 +2481,10 @@ Valor: ${formatCurrency(total)}
                   )}
                   <div className="flex items-center gap-5 flex-1">
                     {item.image_url ? (
-                      <img
+                      <ImageWithFallback
                         src={item.image_url}
                         alt={item.name}
+                        productId={item.product_id || item.id}
                         className="w-20 h-20 object-cover rounded-xl border border-slate-200 shadow-sm"
                       />
                     ) : (

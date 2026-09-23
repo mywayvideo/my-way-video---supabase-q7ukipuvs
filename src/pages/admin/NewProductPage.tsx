@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { ImageWithFallback } from '@/components/ImageWithFallback'
 import {
   Form,
   FormControl,
@@ -599,9 +600,10 @@ export default function NewProductPage() {
                           </span>
                         )}
                         {imageStatus === 'success' && (
-                          <img
+                          <ImageWithFallback
                             src={debouncedImageUrl}
                             alt="Preview"
+                            productId={id || ''}
                             className="w-full h-full object-contain"
                           />
                         )}

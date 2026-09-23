@@ -1740,6 +1740,236 @@ export type Database = {
           },
         ]
       }
+      imp_sim_sales_order_installments: {
+        Row: {
+          amount: number
+          created_at: string
+          due_date: string
+          id: string
+          installment_number: number
+          notes: string | null
+          order_id: string
+          payment_method: string | null
+          status: string
+          total_installments: number
+        }
+        Insert: {
+          amount?: number
+          created_at?: string
+          due_date: string
+          id?: string
+          installment_number: number
+          notes?: string | null
+          order_id: string
+          payment_method?: string | null
+          status?: string
+          total_installments: number
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          due_date?: string
+          id?: string
+          installment_number?: number
+          notes?: string | null
+          order_id?: string
+          payment_method?: string | null
+          status?: string
+          total_installments?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "imp_sim_sales_order_installments_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "imp_sim_sales_orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      imp_sim_sales_order_items: {
+        Row: {
+          created_at: string
+          description: string
+          id: string
+          image_url: string | null
+          ncm: string | null
+          order_id: string
+          product_id: string | null
+          quantity: number
+          sku: string | null
+          sort_order: number
+          total_price: number
+          unit_price: number
+          website_url: string | null
+        }
+        Insert: {
+          created_at?: string
+          description: string
+          id?: string
+          image_url?: string | null
+          ncm?: string | null
+          order_id: string
+          product_id?: string | null
+          quantity?: number
+          sku?: string | null
+          sort_order?: number
+          total_price?: number
+          unit_price?: number
+          website_url?: string | null
+        }
+        Update: {
+          created_at?: string
+          description?: string
+          id?: string
+          image_url?: string | null
+          ncm?: string | null
+          order_id?: string
+          product_id?: string | null
+          quantity?: number
+          sku?: string | null
+          sort_order?: number
+          total_price?: number
+          unit_price?: number
+          website_url?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "imp_sim_sales_order_items_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "imp_sim_sales_orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "imp_sim_sales_order_items_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "imp_sim_products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      imp_sim_sales_orders: {
+        Row: {
+          balance_due: number
+          created_at: string
+          currency: string
+          customer_cpf_cnpj: string | null
+          customer_email: string | null
+          customer_id: string | null
+          customer_name: string
+          customer_phone: string | null
+          delivery_address: string | null
+          destination: string
+          discount_amount: number
+          down_payment: number
+          freight_amount: number
+          id: string
+          installments_count: number
+          issuer_company_id: string
+          item_count: number
+          order_number: string
+          order_seq: number
+          order_year: number
+          payment_card_brand: string | null
+          payment_method: string
+          payment_terms_notes: string | null
+          source_quote_code: string | null
+          source_quote_id: string | null
+          source_quote_type: string | null
+          status: string
+          subtotal_products: number
+          tax_amount: number
+          total_order: number
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          balance_due?: number
+          created_at?: string
+          currency?: string
+          customer_cpf_cnpj?: string | null
+          customer_email?: string | null
+          customer_id?: string | null
+          customer_name: string
+          customer_phone?: string | null
+          delivery_address?: string | null
+          destination?: string
+          discount_amount?: number
+          down_payment?: number
+          freight_amount?: number
+          id?: string
+          installments_count?: number
+          issuer_company_id?: string
+          item_count?: number
+          order_number: string
+          order_seq: number
+          order_year: number
+          payment_card_brand?: string | null
+          payment_method?: string
+          payment_terms_notes?: string | null
+          source_quote_code?: string | null
+          source_quote_id?: string | null
+          source_quote_type?: string | null
+          status?: string
+          subtotal_products?: number
+          tax_amount?: number
+          total_order?: number
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          balance_due?: number
+          created_at?: string
+          currency?: string
+          customer_cpf_cnpj?: string | null
+          customer_email?: string | null
+          customer_id?: string | null
+          customer_name?: string
+          customer_phone?: string | null
+          delivery_address?: string | null
+          destination?: string
+          discount_amount?: number
+          down_payment?: number
+          freight_amount?: number
+          id?: string
+          installments_count?: number
+          issuer_company_id?: string
+          item_count?: number
+          order_number?: string
+          order_seq?: number
+          order_year?: number
+          payment_card_brand?: string | null
+          payment_method?: string
+          payment_terms_notes?: string | null
+          source_quote_code?: string | null
+          source_quote_id?: string | null
+          source_quote_type?: string | null
+          status?: string
+          subtotal_products?: number
+          tax_amount?: number
+          total_order?: number
+          updated_at?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "imp_sim_sales_orders_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "imp_sim_customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "imp_sim_sales_orders_source_quote_id_fkey"
+            columns: ["source_quote_id"]
+            isOneToOne: false
+            referencedRelation: "imp_sim_client_quotes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       imp_sim_simulation_item_products: {
         Row: {
           created_at: string
@@ -3030,6 +3260,14 @@ export type Database = {
       }
       cleanup_spam_customers: { Args: never; Returns: Json }
       execute_ai_search_v3: { Args: { search_term: string }; Returns: Json }
+      generate_next_sales_order_number: {
+        Args: { p_year?: number }
+        Returns: {
+          next_order_number: string
+          next_seq: number
+          next_year: number
+        }[]
+      }
       get_current_customer_id: { Args: never; Returns: string }
       get_public_quote_by_token: { Args: { p_token: string }; Returns: Json }
       is_admin: { Args: never; Returns: boolean }

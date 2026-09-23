@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils'
 interface ImageWithFallbackProps {
   src?: string | null
   alt?: string
-  productId: string
+  productId?: string
   className?: string
   width?: number
   height?: number
@@ -14,7 +14,7 @@ interface ImageWithFallbackProps {
 export function ImageWithFallback({
   src,
   alt,
-  productId,
+  productId = '',
   className,
   width,
   height,

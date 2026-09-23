@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
-import { supabase } from '@/lib/supabase/client'
-import { Search, Loader2, Package } from 'lucide-react'
 import { Input } from '@/components/ui/input'
+import { Search, Loader2 } from 'lucide-react'
+import { supabase } from '@/lib/supabase/client'
 import { Link, useNavigate } from 'react-router-dom'
 import { useDebounce } from '@/hooks/use-debounce'
+import { ImageWithFallback } from '@/components/ImageWithFallback'
 
 export function DirectSearch() {
   const [query, setQuery] = useState('')
@@ -98,17 +99,14 @@ export function DirectSearch() {
               }}
               className="flex items-center gap-4 p-4 hover:bg-muted/80 transition-colors border-b border-border/50 last:border-0"
             >
-              {p.image_url ? (
-                <img
+              <div className="w-12 h-12 shrink-0 overflow-hidden rounded bg-white/5 flex items-center justify-center">
+                <ImageWithFallback
                   src={p.image_url}
-                  alt=""
-                  className="w-12 h-12 object-contain rounded bg-white/5"
+                  alt={p.name}
+                  productId={p.id}
+                  className="w-12 h-12 object-contain"
                 />
-              ) : (
-                <div className="w-12 h-12 flex items-center justify-center bg-white/5 rounded">
-                  <Package className="w-6 h-6 text-muted-foreground" />
-                </div>
-              )}
+              </div>
               <div className="flex flex-col flex-1 overflow-hidden gap-1">
                 <div className="flex items-center gap-2">
                   <span className="text-sm md:text-base font-medium truncate">{p.name}</span>

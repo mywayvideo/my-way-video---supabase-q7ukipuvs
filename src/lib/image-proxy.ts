@@ -23,6 +23,15 @@ function getHostname(url: string): string {
   }
 }
 
+export function isStorageImageUrl(url: string | null | undefined): boolean {
+  if (!url) return false
+  return (
+    url.includes('/storage/v1/object/public/product-images') ||
+    url.includes('/storage/v1/object/public/brand-assets') ||
+    url.includes('/storage/v1/object/public/profiles')
+  )
+}
+
 export function isTrustedImageUrl(url: string | null | undefined): boolean {
   if (!url) return false
   const hostname = getHostname(url)
@@ -36,6 +45,10 @@ export function getProxiedImageUrl(url: string | null | undefined): string | nul
   if (!url) return null
   if (url.includes('/functions/v1/image-proxy')) {
     debugLog('getProxiedImageUrl:skip', `reason="already proxied" url=${url.substring(0, 120)}`)
+    return url
+  }
+  // URLs already hosted on Supabase Storage are served directly without proxy
+  if (isStorageImageUrl(url)) {
     return url
   }
   try {

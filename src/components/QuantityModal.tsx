@@ -9,6 +9,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Minus, Plus } from 'lucide-react'
 import { useCart } from '@/hooks/useCart'
+import { ImageWithFallback } from '@/components/ImageWithFallback'
 import { toast } from 'sonner'
 
 interface QuantityModalProps {
@@ -52,13 +53,14 @@ export function QuantityModal({ product, onClose, onSuccess }: QuantityModalProp
           </DialogDescription>
         </DialogHeader>
         <div className="flex flex-col items-center gap-6 py-4">
-          {product.image_url && (
-            <img
+          <div className="w-32 h-32 flex items-center justify-center bg-muted/10 rounded-md p-2 overflow-hidden">
+            <ImageWithFallback
               src={product.image_url}
               alt={product.name}
-              className="w-32 h-32 object-contain bg-muted/10 rounded-md p-2"
+              productId={product.id}
+              className="w-full h-full object-contain"
             />
-          )}
+          </div>
           <h3 className="font-medium text-center line-clamp-2">{product.name}</h3>
 
           <div className="flex items-center gap-4">

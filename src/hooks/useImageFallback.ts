@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { getProxiedImageUrl, isStorageImageUrl } from '@/lib/image-proxy'
 
-export function useImageFallback(imageUrl: string | null | undefined, productId: string) {
+export function useImageFallback(imageUrl: string | null | undefined, _productId?: string) {
   const [displayUrl, setDisplayUrl] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [hasError, setHasError] = useState(false)
@@ -16,6 +17,17 @@ export function useImageFallback(imageUrl: string | null | undefined, productId:
   useEffect(() => {
     let isActive = true
 
+    if (!imageUrl || !imageUrl.trim()) {
+      setDisplayUrl(null)
+      setIsLoading(false)
+      setHasError(true)
+      return
+    }
+
+    const resolvedPrimary = isStorageImageUrl(imageUrl)
+      ? imageUrl
+      : getProxiedImageUrl(imageUrl) || imageUrl
+
     const loadImage = async () => {
       setIsLoading(true)
       setHasError(false)
@@ -27,21 +39,20 @@ export function useImageFallback(imageUrl: string | null | undefined, productId:
       const signal = abortControllerRef.current.signal
 
       try {
-        if (imageUrl && (imageUrl.startsWith('http://') || imageUrl.startsWith('https://'))) {
-          const isValid = await testImage(imageUrl, signal)
-          if (isValid) {
-            if (isActive) {
-              setDisplayUrl(imageUrl)
-              setIsLoading(false)
-            }
-            return
+        // Try resolved primary URL (Storage or Proxied)
+        const isValid = await testImage(resolvedPrimary, signal)
+        if (isValid) {
+          if (isActive) {
+            setDisplayUrl(resolvedPrimary)
+            setIsLoading(false)
           }
-          throw new Error('Direct image URL failed')
+          return
         }
 
-        if (imageUrl) {
-          const isValid = await testImage(imageUrl, signal)
-          if (isValid) {
+        // If primary was proxied and failed, try original URL as secondary attempt
+        if (resolvedPrimary !== imageUrl) {
+          const isOriginalValid = await testImage(imageUrl, signal)
+          if (isOriginalValid) {
             if (isActive) {
               setDisplayUrl(imageUrl)
               setIsLoading(false)

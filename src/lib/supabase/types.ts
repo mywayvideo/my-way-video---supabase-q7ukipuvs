@@ -1853,6 +1853,9 @@ export type Database = {
       imp_sim_sales_orders: {
         Row: {
           balance_due: number
+          balance_due_brl: number | null
+          billing_date: string | null
+          billing_exchange_rate: number | null
           created_at: string
           currency: string
           customer_cpf_cnpj: string | null
@@ -1864,6 +1867,10 @@ export type Database = {
           destination: string
           discount_amount: number
           down_payment: number
+          down_payment_brl: number | null
+          down_payment_conversion_mode: string | null
+          down_payment_date: string | null
+          down_payment_exchange_rate: number | null
           freight_amount: number
           id: string
           installments_count: number
@@ -1882,11 +1889,15 @@ export type Database = {
           subtotal_products: number
           tax_amount: number
           total_order: number
+          total_order_brl: number | null
           updated_at: string
           user_id: string | null
         }
         Insert: {
           balance_due?: number
+          balance_due_brl?: number | null
+          billing_date?: string | null
+          billing_exchange_rate?: number | null
           created_at?: string
           currency?: string
           customer_cpf_cnpj?: string | null
@@ -1898,6 +1909,10 @@ export type Database = {
           destination?: string
           discount_amount?: number
           down_payment?: number
+          down_payment_brl?: number | null
+          down_payment_conversion_mode?: string | null
+          down_payment_date?: string | null
+          down_payment_exchange_rate?: number | null
           freight_amount?: number
           id?: string
           installments_count?: number
@@ -1916,11 +1931,15 @@ export type Database = {
           subtotal_products?: number
           tax_amount?: number
           total_order?: number
+          total_order_brl?: number | null
           updated_at?: string
           user_id?: string | null
         }
         Update: {
           balance_due?: number
+          balance_due_brl?: number | null
+          billing_date?: string | null
+          billing_exchange_rate?: number | null
           created_at?: string
           currency?: string
           customer_cpf_cnpj?: string | null
@@ -1932,6 +1951,10 @@ export type Database = {
           destination?: string
           discount_amount?: number
           down_payment?: number
+          down_payment_brl?: number | null
+          down_payment_conversion_mode?: string | null
+          down_payment_date?: string | null
+          down_payment_exchange_rate?: number | null
           freight_amount?: number
           id?: string
           installments_count?: number
@@ -1950,6 +1973,7 @@ export type Database = {
           subtotal_products?: number
           tax_amount?: number
           total_order?: number
+          total_order_brl?: number | null
           updated_at?: string
           user_id?: string | null
         }

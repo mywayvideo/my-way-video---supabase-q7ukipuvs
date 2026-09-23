@@ -54,7 +54,7 @@ Deno.serve(async (req: Request) => {
       .filter((f: any) => f.fee_type === 'high_value')
       .map((f: any) => ({
         minValuePerKg: Number(f.min_value_per_kg) || 0,
-        maxValuePerKg: Number(f.max_value_per_kg) || 0,
+        maxValuePerKg: f.max_value_per_kg != null ? Number(f.max_value_per_kg) : null,
         percentage: Number(f.percentage) || 0,
       }))
       .sort((a: any, b: any) => a.minValuePerKg - b.minValuePerKg)
@@ -107,13 +107,15 @@ Deno.serve(async (req: Request) => {
 
       storageAmountBrl = (totalCifBrl * storagePercentage) / 100
 
-      const capataziaRaw = totalGrossWeight * (Number(capatazia?.rate_per_kg) || 0.0662)
-      capataziaAmountBrl = Math.max(capataziaRaw, Number(capatazia?.minimum_charge) || 20.16)
+      const capataziaRaw = totalGrossWeight * (Number(capatazia?.rate_per_kg) || 0.0675)
+      capataziaAmountBrl = Math.max(capataziaRaw, Number(capatazia?.minimum_charge) || 22.5)
 
       if (totalNetWeight > 0) {
         const cifPerKg = totalCifBrl / totalNetWeight
         for (const range of highValueRanges) {
-          if (cifPerKg >= range.minValuePerKg && cifPerKg <= range.maxValuePerKg) {
+          const matchesMin = cifPerKg >= range.minValuePerKg
+          const matchesMax = range.maxValuePerKg === null || cifPerKg <= range.maxValuePerKg
+          if (matchesMin && matchesMax) {
             highValueAmountBrl = (totalCifBrl * range.percentage) / 100
             isHighValue = true
             break

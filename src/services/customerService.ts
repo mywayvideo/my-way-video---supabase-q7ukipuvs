@@ -25,13 +25,18 @@ export const customerService = {
         'id, full_name, email, phone, role, status, created_at, profile_photo_url, cpf, date_of_birth, gender, company_name',
       )
       .eq('user_id', user.id)
-      .single()
+      .maybeSingle()
 
-    if (error) throw error
+    if (error) {
+      if (error.code === 'PGRST116') return null
+      throw error
+    }
+
+    if (!data) return null
 
     return {
       ...data,
-      email: user.email,
+      email: user.email || data.email,
     } as Customer
   },
 
@@ -139,22 +144,45 @@ export const customerService = {
       throw new Error('NOT_LOGGED_IN')
     }
 
-    const { data, error } = await supabase
+    const targetUserId = userId || user.id
+
+    let { data, error } = await supabase
       .from('customers')
       .select(
         'id, full_name, email, phone, role, status, created_at, profile_photo_url, cpf, date_of_birth, gender, company_name',
       )
-      .eq('user_id', user.id)
-      .single()
+      .eq('user_id', targetUserId)
+      .maybeSingle()
 
     if (error) {
-      if (error.code === 'PGRST116') throw new Error('PGRST116')
-      if (error.code === '42501' || error.message.includes('403') || error.code === '403')
+      if (error.code === 'PGRST116') return null
+      if (error.code === '42501' || error.message?.includes('403') || error.code === '403')
         throw new Error('403')
       throw error
     }
 
-    return { ...data, email: user.email } as Customer
+    if (!data) {
+      try {
+        await supabase.rpc('sync_current_user_profile')
+        const { data: syncedData, error: syncError } = await supabase
+          .from('customers')
+          .select(
+            'id, full_name, email, phone, role, status, created_at, profile_photo_url, cpf, date_of_birth, gender, company_name',
+          )
+          .eq('user_id', targetUserId)
+          .maybeSingle()
+
+        if (!syncError && syncedData) {
+          data = syncedData
+        }
+      } catch (syncErr) {
+        console.warn('Silent sync profile warning:', syncErr)
+      }
+    }
+
+    if (!data) return null
+
+    return { ...data, email: user.email || data.email } as Customer
   },
 
   async fetchCustomerAddresses(customerId: string): Promise<CustomerAddress[]> {

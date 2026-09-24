@@ -66,8 +66,52 @@ export async function persistExternalProductImage(
   }
 }
 
+export async function uploadProductImage(
+  file: File,
+  productId?: string | null,
+): Promise<{ publicUrl: string; path: string }> {
+  const allowedTypes = ['image/jpeg', 'image/png']
+  if (!allowedTypes.includes(file.type)) {
+    throw new Error(
+      'Formato inválido. Apenas imagens em JPEG (.jpg, .jpeg) ou PNG (.png) são permitidas.',
+    )
+  }
+
+  const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB
+  if (file.size > MAX_FILE_SIZE) {
+    throw new Error('Arquivo muito grande. O tamanho máximo permitido é de 10MB.')
+  }
+
+  const ext = file.type === 'image/png' ? 'png' : 'jpg'
+  const targetId = productId && productId.trim() !== '' ? productId.trim() : crypto.randomUUID()
+  const filePath = `products/${targetId}.${ext}`
+
+  const { error: uploadError } = await supabase.storage
+    .from('product-images')
+    .upload(filePath, file, {
+      contentType: file.type,
+      upsert: true,
+    })
+
+  if (uploadError) {
+    console.error('Erro no upload para Supabase Storage:', uploadError)
+    throw new Error(uploadError.message || 'Erro ao enviar imagem para o armazenamento.')
+  }
+
+  const { data } = supabase.storage.from('product-images').getPublicUrl(filePath)
+  if (!data?.publicUrl) {
+    throw new Error('Não foi possível obter a URL pública da imagem enviada.')
+  }
+
+  return {
+    publicUrl: data.publicUrl,
+    path: filePath,
+  }
+}
+
 export const productService = {
   persistExternalProductImage,
+  uploadProductImage,
   async getCategories() {
     const { data, error } = await supabase.from('categories').select('id, name').order('name')
     if (error) throw error

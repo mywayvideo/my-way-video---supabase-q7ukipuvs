@@ -21,7 +21,19 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Checkbox } from '@/components/ui/checkbox'
-import { ArrowLeft, Download, Loader2, Sparkles, Plus, X } from 'lucide-react'
+import {
+  ArrowLeft,
+  Download,
+  Loader2,
+  Sparkles,
+  Plus,
+  X,
+  UploadCloud,
+  Image as ImageIcon,
+} from 'lucide-react'
+import { useRef } from 'react'
+import { uploadProductImage } from '@/services/productService'
+import { useToast } from '@/hooks/use-toast'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
@@ -44,6 +56,12 @@ export default function NewProductPage() {
   const [newCategoryName, setNewCategoryName] = useState('')
   const [newManufacturerName, setNewManufacturerName] = useState('')
   const [searchRelated, setSearchRelated] = useState('')
+  const [isUploadingImage, setIsUploadingImage] = useState(false)
+  const [isDragOver, setIsDragOver] = useState(false)
+  const [imageUploadError, setImageUploadError] = useState<string | null>(null)
+  const [localPreviewUrl, setLocalPreviewUrl] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const { toast } = useToast()
 
   const {
     form,
@@ -82,13 +100,21 @@ export default function NewProductPage() {
   const [debouncedImageUrl, setDebouncedImageUrl] = useState(imageUrl || '')
   const [imageStatus, setImageStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
 
+  // Se o formulário mudar para uma URL remota, descarta o localPreviewUrl se for diferente
+  useEffect(() => {
+    if (!imageUrl) {
+      setLocalPreviewUrl(null)
+    }
+  }, [imageUrl])
+
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedImageUrl(imageUrl || ''), 500)
     return () => clearTimeout(timer)
   }, [imageUrl])
 
   useEffect(() => {
-    if (!debouncedImageUrl) {
+    const activeUrl = localPreviewUrl || debouncedImageUrl
+    if (!activeUrl) {
       setImageStatus('idle')
       return
     }
@@ -96,8 +122,105 @@ export default function NewProductPage() {
     const img = new Image()
     img.onload = () => setImageStatus('success')
     img.onerror = () => setImageStatus('error')
-    img.src = debouncedImageUrl
-  }, [debouncedImageUrl])
+    img.src = activeUrl
+  }, [debouncedImageUrl, localPreviewUrl])
+
+  const validateAndProcessFile = async (file: File) => {
+    setImageUploadError(null)
+
+    // Validar tipo de arquivo
+    const validMimeTypes = ['image/jpeg', 'image/png']
+    if (!validMimeTypes.includes(file.type)) {
+      const msg = 'Formato inválido. Selecione apenas imagens em JPEG (.jpg, .jpeg) ou PNG (.png).'
+      setImageUploadError(msg)
+      toast({
+        title: 'Formato não suportado',
+        description: msg,
+        variant: 'destructive',
+      })
+      return
+    }
+
+    // Validar tamanho (10MB)
+    const MAX_SIZE = 10 * 1024 * 1024
+    if (file.size > MAX_SIZE) {
+      const msg = 'Arquivo muito grande. O tamanho máximo permitido é de 10MB.'
+      setImageUploadError(msg)
+      toast({
+        title: 'Arquivo muito grande',
+        description: msg,
+        variant: 'destructive',
+      })
+      return
+    }
+
+    // Gerar preview local imediato
+    const objectUrl = URL.createObjectURL(file)
+    setLocalPreviewUrl(objectUrl)
+    setIsUploadingImage(true)
+
+    try {
+      const result = await uploadProductImage(file, id || null)
+      // Definir a URL pública no formulário
+      form.setValue('image_url', result.publicUrl, { shouldDirty: true, shouldValidate: true })
+      setLocalPreviewUrl(null)
+      toast({
+        title: 'Upload concluído',
+        description: 'Imagem enviada com sucesso para o armazenamento!',
+      })
+    } catch (err: any) {
+      console.error('Falha no upload manual de imagem:', err)
+      const errorMsg =
+        err?.message ||
+        'Falha ao enviar imagem para o armazenamento. Tente novamente ou use uma URL externa.'
+      setImageUploadError(errorMsg)
+      toast({
+        title: 'Falha no upload da imagem',
+        description: errorMsg,
+        variant: 'destructive',
+      })
+      // Não quebra o formulário
+    } finally {
+      setIsUploadingImage(false)
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+    }
+  }
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      validateAndProcessFile(file)
+    }
+  }
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (!isBusy && !isUploadingImage) {
+      setIsDragOver(true)
+    }
+  }
+
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragOver(false)
+  }
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragOver(false)
+
+    if (isBusy || isUploadingImage) return
+
+    const files = e.dataTransfer.files
+    if (files && files.length > 0) {
+      validateAndProcessFile(files[0])
+    }
+  }
 
   if (isLoadingCategories || isLoadingManufacturers || isLoadingProduct) {
     return (
@@ -569,49 +692,176 @@ export default function NewProductPage() {
               {/* SECTION 5 - IMAGE AND CLASSIFICATION */}
               <div className="space-y-4 p-5 border rounded-lg bg-muted/5">
                 <h3 className="text-lg font-bold">Imagem e Classificação</h3>
-                <div className="grid grid-cols-1 gap-6">
-                  <div className="space-y-4">
-                    <FormField
-                      control={form.control}
-                      name="image_url"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>URL da Imagem</FormLabel>
-                          <FormControl>
-                            <Input {...field} disabled={isBusy} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
+                <div className="space-y-6">
+                  {/* Seletor / Dropzone de Imagem de Produto */}
+                  <div className="space-y-3">
+                    <Label className="text-sm font-semibold">Imagem do Produto</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Arraste um arquivo JPEG ou PNG, clique na área para selecionar do computador,
+                      ou cole uma URL externa abaixo.
+                    </p>
+
+                    {/* Hidden file input */}
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/jpeg,image/png"
+                      className="hidden"
+                      onChange={handleFileChange}
+                      disabled={isBusy || isUploadingImage}
                     />
-                    <div className="space-y-2">
-                      <Label>Image Preview</Label>
-                      <div className="w-[200px] h-[200px] border rounded-lg overflow-hidden flex items-center justify-center bg-background/50">
-                        {imageStatus === 'idle' && (
-                          <span className="text-sm text-muted-foreground text-center px-4">
-                            Nenhuma imagem selecionada
-                          </span>
-                        )}
-                        {imageStatus === 'loading' && (
-                          <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-                        )}
-                        {imageStatus === 'error' && (
-                          <span className="text-sm text-destructive text-center px-4">
-                            Não foi possivel carregar a imagem. Verifique a URL.
-                          </span>
-                        )}
-                        {imageStatus === 'success' && (
-                          <ImageWithFallback
-                            src={debouncedImageUrl}
-                            alt="Preview"
-                            productId={id || ''}
-                            className="w-full h-full object-contain"
-                          />
+
+                    <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-start">
+                      {/* Dropzone interativa */}
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        aria-label="Selecionar imagem de produto por arquivo ou arrastar"
+                        onKeyDown={(e) => {
+                          if (
+                            (e.key === 'Enter' || e.key === ' ') &&
+                            !isBusy &&
+                            !isUploadingImage
+                          ) {
+                            e.preventDefault()
+                            fileInputRef.current?.click()
+                          }
+                        }}
+                        onDragOver={handleDragOver}
+                        onDragLeave={handleDragLeave}
+                        onDrop={handleDrop}
+                        onClick={() => {
+                          if (!isBusy && !isUploadingImage) {
+                            fileInputRef.current?.click()
+                          }
+                        }}
+                        className={`md:col-span-8 border-2 border-dashed rounded-xl p-6 flex flex-col items-center justify-center text-center transition-all cursor-pointer relative min-h-[190px] focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 ${
+                          isDragOver
+                            ? 'border-primary bg-primary/10 scale-[1.01]'
+                            : 'border-muted-foreground/30 hover:border-primary/60 hover:bg-muted/30 bg-background/50'
+                        } ${isUploadingImage ? 'pointer-events-none opacity-80' : ''}`}
+                      >
+                        {isUploadingImage ? (
+                          <div className="flex flex-col items-center gap-2 py-4">
+                            <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                            <p className="text-sm font-medium text-primary">
+                              Enviando para o Supabase Storage...
+                            </p>
+                            <span className="text-xs text-muted-foreground">
+                              Aguarde o processamento da imagem
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="flex flex-col items-center gap-2 py-2">
+                            <div className="p-3 rounded-full bg-primary/10 text-primary">
+                              <UploadCloud className="w-7 h-7" />
+                            </div>
+                            <div className="space-y-1">
+                              <p className="text-sm font-medium">
+                                <span className="text-primary underline underline-offset-4">
+                                  Clique para selecionar
+                                </span>{' '}
+                                ou arraste a imagem aqui
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                Formatos aceitos: <strong>JPEG</strong> e <strong>PNG</strong> (até
+                                10MB)
+                              </p>
+                            </div>
+                          </div>
                         )}
                       </div>
+
+                      {/* Preview Box */}
+                      <div className="md:col-span-4 flex flex-col items-center justify-center">
+                        <div className="w-full max-w-[200px] h-[190px] border rounded-xl overflow-hidden flex flex-col items-center justify-center bg-background/80 relative shadow-sm">
+                          {isUploadingImage && (
+                            <div className="flex flex-col items-center gap-1.5 p-3 text-center">
+                              <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                              <span className="text-xs font-medium text-muted-foreground">
+                                Atualizando preview...
+                              </span>
+                            </div>
+                          )}
+
+                          {!isUploadingImage && (localPreviewUrl || imageUrl) && (
+                            <>
+                              <ImageWithFallback
+                                src={localPreviewUrl || debouncedImageUrl}
+                                alt="Preview do Produto"
+                                productId={id || ''}
+                                className="w-full h-full object-contain p-2"
+                              />
+                              <Button
+                                type="button"
+                                variant="destructive"
+                                size="icon"
+                                className="absolute top-2 right-2 h-6 w-6 rounded-full shadow"
+                                title="Remover imagem"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  form.setValue('image_url', '', { shouldDirty: true })
+                                  setLocalPreviewUrl(null)
+                                  setImageUploadError(null)
+                                }}
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </Button>
+                            </>
+                          )}
+
+                          {!isUploadingImage && !localPreviewUrl && !imageUrl && (
+                            <div className="flex flex-col items-center gap-1 text-muted-foreground p-3 text-center">
+                              <ImageIcon className="w-8 h-8 stroke-1 text-muted-foreground/60" />
+                              <span className="text-xs font-medium">Sem imagem</span>
+                              <span className="text-[10px] text-muted-foreground/70">
+                                Preview aparecerá aqui
+                              </span>
+                            </div>
+                          )}
+                        </div>
+
+                        {imageStatus === 'error' &&
+                          (imageUrl || localPreviewUrl) &&
+                          !isUploadingImage && (
+                            <p className="text-[11px] text-destructive text-center mt-2 max-w-[200px]">
+                              Não foi possível carregar a imagem. Verifique a URL ou selecione outro
+                              arquivo.
+                            </p>
+                          )}
+                      </div>
                     </div>
+
+                    {imageUploadError && (
+                      <p className="text-xs text-destructive font-medium bg-destructive/10 border border-destructive/20 p-2.5 rounded-md">
+                        {imageUploadError}
+                      </p>
+                    )}
                   </div>
 
+                  {/* Campo de URL alternativa */}
+                  <FormField
+                    control={form.control}
+                    name="image_url"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-xs font-medium text-muted-foreground">
+                          Ou forneça uma URL direta da imagem (opcional)
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            placeholder="https://..."
+                            disabled={isBusy || isUploadingImage}
+                            className="text-xs"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  {/* NCM */}
                   <FormField
                     control={form.control}
                     name="ncm"

@@ -83,6 +83,8 @@ export default function NewProductPage() {
     handleAddManufacturer,
   } = useProductForm()
 
+  const isBusy = isExtracting || isSaving
+
   const [allProducts, setAllProducts] = useState<
     { id: string; name: string; sku: string | null }[]
   >([])
@@ -282,8 +284,6 @@ export default function NewProductPage() {
       </div>
     )
   }
-
-  const isBusy = isExtracting || isSaving
 
   const handleCreateCategory = async () => {
     if (!newCategoryName.trim()) return

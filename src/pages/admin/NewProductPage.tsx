@@ -22,7 +22,7 @@ import {
 } from '@/components/ui/select'
 import { Checkbox } from '@/components/ui/checkbox'
 import { ArrowLeft, Download, Loader2, Sparkles, Plus, X } from 'lucide-react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   Dialog,
@@ -37,6 +37,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 
 export default function NewProductPage() {
   const navigate = useNavigate()
+  const { id } = useParams<{ id: string }>()
   const [importUrl, setImportUrl] = useState('')
   const [isCategoryDialogOpen, setIsCategoryDialogOpen] = useState(false)
   const [isManufacturerDialogOpen, setIsManufacturerDialogOpen] = useState(false)

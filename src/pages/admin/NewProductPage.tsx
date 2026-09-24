@@ -222,6 +222,57 @@ export default function NewProductPage() {
     }
   }
 
+  // Captura de imagem por colagem (Ctrl+V / Cmd+V)
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      // Se estiver ocupado salvando ou já fazendo upload, não processa
+      if (isBusy || isUploadingImage) return
+
+      const clipboardData = e.clipboardData
+      if (!clipboardData) return
+
+      // Procura primeiro por arquivos de imagem no clipboard
+      const items = clipboardData.items
+      let imageFile: File | null = null
+
+      if (items && items.length > 0) {
+        for (let i = 0; i < items.length; i++) {
+          const item = items[i]
+          if (item.kind === 'file' && item.type.startsWith('image/')) {
+            const blob = item.getAsFile()
+            if (blob) {
+              imageFile = blob
+              break
+            }
+          }
+        }
+      }
+
+      // Se não encontrou nos items, tenta files
+      if (!imageFile && clipboardData.files && clipboardData.files.length > 0) {
+        for (let i = 0; i < clipboardData.files.length; i++) {
+          const file = clipboardData.files[i]
+          if (file.type.startsWith('image/')) {
+            imageFile = file
+            break
+          }
+        }
+      }
+
+      // Se houver arquivo de imagem colado:
+      if (imageFile) {
+        e.preventDefault()
+        validateAndProcessFile(imageFile)
+      }
+      // Se não houver arquivo de imagem, não faz preventDefault nem exibe erro: deixa o evento seguir normalmente
+    }
+
+    window.addEventListener('paste', handlePaste)
+    return () => {
+      window.removeEventListener('paste', handlePaste)
+    }
+  }, [isBusy, isUploadingImage, id])
+
   if (isLoadingCategories || isLoadingManufacturers || isLoadingProduct) {
     return (
       <div className="container mx-auto py-8 max-w-4xl space-y-6">
@@ -697,8 +748,8 @@ export default function NewProductPage() {
                   <div className="space-y-3">
                     <Label className="text-sm font-semibold">Imagem do Produto</Label>
                     <p className="text-xs text-muted-foreground">
-                      Arraste um arquivo JPEG ou PNG, clique na área para selecionar do computador,
-                      ou cole uma URL externa abaixo.
+                      Arraste um arquivo JPEG ou PNG, cole uma imagem com Ctrl+V (ou Cmd+V), clique
+                      na área para selecionar do computador, ou cole uma URL externa abaixo.
                     </p>
 
                     {/* Hidden file input */}
@@ -760,8 +811,9 @@ export default function NewProductPage() {
                               <p className="text-sm font-medium">
                                 <span className="text-primary underline underline-offset-4">
                                   Clique para selecionar
-                                </span>{' '}
-                                ou arraste a imagem aqui
+                                </span>
+                                {', '}
+                                cole (Ctrl+V) ou arraste a imagem aqui
                               </p>
                               <p className="text-xs text-muted-foreground">
                                 Formatos aceitos: <strong>JPEG</strong> e <strong>PNG</strong> (até

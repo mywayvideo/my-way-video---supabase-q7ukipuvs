@@ -251,6 +251,29 @@ Deno.serve(async (req: Request) => {
     const finalCachePath = `${CACHE_PREFIX}/${urlHash}.${ext}`
     const finalStorageUrl = `${supabaseUrl}/storage/v1/object/public/${BUCKET_NAME}/${finalCachePath}`
 
+    const syncProductImageUrl = async (storageUrl: string) => {
+      try {
+        if (productId) {
+          await supabase.from('products').update({ image_url: storageUrl }).eq('id', productId)
+          await supabase.from('image_migration_failures').delete().eq('product_id', productId)
+        } else {
+          const { data: matchedProducts } = await supabase
+            .from('products')
+            .select('id')
+            .eq('image_url', imageUrl)
+            .limit(10)
+
+          if (matchedProducts && matchedProducts.length > 0) {
+            const pids = matchedProducts.map((p) => p.id)
+            await supabase.from('products').update({ image_url: storageUrl }).in('id', pids)
+            await supabase.from('image_migration_failures').delete().in('product_id', pids)
+          }
+        }
+      } catch (syncErr) {
+        console.warn('Failed to sync product image_url from proxy:', syncErr)
+      }
+    }
+
     const uploadPromise = supabase.storage.from(BUCKET_NAME).upload(finalCachePath, imageBuffer, {
       contentType,
       upsert: true,
@@ -272,6 +295,8 @@ Deno.serve(async (req: Request) => {
         )
       }
 
+      await syncProductImageUrl(finalStorageUrl)
+
       return new Response(
         JSON.stringify({
           success: true,
@@ -286,8 +311,14 @@ Deno.serve(async (req: Request) => {
       )
     }
 
-    // Background upload for standard image streaming
-    uploadPromise.catch((err) => console.warn('Failed to cache image in storage:', err))
+    // Background upload and product sync for standard image streaming
+    uploadPromise
+      .then(async ({ error: upErr }) => {
+        if (!upErr) {
+          await syncProductImageUrl(finalStorageUrl)
+        }
+      })
+      .catch((err) => console.warn('Failed to cache image in storage:', err))
 
     return new Response(imageBuffer, {
       status: 200,

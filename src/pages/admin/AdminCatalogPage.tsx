@@ -64,6 +64,8 @@ import { BulkReviewModal } from '@/components/admin/BulkReviewModal'
 import { BatchPriceBrlModal } from '@/components/admin/BatchPriceBrlModal'
 import { productService } from '@/services/productService'
 import { ImageWithFallback } from '@/components/ImageWithFallback'
+import { fetchProductImageMetrics } from '@/services/imageMetricsService'
+import { ProductImageMetricsBanner } from '@/components/admin/ProductImageMetricsBanner'
 
 const PAGE_SIZE = 50
 
@@ -123,8 +125,28 @@ export default function AdminCatalogPage() {
   const [page, setPage] = useState(1)
   const [totalCount, setTotalCount] = useState(0)
 
+  const [imageMetrics, setImageMetrics] = useState({
+    totalWithImages: 0,
+    inStorage: 0,
+    viaProxy: 0,
+    withoutImage: 0,
+    storagePercent: 0,
+    proxyPercent: 0,
+    loading: true,
+  })
+
   const [showExportModal, setShowExportModal] = useState(false)
   const [selectedExportFields, setSelectedExportFields] = useState<string[]>(ALL_EXPORT_FIELDS)
+
+  const fetchMetrics = async () => {
+    try {
+      const data = await fetchProductImageMetrics()
+      setImageMetrics({ ...data, loading: false })
+    } catch (err) {
+      console.warn('Erro ao carregar métricas de armazenamento de imagens:', err)
+      setImageMetrics((prev) => ({ ...prev, loading: false }))
+    }
+  }
 
   const fetchProductsData = async (searchTerm?: string) => {
     let pQuery = supabase
@@ -173,6 +195,7 @@ export default function AdminCatalogPage() {
     if (mData) setManufacturers(mData)
     const { data: cData } = await supabase.from('categories').select('*').order('name')
     if (cData) setCategories(cData)
+    await fetchMetrics()
   }
 
   const fetchData = async () => {
@@ -181,7 +204,9 @@ export default function AdminCatalogPage() {
   }
 
   useEffect(() => {
-    if (user) fetchOtherData()
+    if (user) {
+      fetchOtherData()
+    }
   }, [user])
 
   useEffect(() => {
@@ -527,6 +552,17 @@ export default function AdminCatalogPage() {
             </Button>
           </div>
         </div>
+
+        {/* Painel Informativo de Armazenamento de Imagens (Supabase Storage vs Proxy) */}
+        <ProductImageMetricsBanner
+          inStorage={imageMetrics.inStorage}
+          viaProxy={imageMetrics.viaProxy}
+          storagePercent={imageMetrics.storagePercent}
+          proxyPercent={imageMetrics.proxyPercent}
+          totalWithImages={imageMetrics.totalWithImages}
+          loading={imageMetrics.loading}
+          onRefresh={fetchMetrics}
+        />
 
         <div className="bg-card border border-border/50 rounded-xl overflow-hidden shadow-sm relative">
           <div className="p-4 border-b border-border/50 bg-muted/20 flex flex-col sm:flex-row justify-between sm:items-center gap-4">

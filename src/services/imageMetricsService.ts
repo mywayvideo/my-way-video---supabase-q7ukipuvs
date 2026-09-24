@@ -18,50 +18,90 @@ export async function fetchProductImageMetrics(): Promise<{
   storagePercent: number
   proxyPercent: number
 }> {
-  // Query count total com imagem
-  const { count: totalWithImages, error: errTotal } = await supabase
-    .from('products')
-    .select('id', { count: 'exact', head: true })
-    .not('image_url', 'is', null)
-    .neq('image_url', '')
+  try {
+    // Query count total com imagem
+    let totalWithImages = 0
+    try {
+      const { count, error: errTotal } = await supabase
+        .from('products')
+        .select('id', { count: 'exact' })
+        .limit(0)
+        .not('image_url', 'is', null)
+        .neq('image_url', '')
 
-  if (errTotal) {
-    throw errTotal
-  }
+      if (errTotal) {
+        console.warn('Erro ao consultar métricas de produtos com imagem:', errTotal)
+      } else {
+        totalWithImages = count ?? 0
+      }
+    } catch (err) {
+      console.warn('Exceção ao consultar métricas de produtos com imagem:', err)
+    }
 
-  // Query count com imagem no Supabase Storage (path product-images)
-  const { count: inStorage, error: errStorage } = await supabase
-    .from('products')
-    .select('id', { count: 'exact', head: true })
-    .not('image_url', 'is', null)
-    .neq('image_url', '')
-    .ilike('image_url', '%product-images%')
+    // Query count com imagem no Supabase Storage (path product-images)
+    let inStorage = 0
+    try {
+      const { count, error: errStorage } = await supabase
+        .from('products')
+        .select('id', { count: 'exact' })
+        .limit(0)
+        .not('image_url', 'is', null)
+        .neq('image_url', '')
+        .ilike('image_url', '%product-images%')
 
-  if (errStorage) {
-    throw errStorage
-  }
+      if (errStorage) {
+        console.warn('Erro ao consultar métricas de produtos no storage:', errStorage)
+      } else {
+        inStorage = count ?? 0
+      }
+    } catch (err) {
+      console.warn('Exceção ao consultar métricas de produtos no storage:', err)
+    }
 
-  // Query count sem imagem
-  const { count: withoutImage } = await supabase
-    .from('products')
-    .select('id', { count: 'exact', head: true })
-    .or('image_url.is.null,image_url.eq.')
+    // Query count sem imagem
+    let withoutImage = 0
+    try {
+      const { count, error: errWithoutImage } = await supabase
+        .from('products')
+        .select('id', { count: 'exact' })
+        .limit(0)
+        .or('image_url.is.null,image_url.eq.')
 
-  const total = totalWithImages ?? 0
-  const storageCount = inStorage ?? 0
-  const proxyCount = Math.max(0, total - storageCount)
-  const noImgCount = withoutImage ?? 0
+      if (errWithoutImage) {
+        console.warn('Erro ao consultar métricas de produtos sem imagem:', errWithoutImage)
+      } else {
+        withoutImage = count ?? 0
+      }
+    } catch (err) {
+      console.warn('Exceção ao consultar métricas de produtos sem imagem:', err)
+    }
 
-  const storagePercent = total > 0 ? Number(((storageCount / total) * 100).toFixed(1)) : 0
-  const proxyPercent = total > 0 ? Number(((proxyCount / total) * 100).toFixed(1)) : 0
+    const total = totalWithImages
+    const storageCount = inStorage
+    const proxyCount = Math.max(0, total - storageCount)
+    const noImgCount = withoutImage
 
-  return {
-    totalWithImages: total,
-    inStorage: storageCount,
-    viaProxy: proxyCount,
-    withoutImage: noImgCount,
-    storagePercent,
-    proxyPercent,
+    const storagePercent = total > 0 ? Number(((storageCount / total) * 100).toFixed(1)) : 0
+    const proxyPercent = total > 0 ? Number(((proxyCount / total) * 100).toFixed(1)) : 0
+
+    return {
+      totalWithImages: total,
+      inStorage: storageCount,
+      viaProxy: proxyCount,
+      withoutImage: noImgCount,
+      storagePercent,
+      proxyPercent,
+    }
+  } catch (error) {
+    console.warn('Falha geral ao carregar métricas de imagens:', error)
+    return {
+      totalWithImages: 0,
+      inStorage: 0,
+      viaProxy: 0,
+      withoutImage: 0,
+      storagePercent: 0,
+      proxyPercent: 0,
+    }
   }
 }
 

@@ -66,6 +66,8 @@ import { productService } from '@/services/productService'
 import { ImageWithFallback } from '@/components/ImageWithFallback'
 import { fetchProductImageMetrics } from '@/services/imageMetricsService'
 import { ProductImageMetricsBanner } from '@/components/admin/ProductImageMetricsBanner'
+import { isStorageImageUrl } from '@/lib/image-proxy'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 
 const PAGE_SIZE = 50
 
@@ -125,6 +127,10 @@ export default function AdminCatalogPage() {
   const [page, setPage] = useState(1)
   const [totalCount, setTotalCount] = useState(0)
 
+  const topScrollRef = useRef<HTMLDivElement>(null)
+  const bottomScrollRef = useRef<HTMLDivElement>(null)
+  const [tableScrollWidth, setTableScrollWidth] = useState(0)
+
   const [imageMetrics, setImageMetrics] = useState({
     totalWithImages: 0,
     inStorage: 0,
@@ -147,6 +153,56 @@ export default function AdminCatalogPage() {
       setImageMetrics((prev) => ({ ...prev, loading: false }))
     }
   }
+
+  // Sincronização da barra de rolagem horizontal espelhada no topo
+  useEffect(() => {
+    const topEl = topScrollRef.current
+    const bottomEl = bottomScrollRef.current
+    if (!topEl || !bottomEl) return
+
+    let isSyncingTop = false
+    let isSyncingBottom = false
+
+    const handleTopScroll = () => {
+      if (isSyncingTop) {
+        isSyncingTop = false
+        return
+      }
+      isSyncingBottom = true
+      bottomEl.scrollLeft = topEl.scrollLeft
+    }
+
+    const handleBottomScroll = () => {
+      if (isSyncingBottom) {
+        isSyncingBottom = false
+        return
+      }
+      isSyncingTop = true
+      topEl.scrollLeft = bottomEl.scrollLeft
+    }
+
+    topEl.addEventListener('scroll', handleTopScroll, { passive: true })
+    bottomEl.addEventListener('scroll', handleBottomScroll, { passive: true })
+
+    const updateScrollWidth = () => {
+      if (bottomEl) {
+        setTableScrollWidth(bottomEl.scrollWidth)
+      }
+    }
+
+    updateScrollWidth()
+
+    const resizeObserver = new ResizeObserver(() => {
+      updateScrollWidth()
+    })
+    resizeObserver.observe(bottomEl)
+
+    return () => {
+      topEl.removeEventListener('scroll', handleTopScroll)
+      bottomEl.removeEventListener('scroll', handleBottomScroll)
+      resizeObserver.disconnect()
+    }
+  }, [products])
 
   const fetchProductsData = async (searchTerm?: string) => {
     let pQuery = supabase
@@ -498,498 +554,571 @@ export default function AdminCatalogPage() {
     }
   }
 
+  const renderImageStatusBadge = (imageUrl?: string | null) => {
+    if (!imageUrl || imageUrl.trim() === '') {
+      return (
+        <Badge variant="destructive" className="text-[10px] uppercase whitespace-nowrap">
+          Sem Imagem
+        </Badge>
+      )
+    }
+
+    const isInStorage = isStorageImageUrl(imageUrl)
+
+    if (isInStorage) {
+      return (
+        <Badge
+          variant="outline"
+          className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-[10px] uppercase whitespace-nowrap"
+        >
+          No Storage
+        </Badge>
+      )
+    }
+
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="inline-block cursor-help">
+            <Badge
+              variant="outline"
+              className="bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/40 text-[10px] font-medium whitespace-nowrap transition-colors hover:bg-amber-500/25 cursor-help"
+            >
+              Imagem externa
+            </Badge>
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="top" className="max-w-xs text-xs leading-relaxed">
+          Esta imagem depende de link externo (ex.: B&amp;H). Copie a imagem no site de origem
+          (Ctrl+C) e cole com Ctrl+V na edição do produto para hospedá-la no nosso Storage.
+        </TooltipContent>
+      </Tooltip>
+    )
+  }
+
   return (
-    <AdminLayout breadcrumb="Catálogo & Produtos">
-      <div className="flex flex-col gap-8 max-w-7xl mx-auto animate-fade-in">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="bg-primary/10 p-2 rounded-lg text-primary">
-              <Package className="w-6 h-6" />
+    <TooltipProvider delayDuration={200}>
+      <AdminLayout breadcrumb="Catálogo & Produtos">
+        <div className="flex flex-col gap-8 max-w-7xl mx-auto animate-fade-in">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="bg-primary/10 p-2 rounded-lg text-primary">
+                <Package className="w-6 h-6" />
+              </div>
+              <h1 className="text-3xl font-bold text-foreground">Catálogo & Produtos</h1>
             </div>
-            <h1 className="text-3xl font-bold text-foreground">Catálogo & Produtos</h1>
-          </div>
-          <div className="flex flex-wrap gap-3">
-            <input
-              type="file"
-              accept=".csv"
-              ref={fileInputRef}
-              className="hidden"
-              onChange={handleCSVUpload}
-            />
-            <Button
-              variant="outline"
-              className="shadow-sm"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isProcessingCSV}
-            >
-              <Download className="w-4 h-4 mr-2" /> Importar B&H (CSV)
-            </Button>
-            <AdminCSVUploader
-              manufacturers={manufacturers}
-              onSuccess={fetchData}
-              onAddManufacturer={fetchData}
-            />
-            <Button
-              variant="outline"
-              className="shadow-sm"
-              onClick={() => setShowRecalcModal(true)}
-            >
-              <RefreshCw className="w-4 h-4 mr-2" /> Recalcular Preço BRL
-            </Button>
-            <Button
-              className="bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg"
-              onClick={() => {
-                sessionStorage.setItem(
-                  'admin-products-scroll-position',
-                  JSON.stringify({ x: window.scrollX, y: window.scrollY }),
-                )
-              }}
-              asChild
-            >
-              <Link to="/products/new">
-                <Plus className="w-4 h-4 mr-2" /> Novo Equipamento
-              </Link>
-            </Button>
-          </div>
-        </div>
-
-        {/* Painel Informativo de Armazenamento de Imagens (Supabase Storage vs Proxy) */}
-        <ProductImageMetricsBanner
-          inStorage={imageMetrics.inStorage}
-          viaProxy={imageMetrics.viaProxy}
-          storagePercent={imageMetrics.storagePercent}
-          proxyPercent={imageMetrics.proxyPercent}
-          totalWithImages={imageMetrics.totalWithImages}
-          loading={imageMetrics.loading}
-          onRefresh={fetchMetrics}
-        />
-
-        <div className="bg-card border border-border/50 rounded-xl overflow-hidden shadow-sm relative">
-          <div className="p-4 border-b border-border/50 bg-muted/20 flex flex-col sm:flex-row justify-between sm:items-center gap-4">
-            <h2 className="font-semibold text-foreground">
-              Inventário ({filteredProducts.length} itens)
-            </h2>
-            <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
+            <div className="flex flex-wrap gap-3">
+              <input
+                type="file"
+                accept=".csv"
+                ref={fileInputRef}
+                className="hidden"
+                onChange={handleCSVUpload}
+              />
               <Button
-                variant={filterNoImage ? 'secondary' : 'outline'}
-                size="sm"
-                onClick={toggleNoImageFilter}
-                className={cn(
-                  'h-9 whitespace-nowrap',
-                  filterNoImage &&
-                    'bg-primary/20 text-primary border-primary/30 hover:bg-primary/30',
-                )}
+                variant="outline"
+                className="shadow-sm"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isProcessingCSV}
               >
-                <ImageOff className="w-4 h-4 mr-2" />
-                Sem Imagem
-                <Badge variant="secondary" className="ml-2 bg-background/50 text-foreground">
-                  {noImageCount}
-                </Badge>
+                <Download className="w-4 h-4 mr-2" /> Importar B&H (CSV)
               </Button>
-              <div className="relative w-full sm:w-72">
-                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  placeholder="Buscar equipamento..."
-                  className="pl-10 pr-10 bg-background/50 border-border/50 h-9"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                />
-                {search.length > 0 && (
-                  <button
-                    onClick={() => setSearch('')}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground cursor-pointer rounded-full transition-colors flex items-center justify-center"
-                  >
-                    <X size={18} />
-                  </button>
-                )}
-              </div>
+              <AdminCSVUploader
+                manufacturers={manufacturers}
+                onSuccess={fetchData}
+                onAddManufacturer={fetchData}
+              />
+              <Button
+                variant="outline"
+                className="shadow-sm"
+                onClick={() => setShowRecalcModal(true)}
+              >
+                <RefreshCw className="w-4 h-4 mr-2" /> Recalcular Preço BRL
+              </Button>
+              <Button
+                className="bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg"
+                onClick={() => {
+                  sessionStorage.setItem(
+                    'admin-products-scroll-position',
+                    JSON.stringify({ x: window.scrollX, y: window.scrollY }),
+                  )
+                }}
+                asChild
+              >
+                <Link to="/products/new">
+                  <Plus className="w-4 h-4 mr-2" /> Novo Equipamento
+                </Link>
+              </Button>
             </div>
           </div>
 
-          {selectedProductIds.length > 0 && (
-            <div className="bg-background/95 backdrop-blur-sm border-b md:border-b md:border-t-0 border-t border-border/50 p-3 flex flex-col md:flex-row items-center justify-between gap-3 z-30 transition-all fixed bottom-0 left-0 right-0 md:static shadow-[0_-10px_40px_rgba(0,0,0,0.1)] md:shadow-none">
-              <span className="text-sm font-medium md:ml-2">
-                {selectedProductIds.length} produtos selecionados
-              </span>
-              <div className="flex flex-wrap items-center gap-2 w-full md:w-auto justify-end">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={clearSelection}
-                  className="text-muted-foreground"
-                >
-                  Limpar
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={() => setShowExportModal(true)}
-                  className="bg-blue-600 hover:bg-blue-700 text-white"
-                >
-                  <Download className="w-4 h-4 mr-2" /> Exportar CSV
-                </Button>
-                <Button variant="destructive" size="sm" onClick={() => setShowDeleteConfirm(true)}>
-                  <Trash2 className="w-4 h-4 mr-2" /> Excluir
-                </Button>
-              </div>
-            </div>
-          )}
+          {/* Painel Informativo de Armazenamento de Imagens (Supabase Storage vs Proxy) */}
+          <ProductImageMetricsBanner
+            inStorage={imageMetrics.inStorage}
+            viaProxy={imageMetrics.viaProxy}
+            storagePercent={imageMetrics.storagePercent}
+            proxyPercent={imageMetrics.proxyPercent}
+            totalWithImages={imageMetrics.totalWithImages}
+            loading={imageMetrics.loading}
+            onRefresh={fetchMetrics}
+          />
 
-          <div
-            className={cn('overflow-x-auto', selectedProductIds.length > 0 ? 'pb-24 md:pb-0' : '')}
-          >
-            <Table>
-              <TableHeader>
-                <TableRow className="hover:bg-transparent">
-                  <TableHead className="w-12 text-center px-4 align-middle">
-                    <Checkbox checked={isAllVisibleSelected} onCheckedChange={toggleSelectAll} />
-                  </TableHead>
-                  <TableHead className="w-16">Mídia</TableHead>
-                  <TableHead
-                    className={cn('w-32', sortableHeaderClasses('is_discontinued'))}
-                    onClick={() => handleSort('is_discontinued')}
-                  >
-                    <div className="flex items-center">
-                      Status {renderSortIndicator('is_discontinued')}
-                    </div>
-                  </TableHead>
-                  <TableHead className="w-32">Status da Imagem</TableHead>
-                  <TableHead
-                    className={cn('w-24', sortableHeaderClasses('is_special'))}
-                    onClick={() => handleSort('is_special')}
-                  >
-                    <div className="flex items-center justify-center">
-                      Destaque {renderSortIndicator('is_special')}
-                    </div>
-                  </TableHead>
-                  <TableHead
-                    className={sortableHeaderClasses('brand')}
-                    onClick={() => handleSort('brand')}
-                  >
-                    <div className="flex items-center">Marca {renderSortIndicator('brand')}</div>
-                  </TableHead>
-                  <TableHead
-                    className={sortableHeaderClasses('name')}
-                    onClick={() => handleSort('name')}
-                  >
-                    <div className="flex items-center">Produto {renderSortIndicator('name')}</div>
-                  </TableHead>
-                  <TableHead
-                    className={sortableHeaderClasses('sku')}
-                    onClick={() => handleSort('sku')}
-                  >
-                    <div className="flex items-center">SKU {renderSortIndicator('sku')}</div>
-                  </TableHead>
-                  <TableHead
-                    className={cn('text-right', sortableHeaderClasses('price_usd'))}
-                    onClick={() => handleSort('price_usd')}
-                  >
-                    <div className="flex items-center justify-end">
-                      FOB Miami {renderSortIndicator('price_usd')}
-                    </div>
-                  </TableHead>
-                  <TableHead className="text-right">Ações</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredProducts.map((p) => (
-                  <TableRow key={p.id}>
-                    <TableCell className="px-4 text-center align-middle">
-                      <Checkbox
-                        checked={selectedProductIds.includes(p.id)}
-                        onCheckedChange={() => toggleProductSelection(p.id)}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      {p.image_url ? (
-                        <ImageWithFallback
-                          src={p.image_url}
-                          alt={p.name || 'thumb'}
-                          productId={p.id}
-                          className="w-10 h-10 object-contain rounded bg-white/5 border border-white/10"
-                        />
-                      ) : (
-                        <div className="w-10 h-10 flex items-center justify-center bg-white/5 rounded border border-white/10">
-                          <ImageIcon className="w-4 h-4 text-muted-foreground/50" />
-                        </div>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={!canToggleStatus || togglingIds.has(p.id)}
-                        onClick={() => handleToggleStatus(p)}
-                        className={cn(
-                          'h-7 text-xs px-2 w-[110px] flex items-center justify-center transition-colors',
-                          p.is_discontinued
-                            ? 'bg-yellow-500/10 text-yellow-600 border-yellow-500/30 hover:bg-yellow-500/20'
-                            : 'bg-green-500/10 text-green-600 border-green-500/30 hover:bg-green-500/20',
-                        )}
-                      >
-                        {togglingIds.has(p.id) ? (
-                          <Loader2 className="w-3 h-3 mr-1.5 animate-spin" />
-                        ) : null}
-                        {p.is_discontinued ? 'Descontinuado' : 'Ativo'}
-                      </Button>
-                    </TableCell>
-                    <TableCell>
-                      {!p.image_url || p.image_url.trim() === '' ? (
-                        <Badge
-                          variant="destructive"
-                          className="text-[10px] uppercase whitespace-nowrap"
-                        >
-                          Sem Imagem
-                        </Badge>
-                      ) : (
-                        <Badge
-                          variant="outline"
-                          className="bg-green-500/10 text-green-600 border-green-500/30 text-[10px] uppercase whitespace-nowrap"
-                        >
-                          Com Imagem
-                        </Badge>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-center align-middle">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        disabled={!canToggleStatus || togglingSpecialIds.has(p.id)}
-                        onClick={() => handleToggleSpecial(p)}
-                        className="h-8 w-8 hover:bg-transparent"
-                      >
-                        {togglingSpecialIds.has(p.id) ? (
-                          <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
-                        ) : (
-                          <Star
-                            className={cn(
-                              'w-5 h-5 transition-colors',
-                              p.is_special
-                                ? 'text-amber-500 fill-amber-500'
-                                : 'text-muted-foreground hover:text-amber-500/70',
-                            )}
-                          />
-                        )}
-                      </Button>
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground">
-                      {p.manufacturer?.name || '-'}
-                    </TableCell>
-                    <TableCell className="font-medium max-w-[200px]" title={p.name}>
-                      <div className="flex items-center gap-2">
-                        <span className="truncate">{p.name}</span>
-                        {p.is_discontinued && (
-                          <Badge
-                            variant="destructive"
-                            className="text-[9px] h-4 px-1 py-0 uppercase tracking-wider shrink-0"
-                          >
-                            Inativo
-                          </Badge>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell className="font-mono text-xs">{p.sku}</TableCell>
-                    <TableCell className="text-right font-mono font-medium text-primary">
-                      US${' '}
-                      {(p.price_usd || 0).toLocaleString('en-US', {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}
-                    </TableCell>
-                    <TableCell className="text-right whitespace-nowrap">
-                      <Link to={`/product/${p.id}`} target="_blank" title="Visualizar Página">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="hover:bg-primary/10 hover:text-primary transition-colors"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </Button>
-                      </Link>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => {
-                          sessionStorage.setItem(
-                            'admin-products-scroll-position',
-                            JSON.stringify({ x: window.scrollX, y: window.scrollY }),
-                          )
-                        }}
-                        className="hover:bg-accent/10 hover:text-accent transition-colors"
-                        asChild
-                      >
-                        <Link to={`/products/edit/${p.id}`}>
-                          <Edit className="w-4 h-4" />
-                        </Link>
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleDelete(p.id)}
-                        className="hover:bg-destructive/10 hover:text-destructive transition-colors"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-                {filteredProducts.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
-                      Nenhum equipamento encontrado.
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </div>
-
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between border-t border-border/50 p-4">
-              <span className="text-sm text-muted-foreground">
-                Página {page} de {totalPages} ({totalCount} itens)
-              </span>
-              <div className="flex gap-2">
+          <div className="bg-card border border-border/50 rounded-xl overflow-hidden shadow-sm relative">
+            <div className="p-4 border-b border-border/50 bg-muted/20 flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+              <h2 className="font-semibold text-foreground">
+                Inventário ({filteredProducts.length} itens)
+              </h2>
+              <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
                 <Button
-                  variant="outline"
+                  variant={filterNoImage ? 'secondary' : 'outline'}
                   size="sm"
-                  disabled={page === 1}
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  onClick={toggleNoImageFilter}
+                  className={cn(
+                    'h-9 whitespace-nowrap',
+                    filterNoImage &&
+                      'bg-primary/20 text-primary border-primary/30 hover:bg-primary/30',
+                  )}
                 >
-                  Anterior
+                  <ImageOff className="w-4 h-4 mr-2" />
+                  Sem Imagem
+                  <Badge variant="secondary" className="ml-2 bg-background/50 text-foreground">
+                    {noImageCount}
+                  </Badge>
                 </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={page === totalPages}
-                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                >
-                  Próxima
-                </Button>
-              </div>
-            </div>
-          )}
-        </div>
-
-        <Dialog open={showExportModal} onOpenChange={setShowExportModal}>
-          <DialogContent className="max-w-md bg-card border-border/50">
-            <DialogHeader>
-              <DialogTitle>Exportar CSV de Produtos</DialogTitle>
-              <DialogDescription>
-                Selecione os campos que deseja incluir no arquivo exportado.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="py-4 space-y-4">
-              <div className="flex items-center space-x-2 pb-3 border-b border-border/50">
-                <Checkbox
-                  id="export-all"
-                  checked={selectedExportFields.length === ALL_EXPORT_FIELDS.length}
-                  onCheckedChange={(checked) =>
-                    setSelectedExportFields(checked ? ALL_EXPORT_FIELDS : [])
-                  }
-                />
-                <Label htmlFor="export-all" className="font-semibold cursor-pointer">
-                  Selecionar Todos
-                </Label>
-              </div>
-              <div className="overflow-y-auto max-h-[40vh] pr-2">
-                <div className="grid grid-cols-2 gap-3">
-                  {ALL_EXPORT_FIELDS.map((field) => (
-                    <div key={field} className="flex items-center space-x-2">
-                      <Checkbox
-                        id={`export-${field}`}
-                        checked={selectedExportFields.includes(field)}
-                        onCheckedChange={(checked) =>
-                          setSelectedExportFields((prev) =>
-                            checked ? [...prev, field] : prev.filter((f) => f !== field),
-                          )
-                        }
-                      />
-                      <Label
-                        htmlFor={`export-${field}`}
-                        className="text-sm font-normal cursor-pointer truncate"
-                        title={field}
-                      >
-                        {field}
-                      </Label>
-                    </div>
-                  ))}
+                <div className="relative w-full sm:w-72">
+                  <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    placeholder="Buscar equipamento..."
+                    className="pl-10 pr-10 bg-background/50 border-border/50 h-9"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                  />
+                  {search.length > 0 && (
+                    <button
+                      onClick={() => setSearch('')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground cursor-pointer rounded-full transition-colors flex items-center justify-center"
+                    >
+                      <X size={18} />
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setShowExportModal(false)}>
-                Cancelar
-              </Button>
-              <Button onClick={executeExportCSV} disabled={selectedExportFields.length === 0}>
-                Confirmar Exportação
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
 
-        <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Confirmar exclusão</AlertDialogTitle>
-              <AlertDialogDescription>
-                Tem certeza que deseja excluir {selectedProductIds.length} produtos? Esta ação não
-                pode ser desfeita.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel disabled={isDeletingBulk}>Cancelar</AlertDialogCancel>
-              <AlertDialogAction
-                onClick={(e) => {
-                  e.preventDefault()
-                  handleBulkDelete()
+            {selectedProductIds.length > 0 && (
+              <div className="bg-background/95 backdrop-blur-sm border-b md:border-b md:border-t-0 border-t border-border/50 p-3 flex flex-col md:flex-row items-center justify-between gap-3 z-30 transition-all fixed bottom-0 left-0 right-0 md:static shadow-[0_-10px_40px_rgba(0,0,0,0.1)] md:shadow-none">
+                <span className="text-sm font-medium md:ml-2">
+                  {selectedProductIds.length} produtos selecionados
+                </span>
+                <div className="flex flex-wrap items-center gap-2 w-full md:w-auto justify-end">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={clearSelection}
+                    className="text-muted-foreground"
+                  >
+                    Limpar
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => setShowExportModal(true)}
+                    className="bg-blue-600 hover:bg-blue-700 text-white"
+                  >
+                    <Download className="w-4 h-4 mr-2" /> Exportar CSV
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => setShowDeleteConfirm(true)}
+                  >
+                    <Trash2 className="w-4 h-4 mr-2" /> Excluir
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Barra de rolagem espelhada no topo */}
+            <div
+              ref={topScrollRef}
+              className="overflow-x-auto overflow-y-hidden border-b border-border/40 bg-muted/10 h-3 scrollbar-thin"
+              aria-hidden="true"
+            >
+              <div
+                style={{
+                  width: tableScrollWidth > 0 ? `${tableScrollWidth}px` : '100%',
+                  height: '1px',
                 }}
-                disabled={isDeletingBulk}
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              >
-                {isDeletingBulk ? 'Excluindo...' : 'Excluir'}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-
-        <ScrollToTopButton />
-
-        {isProcessingCSV && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
-            <div className="bg-card p-6 rounded-xl shadow-xl border border-border/50 max-w-sm w-full text-center">
-              <Loader2 className="w-10 h-10 animate-spin text-primary mx-auto mb-4" />
-              <h3 className="text-lg font-semibold mb-2">Processando URLs...</h3>
-              <p
-                className="text-muted-foreground text-sm mb-4 truncate"
-                title={csvProgress.currentName}
-              >
-                Extraindo: {csvProgress.currentName}
-              </p>
-              <p className="font-medium text-primary">
-                {csvProgress.current} de {csvProgress.total} analisados
-              </p>
+              />
             </div>
+
+            <div
+              ref={bottomScrollRef}
+              className={cn(
+                'overflow-x-auto',
+                selectedProductIds.length > 0 ? 'pb-24 md:pb-0' : '',
+              )}
+            >
+              <Table>
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent">
+                    {/* Coluna 1 fixa (sticky left-0) */}
+                    <TableHead className="sticky left-0 z-20 w-[280px] min-w-[280px] max-w-[320px] bg-card shadow-[2px_0_6px_-2px_rgba(0,0,0,0.12)]">
+                      <div className="flex items-center gap-3">
+                        <Checkbox
+                          checked={isAllVisibleSelected}
+                          onCheckedChange={toggleSelectAll}
+                        />
+                        <span className="font-semibold text-foreground">Produto</span>
+                      </div>
+                    </TableHead>
+                    <TableHead
+                      className={cn('w-32', sortableHeaderClasses('is_discontinued'))}
+                      onClick={() => handleSort('is_discontinued')}
+                    >
+                      <div className="flex items-center">
+                        Status {renderSortIndicator('is_discontinued')}
+                      </div>
+                    </TableHead>
+                    <TableHead className="w-36">Status da Imagem</TableHead>
+                    <TableHead
+                      className={cn('w-24', sortableHeaderClasses('is_special'))}
+                      onClick={() => handleSort('is_special')}
+                    >
+                      <div className="flex items-center justify-center">
+                        Destaque {renderSortIndicator('is_special')}
+                      </div>
+                    </TableHead>
+                    <TableHead
+                      className={sortableHeaderClasses('brand')}
+                      onClick={() => handleSort('brand')}
+                    >
+                      <div className="flex items-center">Marca {renderSortIndicator('brand')}</div>
+                    </TableHead>
+                    <TableHead
+                      className={sortableHeaderClasses('name')}
+                      onClick={() => handleSort('name')}
+                    >
+                      <div className="flex items-center">
+                        Nome Completo {renderSortIndicator('name')}
+                      </div>
+                    </TableHead>
+                    <TableHead
+                      className={sortableHeaderClasses('sku')}
+                      onClick={() => handleSort('sku')}
+                    >
+                      <div className="flex items-center">SKU {renderSortIndicator('sku')}</div>
+                    </TableHead>
+                    <TableHead
+                      className={cn('text-right', sortableHeaderClasses('price_usd'))}
+                      onClick={() => handleSort('price_usd')}
+                    >
+                      <div className="flex items-center justify-end">
+                        FOB Miami {renderSortIndicator('price_usd')}
+                      </div>
+                    </TableHead>
+                    <TableHead className="text-right">Ações</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredProducts.map((p) => (
+                    <TableRow key={p.id} className="group">
+                      {/* Coluna 1 fixa (sticky left-0) com nome e imagem */}
+                      <TableCell className="sticky left-0 z-10 w-[280px] min-w-[280px] max-w-[320px] bg-card group-hover:bg-muted/50 group-data-[state=selected]:bg-muted transition-colors shadow-[2px_0_6px_-2px_rgba(0,0,0,0.12)]">
+                        <div className="flex items-center gap-3">
+                          <Checkbox
+                            checked={selectedProductIds.includes(p.id)}
+                            onCheckedChange={() => toggleProductSelection(p.id)}
+                            className="shrink-0"
+                          />
+                          <div className="shrink-0">
+                            {p.image_url ? (
+                              <ImageWithFallback
+                                src={p.image_url}
+                                alt={p.name || 'thumb'}
+                                productId={p.id}
+                                className="w-10 h-10 object-contain rounded bg-white/5 border border-white/10"
+                              />
+                            ) : (
+                              <div className="w-10 h-10 flex items-center justify-center bg-white/5 rounded border border-white/10">
+                                <ImageIcon className="w-4 h-4 text-muted-foreground/50" />
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex flex-col min-w-0 pr-1">
+                            <span
+                              className="font-medium text-foreground text-sm truncate"
+                              title={p.name}
+                            >
+                              {p.name}
+                            </span>
+                            <span className="text-xs text-muted-foreground font-mono truncate">
+                              {p.sku || '-'}
+                            </span>
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={!canToggleStatus || togglingIds.has(p.id)}
+                          onClick={() => handleToggleStatus(p)}
+                          className={cn(
+                            'h-7 text-xs px-2 w-[110px] flex items-center justify-center transition-colors',
+                            p.is_discontinued
+                              ? 'bg-yellow-500/10 text-yellow-600 border-yellow-500/30 hover:bg-yellow-500/20'
+                              : 'bg-green-500/10 text-green-600 border-green-500/30 hover:bg-green-500/20',
+                          )}
+                        >
+                          {togglingIds.has(p.id) ? (
+                            <Loader2 className="w-3 h-3 mr-1.5 animate-spin" />
+                          ) : null}
+                          {p.is_discontinued ? 'Descontinuado' : 'Ativo'}
+                        </Button>
+                      </TableCell>
+                      <TableCell>{renderImageStatusBadge(p.image_url)}</TableCell>
+                      <TableCell className="text-center align-middle">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          disabled={!canToggleStatus || togglingSpecialIds.has(p.id)}
+                          onClick={() => handleToggleSpecial(p)}
+                          className="h-8 w-8 hover:bg-transparent"
+                        >
+                          {togglingSpecialIds.has(p.id) ? (
+                            <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                          ) : (
+                            <Star
+                              className={cn(
+                                'w-5 h-5 transition-colors',
+                                p.is_special
+                                  ? 'text-amber-500 fill-amber-500'
+                                  : 'text-muted-foreground hover:text-amber-500/70',
+                              )}
+                            />
+                          )}
+                        </Button>
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        {p.manufacturer?.name || '-'}
+                      </TableCell>
+                      <TableCell className="font-medium max-w-[200px]" title={p.name}>
+                        <div className="flex items-center gap-2">
+                          <span className="truncate">{p.name}</span>
+                          {p.is_discontinued && (
+                            <Badge
+                              variant="destructive"
+                              className="text-[9px] h-4 px-1 py-0 uppercase tracking-wider shrink-0"
+                            >
+                              Inativo
+                            </Badge>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="font-mono text-xs">{p.sku}</TableCell>
+                      <TableCell className="text-right font-mono font-medium text-primary">
+                        US${' '}
+                        {(p.price_usd || 0).toLocaleString('en-US', {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}
+                      </TableCell>
+                      <TableCell className="text-right whitespace-nowrap">
+                        <Link to={`/product/${p.id}`} target="_blank" title="Visualizar Página">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="hover:bg-primary/10 hover:text-primary transition-colors"
+                          >
+                            <Eye className="w-4 h-4" />
+                          </Button>
+                        </Link>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => {
+                            sessionStorage.setItem(
+                              'admin-products-scroll-position',
+                              JSON.stringify({ x: window.scrollX, y: window.scrollY }),
+                            )
+                          }}
+                          className="hover:bg-accent/10 hover:text-accent transition-colors"
+                          asChild
+                        >
+                          <Link to={`/products/edit/${p.id}`}>
+                            <Edit className="w-4 h-4" />
+                          </Link>
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleDelete(p.id)}
+                          className="hover:bg-destructive/10 hover:text-destructive transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {filteredProducts.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
+                        Nenhum equipamento encontrado.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between border-t border-border/50 p-4">
+                <span className="text-sm text-muted-foreground">
+                  Página {page} de {totalPages} ({totalCount} itens)
+                </span>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={page === 1}
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  >
+                    Anterior
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={page === totalPages}
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  >
+                    Próxima
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
-        )}
 
-        {showBulkReview && (
-          <BulkReviewModal
-            isOpen={showBulkReview}
-            onClose={() => setShowBulkReview(false)}
-            products={extractedProducts}
-            categories={categories}
-            manufacturers={manufacturers}
+          <Dialog open={showExportModal} onOpenChange={setShowExportModal}>
+            <DialogContent className="max-w-md bg-card border-border/50">
+              <DialogHeader>
+                <DialogTitle>Exportar CSV de Produtos</DialogTitle>
+                <DialogDescription>
+                  Selecione os campos que deseja incluir no arquivo exportado.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="py-4 space-y-4">
+                <div className="flex items-center space-x-2 pb-3 border-b border-border/50">
+                  <Checkbox
+                    id="export-all"
+                    checked={selectedExportFields.length === ALL_EXPORT_FIELDS.length}
+                    onCheckedChange={(checked) =>
+                      setSelectedExportFields(checked ? ALL_EXPORT_FIELDS : [])
+                    }
+                  />
+                  <Label htmlFor="export-all" className="font-semibold cursor-pointer">
+                    Selecionar Todos
+                  </Label>
+                </div>
+                <div className="overflow-y-auto max-h-[40vh] pr-2">
+                  <div className="grid grid-cols-2 gap-3">
+                    {ALL_EXPORT_FIELDS.map((field) => (
+                      <div key={field} className="flex items-center space-x-2">
+                        <Checkbox
+                          id={`export-${field}`}
+                          checked={selectedExportFields.includes(field)}
+                          onCheckedChange={(checked) =>
+                            setSelectedExportFields((prev) =>
+                              checked ? [...prev, field] : prev.filter((f) => f !== field),
+                            )
+                          }
+                        />
+                        <Label
+                          htmlFor={`export-${field}`}
+                          className="text-sm font-normal cursor-pointer truncate"
+                          title={field}
+                        >
+                          {field}
+                        </Label>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setShowExportModal(false)}>
+                  Cancelar
+                </Button>
+                <Button onClick={executeExportCSV} disabled={selectedExportFields.length === 0}>
+                  Confirmar Exportação
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Confirmar exclusão</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Tem certeza que deseja excluir {selectedProductIds.length} produtos? Esta ação não
+                  pode ser desfeita.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={isDeletingBulk}>Cancelar</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={(e) => {
+                    e.preventDefault()
+                    handleBulkDelete()
+                  }}
+                  disabled={isDeletingBulk}
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                >
+                  {isDeletingBulk ? 'Excluindo...' : 'Excluir'}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+
+          <ScrollToTopButton />
+
+          {isProcessingCSV && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+              <div className="bg-card p-6 rounded-xl shadow-xl border border-border/50 max-w-sm w-full text-center">
+                <Loader2 className="w-10 h-10 animate-spin text-primary mx-auto mb-4" />
+                <h3 className="text-lg font-semibold mb-2">Processando URLs...</h3>
+                <p
+                  className="text-muted-foreground text-sm mb-4 truncate"
+                  title={csvProgress.currentName}
+                >
+                  Extraindo: {csvProgress.currentName}
+                </p>
+                <p className="font-medium text-primary">
+                  {csvProgress.current} de {csvProgress.total} analisados
+                </p>
+              </div>
+            </div>
+          )}
+
+          {showBulkReview && (
+            <BulkReviewModal
+              isOpen={showBulkReview}
+              onClose={() => setShowBulkReview(false)}
+              products={extractedProducts}
+              categories={categories}
+              manufacturers={manufacturers}
+              onSuccess={fetchData}
+              onAddManufacturer={handleAddManufacturer}
+            />
+          )}
+
+          <BatchPriceBrlModal
+            isOpen={showRecalcModal}
+            onClose={() => setShowRecalcModal(false)}
             onSuccess={fetchData}
-            onAddManufacturer={handleAddManufacturer}
           />
-        )}
-
-        <BatchPriceBrlModal
-          isOpen={showRecalcModal}
-          onClose={() => setShowRecalcModal(false)}
-          onSuccess={fetchData}
-        />
-      </div>
-    </AdminLayout>
+        </div>
+      </AdminLayout>
+    </TooltipProvider>
   )
 }

@@ -18,7 +18,6 @@ import {
   Plus,
   Edit,
   Trash2,
-  Box,
   Search,
   ImageIcon,
   ImageOff,
@@ -39,7 +38,6 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
   DialogFooter,
   DialogDescription,
 } from '@/components/ui/dialog'
@@ -54,7 +52,6 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Checkbox } from '@/components/ui/checkbox'
-import { AdminProductForm } from '@/components/AdminProductForm'
 import { AdminCSVUploader } from '@/components/AdminCSVUploader'
 import { ScrollToTopButton } from '@/components/ScrollToTopButton'
 import { AdminLayout } from '@/components/admin/AdminLayout'

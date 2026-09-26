@@ -66,7 +66,7 @@ export function MigrationForm({
       if (userId && initialData?.id) {
         await new Promise((resolve) => setTimeout(resolve, 1500))
 
-        const { error: rpcError } = await supabase.rpc('complete_user_migration', {
+        const { error: rpcError } = await supabase.rpc('complete_user_migration' as any, {
           cust_id: initialData.id,
           new_uid: userId,
         })

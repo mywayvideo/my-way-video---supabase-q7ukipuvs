@@ -18,11 +18,11 @@ export function usePriceSettings() {
 
     if (!fetchPromise) {
       fetchPromise = supabase
-        .from('price_settings')
+        .from('price_settings' as any)
         .select('markup, freight_per_kg_usd, weight_margin, exchange_rate, exchange_spread')
         .limit(1)
         .maybeSingle()
-        .then(({ data }) => {
+        .then(({ data }: any) => {
           if (data) {
             cachedSettings = {
               markup: Number(data.markup) || 0,
@@ -37,7 +37,6 @@ export function usePriceSettings() {
         })
         .catch(() => null)
     }
-
     fetchPromise.then((res) => {
       setSettings(res)
       setLoading(false)

@@ -15,11 +15,11 @@ export function useExchangeRate() {
 
     if (!fetchPromise) {
       fetchPromise = supabase
-        .from('exchange_rate')
+        .from('exchange_rate' as any)
         .select('usd_to_brl, spread_percentage')
         .limit(1)
         .maybeSingle()
-        .then(({ data }) => {
+        .then(({ data }: any) => {
           if (data) {
             const val = Number(data.usd_to_brl) * (1 + Number(data.spread_percentage) / 100)
             cachedRate = val
@@ -29,7 +29,6 @@ export function useExchangeRate() {
         })
         .catch(() => null)
     }
-
     fetchPromise.then((val) => setRate(val ?? 0))
   }, [])
 

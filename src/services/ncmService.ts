@@ -39,6 +39,14 @@ export interface NcmClassificationLogPayload {
   execution_time_ms?: number | null
 }
 
+export interface UpdateNcmLogDecisionParams {
+  auditId: string
+  finalChoiceNcm: string
+  finalChoiceEx?: string
+  confirmedBy?: string | null
+  status?: 'aceito' | 'rejeitado' | 'manual'
+}
+
 /**
  * Gera o embedding de uma consulta de texto via edge function `index-ncm-embeddings` (modo action: 'embed')
  * para nunca expor a chave OPENAI_API_KEY no cliente.
@@ -146,6 +154,37 @@ export async function logNcmClassification(payload: NcmClassificationLogPayload)
   return data
 }
 
+/**
+ * Atualiza o registro de log de auditoria com a decisão final do usuário (botão 'Aplicar')
+ */
+export async function updateNcmClassificationDecision(params: UpdateNcmLogDecisionParams) {
+  if (!params.auditId) {
+    console.warn('updateNcmClassificationDecision: auditId não fornecido.')
+    return null
+  }
+
+  const { data, error } = await supabase
+    .from('imp_sim_ncm_classification_log')
+    .update({
+      final_choice_ncm: params.finalChoiceNcm,
+      final_choice_ex: params.finalChoiceEx || '',
+      confirmed_by: params.confirmedBy ?? null,
+      status: params.status || 'aceito',
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', params.auditId)
+    .select()
+    .maybeSingle()
+
+  if (error) {
+    console.error('Erro ao atualizar decisão no imp_sim_ncm_classification_log:', error)
+    // Não lançamos erro fatal para não travar a aplicação da decisão na UI
+    return null
+  }
+
+  return data
+}
+
 export interface ClassifyNcmParams {
   productDescription: string
   brand?: string
@@ -232,5 +271,6 @@ export const ncmService = {
   generateQueryEmbedding,
   searchCandidates: searchNcmCandidates,
   logClassification: logNcmClassification,
+  updateDecision: updateNcmClassificationDecision,
   classifyNcm,
 }

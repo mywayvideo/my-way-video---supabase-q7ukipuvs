@@ -33,6 +33,11 @@ import {
 } from 'lucide-react'
 import { useRef } from 'react'
 import { uploadProductImage } from '@/services/productService'
+import {
+  NcmSuggestDialog,
+  formatNcmDisplay,
+  cleanNcmDigits,
+} from '@/components/admin/NcmSuggestDialog'
 import { useToast } from '@/hooks/use-toast'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -60,6 +65,7 @@ export default function NewProductPage() {
   const [isDragOver, setIsDragOver] = useState(false)
   const [imageUploadError, setImageUploadError] = useState<string | null>(null)
   const [localPreviewUrl, setLocalPreviewUrl] = useState<string | null>(null)
+  const [isNcmSuggestOpen, setIsNcmSuggestOpen] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const { toast } = useToast()
 
@@ -917,79 +923,102 @@ export default function NewProductPage() {
                   <FormField
                     control={form.control}
                     name="ncm"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel className="flex justify-between items-center">
-                          NCM (8 dígitos)
-                          <Button
-                            type="button"
-                            variant="link"
-                            size="sm"
-                            className="h-auto p-0 text-primary"
-                            onClick={handleSuggestNcm}
-                            disabled={isSuggestingNcm || isBusy}
-                          >
-                            {isSuggestingNcm ? (
-                              <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-                            ) : (
-                              <Sparkles className="w-3 h-3 mr-1" />
-                            )}{' '}
-                            Sugerir
-                          </Button>
-                        </FormLabel>
-                        <FormControl>
-                          <Input {...field} maxLength={8} disabled={isBusy} />
-                        </FormControl>
-                        {ncmSuggestions.length > 0 && (
-                          <div className="mt-2 p-3 border rounded-md bg-muted/30 space-y-2">
-                            <div className="flex justify-between items-center">
-                              <span className="text-xs font-medium text-muted-foreground">
-                                Sugestões:
-                              </span>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                className="h-5 text-xs px-2"
-                                onClick={() => setNcmSuggestions([])}
-                              >
-                                Limpar
-                              </Button>
-                            </div>
-                            {ncmSuggestions[0]?.note && (
-                              <p className="text-xs text-amber-600 bg-amber-50 p-1.5 rounded">
-                                {ncmSuggestions[0].note}
-                              </p>
-                            )}
-                            <div className="space-y-1">
-                              {ncmSuggestions.map((sug, idx) => (
-                                <div
-                                  key={idx}
-                                  className="flex justify-between items-center text-sm p-1.5 hover:bg-muted cursor-pointer rounded border hover:border-border transition-colors"
-                                  onClick={() => {
-                                    form.setValue('ncm', sug.ncm)
-                                    setNcmSuggestions([])
-                                  }}
+                    render={({ field }) => {
+                      const displayValue = field.value ? formatNcmDisplay(field.value) : ''
+
+                      const handleNcmInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+                        const raw = e.target.value
+                        // Remove tudo que não for dígito e limita a 8 dígitos
+                        const digits = cleanNcmDigits(raw)
+                        // Armazena 8 dígitos limpos no formulário/banco
+                        field.onChange(digits)
+                      }
+
+                      return (
+                        <FormItem>
+                          <FormLabel className="flex justify-between items-center">
+                            <span className="flex items-center gap-1.5">
+                              NCM (8 dígitos)
+                              {field.value && cleanNcmDigits(field.value).length === 8 && (
+                                <span className="text-[11px] font-mono text-muted-foreground">
+                                  ({cleanNcmDigits(field.value)})
+                                </span>
+                              )}
+                            </span>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-7 px-2.5 text-xs text-amber-500 hover:text-amber-400 border-amber-500/30 hover:border-amber-500 hover:bg-amber-500/10 font-medium transition-colors"
+                              onClick={() => setIsNcmSuggestOpen(true)}
+                              disabled={isBusy}
+                            >
+                              <Sparkles className="w-3.5 h-3.5 mr-1 text-amber-500" />✨ Sugerir NCM
+                            </Button>
+                          </FormLabel>
+                          <FormControl>
+                            <Input
+                              value={displayValue}
+                              onChange={handleNcmInputChange}
+                              placeholder="0000.00.00"
+                              maxLength={10}
+                              disabled={isBusy}
+                              className="font-mono"
+                            />
+                          </FormControl>
+                          {ncmSuggestions.length > 0 && (
+                            <div className="mt-2 p-3 border rounded-md bg-muted/30 space-y-2">
+                              <div className="flex justify-between items-center">
+                                <span className="text-xs font-medium text-muted-foreground">
+                                  Sugestões Rápidas:
+                                </span>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-5 text-xs px-2"
+                                  onClick={() => setNcmSuggestions([])}
                                 >
-                                  <div className="flex items-center flex-1 min-w-0">
-                                    <span className="font-mono text-primary font-medium shrink-0">
-                                      {sug.ncm}
-                                    </span>
-                                    <span className="truncate ml-3 text-xs text-muted-foreground">
-                                      {sug.description}
+                                  Limpar
+                                </Button>
+                              </div>
+                              {ncmSuggestions[0]?.note && (
+                                <p className="text-xs text-amber-600 bg-amber-50 p-1.5 rounded">
+                                  {ncmSuggestions[0].note}
+                                </p>
+                              )}
+                              <div className="space-y-1">
+                                {ncmSuggestions.map((sug, idx) => (
+                                  <div
+                                    key={idx}
+                                    className="flex justify-between items-center text-sm p-1.5 hover:bg-muted cursor-pointer rounded border hover:border-border transition-colors"
+                                    onClick={() => {
+                                      form.setValue('ncm', cleanNcmDigits(sug.ncm), {
+                                        shouldDirty: true,
+                                      })
+                                      setNcmSuggestions([])
+                                    }}
+                                  >
+                                    <div className="flex items-center flex-1 min-w-0">
+                                      <span className="font-mono text-primary font-medium shrink-0">
+                                        {formatNcmDisplay(sug.ncm)}
+                                      </span>
+                                      <span className="truncate ml-3 text-xs text-muted-foreground">
+                                        {sug.description}
+                                      </span>
+                                    </div>
+                                    <span className="text-xs font-semibold bg-primary/10 text-primary px-1.5 py-0.5 rounded shrink-0 ml-2">
+                                      {sug.confidence}%
                                     </span>
                                   </div>
-                                  <span className="text-xs font-semibold bg-primary/10 text-primary px-1.5 py-0.5 rounded shrink-0 ml-2">
-                                    {sug.confidence}%
-                                  </span>
-                                </div>
-                              ))}
+                                ))}
+                              </div>
                             </div>
-                          </div>
-                        )}
-                        <FormMessage />
-                      </FormItem>
-                    )}
+                          )}
+                          <FormMessage />
+                        </FormItem>
+                      )
+                    }}
                   />
                 </div>
               </div>
@@ -1269,6 +1298,22 @@ export default function NewProductPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Painel Modal '✨ Sugerir NCM' por IA */}
+      <NcmSuggestDialog
+        open={isNcmSuggestOpen}
+        onOpenChange={setIsNcmSuggestOpen}
+        productName={form.watch('name') || ''}
+        productDescription={form.watch('description') || ''}
+        brandName={manufacturers.find((m) => m.id === form.watch('manufacturer_id'))?.name || ''}
+        modelName={form.watch('sku') || ''}
+        additionalSpecs={form.watch('technical_info') || ''}
+        currentNcm={form.watch('ncm') || ''}
+        productId={id || undefined}
+        onApplyNcm={(cleanNcm) => {
+          form.setValue('ncm', cleanNcm, { shouldDirty: true, shouldValidate: true })
+        }}
+      />
     </div>
   )
 }

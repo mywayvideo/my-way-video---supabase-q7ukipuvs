@@ -5,8 +5,15 @@ try {
   const file = 'tsconfig.app.json'
   if (fs.existsSync(file)) {
     const text = fs.readFileSync(file, 'utf8')
-    if (text.includes('"*/*"')) {
-      fs.writeFileSync(file, text.replace(/"\*\/\*":\s*\["\.\/\*"\],?/g, ''))
+    let updated = text
+    if (updated.includes('"*/*"')) {
+      updated = updated.replace(/"\*\/\*":\s*\["\.\/\*"\],?/g, '')
+    }
+    if (!updated.includes('"checkJs": false')) {
+      updated = updated.replace('"paths": {', '"checkJs": false,\n    "paths": {')
+    }
+    if (updated !== text) {
+      fs.writeFileSync(file, updated)
     }
   }
 } catch {}

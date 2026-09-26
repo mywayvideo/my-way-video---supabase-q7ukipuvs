@@ -68,27 +68,42 @@ Deno.serve(async (req: Request) => {
   const serviceRoleKey =
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || Deno.env.get('SERVICE_ROLE_KEY') || ''
 
-  // Cliente autenticado com o JWT do chamador para verificar identidade
-  const supabaseUserClient = createClient(supabaseUrl, supabaseAnonKey, {
-    global: { headers: { Authorization: `Bearer ${jwt}` } },
-  })
-
   // Cliente admin com service_role para ler tabelas protegidas (ai_providers, efetivas, logs)
   const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey)
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabaseUserClient.auth.getUser()
+  let callerUserId: string | null = null
 
-  if (userError || !user) {
-    return new Response(
-      JSON.stringify({
-        error: 'JWT inválido ou expirado.',
-        details: userError?.message,
-      }),
-      { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-    )
+  // Se a requisição veio com a chave de serviço (ex: chamadas internas/M2M entre sistemas com a mesma infraestrutura)
+  if (jwt === serviceRoleKey) {
+    // Buscar um admin padrão para atribuir o log
+    const { data: defaultUser } = await supabaseAdmin
+      .from('customers')
+      .select('user_id')
+      .eq('role', 'admin')
+      .limit(1)
+      .maybeSingle()
+    callerUserId = defaultUser?.user_id || null
+  } else {
+    // Cliente autenticado com o JWT do chamador para verificar identidade de usuário
+    const supabaseUserClient = createClient(supabaseUrl, supabaseAnonKey, {
+      global: { headers: { Authorization: `Bearer ${jwt}` } },
+    })
+
+    const {
+      data: { user },
+      error: userError,
+    } = await supabaseUserClient.auth.getUser()
+
+    if (userError || !user) {
+      return new Response(
+        JSON.stringify({
+          error: 'JWT inválido ou expirado.',
+          details: userError?.message,
+        }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      )
+    }
+    callerUserId = user.id
   }
 
   // 3. Leitura e validação do payload de entrada
@@ -447,7 +462,8 @@ Escolha a melhor classificação com base nas regras NESH e retorne o JSON estru
         resolvedAlternatives.push({
           ncm: altNcmClean,
           ex: altTaxRate.ex || altExClean,
-          description: altTaxRate.ncm_descricao || altTaxRate.source_text || '',
+          description:
+            altTaxRate.ex_descricao || altTaxRate.ncm_descricao || altTaxRate.source_text || '',
           ii: altIi,
           ipi: altIpi,
           pis: altPis,
@@ -471,7 +487,7 @@ Escolha a melhor classificação com base nas regras NESH e retorne o JSON estru
           resolvedAlternatives.push({
             ncm: cNcm,
             ex: cand.ex || '',
-            description: cand.ncm_descricao || cand.source_text || '',
+            description: cand.ex_descricao || cand.ncm_descricao || cand.source_text || '',
             ii: cIi,
             ipi: cIpi,
             pis: cPis,
@@ -486,10 +502,16 @@ Escolha a melhor classificação com base nas regras NESH e retorne o JSON estru
 
     const executionTimeMs = Date.now() - startTime
 
+    const primaryDescription =
+      primaryTaxRate.ex_descricao ||
+      primaryTaxRate.ncm_descricao ||
+      primaryTaxRate.source_text ||
+      ''
+
     const recommendationObject = {
       ncm: recommendedNcmClean,
       ex: primaryTaxRate.ex || recommendedExClean,
-      description: primaryTaxRate.ncm_descricao || primaryTaxRate.source_text || '',
+      description: primaryDescription,
       ii: iiRate,
       ipi: ipiRate,
       pis: pisRate,
@@ -523,7 +545,7 @@ Escolha a melhor classificação com base nas regras NESH e retorne o JSON estru
             },
             final_choice_ncm: recommendedNcmClean,
             final_choice_ex: primaryTaxRate.ex || recommendedExClean,
-            confirmed_by: user.id,
+            confirmed_by: callerUserId,
             status: 'pendente',
             product_id: productId,
             imp_sim_product_id: impSimProductId,

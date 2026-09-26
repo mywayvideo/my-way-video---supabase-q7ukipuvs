@@ -126,7 +126,25 @@ export default function AdminCatalogPage() {
 
   const topScrollRef = useRef<HTMLDivElement>(null)
   const bottomScrollRef = useRef<HTMLDivElement>(null)
-  const [tableScrollWidth, setTableScrollWidth] = useState(0)
+  const [scrollMetrics, setScrollMetrics] = useState({
+    scrollLeft: 0,
+    scrollWidth: 0,
+    clientWidth: 0,
+  })
+
+  // Sincronização e tracking de drag para as scrollbars customizadas
+  const [isDraggingTop, setIsDraggingTop] = useState(false)
+  const [isDraggingBottom, setIsDraggingBottom] = useState(false)
+  const topDragStartRef = useRef<{ startX: number; scrollLeft: number }>({
+    startX: 0,
+    scrollLeft: 0,
+  })
+  const bottomDragStartRef = useRef<{ startX: number; scrollLeft: number }>({
+    startX: 0,
+    scrollLeft: 0,
+  })
+  const topTrackRef = useRef<HTMLDivElement>(null)
+  const bottomTrackRef = useRef<HTMLDivElement>(null)
 
   const [imageMetrics, setImageMetrics] = useState({
     totalWithImages: 0,
@@ -151,55 +169,212 @@ export default function AdminCatalogPage() {
     }
   }
 
-  // Sincronização da barra de rolagem horizontal espelhada no topo
+  // Sincronização da barra de rolagem horizontal espelhada no topo e métricas de rolagem
   useEffect(() => {
     const topEl = topScrollRef.current
     const bottomEl = bottomScrollRef.current
-    if (!topEl || !bottomEl) return
+    if (!bottomEl) return
+
+    const updateMetricsFromBottom = () => {
+      if (!bottomEl) return
+      setScrollMetrics({
+        scrollLeft: bottomEl.scrollLeft,
+        scrollWidth: bottomEl.scrollWidth,
+        clientWidth: bottomEl.clientWidth,
+      })
+    }
 
     let isSyncingTop = false
     let isSyncingBottom = false
 
     const handleTopScroll = () => {
+      if (!topEl || !bottomEl) return
       if (isSyncingTop) {
         isSyncingTop = false
         return
       }
       isSyncingBottom = true
       bottomEl.scrollLeft = topEl.scrollLeft
+      updateMetricsFromBottom()
     }
 
     const handleBottomScroll = () => {
+      if (!bottomEl) return
       if (isSyncingBottom) {
         isSyncingBottom = false
         return
       }
       isSyncingTop = true
-      topEl.scrollLeft = bottomEl.scrollLeft
+      if (topEl) {
+        topEl.scrollLeft = bottomEl.scrollLeft
+      }
+      updateMetricsFromBottom()
     }
 
-    topEl.addEventListener('scroll', handleTopScroll, { passive: true })
+    if (topEl) {
+      topEl.addEventListener('scroll', handleTopScroll, { passive: true })
+    }
     bottomEl.addEventListener('scroll', handleBottomScroll, { passive: true })
 
-    const updateScrollWidth = () => {
-      if (bottomEl) {
-        setTableScrollWidth(bottomEl.scrollWidth)
-      }
-    }
-
-    updateScrollWidth()
+    updateMetricsFromBottom()
 
     const resizeObserver = new ResizeObserver(() => {
-      updateScrollWidth()
+      updateMetricsFromBottom()
     })
     resizeObserver.observe(bottomEl)
 
     return () => {
-      topEl.removeEventListener('scroll', handleTopScroll)
+      if (topEl) {
+        topEl.removeEventListener('scroll', handleTopScroll)
+      }
       bottomEl.removeEventListener('scroll', handleBottomScroll)
       resizeObserver.disconnect()
     }
   }, [products])
+
+  // Drag handlers para a barra de rolagem superior
+  useEffect(() => {
+    if (!isDraggingTop) return
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const bottomEl = bottomScrollRef.current
+      const trackEl = topTrackRef.current
+      if (!bottomEl || !trackEl) return
+
+      const { scrollWidth, clientWidth } = scrollMetrics
+      const maxScroll = Math.max(0, scrollWidth - clientWidth)
+      if (maxScroll <= 0) return
+
+      const trackWidth = trackEl.clientWidth
+      const ratio = clientWidth / scrollWidth
+      const thumbWidth = Math.max(48, Math.min(trackWidth, trackWidth * ratio))
+      const trackTravel = trackWidth - thumbWidth
+      if (trackTravel <= 0) return
+
+      const deltaX = e.clientX - topDragStartRef.current.startX
+      const scrollDelta = (deltaX / trackTravel) * maxScroll
+      const newScrollLeft = Math.max(
+        0,
+        Math.min(maxScroll, topDragStartRef.current.scrollLeft + scrollDelta),
+      )
+
+      bottomEl.scrollLeft = newScrollLeft
+      if (topScrollRef.current) {
+        topScrollRef.current.scrollLeft = newScrollLeft
+      }
+      setScrollMetrics((prev) => ({ ...prev, scrollLeft: newScrollLeft }))
+    }
+
+    const handleMouseUp = () => {
+      setIsDraggingTop(false)
+    }
+
+    window.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('mouseup', handleMouseUp)
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [isDraggingTop, scrollMetrics])
+
+  // Drag handlers para a barra de rolagem inferior
+  useEffect(() => {
+    if (!isDraggingBottom) return
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const bottomEl = bottomScrollRef.current
+      const trackEl = bottomTrackRef.current
+      if (!bottomEl || !trackEl) return
+
+      const { scrollWidth, clientWidth } = scrollMetrics
+      const maxScroll = Math.max(0, scrollWidth - clientWidth)
+      if (maxScroll <= 0) return
+
+      const trackWidth = trackEl.clientWidth
+      const ratio = clientWidth / scrollWidth
+      const thumbWidth = Math.max(48, Math.min(trackWidth, trackWidth * ratio))
+      const trackTravel = trackWidth - thumbWidth
+      if (trackTravel <= 0) return
+
+      const deltaX = e.clientX - bottomDragStartRef.current.startX
+      const scrollDelta = (deltaX / trackTravel) * maxScroll
+      const newScrollLeft = Math.max(
+        0,
+        Math.min(maxScroll, bottomDragStartRef.current.scrollLeft + scrollDelta),
+      )
+
+      bottomEl.scrollLeft = newScrollLeft
+      if (topScrollRef.current) {
+        topScrollRef.current.scrollLeft = newScrollLeft
+      }
+      setScrollMetrics((prev) => ({ ...prev, scrollLeft: newScrollLeft }))
+    }
+
+    const handleMouseUp = () => {
+      setIsDraggingBottom(false)
+    }
+
+    window.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('mouseup', handleMouseUp)
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [isDraggingBottom, scrollMetrics])
+
+  // Função para clique direto no trilho
+  const handleTrackClick = (
+    e: React.MouseEvent<HTMLDivElement>,
+    trackEl: HTMLDivElement | null,
+  ) => {
+    if (!trackEl) return
+    const bottomEl = bottomScrollRef.current
+    if (!bottomEl) return
+
+    const { scrollWidth, clientWidth } = scrollMetrics
+    const maxScroll = Math.max(0, scrollWidth - clientWidth)
+    if (maxScroll <= 0) return
+
+    const rect = trackEl.getBoundingClientRect()
+    const clickX = e.clientX - rect.left
+    const trackWidth = rect.width
+    const ratio = clientWidth / scrollWidth
+    const thumbWidth = Math.max(48, Math.min(trackWidth, trackWidth * ratio))
+
+    // Centraliza o thumb na posição clicada
+    const targetThumbLeft = Math.max(0, Math.min(trackWidth - thumbWidth, clickX - thumbWidth / 2))
+    const trackTravel = trackWidth - thumbWidth
+    const newScrollLeft = trackTravel > 0 ? (targetThumbLeft / trackTravel) * maxScroll : 0
+
+    bottomEl.scrollTo({ left: newScrollLeft, behavior: 'smooth' })
+    if (topScrollRef.current) {
+      topScrollRef.current.scrollLeft = newScrollLeft
+    }
+    setScrollMetrics((prev) => ({ ...prev, scrollLeft: newScrollLeft }))
+  }
+
+  // Cálculos de dimensão e posição da pegada (thumb)
+  const canScrollHorizontally =
+    scrollMetrics.scrollWidth > scrollMetrics.clientWidth && scrollMetrics.clientWidth > 0
+
+  const getThumbStyle = (trackEl: HTMLDivElement | null) => {
+    const trackWidth = trackEl?.clientWidth || 0
+    if (!canScrollHorizontally || trackWidth <= 0) {
+      return { width: '100%', left: '0px', display: 'none' }
+    }
+    const { scrollLeft, scrollWidth, clientWidth } = scrollMetrics
+    const maxScroll = Math.max(1, scrollWidth - clientWidth)
+    const ratio = clientWidth / scrollWidth
+    const thumbWidth = Math.max(56, Math.min(trackWidth, trackWidth * ratio))
+    const trackTravel = trackWidth - thumbWidth
+    const thumbLeft = Math.max(0, Math.min(trackTravel, (scrollLeft / maxScroll) * trackTravel))
+
+    return {
+      width: `${thumbWidth}px`,
+      transform: `translateX(${thumbLeft}px)`,
+      left: 0,
+    }
+  }
 
   const fetchProductsData = async (searchTerm?: string) => {
     let pQuery = supabase
@@ -734,24 +909,71 @@ export default function AdminCatalogPage() {
               </div>
             )}
 
-            {/* Barra de rolagem espelhada no topo */}
+            {/* Barra de rolagem customizada espelhada no topo */}
             <div
-              ref={topScrollRef}
-              className="overflow-x-auto overflow-y-hidden border-b border-border/40 bg-muted/10 h-3 scrollbar-thin"
+              className="relative w-full border-b border-border/60 bg-muted/30 select-none transition-colors hover:bg-muted/40"
+              style={{ height: '16px' }}
               aria-hidden="true"
             >
+              {/* Contêiner nativo invisível para manter eventos de wheel/scroll e sincronização */}
               <div
-                style={{
-                  width: tableScrollWidth > 0 ? `${tableScrollWidth}px` : '100%',
-                  height: '1px',
-                }}
-              />
+                ref={topScrollRef}
+                className="absolute inset-0 overflow-x-auto overflow-y-hidden opacity-0 pointer-events-none [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+                tabIndex={-1}
+              >
+                <div
+                  style={{
+                    width:
+                      scrollMetrics.scrollWidth > 0 ? `${scrollMetrics.scrollWidth}px` : '100%',
+                    height: '1px',
+                  }}
+                />
+              </div>
+
+              {/* Trilho visual interativo */}
+              <div
+                ref={topTrackRef}
+                onClick={(e) => handleTrackClick(e, topTrackRef.current)}
+                className="relative w-full h-full cursor-pointer flex items-center px-1"
+                title="Clique ou arraste para rolar a tabela horizontalmente"
+              >
+                {/* Linha guia do trilho */}
+                <div className="absolute left-1 right-1 h-1.5 bg-border/80 rounded-full" />
+
+                {/* Pegada (Thumb) visível em destaque permanente */}
+                {canScrollHorizontally && (
+                  <div
+                    onMouseDown={(e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      topDragStartRef.current = {
+                        startX: e.clientX,
+                        scrollLeft: scrollMetrics.scrollLeft,
+                      }
+                      setIsDraggingTop(true)
+                    }}
+                    style={getThumbStyle(topTrackRef.current)}
+                    className={cn(
+                      'absolute h-3 rounded-full cursor-grab active:cursor-grabbing transition-[filter,background-color] duration-150 shadow-sm z-10 flex items-center justify-center',
+                      'bg-amber-500 hover:bg-amber-400 active:bg-amber-400 shadow-[0_1px_4px_rgba(245,158,11,0.4)]',
+                      isDraggingTop && 'scale-y-110 bg-amber-400 brightness-110',
+                    )}
+                  >
+                    {/* Micro ranhuras visuais decorativas no centro do thumb */}
+                    <div className="flex gap-0.5 pointer-events-none opacity-80">
+                      <div className="w-0.5 h-1.5 bg-amber-950/60 rounded-full" />
+                      <div className="w-0.5 h-1.5 bg-amber-950/60 rounded-full" />
+                      <div className="w-0.5 h-1.5 bg-amber-950/60 rounded-full" />
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
 
             <div
               ref={bottomScrollRef}
               className={cn(
-                'overflow-x-auto',
+                'overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden',
                 selectedProductIds.length > 0 ? 'pb-24 md:pb-0' : '',
               )}
             >
@@ -966,6 +1188,52 @@ export default function AdminCatalogPage() {
                   )}
                 </TableBody>
               </Table>
+            </div>
+
+            {/* Barra de rolagem customizada inferior consistente com a do topo */}
+            <div
+              className="relative w-full border-t border-border/60 bg-muted/30 select-none transition-colors hover:bg-muted/40"
+              style={{ height: '16px' }}
+              aria-hidden="true"
+            >
+              {/* Trilho visual interativo */}
+              <div
+                ref={bottomTrackRef}
+                onClick={(e) => handleTrackClick(e, bottomTrackRef.current)}
+                className="relative w-full h-full cursor-pointer flex items-center px-1"
+                title="Clique ou arraste para rolar a tabela horizontalmente"
+              >
+                {/* Linha guia do trilho */}
+                <div className="absolute left-1 right-1 h-1.5 bg-border/80 rounded-full" />
+
+                {/* Pegada (Thumb) visível em destaque permanente */}
+                {canScrollHorizontally && (
+                  <div
+                    onMouseDown={(e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      bottomDragStartRef.current = {
+                        startX: e.clientX,
+                        scrollLeft: scrollMetrics.scrollLeft,
+                      }
+                      setIsDraggingBottom(true)
+                    }}
+                    style={getThumbStyle(bottomTrackRef.current)}
+                    className={cn(
+                      'absolute h-3 rounded-full cursor-grab active:cursor-grabbing transition-[filter,background-color] duration-150 shadow-sm z-10 flex items-center justify-center',
+                      'bg-amber-500 hover:bg-amber-400 active:bg-amber-400 shadow-[0_1px_4px_rgba(245,158,11,0.4)]',
+                      isDraggingBottom && 'scale-y-110 bg-amber-400 brightness-110',
+                    )}
+                  >
+                    {/* Micro ranhuras visuais decorativas no centro do thumb */}
+                    <div className="flex gap-0.5 pointer-events-none opacity-80">
+                      <div className="w-0.5 h-1.5 bg-amber-950/60 rounded-full" />
+                      <div className="w-0.5 h-1.5 bg-amber-950/60 rounded-full" />
+                      <div className="w-0.5 h-1.5 bg-amber-950/60 rounded-full" />
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
 
             {totalPages > 1 && (

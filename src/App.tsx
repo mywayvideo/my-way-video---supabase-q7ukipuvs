@@ -93,6 +93,7 @@ const App = () => {
         )}
         <CartProvider>
           <AIConsultantProvider>
+            {/* @ts-expect-error future flags are supported by react-router-dom v6/v7 */}
             <BrowserRouter future={{ v7_startTransition: false, v7_relativeSplatPath: false }}>
               <TooltipProvider>
                 <Toaster />

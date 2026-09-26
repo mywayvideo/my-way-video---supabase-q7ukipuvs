@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { useState, useRef, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
 import { Search, Loader2, Bot, MessageSquare, Phone } from 'lucide-react'

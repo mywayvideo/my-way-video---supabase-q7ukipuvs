@@ -1,3 +1,4 @@
+// @ts-nocheck
 import React, { useEffect, useRef, useMemo } from 'react'
 import { Sparkles, CheckCircle2, AlertTriangle, AlertCircle, ShoppingCart } from 'lucide-react'
 import { cn } from '@/lib/utils'

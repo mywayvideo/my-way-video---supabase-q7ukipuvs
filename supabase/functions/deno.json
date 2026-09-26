@@ -1,7 +1,7 @@
 {
   "_versions": {
-    "apply-discount-coupon": 483,
-    "calculate-price-brl": 483,
+    "apply-discount-coupon": 484,
+    "calculate-price-brl": 484,
     "calculate-shipping": 52,
     "call-ai-agent": 53,
     "cancel-stripe-charge": 484,
@@ -12,7 +12,7 @@
     "create-discount-coupon": 482,
     "create-payment-intent": 483,
     "create-paypal-payment-intent": 49,
-    "ai-search": 593,
+    "ai-search": 594,
     "update-exchange-rate": 474,
     "execute_ai_search_v2_pp": 38,
     "lookup-address": 473,

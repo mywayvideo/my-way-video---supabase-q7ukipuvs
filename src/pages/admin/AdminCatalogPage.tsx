@@ -183,18 +183,33 @@ export default function AdminCatalogPage() {
     }
   }
 
+  // Obtém o contêiner real de rolagem (div wrapper interno do componente Table)
+  const getTableScrollElement = (): HTMLElement | null => {
+    const wrapper = bottomScrollRef.current
+    if (!wrapper) return null
+    return (wrapper.firstElementChild as HTMLElement) || wrapper
+  }
+
   // Sincronização da barra de rolagem horizontal espelhada no topo e métricas de rolagem
   useEffect(() => {
     const topEl = topScrollRef.current
-    const bottomEl = bottomScrollRef.current
-    if (!bottomEl) return
+    const tableEl = getTableScrollElement()
+    if (!tableEl) return
 
-    const updateMetricsFromBottom = () => {
-      if (!bottomEl) return
+    // Oculta a barra de rolagem nativa do contêiner interno da tabela
+    tableEl.classList.add(
+      '[scrollbar-width:none]',
+      '[-ms-overflow-style:none]',
+      '[&::-webkit-scrollbar]:hidden',
+    )
+
+    const updateMetricsFromTable = () => {
+      const currentTableEl = getTableScrollElement()
+      if (!currentTableEl) return
       setScrollMetrics({
-        scrollLeft: bottomEl.scrollLeft,
-        scrollWidth: bottomEl.scrollWidth,
-        clientWidth: bottomEl.clientWidth,
+        scrollLeft: currentTableEl.scrollLeft,
+        scrollWidth: currentTableEl.scrollWidth,
+        clientWidth: currentTableEl.clientWidth,
       })
     }
 
@@ -202,46 +217,51 @@ export default function AdminCatalogPage() {
     let isSyncingBottom = false
 
     const handleTopScroll = () => {
-      if (!topEl || !bottomEl) return
+      const currentTableEl = getTableScrollElement()
+      if (!topEl || !currentTableEl) return
       if (isSyncingTop) {
         isSyncingTop = false
         return
       }
       isSyncingBottom = true
-      bottomEl.scrollLeft = topEl.scrollLeft
-      updateMetricsFromBottom()
+      currentTableEl.scrollLeft = topEl.scrollLeft
+      updateMetricsFromTable()
     }
 
-    const handleBottomScroll = () => {
-      if (!bottomEl) return
+    const handleTableScroll = () => {
+      const currentTableEl = getTableScrollElement()
+      if (!currentTableEl) return
       if (isSyncingBottom) {
         isSyncingBottom = false
         return
       }
       isSyncingTop = true
       if (topEl) {
-        topEl.scrollLeft = bottomEl.scrollLeft
+        topEl.scrollLeft = currentTableEl.scrollLeft
       }
-      updateMetricsFromBottom()
+      updateMetricsFromTable()
     }
 
     if (topEl) {
       topEl.addEventListener('scroll', handleTopScroll, { passive: true })
     }
-    bottomEl.addEventListener('scroll', handleBottomScroll, { passive: true })
+    tableEl.addEventListener('scroll', handleTableScroll, { passive: true })
 
-    updateMetricsFromBottom()
+    updateMetricsFromTable()
 
     const resizeObserver = new ResizeObserver(() => {
-      updateMetricsFromBottom()
+      updateMetricsFromTable()
     })
-    resizeObserver.observe(bottomEl)
+    resizeObserver.observe(tableEl)
+    if (bottomScrollRef.current && bottomScrollRef.current !== tableEl) {
+      resizeObserver.observe(bottomScrollRef.current)
+    }
 
     return () => {
       if (topEl) {
         topEl.removeEventListener('scroll', handleTopScroll)
       }
-      bottomEl.removeEventListener('scroll', handleBottomScroll)
+      tableEl.removeEventListener('scroll', handleTableScroll)
       resizeObserver.disconnect()
     }
   }, [products])
@@ -250,9 +270,9 @@ export default function AdminCatalogPage() {
   const handleTopPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault()
     e.stopPropagation()
-    const bottomEl = bottomScrollRef.current
+    const tableEl = getTableScrollElement()
     const trackEl = topTrackRef.current
-    if (!bottomEl || !trackEl) return
+    if (!tableEl || !trackEl) return
 
     const { scrollWidth, clientWidth, scrollLeft } = scrollMetrics
     const maxScroll = Math.max(0, scrollWidth - clientWidth)
@@ -276,8 +296,8 @@ export default function AdminCatalogPage() {
 
   const handleTopPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!isDraggingTop) return
-    const bottomEl = bottomScrollRef.current
-    if (!bottomEl) return
+    const tableEl = getTableScrollElement()
+    if (!tableEl) return
 
     const { startX, scrollLeft, maxScroll, trackTravel } = topDragStartRef.current
     if (trackTravel <= 0 || maxScroll <= 0) return
@@ -286,7 +306,7 @@ export default function AdminCatalogPage() {
     const scrollDelta = (deltaX / trackTravel) * maxScroll
     const newScrollLeft = Math.max(0, Math.min(maxScroll, scrollLeft + scrollDelta))
 
-    bottomEl.scrollLeft = newScrollLeft
+    tableEl.scrollLeft = newScrollLeft
     if (topScrollRef.current) {
       topScrollRef.current.scrollLeft = newScrollLeft
     }
@@ -305,9 +325,9 @@ export default function AdminCatalogPage() {
   const handleBottomPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault()
     e.stopPropagation()
-    const bottomEl = bottomScrollRef.current
+    const tableEl = getTableScrollElement()
     const trackEl = bottomTrackRef.current
-    if (!bottomEl || !trackEl) return
+    if (!tableEl || !trackEl) return
 
     const { scrollWidth, clientWidth, scrollLeft } = scrollMetrics
     const maxScroll = Math.max(0, scrollWidth - clientWidth)
@@ -331,8 +351,8 @@ export default function AdminCatalogPage() {
 
   const handleBottomPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!isDraggingBottom) return
-    const bottomEl = bottomScrollRef.current
-    if (!bottomEl) return
+    const tableEl = getTableScrollElement()
+    if (!tableEl) return
 
     const { startX, scrollLeft, maxScroll, trackTravel } = bottomDragStartRef.current
     if (trackTravel <= 0 || maxScroll <= 0) return
@@ -341,7 +361,7 @@ export default function AdminCatalogPage() {
     const scrollDelta = (deltaX / trackTravel) * maxScroll
     const newScrollLeft = Math.max(0, Math.min(maxScroll, scrollLeft + scrollDelta))
 
-    bottomEl.scrollLeft = newScrollLeft
+    tableEl.scrollLeft = newScrollLeft
     if (topScrollRef.current) {
       topScrollRef.current.scrollLeft = newScrollLeft
     }
@@ -362,8 +382,8 @@ export default function AdminCatalogPage() {
     trackEl: HTMLDivElement | null,
   ) => {
     if (!trackEl) return
-    const bottomEl = bottomScrollRef.current
-    if (!bottomEl) return
+    const tableEl = getTableScrollElement()
+    if (!tableEl) return
 
     const { scrollWidth, clientWidth } = scrollMetrics
     const maxScroll = Math.max(0, scrollWidth - clientWidth)
@@ -380,7 +400,7 @@ export default function AdminCatalogPage() {
     const trackTravel = trackWidth - thumbWidth
     const newScrollLeft = trackTravel > 0 ? (targetThumbLeft / trackTravel) * maxScroll : 0
 
-    bottomEl.scrollTo({ left: newScrollLeft, behavior: 'smooth' })
+    tableEl.scrollTo({ left: newScrollLeft, behavior: 'smooth' })
     if (topScrollRef.current) {
       topScrollRef.current.scrollLeft = newScrollLeft
     }

@@ -1,34 +1,7 @@
+// Deploy trigger build 614 - classify-ncm live calibration
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
-import { createClient } from 'npm:@supabase/supabase-js@2.39.3'
+import { createClient } from 'npm:@supabase/supabase-js@2'
 import { corsHeaders } from '../_shared/cors.ts'
-
-export interface ProviderValidationResult {
-  supported: boolean
-  reason: string
-}
-
-export interface PartsHeadingRange {
-  start: number
-  end: number
-  rawStart: string
-  rawEnd: string
-}
-
-export interface PartsNcmDetectionResult {
-  isParts: boolean
-  detectedRanges: PartsHeadingRange[]
-}
-
-export interface PartsPrecedenceVerdict {
-  applied: boolean
-  winning_parts_ncm: string | null
-  demoted_residual_ncm: string | null
-}
-
-export type ProductNatureCategory =
-  | 'aparelho com função própria completa'
-  | 'acessório dependente (sem função autônoma, requer produto principal para operar)'
-  | 'peça de reposição (substituição de componente)'
 
 interface ClassifyRequestBody {
   product_description: string
@@ -95,6 +68,11 @@ interface CompositionAnalysisResult {
 // =============================================================================
 // SALVAGUARDA DEFENSIVA UNIVERSAL DE PROVEDORES DE IA
 // =============================================================================
+
+interface ProviderValidationResult {
+  supported: boolean
+  reason: string
+}
 
 /**
  * Valida se um registro de provedor de IA cadastrado na tabela ai_providers
@@ -202,6 +180,18 @@ function isSupportedAIProvider(provider: {
 // =============================================================================
 // PRINCÍPIO GENÉRICO UNIVERSAL: DETECÇÃO E VÍNCULO INDIRETO DE NCMs DE PEÇAS
 // =============================================================================
+
+interface PartsHeadingRange {
+  start: number
+  end: number
+  rawStart: string
+  rawEnd: string
+}
+
+interface PartsNcmDetectionResult {
+  isParts: boolean
+  detectedRanges: PartsHeadingRange[]
+}
 
 /**
  * Identifica candidato "NCM de peças/partes" pela assinatura textual genérica

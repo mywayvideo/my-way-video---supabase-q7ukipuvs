@@ -37,7 +37,7 @@ export const customerService = {
     return {
       ...data,
       email: user.email || data.email,
-    } as Customer
+    } as unknown as Customer
   },
 
   async updateProfile(id: string, updates: Partial<Customer>): Promise<void> {
@@ -182,7 +182,7 @@ export const customerService = {
 
     if (!data) return null
 
-    return { ...data, email: user.email || data.email } as Customer
+    return { ...data, email: user.email || data.email } as unknown as Customer
   },
 
   async fetchCustomerAddresses(customerId: string): Promise<CustomerAddress[]> {

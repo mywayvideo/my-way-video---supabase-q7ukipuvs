@@ -139,7 +139,7 @@ export const orderService = {
   cancelOrderWithRefund: async (orderId: string, reason: string, paymentMethod: string) => {
     if (paymentMethod === 'card') {
       const { data: order } = await supabase.from('orders').select('*').eq('id', orderId).single()
-      const paymentIntentId = order?.payment_data?.payment_intent_id
+      const paymentIntentId = (order?.payment_data as any)?.payment_intent_id
       if (paymentIntentId) {
         await supabase.functions.invoke('cancel-stripe-charge', { body: { paymentIntentId } })
       }
@@ -167,7 +167,7 @@ export const orderService = {
     if (error) throw error
 
     if (items && items.length > 0) {
-      await supabase.from('order_returns').insert(
+      await (supabase.from('order_returns') as any).insert(
         items.map((item) => ({
           order_id: orderId,
           order_item_id: item.id,
@@ -177,7 +177,7 @@ export const orderService = {
       )
     }
 
-    await supabase.from('order_status_history').insert({
+    await (supabase.from('order_status_history') as any).insert({
       order_id: orderId,
       old_status: 'pending',
       new_status: 'cancelled',

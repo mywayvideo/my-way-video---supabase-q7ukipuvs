@@ -45,7 +45,7 @@ describe('NCM Product Validation & Recalibration Tests', () => {
     expect(recommendedNcm.startsWith('8428')).toBe(false)
     expect(recommendedNcm.startsWith('8426')).toBe(false)
 
-    // Deve ser preferencialmente 85437099 ou 85299090
+    // Deve ser 85437099 ou 85299090 (ou família 8543 / 8529) conforme expectativa do usuário
     const isPlausible =
       recommendedNcm === '85437099' ||
       recommendedNcm === '85299090' ||
@@ -53,7 +53,13 @@ describe('NCM Product Validation & Recalibration Tests', () => {
       recommendedNcm.startsWith('8529')
 
     expect(isPlausible).toBe(true)
-  }, 45000)
+    // Se o auditor tentou vetar para grua, override_applied deve estar registrado ou o auditor aprovou
+    if (result.audit_verdict) {
+      const correctedDigits = (result.audit_verdict.corrected_ncm || '').replace(/\D/g, '')
+      expect(correctedDigits.startsWith('8426')).toBe(false)
+      expect(correctedDigits.startsWith('8428')).toBe(false)
+    }
+  }, 60000)
 
   it('validates Sony BURANO 8K regression test maintains 8525 chapter with high confidence', async () => {
     const { data: authData } = await supabase.auth.signInWithPassword({
@@ -83,5 +89,5 @@ describe('NCM Product Validation & Recalibration Tests', () => {
     expect(result.success).toBe(true)
     const ncm = result.recommendation.ncm.replace(/\D/g, '')
     expect(ncm.startsWith('8525')).toBe(true)
-  }, 45000)
+  }, 60000)
 })

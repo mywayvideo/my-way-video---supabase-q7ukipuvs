@@ -75,8 +75,7 @@ export const discountRuleService = {
       if (error) throw new Error('Falha ao atualizar desconto: ' + error.message)
       return updatedData
     } else {
-      const { data: insertedData, error } = await supabase
-        .from('discounts')
+      const { data: insertedData, error } = await (supabase.from('discounts') as any)
         .insert(payload)
         .select()
       if (error) throw new Error('Falha ao criar desconto: ' + error.message)

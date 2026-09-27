@@ -877,9 +877,9 @@ export function processProductImages(
       debugLog('processProductImages:greenHeadingFound', `name="${name}"`)
     } else {
       const allHeadings = processed.match(/^#{1,6}\s+.+$/gm) || []
-      const closest = allHeadings.find((h) => {
+      const closest = allHeadings.find((h: string) => {
         const firstWord = name.toLowerCase().split(/\s+/)[0]
-        return firstWord && firstWord.length > 2 && h.toLowerCase().includes(firstWord)
+        return Boolean(firstWord && firstWord.length > 2 && h.toLowerCase().includes(firstWord))
       })
       debugLog(
         'processProductImages:greenHeadingMissing',

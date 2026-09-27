@@ -17,6 +17,8 @@ export interface Discount {
   excluded_products?: string[] | null
   category_id?: string | null
   manufacturer_id?: string | null
+  category_ids?: string[] | null
+  manufacturer_ids?: string[] | null
 }
 
 export interface DiscountRule {

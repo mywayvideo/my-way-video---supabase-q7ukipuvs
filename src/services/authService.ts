@@ -3,7 +3,7 @@ import { AuthResponse } from '@/types/auth'
 
 // Setup global auth listener for auto-logout
 supabase.auth.onAuthStateChange((event, session) => {
-  if (event === 'SIGNED_OUT' || event === 'USER_DELETED') {
+  if (event === 'SIGNED_OUT' || (event as string) === 'USER_DELETED') {
     const hadToken =
       localStorage.getItem('supabase-auth-token') || localStorage.getItem('auth-token')
     if (hadToken) {

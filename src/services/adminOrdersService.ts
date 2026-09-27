@@ -112,7 +112,7 @@ export const adminOrdersService = {
   },
 
   processRefund: async (orderId: string, refundData: any) => {
-    const { error } = await supabase.from('order_refunds').insert({
+    const { error } = await (supabase.from('order_refunds') as any).insert({
       order_id: orderId,
       amount: refundData.amount,
       reason: refundData.reason,

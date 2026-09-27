@@ -27,8 +27,7 @@ export const discountService = {
       Object.entries(payloadWithId).filter(([_, v]) => v !== undefined),
     )
 
-    const { data, error } = await supabase
-      .from('discounts')
+    const { data, error } = await (supabase.from('discounts') as any)
       .insert([cleanPayload])
       .select()
       .single()

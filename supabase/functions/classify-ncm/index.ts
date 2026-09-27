@@ -197,56 +197,91 @@ Deno.serve(async (req: Request) => {
 
     let candidates = Array.isArray(rawCandidates) ? [...rawCandidates] : []
 
-    // 6.B. Garantir candidatos do setor broadcast/eletrônico essencial se a busca vetorial ainda
-    // não tiver indexado totalmente os capítulos 85/90:
-    // Se a query envolve controladores remotos, câmeras, joysticks ou periféricos audiovisuais,
-    // e os candidatos de 85437099 ou 85299090 não foram trazidos no top_n, inseri-los explicitamente.
-    const lowerSig = (leanSignature + ' ' + productDescription).toLowerCase()
-    const isRemoteOrController =
-      lowerSig.includes('remote') ||
-      lowerSig.includes('control') ||
-      lowerSig.includes('joystick') ||
-      lowerSig.includes('ptz') ||
-      lowerSig.includes('camera') ||
-      lowerSig.includes('câmera')
+    // 6.B. Detecção de assinatura de controlador/periférico/console remoto
+    // Avaliar assinatura do produto para evitar confusão entre aparelho de controle e máquina controlada
+    const lowerSig = (
+      leanSignature +
+      ' ' +
+      productDescription +
+      ' ' +
+      additionalSpecs
+    ).toLowerCase()
+    const isControllerSignature = isProductControllerOrPeripheral(lowerSig)
 
-    if (isRemoteOrController) {
-      const neededNcms: string[] = []
-      if (!candidates.some((c: any) => c.ncm === '85437099')) neededNcms.push('85437099')
-      if (!candidates.some((c: any) => c.ncm === '85299090')) neededNcms.push('85299090')
+    // Se a assinatura indica controlador/joystick/console/periférico remoto:
+    // 1) Garantir e priorizar 85437099 e 85299090 no TOPO dos candidatos com score alto
+    // 2) Penalizar severamente candidatos de máquinas mecânicas de elevação/guindastes/gruas (8426/8428)
+    if (isControllerSignature) {
+      // Buscar no banco as posições canônicas 85437099 e 85299090 (sem Ex-Tarifário)
+      const targetNcms = ['85437099', '85299090']
+      const { data: canonicalRates } = await supabaseAdmin
+        .from('imp_sim_tax_rates_effective')
+        .select('*')
+        .in('ncm', targetNcms)
+        .or('ex.is.null,ex.eq.')
 
-      if (neededNcms.length > 0) {
-        const { data: fallbackRates } = await supabaseAdmin
-          .from('imp_sim_tax_rates_effective')
-          .select('*')
-          .in('ncm', neededNcms)
-          .or('ex.is.null,ex.eq.')
-
-        if (fallbackRates && fallbackRates.length > 0) {
-          for (const fb of fallbackRates) {
-            candidates.push({
-              tax_rate_id: fb.id,
-              ncm: fb.ncm,
-              ex: fb.ex || '',
-              ncm_descricao:
-                fb.ncm_descricao ||
-                (fb.ncm === '85437099'
-                  ? 'Outras máquinas e aparelhos elétricos com função própria'
-                  : 'Partes reconhecíveis como destinadas às câmeras de televisão'),
-              ex_descricao: fb.ex_descricao || null,
-              source_text: `NCM ${fb.ncm} | ${fb.ex_descricao || fb.ncm_descricao || ''}`,
-              ii_rate: Number(fb.ii_efetivo ?? fb.ii_rate ?? 0),
-              ipi_rate: Number(fb.ipi_rate ?? 0),
-              pis_rate: Number(fb.pis_rate ?? 2.1),
-              cofins_rate: Number(fb.cofins_rate ?? 9.65),
-              has_ex_tarifario: Boolean(fb.has_ex_tarifario),
-              vector_score: 0.1,
-              text_score: 0.1,
-              combined_score: 0.1,
-            })
-          }
+      const canonicalCandidates: any[] = []
+      if (canonicalRates && canonicalRates.length > 0) {
+        for (const fb of canonicalRates) {
+          canonicalCandidates.push({
+            tax_rate_id: fb.id,
+            ncm: fb.ncm,
+            ex: fb.ex || '',
+            ncm_descricao:
+              fb.ncm_descricao ||
+              (fb.ncm === '85437099'
+                ? 'Outras máquinas e aparelhos elétricos com função própria não especificados nem compreendidos em outras posições do Capítulo 85'
+                : 'Partes reconhecíveis como destinada única ou principalmente às câmeras de televisão da posição 85.25'),
+            ex_descricao: fb.ex_descricao || null,
+            source_text: `NCM ${fb.ncm} | ${fb.ex_descricao || fb.ncm_descricao || (fb.ncm === '85437099' ? 'Aparelhos elétricos com função própria' : 'Partes para câmeras de televisão')}`,
+            ii_rate: Number(fb.ii_efetivo ?? fb.ii_rate ?? 0),
+            ipi_rate: Number(fb.ipi_rate ?? 0),
+            pis_rate: Number(fb.pis_rate ?? 2.1),
+            cofins_rate: Number(fb.cofins_rate ?? 9.65),
+            has_ex_tarifario: Boolean(fb.has_ex_tarifario),
+            vector_score: 0.95,
+            text_score: 0.95,
+            combined_score: 0.95,
+            is_priority_boosted: true,
+          })
         }
       }
+
+      // Remover duplicatas de 85437099 e 85299090 da lista original e penalizar 8426 / 8428
+      const filteredExisting = candidates
+        .filter(
+          (c: any) =>
+            !(c.ncm === '85437099' && (!c.ex || c.ex === '')) &&
+            !(c.ncm === '85299090' && (!c.ex || c.ex === '')),
+        )
+        .map((c: any) => {
+          const ncmDigits = normalizeNcm(c.ncm)
+          const isLiftingMachine = isLiftingOrCraneNcm(
+            ncmDigits,
+            c.ncm_descricao,
+            c.ex_descricao,
+            c.source_text,
+          )
+          if (isLiftingMachine) {
+            // Penalização condicional severa: reduz score para o final da fila
+            return {
+              ...c,
+              combined_score: Math.min(Number(c.combined_score || 0.01) * 0.05, 0.01),
+              vector_score: Math.min(Number(c.vector_score || 0.01) * 0.05, 0.01),
+              text_score: Math.min(Number(c.text_score || 0.01) * 0.05, 0.01),
+              penalized_crane: true,
+            }
+          }
+          return c
+        })
+
+      // Ordenar: canônicos prioritários no topo, seguidos dos demais ordenados por combined_score decrescente
+      candidates = [
+        ...canonicalCandidates,
+        ...filteredExisting.sort(
+          (a: any, b: any) => Number(b.combined_score || 0) - Number(a.combined_score || 0),
+        ),
+      ]
     }
 
     if (candidates.length === 0) {
@@ -336,14 +371,15 @@ Analisar as especificações técnicas de um equipamento (audiovisual, broadcast
 METODOLOGIA OBRIGATÓRIA FUNÇÃO-PRIMEIRO (FUNCTION-FIRST):
 1. ENUNCIAÇÃO PRÉVIA DA FUNÇÃO ESSENCIAL:
    Antes de qualquer seleção de NCM, você DEVE enunciar em 1 (uma) frase clara e inequívoca qual é a FUNÇÃO ESSENCIAL DO PRODUTO (o que o produto É, e não a máquina externa que ele opera).
+   Se o produto é um console/controlador remoto/joystick com saídas IP, serial ou VISCA para comandar câmeras PTZ, a função essencial é de COMANDO E CONTROLE ELETRÔNICO REMOTO DE CÂMERAS, e o produto É um periférico/aparelho eletrônico de controle.
 2. PROIBIÇÃO ABSOLUTA DE CASAMENTO POR VOCABULÁRIO (VOCABULARY-MATCHING BAN):
-   É TERMINANTEMENTE PROIBIDO escolher um candidato NCM ou Ex-Tarifário apenas por termos, palavras-chave ou vozes verbais coincidentes (exemplo: "controle remoto", "posicionamento", "acionamento", "suporte", "base") quando a FUNÇÃO ESSENCIAL do candidato divergir da função do produto.
-   Exemplo crítico: se o produto é um "controlador remoto para câmeras", o produto É O CONTROLADOR/CONSOLA, e NÃO a grua mecânica, guindaste ou braço articulado (posição 8428). É PROIBIDO classificar o controlador como a grua controlada!
+   É TERMINANTEMENTE PROIBIDO escolher um candidato NCM ou Ex-Tarifário apenas por termos, palavras-chave ou vozes verbais coincidentes (exemplo: "controle remoto", "joystick", "posicionamento", "acionamento", "câmeras") quando a FUNÇÃO ESSENCIAL do candidato divergir da função do produto.
+   Exemplo crítico: se o produto é um "controlador remoto com joystick para câmeras PTZ", o produto É O CONTROLADOR ELETRÔNICO (recaia em 8543.70.99 ou 8529.90.90), e JAMAIS uma grua robótica, guindaste ou braço mecânico articulado de elevação (posições 8426/8428). É PROIBIDO classificar o controlador como a máquina mecânica externa!
 3. REGRA DE PARTES E ACESSÓRIOS (RGI 3a, NOTAS DE SEÇÃO XVI E REGRAS GERAIS 3a/5):
-   - Partes e acessórios destinados única ou principalmente a aparelhos de uma posição seguem a classificação do equipamento principal ou da sua subposição específica de partes (ex.: controles, joysticks e consoles de comando de câmeras seguem 8529.90.90 como partes/acessórios de câmeras da 8525, ou 8543.70.99 como aparelhos elétricos com função própria não especificada em outras posições).
-   - Não confunda o dispositivo de controle com aparelhos industriais de movimentação de carga ou elevação do Capítulo 84.
+   - Partes e acessórios destinados única ou principalmente a aparelhos de uma posição seguem a classificação do equipamento principal ou da sua subposição específica de partes (ex.: controles, joysticks e consoles de comando de câmeras seguem 8529.90.90 como partes/acessórios de câmeras da 8525, ou 8543.70.99 como aparelhos elétricos com função própria não especificada em outras posições do Capítulo 85).
+   - Não confunda o dispositivo eletrônico de controle com máquinas mecânicas de elevação ou transporte de carga do Capítulo 84.
 4. PROIBIÇÃO DE EX-TARIFÁRIO DE OUTRO EQUIPAMENTO:
-   É PROIBIDO escolher um Ex-Tarifário cuja descrição descreva outro equipamento ou máquina completa (ex.: gruas telescópicas com controle remoto), mesmo que haja vocabulário em comum ("controle remoto para acionamento").
+   É PROIBIDO escolher um Ex-Tarifário cuja descrição descreva outro equipamento ou máquina mecânica completa (ex.: 8426.99.00 Ex 004 gruas robóticas telescópicas), mesmo que contenha termos em comum ("controle remoto", "joystick", "câmeras").
 5. CANDIDATOS VÁLIDOS E ALTERNATIVAS FUNCIONALMENTE PLAUSÍVEIS:
    - UNIVERSO FECHADO: Você DEVE ESCOLHER O NCM E EX RECOMENDADO E AS ALTERNATIVAS ESTRITAMENTE DENTRE A LISTA DE CANDIDATOS FORNECIDA ABAIXO.
    - As alternativas secundárias devem ser FUNCIONALMENTE PLAUSÍVEIS (ex.: posições fiscais concorrentes para a mesma natureza do produto), e NÃO apenas parecidas no texto.
@@ -443,9 +479,9 @@ Escolha a melhor classificação com base nas regras NESH e retorne o JSON estru
       )
     }
 
-    // 10.B. REQUISITO (3): SEGUNDA PASSADA DE AUDITORIA LLM QUE VETA OU CORRIGE A RECOMENDAÇÃO
-    // O auditor revisor recebe a descrição/assinatura, a recomendação inicial e a justificativa da 1ª passada,
-    // e responde VETA ou APROVA. Se vetar, corrige escolhendo da mesma lista de candidatos.
+    // 10.B. REQUISITO (2 & 3): SEGUNDA PASSADA DE AUDITORIA LLM QUE VETA OU CORRIGE A RECOMENDAÇÃO
+    // O auditor revisor é obrigado a enunciar a função essencial do produto antes de qualquer veto.
+    // Fica TERMINANTEMENTE PROIBIDO de corrigir para descrição de máquina mecânica quando a função é de controle.
     const initialRecommendation = {
       recommended_ncm: normalizeNcm(llmResponseJson.recommended_ncm),
       recommended_ex: (llmResponseJson.recommended_ex || '').toString().trim(),
@@ -460,6 +496,8 @@ Escolha a melhor classificação com base nas regras NESH e retorne o JSON estru
       corrected_ex?: string
       correction_reason?: string
       audit_critique: string
+      override_applied?: boolean
+      override_reason?: string
     } = {
       action: 'APROVA',
       essential_function: initialRecommendation.essential_function,
@@ -469,20 +507,29 @@ Escolha a melhor classificação com base nas regras NESH e retorne o JSON estru
     try {
       const auditorSystemPrompt = `Você é o Auditor Revisor Sênior da Receita Federal e Aduana, atuando como segunda instância independente para homologar ou vetar a recomendação de classificação NCM.
 
-SUA REGRA DE OURO (VETO OBRIGATÓRIO):
-VETE IMEDIATAMENTE (action: "VETA") se a recomendação da 1ª passada cometeu CASAMENTO POR VOCABULÁRIO:
-- Por exemplo, se o produto é um CONTROLADOR / JOYSTICK / CONSOLE REMOTO e a primeira passada recomendou uma GRUA TELESCÓPICA / MÁQUINA DE ELEVAÇÃO (NCM 8428.90.90 ou Ex 328) só porque no texto da grua constava a frase "com controle remoto para acionamento". O produto É o controle, não a máquina controlada!
-- VETE se a classificação não seguir a regra de partes e acessórios (RG 3a/5): partes de câmeras e equipamentos de TV/vídeo devem recair nas posições próprias de aparelhos ou partes do setor elétrico/eletrônico (ex: 8529.90.90 ou 8543.70.99), e NUNCA em máquinas de elevação mecânica do 8428.
-- Se você VETAR, DEVE CORRIGIR selecionando obrigatoriamente um NCM e Ex VÁLIDOS pertencentes à lista de candidatos fornecida.
+PROTOCOLO OBRIGATÓRIO DE AUDITORIA (EM DUAS ETAPAS):
+ETAPA 1 - ENUNCIAÇÃO OBRIGATÓRIA DA FUNÇÃO ESSENCIAL:
+Você DEVE obrigatoriamente iniciar enunciando a função essencial do produto ("essential_function"): declare com precisão o que o produto É em sua essência (ex: "Console/controlador remoto eletrônico com joystick para comando e movimentação de câmeras PTZ").
 
-RESPOSTA OBRIGATÓRIA EM JSON:
+ETAPA 2 - REGRAS DE JULGAMENTO (APROVA ou VETA):
+1. PROIBIÇÃO DE MÁQUINA MECÂNICA PARA FUNÇÃO DE CONTROLE:
+   Se a função do produto for de controle, console, joystick, comando remoto, interface ou periférico de sinal/vídeo, É TERMINANTEMENTE PROIBIDO sugerir ou corrigir para posições de máquinas mecânicas de elevação, gruas, guindastes, pontes rolantes ou braços telescópicos (especialmente posições 8426 ou 8428).
+   O produto É o periférico/aparelho elétrico de controle (Capítulo 85: 8543.70.99, 8529.90.90 ou 8537.10.20), JAMAIS a máquina mecânica que ele opera.
+2. VETO DE CASAMENTO POR VOCABULÁRIO:
+   Se a 1ª passada cometeu o erro de classificar um controlador remoto como 8426 (gruas de câmeras) ou 8428 (máquinas de elevação) por atração das palavras "controle remoto", "joystick" ou "câmera" na descrição de um Ex-Tarifário, VETE IMEDIATAMENTE (action: "VETA") e CORRIJA para a posição correta do Capítulo 85 (8543.70.99 ou 8529.90.90).
+3. HOMOLOGAÇÃO:
+   Se a 1ª passada já recomendou uma posição válida e consistente com a função essencial (ex: 8543.70.99, 8529.90.90 ou 8537.10.20 para controles; 8525 para câmeras), APROVE (action: "APROVA"). NUNCA vete uma recomendação eletrônica correta para substituí-la por uma máquina mecânica do 8426/8428!
+4. REQUISITO DE CORREÇÃO:
+   Se você VETAR, a correção ("corrected_ncm") DEVE ser obrigatoriamente um NCM e Ex VÁLIDOS pertencentes à lista de candidatos fornecida.
+
+RESPOSTA OBRIGATÓRIA EXCLUSIVAMENTE EM JSON:
 {
+  "essential_function": "Obrigatório: Enunciação clara da função essencial do produto ANTES de qualquer análise",
   "action": "APROVA" ou "VETA",
-  "audit_critique": "Análise crítica do enquadramento, avaliando se houve armadilha de vocabulário ou divergência funcional",
-  "essential_function": "Enunciação clara da função essencial do produto",
-  "corrected_ncm": "8 dígitos do NCM corrigido (se VETA, deve ser um da lista de candidatos)",
+  "audit_critique": "Análise crítica do enquadramento e da direção da recomendação",
+  "corrected_ncm": "8 dígitos do NCM corrigido (obrigatório se VETA, deve ser um da lista de candidatos)",
   "corrected_ex": "Ex do NCM corrigido ou ''",
-  "correction_reason": "Justificativa legal e técnica da correção fundamentada na NESH e TEC"
+  "correction_reason": "Justificativa legal e técnica fundamentada na NESH, RGI e TEC"
 }`
 
       const auditorUserPrompt = `PRODUTO ANALISADO:
@@ -501,7 +548,7 @@ RECOMENDAÇÃO DA 1ª PASSADA:
 LISTA DE CANDIDATOS VÁLIDOS NO BANCO OFICIAL:
 ${candidatesCatalogText}
 
-Avalie criticamente. Se houver erro de casamento vocabular ou se o produto for controlador/acessório de vídeo e tiver sido classificado como máquina mecânica de elevação/outro setor, VETE e CORRIJA.`
+Lembre-se: primeiro enuncie a função do produto no campo "essential_function". Se o produto for aparelho de controle/console/joystick, JAMAIS aprove ou sugira posições de máquinas mecânicas de elevação/gruas (8426/8428).`
 
       // Executar com o primeiro provedor com chave válida
       for (const provider of providers as LLMProviderConfig[]) {
@@ -532,22 +579,92 @@ Avalie criticamente. Se houver erro de casamento vocabular ou se o produto for c
         }
       }
 
-      // Se o auditor vetou e forneceu uma correção válida que existe nos candidatos
+      // 10.C. REQUISITO (1): GUARDA DETERMINÍSTICA EM CÓDIGO (VETO DO VETO)
+      // Se a assinatura do produto indica controlador/joystick/console remoto e a correção do auditor
+      // aponta para 8426 ou 8428 (máquinas de elevação/gruas), REJEITAR a correção do auditor,
+      // manter ou restaurar a recomendação eletrônica (85437099 / 85299090 / 85371020)
+      // e registrar o "veto-do-veto" explicitamente no log de auditoria.
       if (auditVerdict.action === 'VETA' && auditVerdict.corrected_ncm) {
-        const candidateMatch = candidates.find(
-          (c: any) => normalizeNcm(c.ncm) === auditVerdict.corrected_ncm,
-        )
-        if (candidateMatch) {
-          console.log(
-            `[Auditoria NCM] VETO APLICADO: de ${llmResponseJson.recommended_ncm} para ${auditVerdict.corrected_ncm}. Motivo: ${auditVerdict.correction_reason}`,
-          )
-          llmResponseJson.recommended_ncm = auditVerdict.corrected_ncm
-          llmResponseJson.recommended_ex = auditVerdict.corrected_ex || candidateMatch.ex || ''
-          llmResponseJson.justification = `[Revisão de Auditoria Aduaneira: Veto e Correção Homologados]\n${auditVerdict.correction_reason || auditVerdict.audit_critique}\n\nFundamentação Complementar: ${llmResponseJson.justification}`
-        } else {
+        const correctedDigits = normalizeNcm(auditVerdict.corrected_ncm)
+        const correctedIsLifting = isLiftingOrCraneNcm(correctedDigits)
+
+        if (isControllerSignature && correctedIsLifting) {
+          // Disparo da Guarda Determinística: Inversão indevida do auditor detectada
           console.warn(
-            `[Auditoria NCM] Auditor sugeriu NCM ${auditVerdict.corrected_ncm} fora da lista de candidatos. Mantendo recomendação validada.`,
+            `[Guarda Determinística Ativada] VETO-DO-VETO: O auditor tentou inverter a classificação de um controlador/periférico para máquina de elevação/grua (${correctedDigits}). Correção rejeitada deterministicamente pelo sistema.`,
           )
+
+          const originalDigits = normalizeNcm(initialRecommendation.recommended_ncm)
+          const originalIsLifting = isLiftingOrCraneNcm(originalDigits)
+
+          // Escolher a melhor recomendação eletrônica:
+          // Se a 1ª passada foi eletrônica (85437099, 85299090 ou 85371020), manter;
+          // Se a 1ª passada também foi indevidamente 8426/8428, forçar para o topo eletrônico (85437099 ou 85299090)
+          let targetElectronicNcm = originalDigits
+          let targetElectronicEx = initialRecommendation.recommended_ex
+
+          if (originalIsLifting || !originalDigits.startsWith('85')) {
+            // Priorizar 85437099 ou 85299090
+            const bestElectronic = candidates.find((c: any) => {
+              const n = normalizeNcm(c.ncm)
+              return (
+                n === '85437099' ||
+                n === '85299090' ||
+                (n.startsWith('85') && !isLiftingOrCraneNcm(n))
+              )
+            })
+            targetElectronicNcm = bestElectronic ? normalizeNcm(bestElectronic.ncm) : '85437099'
+            targetElectronicEx = bestElectronic?.ex || ''
+          }
+
+          const vetoDoVetoMsg = `[Guarda Determinística Aduaneira - Veto do Veto Ativado]: A tentativa do auditor de reenquadrar o controlador/joystick sob máquina mecânica de elevação/gruas (NCM ${correctedDigits}) foi rejeitada pelo sistema. O produto é um periférico/controlador eletrônico para câmeras PTZ, enquadrado legitimamente sob o Capítulo 85 (${targetElectronicNcm}), em conformidade com as Notas de Seção XVI e Regras Gerais de Interpretação (RGI 1 e RGI 3a).`
+
+          auditVerdict.override_applied = true
+          auditVerdict.override_reason = vetoDoVetoMsg
+          auditVerdict.action = 'APROVA' // Reverte ação efetiva para aprovação da rota eletrônica segura
+
+          llmResponseJson.recommended_ncm = targetElectronicNcm
+          llmResponseJson.recommended_ex = targetElectronicEx
+          llmResponseJson.justification = `${vetoDoVetoMsg}\n\nFundamentação Técnica Original: ${initialRecommendation.justification}`
+        } else {
+          // Correção legítima do auditor (não tenta transformar controlador em grua)
+          const candidateMatch = candidates.find(
+            (c: any) => normalizeNcm(c.ncm) === auditVerdict.corrected_ncm,
+          )
+          if (candidateMatch) {
+            console.log(
+              `[Auditoria NCM] VETO APLICADO: de ${llmResponseJson.recommended_ncm} para ${auditVerdict.corrected_ncm}. Motivo: ${auditVerdict.correction_reason}`,
+            )
+            llmResponseJson.recommended_ncm = auditVerdict.corrected_ncm
+            llmResponseJson.recommended_ex = auditVerdict.corrected_ex || candidateMatch.ex || ''
+            llmResponseJson.justification = `[Revisão de Auditoria Aduaneira: Veto e Correção Homologados]\n${auditVerdict.correction_reason || auditVerdict.audit_critique}\n\nFundamentação Complementar: ${llmResponseJson.justification}`
+          } else {
+            console.warn(
+              `[Auditoria NCM] Auditor sugeriu NCM ${auditVerdict.corrected_ncm} fora da lista de candidatos. Mantendo recomendação validada.`,
+            )
+          }
+        }
+      } else if (isControllerSignature) {
+        // Auditor aprovou, mas verificar se a recomendação da 1ª passada recaiu em 8426/8428
+        const recDigits = normalizeNcm(llmResponseJson.recommended_ncm)
+        if (isLiftingOrCraneNcm(recDigits)) {
+          console.warn(
+            `[Guarda Determinística Ativada] A recomendação aprovada apontava para grua/elevação (${recDigits}) em produto controlador. Substituindo deterministicamente por posição eletrônica do Capítulo 85.`,
+          )
+          const bestElectronic = candidates.find((c: any) => {
+            const n = normalizeNcm(c.ncm)
+            return n === '85437099' || n === '85299090'
+          }) || { ncm: '85437099', ex: '' }
+
+          const targetNcm = normalizeNcm(bestElectronic.ncm)
+          const targetEx = bestElectronic.ex || ''
+          const overrideMsg = `[Guarda Determinística Aduaneira]: Correção automática aplicada. Dispositivo de controle com joystick e interface PTZ não pode ser classificado como máquina de elevação/grua (${recDigits}). Enquadramento direcionado para o Capítulo 85 (NCM ${targetNcm}).`
+
+          auditVerdict.override_applied = true
+          auditVerdict.override_reason = overrideMsg
+          llmResponseJson.recommended_ncm = targetNcm
+          llmResponseJson.recommended_ex = targetEx
+          llmResponseJson.justification = `${overrideMsg}\n\nFundamentação Complementar: ${llmResponseJson.justification}`
         }
       }
     } catch (auditErr) {
@@ -720,7 +837,7 @@ Avalie criticamente. Se houver erro de casamento vocabular ou se o produto for c
             product_id: productId,
             imp_sim_product_id: impSimProductId,
             audit_links: webSources,
-            knowledge_base_version: '2.5',
+            knowledge_base_version: '2.6',
             execution_time_ms: executionTimeMs,
           })
           .select('id')
@@ -772,6 +889,77 @@ Avalie criticamente. Se houver erro de casamento vocabular ou se o produto for c
 // ==========================================
 // FUNÇÕES AUXILIARES
 // ==========================================
+
+/**
+ * Identifica se o texto/assinatura do produto indica um dispositivo de controle remoto,
+ * joystick, console de comando ou periférico de interface/sinal para câmeras ou broadcast.
+ */
+function isProductControllerOrPeripheral(text: string): boolean {
+  if (!text) return false
+  const lower = text.toLowerCase()
+
+  // Sinais fortes de controle/joystick/console
+  const hasControllerWord =
+    lower.includes('controller') ||
+    lower.includes('controlador') ||
+    lower.includes('joystick') ||
+    lower.includes('remote control') ||
+    lower.includes('controle remoto') ||
+    lower.includes('control panel') ||
+    lower.includes('painel de controle') ||
+    lower.includes('console de comando') ||
+    lower.includes('console de oper') ||
+    lower.includes('ptz control')
+
+  // Contextos audiovisuais / periféricos
+  const hasCameraOrAVContext =
+    lower.includes('camera') ||
+    lower.includes('câmera') ||
+    lower.includes('ptz') ||
+    lower.includes('video') ||
+    lower.includes('vídeo') ||
+    lower.includes('broadcast') ||
+    lower.includes('visca') ||
+    lower.includes('rs-422') ||
+    lower.includes('ip remote')
+
+  return (
+    hasControllerWord &&
+    (hasCameraOrAVContext || lower.includes('rm-ip') || lower.includes('joystick'))
+  )
+}
+
+/**
+ * Identifica se um NCM ou descrição de candidato refere-se a gruas, guindastes,
+ * braços robóticos telescópicos ou máquinas mecânicas de elevação/movimentação (8426/8428).
+ */
+function isLiftingOrCraneNcm(
+  ncmDigits: string,
+  ncmDesc?: string | null,
+  exDesc?: string | null,
+  sourceText?: string | null,
+): boolean {
+  if (!ncmDigits) return false
+  if (ncmDigits.startsWith('8426') || ncmDigits.startsWith('8428')) {
+    return true
+  }
+
+  const combined = `${ncmDesc || ''} ${exDesc || ''} ${sourceText || ''}`.toLowerCase()
+  if (
+    combined.includes('grua') ||
+    combined.includes('guindaste') ||
+    combined.includes('braço automatizado') ||
+    combined.includes('braço articulado') ||
+    combined.includes('lança telescópica') ||
+    combined.includes('máquina de elevação') ||
+    combined.includes('máquinas de elevação') ||
+    combined.includes('içamento')
+  ) {
+    return true
+  }
+
+  return false
+}
 
 /**
  * Constrói uma assinatura enxuta do produto: Marca + Modelo + Frase central da função.

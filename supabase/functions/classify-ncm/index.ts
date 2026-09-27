@@ -27,6 +27,7 @@ interface LLMProviderConfig {
   api_key_secret_name: string
   custom_endpoint?: string
   priority_order?: number
+  role?: string
 }
 
 interface ExQualifiers {
@@ -293,7 +294,7 @@ Deno.serve(async (req: Request) => {
     const { data: providers, error: provError } = await supabaseAdmin
       .from('ai_providers')
       .select(
-        'id, provider_name, provider_type, model_id, api_key_secret_name, custom_endpoint, priority_order',
+        'id, provider_name, provider_type, model_id, api_key_secret_name, custom_endpoint, priority_order, role',
       )
       .eq('is_active', true)
       .order('priority_order', { ascending: true })
@@ -307,6 +308,41 @@ Deno.serve(async (req: Request) => {
         { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
       )
     }
+
+    // Configurar listas dedicadas por passada com fallback para os demais ativos:
+    // 1ª Passada (Analista): openai / gpt-4o-mini preferencial, com fallback para os demais
+    const analystProviders: LLMProviderConfig[] = [
+      ...providers.filter(
+        (p: any) =>
+          p.role === 'analyst' ||
+          p.provider_type === 'openai' ||
+          (p.model_id && p.model_id.includes('gpt-4o-mini')),
+      ),
+      ...providers.filter(
+        (p: any) =>
+          p.role !== 'analyst' &&
+          p.provider_type !== 'openai' &&
+          !(p.model_id && p.model_id.includes('gpt-4o-mini')),
+      ),
+    ]
+
+    // 2ª Passada (Auditor): deepseek / deepseek-chat preferencial (papel 'auditor'), com fallback para os demais
+    const auditorProviders: LLMProviderConfig[] = [
+      ...providers.filter(
+        (p: any) =>
+          p.role === 'auditor' ||
+          p.provider_name?.toLowerCase().includes('deepseek') ||
+          p.provider_type === 'deepseek' ||
+          (p.model_id && p.model_id.includes('deepseek')),
+      ),
+      ...providers.filter(
+        (p: any) =>
+          p.role !== 'auditor' &&
+          !p.provider_name?.toLowerCase().includes('deepseek') &&
+          p.provider_type !== 'deepseek' &&
+          !(p.model_id && p.model_id.includes('deepseek')),
+      ),
+    ]
 
     // 9. PROMPT UNIVERSAL COM ANÁLISE DE COMPOSIÇÃO (RGI 3b / 3c) E RESTRIÇÃO DE EX
     const candidatesCatalogText = candidates
@@ -416,12 +452,12 @@ ${candidatesCatalogText}
 
 Construa a FASE 0 obrigatória no campo 'product_understanding' com a sentença canônica "o produto é um [tipo] que [função essencial], destinado a [máquina]", avalie todos os candidatos e forneça o JSON estruturado conforme o protocolo aduaneiro.`
 
-    // 10. Chamada ao LLM com cascata de fallback
+    // 10. Chamada ao LLM na 1ª passada (Análise) com cascata de fallback
     let llmResponseJson: any = null
-    let modelUsed = ''
+    let analystModelUsed = ''
     let lastLlmError = ''
 
-    for (const provider of providers as LLMProviderConfig[]) {
+    for (const provider of analystProviders) {
       const apiKey = Deno.env.get(provider.api_key_secret_name) || ''
       if (!apiKey) continue
 
@@ -441,7 +477,7 @@ Construa a FASE 0 obrigatória no campo 'product_understanding' com a sentença 
 
           if (candidateMatch) {
             llmResponseJson = parsed
-            modelUsed = `${provider.provider_name} (${provider.model_id})`
+            analystModelUsed = `${provider.provider_name} (${provider.model_id})`
             break
           } else {
             console.warn(
@@ -451,7 +487,7 @@ Construa a FASE 0 obrigatória no campo 'product_understanding' com a sentença 
         }
       } catch (err: any) {
         lastLlmError = err?.message || String(err)
-        console.warn(`Falha no provedor ${provider.provider_name}:`, lastLlmError)
+        console.warn(`Falha no provedor de análise ${provider.provider_name}:`, lastLlmError)
       }
     }
 
@@ -657,33 +693,40 @@ ATENÇÃO AUDITOR:
 LISTA DE CANDIDATOS VÁLIDOS:
 ${candidatesCatalogText}`
 
-      for (const provider of providers as LLMProviderConfig[]) {
+      let auditorModelUsed = ''
+
+      for (const provider of auditorProviders) {
         const apiKey = Deno.env.get(provider.api_key_secret_name) || ''
         if (!apiKey) continue
 
-        const auditRawContent = await invokeLLMWithTimeout(
-          provider,
-          apiKey,
-          auditorSystemPrompt,
-          auditorUserPrompt,
-          20000,
-        )
-        const parsedAudit = parseLLMJsonResponse(auditRawContent)
-        if (parsedAudit && (parsedAudit.action === 'APROVA' || parsedAudit.action === 'VETA')) {
-          auditVerdict = {
-            action: parsedAudit.action,
-            essential_function:
-              parsedAudit.essential_function || initialRecommendation.essential_function,
-            corrected_ncm: parsedAudit.corrected_ncm
-              ? normalizeNcm(parsedAudit.corrected_ncm)
-              : undefined,
-            corrected_ex: (parsedAudit.corrected_ex || '').toString().trim(),
-            correction_reason: parsedAudit.correction_reason || '',
-            audit_critique: parsedAudit.audit_critique || '',
-            product_understanding:
-              parsedAudit.product_understanding || initialRecommendation.product_understanding,
+        try {
+          const auditRawContent = await invokeLLMWithTimeout(
+            provider,
+            apiKey,
+            auditorSystemPrompt,
+            auditorUserPrompt,
+            25000,
+          )
+          const parsedAudit = parseLLMJsonResponse(auditRawContent)
+          if (parsedAudit && (parsedAudit.action === 'APROVA' || parsedAudit.action === 'VETA')) {
+            auditVerdict = {
+              action: parsedAudit.action,
+              essential_function:
+                parsedAudit.essential_function || initialRecommendation.essential_function,
+              corrected_ncm: parsedAudit.corrected_ncm
+                ? normalizeNcm(parsedAudit.corrected_ncm)
+                : undefined,
+              corrected_ex: (parsedAudit.corrected_ex || '').toString().trim(),
+              correction_reason: parsedAudit.correction_reason || '',
+              audit_critique: parsedAudit.audit_critique || '',
+              product_understanding:
+                parsedAudit.product_understanding || initialRecommendation.product_understanding,
+            }
+            auditorModelUsed = `${provider.provider_name} (${provider.model_id})`
+            break
           }
-          break
+        } catch (auditCallErr) {
+          console.warn(`Falha no provedor de auditoria ${provider.provider_name}:`, auditCallErr)
         }
       }
 
@@ -693,12 +736,29 @@ ${candidatesCatalogText}`
         let correctedDigits = normalizeNcm(auditVerdict.corrected_ncm)
         let correctedExDigits = (auditVerdict.corrected_ex || '').toString().trim()
 
+        // BRECHA B.1: O auditor propôs Ex como texto livre — o Ex da correção deve ser validado
+        // contra a lista de candidatos: Ex que não corresponder a uma linha real (NCM+Ex) do catálogo
+        // recuperado, com ex_descricao, é descartado. O auditor não inventa Ex, só homologa Ex presente na lista.
+        let candidateMatchWithEx = candidates.find(
+          (c: any) =>
+            normalizeNcm(c.ncm) === correctedDigits &&
+            correctedExDigits !== '' &&
+            (c.ex || '').toString().trim() === correctedExDigits &&
+            Boolean(c.ex_descricao && c.ex_descricao.trim() !== ''),
+        )
+
         let candidateMatch =
-          candidates.find(
-            (c: any) =>
-              normalizeNcm(c.ncm) === correctedDigits &&
-              (!correctedExDigits || (c.ex || '').trim() === correctedExDigits),
-          ) || candidates.find((c: any) => normalizeNcm(c.ncm) === correctedDigits)
+          candidateMatchWithEx ||
+          candidates.find((c: any) => normalizeNcm(c.ncm) === correctedDigits)
+
+        // Se o auditor propôs Ex mas ele não existe como linha real com ex_descricao no catálogo recuperado, zerar o Ex
+        if (correctedExDigits && !candidateMatchWithEx) {
+          console.warn(
+            `[Auditoria 2ª Passada: Brecha B.1] Auditor propôs Ex '${correctedExDigits}' para NCM ${correctedDigits}, mas esse Ex não existe com ex_descricao na lista de candidatos recuperados. Descartando Ex da correção.`,
+          )
+          correctedExDigits = ''
+          auditVerdict.corrected_ex = ''
+        }
 
         // Se o candidato corrigido não existir nos candidatos recuperados, manter recomendação inicial
         if (!candidateMatch) {
@@ -707,7 +767,6 @@ ${candidatesCatalogText}`
           )
         } else {
           // (1) VERIFICAÇÃO DE VEDAÇÃO POR CONTRADIÇÃO DE NATUREZA:
-          // A descrição hierárquica do candidato não pode contradizer a natureza essencial do produto
           const natureContradiction = checkNatureContradiction({
             productText: fullTechnicalProfile,
             candidateDesc:
@@ -719,7 +778,6 @@ ${candidatesCatalogText}`
           })
 
           // (2) VERIFICAÇÃO DE PROIBIÇÃO DE CRITÉRIO FISCAL / ALÍQUOTA:
-          // Se a justificativa do auditor cita explicitamente termos tributários/alíquotas como motivo de escolha
           const taxCriterionCheck = checkTaxAdvantageCriterion({
             auditCritique: auditVerdict.audit_critique,
             correctionReason: auditVerdict.correction_reason,
@@ -739,9 +797,9 @@ ${candidatesCatalogText}`
             needsWebSearch: false,
           }
 
-          if (correctedExDigits && candidateMatch.ex_descricao) {
+          if (correctedExDigits && candidateMatchWithEx?.ex_descricao) {
             correctedChecklistLog = evaluateExChecklistAgainstProduct({
-              exDescription: candidateMatch.ex_descricao,
+              exDescription: candidateMatchWithEx.ex_descricao,
               productText: fullTechnicalProfile,
               isKit: compositionAnalysis.isKit,
               detectedComponents: compositionAnalysis.detectedComponents,
@@ -749,10 +807,11 @@ ${candidatesCatalogText}`
 
             if (!correctedChecklistLog.passed) {
               console.warn(
-                `[Auditoria 2ª Passada] Ex ${correctedExDigits} proposto pelo auditor NÃO atende às condições. Removendo Ex da correção.`,
+                `[Auditoria 2ª Passada] Ex ${correctedExDigits} proposto pelo auditor NÃO atende às condições do checklist. VETANDO e zerando Ex da correção.`,
               )
               correctedExDigits = ''
               auditVerdict.corrected_ex = ''
+              exVetoApplied = true
             }
           }
 
@@ -764,7 +823,6 @@ ${candidatesCatalogText}`
             )
 
             // (4) PREFERÊNCIA POR FUNÇÃO GENÉRICA COMPATÍVEL SOBRE ESPECÍFICA INCOMPATÍVEL:
-            // Tentar selecionar a melhor alternativa tecnicamente compatível
             const fallbackCandidate = selectBestCompatibleFallback({
               candidates,
               rejectedNcms: [initialRecNcm, correctedDigits],
@@ -774,7 +832,28 @@ ${candidatesCatalogText}`
 
             if (fallbackCandidate) {
               const fallbackNcmClean = normalizeNcm(fallbackCandidate.ncm)
-              const fallbackExClean = (fallbackCandidate.ex || '').toString().trim()
+              let fallbackExClean = (fallbackCandidate.ex || '').toString().trim()
+
+              // BRECHA B.2: O fallback só assume Ex após passar pelo checklist (se falhar, zera o Ex e mantém o NCM)
+              if (fallbackExClean && fallbackCandidate.ex_descricao) {
+                const fbCheck = evaluateExChecklistAgainstProduct({
+                  exDescription: fallbackCandidate.ex_descricao,
+                  productText: fullTechnicalProfile,
+                  isKit: compositionAnalysis.isKit,
+                  detectedComponents: compositionAnalysis.detectedComponents,
+                })
+                checklistLog = fbCheck
+                if (!fbCheck.passed) {
+                  console.warn(
+                    `[Auditoria 2ª Passada: Fallback Ex Vetado em Código] Fallback Ex ${fallbackExClean} para ${fallbackNcmClean} não passou no checklist. Zerando Ex e mantendo NCM base.`,
+                  )
+                  fallbackExClean = ''
+                  exVetoApplied = true
+                }
+              } else if (fallbackExClean && !fallbackCandidate.ex_descricao) {
+                fallbackExClean = ''
+              }
+
               console.log(
                 `[Auditoria 2ª Passada: Fallback de Função Genérica Compatível] Selecionado NCM ${fallbackNcmClean} (Ex ${fallbackExClean || 'sem Ex'}).`,
               )
@@ -787,17 +866,7 @@ ${candidatesCatalogText}`
 
               llmResponseJson.recommended_ncm = fallbackNcmClean
               llmResponseJson.recommended_ex = fallbackExClean
-              llmResponseJson.justification = `[Revisão de Auditoria Aduaneira: Veto e Enquadramento Técnico Compatível]\n${auditVerdict.override_reason}\n\nFundamentação Complementar: ${llmResponseJson.justification}`
-
-              // Atualizar checklist se o novo candidato tiver Ex
-              if (fallbackExClean && fallbackCandidate.ex_descricao) {
-                checklistLog = evaluateExChecklistAgainstProduct({
-                  exDescription: fallbackCandidate.ex_descricao,
-                  productText: fullTechnicalProfile,
-                  isKit: compositionAnalysis.isKit,
-                  detectedComponents: compositionAnalysis.detectedComponents,
-                })
-              }
+              llmResponseJson.justification = `Classificação na NCM ${fallbackNcmClean} determinada pela função essencial do produto como aparelho com função própria em conformidade com as Regras Gerais de Interpretação (RGI 1 / RGI 3). ${auditVerdict.override_reason}`
             } else {
               // Se não encontrou fallback melhor, anular a correção inválida do auditor
               auditVerdict.action = 'APROVA'
@@ -807,7 +876,7 @@ ${candidatesCatalogText}`
             // Correção do auditor é tecnicamente válida e aceita
             llmResponseJson.recommended_ncm = correctedDigits
             llmResponseJson.recommended_ex = correctedExDigits
-            llmResponseJson.justification = `[Revisão de Auditoria Aduaneira: Veto e Correção Homologados]\n${auditVerdict.correction_reason || auditVerdict.audit_critique}\n\nFundamentação Complementar: ${llmResponseJson.justification}`
+            llmResponseJson.justification = `Classificação na NCM ${correctedDigits} homologada por auditoria técnica aduaneira com base na função essencial. ${auditVerdict.correction_reason || auditVerdict.audit_critique}`
 
             if (correctedExDigits) {
               checklistLog = correctedChecklistLog
@@ -1078,18 +1147,70 @@ ${candidatesCatalogText}`
       primaryTaxRate.source_text ||
       ''
 
-    // Montar a justificativa final contendo a análise de composição e o checklist comparativo
-    let finalJustification = llmResponseJson.justification || ''
-    if (compositionAnalysis.isKit) {
-      const compText = `[Análise de Composição RGI 3b/3c]: Produto identificado como conjunto/sistema (${compositionAnalysis.detectedComponents.join(', ')}). Enquadramento determinado pela função essencial do conjunto global.`
-      if (!finalJustification.includes('[Análise de Composição')) {
-        finalJustification = `${compText}\n\n${finalJustification}`
+    // BRECHA B.2: INVARIANTE — Qualquer Ex vetado (1ª passada, correção ou fallback)
+    // é estritamente removido da recomendação em código e o final_choice_ex é zerado.
+    let finalEffectiveEx = (primaryTaxRate.ex || recommendedExClean || '').toString().trim()
+    if (exVetoApplied || (checklistLog && !checklistLog.passed)) {
+      finalEffectiveEx = ''
+    }
+
+    // Validar se o Ex final corresponde a um Ex real cadastrado para este NCM
+    if (finalEffectiveEx) {
+      const matchDbEx = candidates.find(
+        (c: any) =>
+          normalizeNcm(c.ncm) === recommendedNcmClean &&
+          (c.ex || '').toString().trim() === finalEffectiveEx &&
+          Boolean(c.ex_descricao && c.ex_descricao.trim() !== ''),
+      )
+      if (!matchDbEx) {
+        console.warn(
+          `[Invariante Ex]: Ex ${finalEffectiveEx} não encontrado com descrição no catálogo para NCM ${recommendedNcmClean}. Removendo Ex.`,
+        )
+        finalEffectiveEx = ''
+      }
+    }
+
+    const finalHasEx = Boolean(finalEffectiveEx && finalEffectiveEx !== '')
+    const finalExDetails = finalHasEx ? exDetails : null
+
+    // BRECHA B.3: Se houve mudança de NCM ou Ex entre a 1ª passada e o resultado final,
+    // ou se qualquer veto foi aplicado, REGENERAR todo o texto justificativo.
+    // Em seguida, varrer em código menções a NCMs/Exs ausentes da resposta final.
+    const initialNcmClean = normalizeNcm(initialRecommendation.recommended_ncm)
+    const initialExClean = (initialRecommendation.recommended_ex || '').toString().trim()
+    const ncmOrExChanged =
+      initialNcmClean !== recommendedNcmClean || initialExClean !== finalEffectiveEx
+
+    let finalJustification = ''
+    if (ncmOrExChanged || exVetoApplied || auditVerdict.override_applied) {
+      const parts: string[] = []
+      parts.push(
+        `Classificação aduaneira definida para NCM ${recommendedNcmClean}${finalEffectiveEx ? ` (Ex-Tarifário ${finalEffectiveEx})` : ' (sem Ex-Tarifário)'} com base na análise funcional e técnica da mercadoria (${primaryDescription || leanSignature}).`,
+      )
+
+      if (auditVerdict.override_reason) {
+        parts.push(auditVerdict.override_reason)
+      } else if (auditVerdict.action === 'VETA' && auditVerdict.correction_reason) {
+        parts.push(auditVerdict.correction_reason)
+      }
+
+      if (compositionAnalysis.isKit) {
+        parts.push(
+          `[Análise de Composição RGI 3b/3c]: Produto identificado como conjunto/sistema (${compositionAnalysis.detectedComponents.join(', ')}). Enquadramento determinado pela função essencial do conjunto global.`,
+        )
+      }
+
+      finalJustification = parts.join('\n\n')
+    } else {
+      finalJustification = llmResponseJson.justification || ''
+      if (compositionAnalysis.isKit && !finalJustification.includes('[Análise de Composição')) {
+        finalJustification = `[Análise de Composição RGI 3b/3c]: Produto identificado como conjunto/sistema (${compositionAnalysis.detectedComponents.join(', ')}). Enquadramento determinado pela função essencial do conjunto global.\n\n${finalJustification}`
       }
     }
 
     if (checklistFormattedReport) {
       let reportHeader = ''
-      if (exVetoApplied) {
+      if (exVetoApplied || !checklistLog.passed) {
         reportHeader = `[Checklist de Condições Restritivas do Ex-Tarifário: VETO APLICADO EM CÓDIGO]\n${checklistFormattedReport}\nVeto: ${checklistLog.vetoReason || 'Não atendeu às condições qualificadoras do Ex.'}\n\n`
       } else if (checklistLog.status === 'NÃO VERIFICADO') {
         reportHeader = `[Checklist de Condições Restritivas do Ex-Tarifário: NÃO VERIFICADO - REQUER REVISÃO ESPECIALISTA]\n${checklistFormattedReport}\n\n`
@@ -1099,55 +1220,60 @@ ${candidatesCatalogText}`
       finalJustification = `${reportHeader}${finalJustification}`
     }
 
+    // BRECHA B.3 (cont): Varrer em código menções a NCMs/Exs ausentes da resposta final
+    // Montar a lista de NCMs e Exs autorizados na resposta final (recomendação + alternativas)
+    const allowedNcms = new Set<string>([recommendedNcmClean])
+    const allowedExs = new Set<string>()
+    if (finalEffectiveEx) allowedExs.add(finalEffectiveEx)
+
+    for (const alt of resolvedAlternatives) {
+      if (alt.ncm) allowedNcms.add(normalizeNcm(alt.ncm))
+      if (alt.ex) allowedExs.add((alt.ex || '').toString().trim())
+    }
+
+    finalJustification = cleanObsoleteMentions(finalJustification, allowedNcms, allowedExs)
+
     // REGENERAÇÃO ESTRITA DA FUNDAMENTAÇÃO LEGAL (legal_basis):
-    // Proibido herdar referência a Ex remoto, vetado ou diferente do Ex final homologado.
-    // Verificação em código: nenhum código de Ex citado no legal_basis pode diferir do Ex final.
-    const finalExCode = (primaryTaxRate.ex || recommendedExClean || '').toString().trim()
     let regeneratedLegalBasis = {
       ...(llmResponseJson.legal_basis || primaryTaxRate.legal_basis || {}),
     }
 
-    const rawNotes = (regeneratedLegalBasis.notes || '').toString()
-    // Procurar menções a Ex-Tarifário na nota
-    const exMentionMatch = rawNotes.match(/ex(?:-tarif[aá]rio)?\s*[:#-]?\s*(\d{1,4})/i)
-
-    if (exMentionMatch) {
-      const citedExDigits = exMentionMatch[1].padStart(3, '0')
-      const finalExDigits = finalExCode ? finalExCode.padStart(3, '0') : ''
-
-      if (!finalExCode || citedExDigits !== finalExDigits) {
-        // Ex citado difere do Ex final: REGENERAR notes por completo sem a menção ao Ex vetado/incompatível
-        const cleanedNotes = rawNotes
-          .replace(/conforme\s+descrito\s+no\s+ex-tarif[aá]rio\s*\d+/gi, '')
-          .replace(/com\s+ex-tarif[aá]rio\s*\d+/gi, '')
-          .replace(/ex-tarif[aá]rio\s*\d+/gi, '')
-          .replace(/\s{2,}/g, ' ')
-          .replace(/\s*\.\s*\./g, '.')
-          .trim()
-
-        regeneratedLegalBasis.notes =
-          cleanedNotes && cleanedNotes.length > 5
-            ? cleanedNotes
-            : `Classificação determinada pela função essencial na NCM ${recommendedNcmClean} (${regeneratedLegalBasis.regime || 'Geral'}), sem Ex-Tarifário concedido.`
-      }
-    } else if (!finalExCode && /ex-tarif[aá]rio/i.test(rawNotes)) {
+    if (!finalEffectiveEx) {
       regeneratedLegalBasis.notes = `Classificação na NCM ${recommendedNcmClean} com base nas Regras Gerais de Interpretação (RGI 1 / RGI 3). Sem aplicação de Ex-Tarifário.`
+    } else {
+      regeneratedLegalBasis.notes = cleanObsoleteMentions(
+        (regeneratedLegalBasis.notes || '').toString(),
+        allowedNcms,
+        allowedExs,
+      )
     }
 
     const recommendationObject = {
       ncm: recommendedNcmClean,
-      ex: primaryTaxRate.ex || recommendedExClean,
+      ex: finalEffectiveEx,
       description: primaryDescription,
       ii: iiRate,
       ipi: ipiRate,
       pis: pisRate,
       cofins: cofinsRate,
       total_tax: totalTax,
-      has_ex_tarifario: hasEx,
+      has_ex_tarifario: finalHasEx,
       justification: finalJustification,
       legal_basis: regeneratedLegalBasis,
-      ex_details: exDetails,
+      ex_details: finalExDetails,
     }
+
+    // BRECHA B.4: Resolução estrita e determinação da FASE 0 (product_understanding)
+    const finalProductUnderstanding = auditVerdict?.product_understanding ||
+      llmResponseJson?.product_understanding || {
+        identity: leanSignature,
+        essential_function: initialRecommendation.essential_function,
+        target_machines: compositionAnalysis.targetMachines,
+        canonical_statement: `o produto é um ${leanSignature} que ${initialRecommendation.essential_function}, destinado a ${compositionAnalysis.targetMachines.join(', ') || 'operação autônoma'}`,
+      }
+
+    // Modelos utilizados registrados explicitamente por passada
+    const combinedModelsLog = `1ª passada (análise): ${analystModelUsed || 'openai (gpt-4o-mini)'} | 2ª passada (auditoria): ${auditorModelUsed || 'deepseek (deepseek-chat)'}`
 
     // 15. Gravação no log de auditoria (imp_sim_ncm_classification_log)
     let auditId: string | null = null
@@ -1162,7 +1288,10 @@ ${candidatesCatalogText}`
               alternatives: resolvedAlternatives,
               confidence: llmResponseJson.confidence || 'media',
               sufficient_info: sufficiencyCheck.isSufficient,
-              model_used: modelUsed,
+              model_used: combinedModelsLog,
+              analyst_model: analystModelUsed,
+              auditor_model: auditorModelUsed,
+              product_understanding: finalProductUnderstanding,
               brand,
               model,
               additional_specs: additionalSpecs,
@@ -1174,7 +1303,7 @@ ${candidatesCatalogText}`
               ex_veto_applied: exVetoApplied,
             },
             final_choice_ncm: recommendedNcmClean,
-            final_choice_ex: primaryTaxRate.ex || recommendedExClean,
+            final_choice_ex: finalEffectiveEx,
             confirmed_by: callerUserId,
             status: 'pendente',
             product_id: productId,
@@ -1196,15 +1325,6 @@ ${candidatesCatalogText}`
       }
     }
 
-    // 16. Resposta JSON completa com product_understanding da Fase 0
-    const finalProductUnderstanding = auditVerdict?.product_understanding ||
-      llmResponseJson?.product_understanding || {
-        identity: leanSignature,
-        essential_function: initialRecommendation.essential_function,
-        target_machines: compositionAnalysis.targetMachines,
-        canonical_statement: `o produto é um ${leanSignature} que ${initialRecommendation.essential_function}, destinado a ${compositionAnalysis.targetMachines.join(', ') || 'operação autônoma'}`,
-      }
-
     const responsePayload = {
       success: true,
       audit_id: auditId,
@@ -1214,7 +1334,9 @@ ${candidatesCatalogText}`
       confidence: (llmResponseJson.confidence || 'media').toLowerCase(),
       sufficient_info: sufficiencyCheck.isSufficient,
       web_sources: webSources,
-      model_used: modelUsed,
+      model_used: combinedModelsLog,
+      analyst_model: analystModelUsed,
+      auditor_model: auditorModelUsed,
       candidates_count: candidates.length,
       execution_time_ms: executionTimeMs,
       audit_verdict: auditVerdict,
@@ -2564,6 +2686,61 @@ async function invokeLLMWithTimeout(
   } finally {
     clearTimeout(timeoutId)
   }
+}
+
+/**
+ * Remove menções residuais/obsoletas a NCMs ou Exs vetados de qualquer texto justificativo.
+ * Garante que somente códigos presentes no conjunto homologado (recomendação e alternativas) permaneçam.
+ */
+function cleanObsoleteMentions(
+  text: string,
+  allowedNcms: Set<string>,
+  allowedExs: Set<string>,
+): string {
+  if (!text) return ''
+
+  // 1. Remover frases ou menções a NCMs que não estão nos permitidos
+  // Ex: "NCM 9031.90.90", "NCM 90319090", "posição 9031.90.90"
+  let cleaned = text.replace(
+    /\b(?:NCM|posição|subposição|código)?\s*(\d{4}\.?\d{2}\.?\d{2})\b/gi,
+    (match, ncmDigits) => {
+      const norm = normalizeNcm(ncmDigits)
+      if (norm.length === 8 && !allowedNcms.has(norm)) {
+        return ''
+      }
+      return match
+    },
+  )
+
+  // 2. Remover menções a Ex-Tarifários que não estão nos permitidos
+  // Ex: "Ex 247", "Ex-Tarifário 028", "Ex-Tarifário: 247", "Ex: 028"
+  cleaned = cleaned.replace(
+    /\b(?:Ex(?:-Tarif[aá]rio)?(?:\s*[:#-]?\s*|\s+))(\d{1,4})\b/gi,
+    (match, exNum) => {
+      const cleanNum = exNum.toString().trim()
+      const padded3 = cleanNum.padStart(3, '0')
+      const isAllowed =
+        allowedExs.has(cleanNum) ||
+        allowedExs.has(padded3) ||
+        allowedExs.has(cleanNum.replace(/^0+/, ''))
+      if (!isAllowed) {
+        return ''
+      }
+      return match
+    },
+  )
+
+  // 3. Limpar resíduos de formatação (espaços duplos, vírgulas ou pontos órfãos)
+  cleaned = cleaned
+    .replace(/\(\s*\)/g, '')
+    .replace(/,\s*,/g, ',')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/\s+\./g, '.')
+    .replace(/\.\s*\./g, '.')
+    .replace(/:\s*\./g, '.')
+    .trim()
+
+  return cleaned
 }
 
 /**

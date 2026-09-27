@@ -59,7 +59,20 @@ describe('NCM Product Validation & Recalibration Tests', () => {
     const canonLower = (result.product_understanding.canonical_statement || '').toLowerCase()
     expect(canonLower.includes('o produto é um') || canonLower.includes('o produto e um')).toBe(true)
 
-    // Falha 1 & 3: Propagação de veto e presença de 85437099 e 85299090
+    // Log e modelos por passada
+    expect(result.model_used).toBeDefined()
+    expect(result.model_used.includes('1ª passada')).toBe(true)
+    expect(result.model_used.includes('2ª passada')).toBe(true)
+
+    // Brechas estruturais RM-IP500:
+    // (1 & 2) Ex-Tarifário deve ser sem Ex ou tecnicamente verificado da lista de candidatos
+    // (3) Nenhuma menção a Ex 247, Ex 028 ou 90319090 no texto final
+    const finalJustification = result.recommendation.justification || ''
+    expect(finalJustification.includes('90319090')).toBe(false)
+    expect(finalJustification.includes('9031.90.90')).toBe(false)
+    expect(finalJustification.includes('247')).toBe(false)
+    expect(finalJustification.includes('028')).toBe(false)
+
     // Os NCMs 85371020, 90071000 e 90314990 NÃO PODEM aparecer nem na recomendação nem nas alternativas
     expect(recommendedNcm).not.toBe('85371020')
     expect(recommendedNcm).not.toBe('90071000')

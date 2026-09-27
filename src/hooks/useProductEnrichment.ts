@@ -49,7 +49,6 @@ export function useProductEnrichment(
             product_name: productName,
             product_description: productDescription,
           },
-          // @ts-expect-error - pass signal down to underlying fetch
           signal: abortController.signal,
         })
 

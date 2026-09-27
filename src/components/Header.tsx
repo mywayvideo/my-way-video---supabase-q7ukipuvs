@@ -14,7 +14,11 @@ export function Header() {
   const cartContext = useCart()
   const { favorites } = useFavorites()
 
-  const cartItems = cartContext?.cart || cartContext?.items || cartContext?.cartItems || []
+  const cartItems =
+    (cartContext as any)?.cart ||
+    (cartContext as any)?.items ||
+    (cartContext as any)?.cartItems ||
+    []
   const cartCount = cartItems.reduce((acc: number, item: any) => acc + (item.quantity || 1), 0)
   const favoritesCount = favorites?.length || 0
   const [isAdmin, setIsAdmin] = useState(false)

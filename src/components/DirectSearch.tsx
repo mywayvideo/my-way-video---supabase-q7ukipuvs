@@ -20,33 +20,35 @@ export function DirectSearch() {
       setLoading(true)
       supabase
         .rpc('search_products_v2', { search_term: debouncedQuery, boost_multiplier: 1.0 })
-        .then(async ({ data: rpcData }) => {
-          if (!rpcData || rpcData.length === 0) {
+        .then(
+          async ({ data: rpcData }) => {
+            if (!rpcData || rpcData.length === 0) {
+              setResults([])
+              setLoading(false)
+              setOpen(true)
+              return
+            }
+            const ids = rpcData.slice(0, 6).map((r: any) => r.id)
+            const { data: products } = await supabase
+              .from('products')
+              .select('id, name, sku, category, image_url, is_discontinued')
+              .in('id', ids)
+
+            if (products) {
+              const sorted = ids.map((id) => products.find((p) => p.id === id)).filter(Boolean)
+              setResults(sorted)
+            } else {
+              setResults([])
+            }
+            setLoading(false)
+            setOpen(true)
+          },
+          () => {
             setResults([])
             setLoading(false)
             setOpen(true)
-            return
-          }
-          const ids = rpcData.slice(0, 6).map((r: any) => r.id)
-          const { data: products } = await supabase
-            .from('products')
-            .select('id, name, sku, category, image_url, is_discontinued')
-            .in('id', ids)
-
-          if (products) {
-            const sorted = ids.map((id) => products.find((p) => p.id === id)).filter(Boolean)
-            setResults(sorted)
-          } else {
-            setResults([])
-          }
-          setLoading(false)
-          setOpen(true)
-        })
-        .catch(() => {
-          setResults([])
-          setLoading(false)
-          setOpen(true)
-        })
+          },
+        )
     } else {
       setResults([])
       setOpen(false)

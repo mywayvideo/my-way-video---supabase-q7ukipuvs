@@ -259,7 +259,7 @@ export default function Checkout() {
   const squareAppIdRef = useRef<string | null>(null)
 
   useEffect(() => {
-    if (paymentMethod !== 'square') {
+    if ((paymentMethod as any) !== 'square') {
       if (squareCardRef.current) {
         try {
           squareCardRef.current.destroy()
@@ -2952,7 +2952,7 @@ Valor: ${formatCurrency(total)}
 
             {renderManualPaymentDetails()}
 
-            {paymentMethod === 'square' && (
+            {(paymentMethod as any) === 'square' && (
               <div
                 ref={paymentDetailsRef}
                 className="bg-[hsl(215,20%,96%)] p-6 rounded-xl border border-[hsl(215,20%,90%)] mt-6 animate-in fade-in duration-300 space-y-5"
@@ -3006,7 +3006,7 @@ Valor: ${formatCurrency(total)}
               <button
                 className="w-full bg-emerald-600 text-white p-3 rounded-lg font-semibold hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
                 onClick={() => {
-                  if (paymentMethod === 'square') handleSquareSubmit()
+                  if ((paymentMethod as any) === 'square') handleSquareSubmit()
                   else if (paymentMethod === 'stripe') handleStripeSubmit()
                   else if (paymentMethod === 'paypal') handlePayPalSubmit()
                   else handleConfirmManualPayment()
@@ -3016,7 +3016,7 @@ Valor: ${formatCurrency(total)}
                   isGlobalLoading ||
                   (paymentMethod === 'stripe' &&
                     (!isCardReady || stripeName.length < 5 || !stripeEmail.includes('@'))) ||
-                  (paymentMethod === 'square' && !squarePaymentForm)
+                  ((paymentMethod as any) === 'square' && !squarePaymentForm)
                 }
               >
                 {isGlobalLoading ? (

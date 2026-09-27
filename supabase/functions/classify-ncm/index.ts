@@ -89,10 +89,13 @@ Deno.serve(async (req: Request) => {
       global: { headers: { Authorization: `Bearer ${jwt}` } },
     })
 
+    // Importante: em Deno Edge Functions não há sessão local persistida (localStorage).
+    // O método auth.getUser() sem parâmetros falha com "Auth session missing!".
+    // É obrigatório passar explicitamente o jwt como argumento: auth.getUser(jwt).
     const {
       data: { user },
       error: userError,
-    } = await supabaseUserClient.auth.getUser()
+    } = await supabaseUserClient.auth.getUser(jwt)
 
     if (userError || !user) {
       return new Response(

@@ -49,7 +49,7 @@ class DashboardErrorBoundary extends React.Component<
 }
 
 function DashboardContent() {
-  const { loading: roleLoading, error: roleError } = useUserRole()
+  const { loading: roleLoading, error: roleError } = useUserRole() as any
 
   const {
     user,
@@ -303,7 +303,7 @@ function DashboardContent() {
             {loading ? (
               <Skeleton className="h-[400px] w-full" />
             ) : (
-              <OrderHistoryTab orders={orders} customerId={user.id} onRefresh={refresh} />
+              <OrderHistoryTab orders={orders as any} customerId={user.id} onRefresh={refresh} />
             )}
           </TabsContent>
         </div>

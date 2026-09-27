@@ -46,7 +46,7 @@ export function useFavorites() {
             .map((id) => ({ user_id: user.id, product_id: id }))
 
           if (toInsert.length > 0) {
-            await supabase.from('favorites').insert(toInsert)
+            await (supabase.from('favorites') as any).insert(toInsert)
             toast.success('Favoritos sincronizados!')
           }
         }
@@ -129,9 +129,10 @@ export function useFavorites() {
     if (user) {
       addFav(productId) // Optimistic update
       try {
-        const { error } = await supabase
-          .from('favorites')
-          .insert({ user_id: user.id, product_id: productId })
+        const { error } = await (supabase.from('favorites') as any).insert({
+          user_id: user.id,
+          product_id: productId,
+        })
         if (error && error.code !== '23505') {
           // removeFav(productId) // Rollback
           throw error

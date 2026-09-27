@@ -22,20 +22,22 @@ export function usePriceSettings() {
         .select('markup, freight_per_kg_usd, weight_margin, exchange_rate, exchange_spread')
         .limit(1)
         .maybeSingle()
-        .then(({ data }: any) => {
-          if (data) {
-            cachedSettings = {
-              markup: Number(data.markup) || 0,
-              freight_per_kg_usd: Number(data.freight_per_kg_usd) || 0,
-              weight_margin: Number(data.weight_margin) || 0,
-              exchange_rate: Number(data.exchange_rate) || 0,
-              exchange_spread: Number(data.exchange_spread) || 0,
+        .then(
+          ({ data }: any) => {
+            if (data) {
+              cachedSettings = {
+                markup: Number(data.markup) || 0,
+                freight_per_kg_usd: Number(data.freight_per_kg_usd) || 0,
+                weight_margin: Number(data.weight_margin) || 0,
+                exchange_rate: Number(data.exchange_rate) || 0,
+                exchange_spread: Number(data.exchange_spread) || 0,
+              }
+              return cachedSettings
             }
-            return cachedSettings
-          }
-          return null
-        })
-        .catch(() => null)
+            return null
+          },
+          () => null,
+        )
     }
     fetchPromise.then((res) => {
       setSettings(res)

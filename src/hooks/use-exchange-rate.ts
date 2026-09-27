@@ -19,15 +19,17 @@ export function useExchangeRate() {
         .select('usd_to_brl, spread_percentage')
         .limit(1)
         .maybeSingle()
-        .then(({ data }: any) => {
-          if (data) {
-            const val = Number(data.usd_to_brl) * (1 + Number(data.spread_percentage) / 100)
-            cachedRate = val
-            return val
-          }
-          return null
-        })
-        .catch(() => null)
+        .then(
+          ({ data }: any) => {
+            if (data) {
+              const val = Number(data.usd_to_brl) * (1 + Number(data.spread_percentage) / 100)
+              cachedRate = val
+              return val
+            }
+            return null
+          },
+          () => null,
+        )
     }
     fetchPromise.then((val) => setRate(val ?? 0))
   }, [])

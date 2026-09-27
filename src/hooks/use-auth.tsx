@@ -73,13 +73,13 @@ export const useAuth = () => {
     user: context.currentUser,
     currentUser: context.currentUser,
     session: null as Session | null, // Session not exposed by modern context
-    profile: context.userMetadata as unknown as CustomerProfile | null,
+    profile: (context as any).userMetadata as unknown as CustomerProfile | null,
     signUp,
     signIn,
     signOut,
     resetPassword,
     refreshProfile,
-    loading: context.isLoading,
+    loading: (context as any).isLoading,
   }
 }
 

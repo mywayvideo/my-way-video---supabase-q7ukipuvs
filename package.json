@@ -8,6 +8,7 @@
     "start": "vite dev",
     "dev": "vite",
     "build": "vite build",
+    "test": "echo \"there are no tests for this project\" && exit 0",
     "build:dev": "vite build --mode development",
     "lint": "oxlint src",
     "lint:fix": "oxlint src --fix",

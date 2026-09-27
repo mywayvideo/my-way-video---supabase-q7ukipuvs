@@ -1,0 +1,2 @@
+-- Test migration harness (applied previously)
+-- Empty placeholder so git index and disk match

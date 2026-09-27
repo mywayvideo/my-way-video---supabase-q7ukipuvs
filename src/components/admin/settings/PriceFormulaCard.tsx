@@ -30,27 +30,27 @@ export function PriceFormulaCard() {
 
   const fetchSettings = async () => {
     try {
-      const { data: res, error } = await supabase
+      const { data: res, error } = await (supabase
         .from('price_settings' as any)
         .select('*')
         .limit(1)
-        .single()
+        .single() as any)
       if (error && error.code !== 'PGRST116') throw error
       if (res) {
         setData({
-          exchange_rate: res.exchange_rate,
-          exchange_spread: res.exchange_spread,
-          freight_per_kg_usd: res.freight_per_kg_usd,
-          weight_margin: res.weight_margin,
-          markup: res.markup,
+          exchange_rate: (res as any).exchange_rate,
+          exchange_spread: (res as any).exchange_spread,
+          freight_per_kg_usd: (res as any).freight_per_kg_usd,
+          weight_margin: (res as any).weight_margin,
+          markup: (res as any).markup,
         })
-        setSettingsId(res.id)
-        setUpdatedAt(res.updated_at)
-        if (res.updated_by) {
+        setSettingsId((res as any).id)
+        setUpdatedAt((res as any).updated_at)
+        if ((res as any).updated_by) {
           const { data: userData } = await supabase
             .from('customers')
             .select('full_name, email')
-            .eq('user_id', res.updated_by)
+            .eq('user_id', (res as any).updated_by)
             .single()
           if (userData) setUpdatedBy(userData.full_name || userData.email || 'Admin')
         }

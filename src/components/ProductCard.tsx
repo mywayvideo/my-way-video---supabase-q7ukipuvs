@@ -33,7 +33,7 @@ export function ProductCard({
   } | null
 }) {
   const [showQtyModal, setShowQtyModal] = useState(false)
-  const { isSearchActive, searchQuery } = useSearchState()
+  const { isSearchActive, searchQuery } = useSearchState() as any
   const { isFavorite, addFavorite, removeFavorite } = useFavorites()
   const [favLoading, setFavLoading] = useState(false)
 

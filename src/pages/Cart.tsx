@@ -180,7 +180,7 @@ export default function Cart() {
       const originalEvalResult = getEligibilityAndPrice(
         details,
         destination,
-        exchangeRate,
+        exchangeRate as any,
         shippingSettings,
       )
 
@@ -222,7 +222,7 @@ export default function Cart() {
       const evalResult = getEligibilityAndPrice(
         discountedDetails,
         destination,
-        exchangeRate,
+        exchangeRate as any,
         shippingSettings,
       )
 

@@ -184,12 +184,12 @@ export function FavoriteProductCard({
                 </span>
               )}
             <ProductPrice
-              price={discountData?.price ?? discountData?.finalPrice}
-              originalPrice={discountData?.originalPrice}
+              originalPrice={discountData?.originalPrice ?? product.price_usd}
+              discountedPrice={discountData?.discountedPrice}
               discountPercentage={discountData?.discountPercentage}
-              discountLabel={discountData?.discountLabel}
-              product={product}
-              {...discountData}
+              ruleName={discountData?.ruleName}
+              currency={discountData?.currency}
+              isRebateActive={discountData?.isRebateActive}
             />
           </div>
         </CardContent>

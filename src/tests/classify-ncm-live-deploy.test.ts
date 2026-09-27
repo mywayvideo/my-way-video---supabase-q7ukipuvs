@@ -7,7 +7,7 @@ const supabaseAnonKey = process.env.VITE_SUPABASE_PUBLISHABLE_KEY || ''
 describe('classify-ncm Edge Function live deploy check & validation', () => {
   const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
-  it('checks edge function health endpoint returning version 3.6.0-build.609', async () => {
+  it('checks edge function health endpoint returning version 3.6.0-build.611', async () => {
     const res = await fetch(`${supabaseUrl}/functions/v1/classify-ncm?health=true`, {
       method: 'GET',
     })
@@ -16,7 +16,7 @@ describe('classify-ncm Edge Function live deploy check & validation', () => {
     const data = await res.json()
     expect(data.status).toBe('ok')
     expect(data.function).toBe('classify-ncm')
-    expect(data.version).toBe('3.6.0-build.609')
+    expect(data.version).toBe('3.6.0-build.611')
     expect(data.features).toContain('phase0_canonical_composition_derivation')
     expect(data.features).toContain('phase0_tripartite_product_nature')
     expect(data.features).toContain('orphan_ncm_sweep_invariant')
@@ -78,6 +78,7 @@ describe('classify-ncm Edge Function live deploy check & validation', () => {
         Authorization: `Bearer ${jwt}`,
       },
       body: JSON.stringify({
+        product_id: 'da9abc07-91ba-4478-b927-51a41ca9f0ff',
         product_description: 'Sony RM-IP500 PTZ Camera Remote Controller. Control of up to 100 cameras over IP. Pan, tilt, and zoom joystick control with PTZ speed control knobs.',
         brand: 'Sony',
         model: 'RM-IP500',

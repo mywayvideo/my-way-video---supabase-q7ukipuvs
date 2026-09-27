@@ -1,5 +1,5 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
-import { createClient } from 'npm:@supabase/supabase-js@2.39.3'
+import { createClient } from 'npm:@supabase/supabase-js@2'
 import { corsHeaders } from '../_shared/cors.ts'
 
 interface ClassifyRequestBody {
@@ -734,7 +734,7 @@ Deno.serve(async (req: Request) => {
       JSON.stringify({
         status: 'ok',
         function: 'classify-ncm',
-        version: '3.6.0-build.609',
+        version: '3.6.0-build.611',
         knowledge_base_version: '3.1',
         features: [
           'phase0_canonical_composition_derivation',
@@ -2439,7 +2439,7 @@ ${candidatesCatalogText}`
       composition_analysis: compositionAnalysis,
       checklist_log: checklistLog,
       parts_indirect_logic: partsTelemetry,
-      version: '3.6.0-build.609',
+      version: '3.6.0-build.611',
       timestamp: new Date().toISOString(),
     }
 
@@ -3516,6 +3516,13 @@ async function retrieveSectorOrientedCandidates(params: {
       )
     }
   }
+  // PRESERVAÇÃO OBRIGATÓRIA DE NCMs DE PARTES E ACESSÓRIOS VINCULADOS:
+  // Candidatos de partes com vínculo indireto casando com as máquinas de destino (is_target_machine_parts)
+  // NUNCA podem ser descartados no agrupamento ou corte por topN, pois fundamentam a precedência da Nota 2(b).
+  const targetPartsCandidates = candidates.filter(
+    (c: any) => c.is_target_machine_parts || c.is_parts_indirect_linking,
+  )
+
   // Agrupamento semântico por FAMÍLIA DE POSIÇÕES (primeiros 4 dígitos da NCM, ex: 8517, 8518, 8525, 8543)
   // Garantir diversidade semântica: equilibrar candidatos entre a família principal e setores adjacentes
   const families = new Map<string, any[]>()
@@ -3552,7 +3559,21 @@ async function retrieveSectorOrientedCandidates(params: {
     if (diversifiedCandidates.length >= topN + 5) break
   }
 
-  const selectedCandidates = diversifiedCandidates.slice(0, topN)
+  // Garantir que todos os candidatos de partes com vínculo indireto estejam na lista final selecionada
+  for (const tpc of targetPartsCandidates) {
+    if (
+      !diversifiedCandidates.some(
+        (c) => normalizeNcm(c.ncm) === normalizeNcm(tpc.ncm) && (c.ex || '') === (tpc.ex || ''),
+      )
+    ) {
+      diversifiedCandidates.unshift(tpc)
+    }
+  }
+
+  const selectedCandidates = diversifiedCandidates.slice(
+    0,
+    Math.max(topN, targetPartsCandidates.length + 5),
+  )
 
   // =========================================================================
   // CORREÇÃO (1) — EXPANSÃO DE FAMÍLIA HIERÁRQUICA (PRINCÍPIO GENÉRICO UNIVERSAL)

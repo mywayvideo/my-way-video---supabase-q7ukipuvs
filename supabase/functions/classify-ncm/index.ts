@@ -1323,13 +1323,13 @@ async function retrieveSectorOrientedCandidates(params: {
       ).slice(0, 3)
 
       for (const cleanComp of distinctComps) {
-        // Buscar posições oficiais no banco contendo o termo verbatim sobre ncm_descricao_full (com fallback para ncm_descricao)
+        // Buscar posições oficiais no banco contendo o termo verbatim diretamente via índice GIN em ncm_descricao_full
         const { data: compMatches } = await supabaseAdmin
           .from('imp_sim_tax_rates')
           .select(
             'id, ncm, ex, ncm_descricao, ncm_descricao_full, ex_descricao, ii_rate, ipi_rate, pis_rate, cofins_rate, has_ex_tarifario',
           )
-          .or(`ncm_descricao_full.ilike.%${cleanComp}%,ncm_descricao.ilike.%${cleanComp}%`)
+          .ilike('ncm_descricao_full', `%${cleanComp}%`)
           .limit(8)
 
         if (compMatches && compMatches.length > 0) {

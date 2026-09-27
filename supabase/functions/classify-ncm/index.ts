@@ -69,6 +69,27 @@ Deno.serve(async (req: Request) => {
     return new Response('ok', { headers: corsHeaders })
   }
 
+  // Endpoint de verificação de integridade e versão do deploy (GET / ou query param ?health=true)
+  const reqUrl = new URL(req.url)
+  if (req.method === 'GET' || reqUrl.searchParams.get('health') === 'true') {
+    return new Response(
+      JSON.stringify({
+        status: 'ok',
+        function: 'classify-ncm',
+        version: '3.1.0-build.603',
+        knowledge_base_version: '3.1',
+        features: [
+          'phase0_product_understanding',
+          'auditor_role_ai_providers',
+          'two_pass_composite_models',
+          'ex_veto_cleared_invariant',
+          'legal_basis_regeneration',
+        ],
+        timestamp: new Date().toISOString(),
+      }),
+      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+    )
+  }
   const startTime = Date.now()
 
   // 1. Validação de método HTTP
@@ -290,15 +311,16 @@ Deno.serve(async (req: Request) => {
     }
 
     // 8. Buscar provedores de IA ativos na tabela public.ai_providers ordenados por prioridade
-    const { data: providers, error: provError } = await supabaseAdmin
+    // Selecionamos também a coluna 'role' para separar 1ª passada (analyst) e 2ª passada (auditor)
+    const { data: rawProviders, error: provError } = await supabaseAdmin
       .from('ai_providers')
       .select(
-        'id, provider_name, provider_type, model_id, api_key_secret_name, custom_endpoint, priority_order',
+        'id, provider_name, provider_type, model_id, api_key_secret_name, custom_endpoint, priority_order, role',
       )
       .eq('is_active', true)
       .order('priority_order', { ascending: true })
 
-    if (provError || !providers || providers.length === 0) {
+    if (provError || !rawProviders || rawProviders.length === 0) {
       console.error('Nenhum provedor de IA ativo encontrado em public.ai_providers:', provError)
       return new Response(
         JSON.stringify({
@@ -307,6 +329,20 @@ Deno.serve(async (req: Request) => {
         { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
       )
     }
+
+    const allProviders = rawProviders as (LLMProviderConfig & { role?: string })[]
+
+    // Separar provedores dedicados para Análise (1ª passada) e Auditoria (2ª passada)
+    // Se houver provedores com role='analyst', usá-los prioritariamente na 1ª passada.
+    // Se houver provedores com role='auditor', usá-los prioritariamente na 2ª passada (ex: DeepSeek).
+    const analystProviders = allProviders.filter(
+      (p) => (p.role || 'general') === 'analyst' || (p.role || 'general') === 'general',
+    )
+    const primaryAnalystProviders = analystProviders.length > 0 ? analystProviders : allProviders
+
+    const auditorProvidersList = allProviders.filter((p) => (p.role || 'general') === 'auditor')
+    const primaryAuditorProviders =
+      auditorProvidersList.length > 0 ? auditorProvidersList : allProviders
 
     // 9. PROMPT UNIVERSAL COM ANÁLISE DE COMPOSIÇÃO (RGI 3b / 3c) E RESTRIÇÃO DE EX
     const candidatesCatalogText = candidates
@@ -416,12 +452,13 @@ ${candidatesCatalogText}
 
 Construa a FASE 0 obrigatória no campo 'product_understanding' com a sentença canônica "o produto é um [tipo] que [função essencial], destinado a [máquina]", avalie todos os candidatos e forneça o JSON estruturado conforme o protocolo aduaneiro.`
 
-    // 10. Chamada ao LLM com cascata de fallback
+    // 10. Chamada ao LLM com cascata de fallback (1ª Passada - Análise Técnica)
     let llmResponseJson: any = null
-    let modelUsed = ''
+    let analystModelUsed = ''
+    let auditorModelUsed = ''
     let lastLlmError = ''
 
-    for (const provider of providers as LLMProviderConfig[]) {
+    for (const provider of primaryAnalystProviders) {
       const apiKey = Deno.env.get(provider.api_key_secret_name) || ''
       if (!apiKey) continue
 
@@ -441,7 +478,7 @@ Construa a FASE 0 obrigatória no campo 'product_understanding' com a sentença 
 
           if (candidateMatch) {
             llmResponseJson = parsed
-            modelUsed = `${provider.provider_name} (${provider.model_id})`
+            analystModelUsed = `${provider.provider_name} (${provider.model_id})`
             break
           } else {
             console.warn(
@@ -583,6 +620,10 @@ Construa a FASE 0 obrigatória no campo 'product_understanding' com a sentença 
       product_understanding: initialRecommendation.product_understanding,
     }
 
+    // Inicializar auditorModelUsed com o modelo que será chamado ou com o provedor preferencial
+    if (primaryAuditorProviders.length > 0) {
+      auditorModelUsed = `${primaryAuditorProviders[0].provider_name} (${primaryAuditorProviders[0].model_id})`
+    }
     // Se o código determinístico vetou o Ex, registrar o status no initialRecommendation
     if (exVetoApplied) {
       initialRecommendation.recommended_ex = ''
@@ -657,33 +698,41 @@ ATENÇÃO AUDITOR:
 LISTA DE CANDIDATOS VÁLIDOS:
 ${candidatesCatalogText}`
 
-      for (const provider of providers as LLMProviderConfig[]) {
+      for (const provider of primaryAuditorProviders) {
         const apiKey = Deno.env.get(provider.api_key_secret_name) || ''
         if (!apiKey) continue
 
-        const auditRawContent = await invokeLLMWithTimeout(
-          provider,
-          apiKey,
-          auditorSystemPrompt,
-          auditorUserPrompt,
-          20000,
-        )
-        const parsedAudit = parseLLMJsonResponse(auditRawContent)
-        if (parsedAudit && (parsedAudit.action === 'APROVA' || parsedAudit.action === 'VETA')) {
-          auditVerdict = {
-            action: parsedAudit.action,
-            essential_function:
-              parsedAudit.essential_function || initialRecommendation.essential_function,
-            corrected_ncm: parsedAudit.corrected_ncm
-              ? normalizeNcm(parsedAudit.corrected_ncm)
-              : undefined,
-            corrected_ex: (parsedAudit.corrected_ex || '').toString().trim(),
-            correction_reason: parsedAudit.correction_reason || '',
-            audit_critique: parsedAudit.audit_critique || '',
-            product_understanding:
-              parsedAudit.product_understanding || initialRecommendation.product_understanding,
+        try {
+          const auditRawContent = await invokeLLMWithTimeout(
+            provider,
+            apiKey,
+            auditorSystemPrompt,
+            auditorUserPrompt,
+            20000,
+          )
+          const parsedAudit = parseLLMJsonResponse(auditRawContent)
+          if (parsedAudit && (parsedAudit.action === 'APROVA' || parsedAudit.action === 'VETA')) {
+            auditorModelUsed = `${provider.provider_name} (${provider.model_id})`
+            auditVerdict = {
+              action: parsedAudit.action,
+              essential_function:
+                parsedAudit.essential_function || initialRecommendation.essential_function,
+              corrected_ncm: parsedAudit.corrected_ncm
+                ? normalizeNcm(parsedAudit.corrected_ncm)
+                : undefined,
+              corrected_ex: (parsedAudit.corrected_ex || '').toString().trim(),
+              correction_reason: parsedAudit.correction_reason || '',
+              audit_critique: parsedAudit.audit_critique || '',
+              product_understanding:
+                parsedAudit.product_understanding || initialRecommendation.product_understanding,
+            }
+            break
           }
-          break
+        } catch (auditCallErr) {
+          console.warn(
+            `Falha na chamada de auditoria com provedor ${provider.provider_name}:`,
+            auditCallErr,
+          )
         }
       }
 
@@ -821,7 +870,10 @@ ${candidatesCatalogText}`
 
     // 13. Resolução estrita das alíquotas efetivas via public.imp_sim_tax_rates_effective
     const recommendedNcmClean = normalizeNcm(llmResponseJson.recommended_ncm)
-    const recommendedExClean = (llmResponseJson.recommended_ex || '').toString().trim()
+    // INVARIANTE ABSOLUTA: Se o veto ao Ex foi aplicado (exVetoApplied === true), recommendedExClean DEVE ser vazio ('')
+    const recommendedExClean = exVetoApplied
+      ? ''
+      : (llmResponseJson.recommended_ex || '').toString().trim()
 
     const resolvedPrimary = await resolveEffectiveTaxRate(
       supabaseAdmin,
@@ -1027,7 +1079,11 @@ ${candidatesCatalogText}`
       for (const cand of candidates) {
         const cNcm = normalizeNcm(cand.ncm)
         const cDesc =
-          cand.ex_descricao || cand.ncm_descricao_full || cand.ncm_descricao || cand.source_text || ''
+          cand.ex_descricao ||
+          cand.ncm_descricao_full ||
+          cand.ncm_descricao ||
+          cand.source_text ||
+          ''
 
         // Verificar contradição de natureza
         const natureCheck = checkNatureContradiction({
@@ -1130,20 +1186,39 @@ ${candidatesCatalogText}`
       regeneratedLegalBasis.notes = `Classificação na NCM ${recommendedNcmClean} com base nas Regras Gerais de Interpretação (RGI 1 / RGI 3). Sem aplicação de Ex-Tarifário.`
     }
 
+    // Se o veto de Ex foi aplicado, o Ex final NUNCA pode carregar valor de Ex vetado
+    const finalRecommendationEx = exVetoApplied ? '' : primaryTaxRate.ex || recommendedExClean || ''
+    const finalHasEx = exVetoApplied ? false : hasEx && Boolean(finalRecommendationEx)
+
     const recommendationObject = {
       ncm: recommendedNcmClean,
-      ex: primaryTaxRate.ex || recommendedExClean,
+      ex: finalRecommendationEx,
       description: primaryDescription,
       ii: iiRate,
       ipi: ipiRate,
       pis: pisRate,
       cofins: cofinsRate,
       total_tax: totalTax,
-      has_ex_tarifario: hasEx,
+      has_ex_tarifario: finalHasEx,
       justification: finalJustification,
       legal_basis: regeneratedLegalBasis,
-      ex_details: exDetails,
+      ex_details: finalHasEx ? exDetails : null,
     }
+
+    // Formatar string combinada com as duas passadas
+    // Ex: "openai (gpt-4o-mini) + deepseek (deepseek-chat)"
+    const compositeModelUsed = auditorModelUsed
+      ? `${analystModelUsed} + ${auditorModelUsed}`
+      : analystModelUsed
+
+    // 16. Resposta JSON completa com product_understanding da Fase 0
+    const finalProductUnderstanding = auditVerdict?.product_understanding ||
+      llmResponseJson?.product_understanding || {
+        identity: leanSignature,
+        essential_function: initialRecommendation.essential_function,
+        target_machines: compositionAnalysis.targetMachines,
+        canonical_statement: `o produto é um ${leanSignature} que ${initialRecommendation.essential_function}, destinado a ${compositionAnalysis.targetMachines.join(', ') || 'operação autônoma'}`,
+      }
 
     // 15. Gravação no log de auditoria (imp_sim_ncm_classification_log)
     let auditId: string | null = null
@@ -1158,7 +1233,10 @@ ${candidatesCatalogText}`
               alternatives: resolvedAlternatives,
               confidence: llmResponseJson.confidence || 'media',
               sufficient_info: sufficiencyCheck.isSufficient,
-              model_used: modelUsed,
+              model_used: compositeModelUsed,
+              analyst_model: analystModelUsed,
+              auditor_model: auditorModelUsed || 'none',
+              product_understanding: finalProductUnderstanding,
               brand,
               model,
               additional_specs: additionalSpecs,
@@ -1170,13 +1248,13 @@ ${candidatesCatalogText}`
               ex_veto_applied: exVetoApplied,
             },
             final_choice_ncm: recommendedNcmClean,
-            final_choice_ex: primaryTaxRate.ex || recommendedExClean,
+            final_choice_ex: finalRecommendationEx,
             confirmed_by: callerUserId,
             status: 'pendente',
             product_id: productId,
             imp_sim_product_id: impSimProductId,
             audit_links: webSources,
-            knowledge_base_version: '3.0',
+            knowledge_base_version: '3.1',
             execution_time_ms: executionTimeMs,
           })
           .select('id')
@@ -1192,16 +1270,6 @@ ${candidatesCatalogText}`
       }
     }
 
-    // 16. Resposta JSON completa com product_understanding da Fase 0
-    const finalProductUnderstanding =
-      auditVerdict?.product_understanding ||
-      llmResponseJson?.product_understanding || {
-        identity: leanSignature,
-        essential_function: initialRecommendation.essential_function,
-        target_machines: compositionAnalysis.targetMachines,
-        canonical_statement: `o produto é um ${leanSignature} que ${initialRecommendation.essential_function}, destinado a ${compositionAnalysis.targetMachines.join(', ') || 'operação autônoma'}`,
-      }
-
     const responsePayload = {
       success: true,
       audit_id: auditId,
@@ -1211,13 +1279,16 @@ ${candidatesCatalogText}`
       confidence: (llmResponseJson.confidence || 'media').toLowerCase(),
       sufficient_info: sufficiencyCheck.isSufficient,
       web_sources: webSources,
-      model_used: modelUsed,
+      model_used: compositeModelUsed,
+      analyst_model: analystModelUsed,
+      auditor_model: auditorModelUsed,
       candidates_count: candidates.length,
       execution_time_ms: executionTimeMs,
       audit_verdict: auditVerdict,
       lean_signature: leanSignature,
       composition_analysis: compositionAnalysis,
       checklist_log: checklistLog,
+      version: '3.1.0-build.603',
       timestamp: new Date().toISOString(),
     }
 
@@ -1309,9 +1380,38 @@ function analyzeProductComposition(text: string): CompositionAnalysisResult {
 
   // Normalização e deduplicação de máquinas de destino (descartar fragmentos triviais/recortes de marketing)
   const trivialMarketingFragments = new Set([
-    'the', 'an', 'a', 'all', 'any', 'o', 'a', 'os', 'as', 'um', 'uma', 'uns', 'umas',
-    'pro', 'professional', 'broadcast', 'studio', 'production', 'live', 'high', 'ultra',
-    'todas', 'todos', 'todo', 'toda', 'seu', 'sua', 'seus', 'suas', 'cada', 'mais', 'melhor',
+    'the',
+    'an',
+    'a',
+    'all',
+    'any',
+    'o',
+    'a',
+    'os',
+    'as',
+    'um',
+    'uma',
+    'uns',
+    'umas',
+    'pro',
+    'professional',
+    'broadcast',
+    'studio',
+    'production',
+    'live',
+    'high',
+    'ultra',
+    'todas',
+    'todos',
+    'todo',
+    'toda',
+    'seu',
+    'sua',
+    'seus',
+    'suas',
+    'cada',
+    'mais',
+    'melhor',
   ])
 
   const uniqueTargets = Array.from(
@@ -1742,7 +1842,11 @@ function checkNatureContradiction(params: {
       candDescLower,
     ) &&
     !/\b(partes|acess[oó]rios|comandos?|control|painel|console)\b/i.test(candDescLower) &&
-    (candDescLower.startsWith('câmera') || candDescLower.startsWith('camera') || candDescLower.includes('câmeras cinematográficas') || candDescLower.includes('câmeras de televisão') || candDescLower.includes('câmeras fotográficas'))
+    (candDescLower.startsWith('câmera') ||
+      candDescLower.startsWith('camera') ||
+      candDescLower.includes('câmeras cinematográficas') ||
+      candDescLower.includes('câmeras de televisão') ||
+      candDescLower.includes('câmeras fotográficas'))
 
   if (isControllerOrPeripheral && candIsDirectlyCamera) {
     return {
@@ -1885,7 +1989,13 @@ function selectBestCompatibleFallback(params: {
     }
 
     // Penaliza capítulos sabidamente distantes da natureza eletroeletrônica quando o produto é eletrônico
-    if (ncmClean.startsWith('8426') || ncmClean.startsWith('8428') || ncmClean.startsWith('9007') || ncmClean.startsWith('8537') || ncmClean.startsWith('9031')) {
+    if (
+      ncmClean.startsWith('8426') ||
+      ncmClean.startsWith('8428') ||
+      ncmClean.startsWith('9007') ||
+      ncmClean.startsWith('8537') ||
+      ncmClean.startsWith('9031')
+    ) {
       score -= 50
     }
 
@@ -2019,7 +2129,12 @@ async function retrieveSectorOrientedCandidates(params: {
           targetMachines
             .flatMap((t) => t.toLowerCase().split(/[\s-]+/))
             .filter(
-              (w) => w.length >= 4 && !['para', 'com', 'destinado', 'apropriado', 'cameras', 'camera'].includes(w) || w.startsWith('camer') || w.startsWith('câmer') || w === 'ptz',
+              (w) =>
+                (w.length >= 4 &&
+                  !['para', 'com', 'destinado', 'apropriado', 'cameras', 'camera'].includes(w)) ||
+                w.startsWith('camer') ||
+                w.startsWith('câmer') ||
+                w === 'ptz',
             ),
         ),
       ).slice(0, 4)
@@ -2168,11 +2283,63 @@ function buildLeanProductSignature(params: {
   // Extração de termos de busca derivada da identidade do produto (substantivos do aparelho,
   // termos de função e máquina de destino) com stopwords genéricas — não os 2 primeiros tokens da descrição de marketing
   const genericStopwords = new Set([
-    'o', 'a', 'os', 'as', 'um', 'uma', 'uns', 'umas', 'de', 'do', 'da', 'dos', 'das',
-    'em', 'no', 'na', 'nos', 'nas', 'por', 'pelo', 'pela', 'pelos', 'pelas', 'com', 'sem',
-    'para', 'destinado', 'destinada', 'destinados', 'destinadas', 'e', 'ou', 'que', 'se',
-    'the', 'a', 'an', 'and', 'or', 'of', 'in', 'on', 'at', 'by', 'for', 'with', 'without',
-    'pro', 'professional', 'ultra', 'high', 'new', 'novo', 'nova', 'original', 'versao', 'version',
+    'o',
+    'a',
+    'os',
+    'as',
+    'um',
+    'uma',
+    'uns',
+    'umas',
+    'de',
+    'do',
+    'da',
+    'dos',
+    'das',
+    'em',
+    'no',
+    'na',
+    'nos',
+    'nas',
+    'por',
+    'pelo',
+    'pela',
+    'pelos',
+    'pelas',
+    'com',
+    'sem',
+    'para',
+    'destinado',
+    'destinada',
+    'destinados',
+    'destinadas',
+    'e',
+    'ou',
+    'que',
+    'se',
+    'the',
+    'a',
+    'an',
+    'and',
+    'or',
+    'of',
+    'in',
+    'on',
+    'at',
+    'by',
+    'for',
+    'with',
+    'without',
+    'pro',
+    'professional',
+    'ultra',
+    'high',
+    'new',
+    'novo',
+    'nova',
+    'original',
+    'versao',
+    'version',
   ])
 
   // Isolar substantivos e termos de função / máquina de destino
@@ -2234,15 +2401,21 @@ function evaluateInformationSufficiency(params: {
   if (desc.length < 25 || combined.length < 35) {
     return {
       isSufficient: false,
-      reason: 'Descrição insuficiente para estabelecer a identidade, função essencial e máquina de destino na Fase 0.',
+      reason:
+        'Descrição insuficiente para estabelecer a identidade, função essencial e máquina de destino na Fase 0.',
     }
   }
 
   // 2. Se o produto apresenta indicadores de conjunto/sistema mas seus componentes essenciais não puderam ser identificados
-  if (params.compositionAnalysis.isKit && (!params.compositionAnalysis.compositionIdentified || params.compositionAnalysis.detectedComponents.length < 2)) {
+  if (
+    params.compositionAnalysis.isKit &&
+    (!params.compositionAnalysis.compositionIdentified ||
+      params.compositionAnalysis.detectedComponents.length < 2)
+  ) {
     return {
       isSufficient: false,
-      reason: 'Produto reconhecido como sistema/conjunto, mas a composição interna não está totalmente detalhada para fundamentação RGI 3b.',
+      reason:
+        'Produto reconhecido como sistema/conjunto, mas a composição interna não está totalmente detalhada para fundamentação RGI 3b.',
     }
   }
 
@@ -2255,7 +2428,8 @@ function evaluateInformationSufficiency(params: {
   if (!hasSubstantiveTechnicalDetail) {
     return {
       isSufficient: false,
-      reason: 'Informações internas resumidas a fragmentos comerciais sem detalhamento técnico substantivo da função.',
+      reason:
+        'Informações internas resumidas a fragmentos comerciais sem detalhamento técnico substantivo da função.',
     }
   }
 

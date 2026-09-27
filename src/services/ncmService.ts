@@ -199,6 +199,9 @@ export interface ClassifyNcmParams {
 export interface ClassifyNcmResponse {
   success: boolean
   audit_id: string | null
+  version?: string
+  analyst_model?: string
+  auditor_model?: string
   product_understanding?: {
     identity: string
     essential_function: string

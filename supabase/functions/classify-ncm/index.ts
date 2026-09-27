@@ -3272,8 +3272,7 @@ async function retrieveSectorOrientedCandidates(params: {
     console.warn('Falha na expansão de família hierárquica (não fatal):', expErr)
   }
 
-  return selectedCandidates
-}
+  return selectedCandidates}
 
 /**
  * Constrói uma assinatura enxuta do produto: Marca + Modelo + Frase central da função.

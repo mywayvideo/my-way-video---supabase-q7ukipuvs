@@ -1,6 +1,34 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
-import { createClient } from 'npm:@supabase/supabase-js@2'
+import { createClient } from 'npm:@supabase/supabase-js@2.39.3'
 import { corsHeaders } from '../_shared/cors.ts'
+
+export interface ProviderValidationResult {
+  supported: boolean
+  reason: string
+}
+
+export interface PartsHeadingRange {
+  start: number
+  end: number
+  rawStart: string
+  rawEnd: string
+}
+
+export interface PartsNcmDetectionResult {
+  isParts: boolean
+  detectedRanges: PartsHeadingRange[]
+}
+
+export interface PartsPrecedenceVerdict {
+  applied: boolean
+  winning_parts_ncm: string | null
+  demoted_residual_ncm: string | null
+}
+
+export type ProductNatureCategory =
+  | 'aparelho com função própria completa'
+  | 'acessório dependente (sem função autônoma, requer produto principal para operar)'
+  | 'peça de reposição (substituição de componente)'
 
 interface ClassifyRequestBody {
   product_description: string
@@ -68,11 +96,6 @@ interface CompositionAnalysisResult {
 // SALVAGUARDA DEFENSIVA UNIVERSAL DE PROVEDORES DE IA
 // =============================================================================
 
-export interface ProviderValidationResult {
-  supported: boolean
-  reason: string
-}
-
 /**
  * Valida se um registro de provedor de IA cadastrado na tabela ai_providers
  * pode ser consumido pela rotina de inferência nativa da classify-ncm.
@@ -89,7 +112,7 @@ export interface ProviderValidationResult {
  *  - Provedores custom cujo endpoint aponte para APIs proprietárias incompatíveis
  *  - Provedores sem nome de secret de API key definido
  */
-export function isSupportedAIProvider(provider: {
+function isSupportedAIProvider(provider: {
   provider_type?: string | null
   provider_name?: string | null
   model_id?: string | null
@@ -180,18 +203,6 @@ export function isSupportedAIProvider(provider: {
 // PRINCÍPIO GENÉRICO UNIVERSAL: DETECÇÃO E VÍNCULO INDIRETO DE NCMs DE PEÇAS
 // =============================================================================
 
-export interface PartsHeadingRange {
-  start: number
-  end: number
-  rawStart: string
-  rawEnd: string
-}
-
-export interface PartsNcmDetectionResult {
-  isParts: boolean
-  detectedRanges: PartsHeadingRange[]
-}
-
 /**
  * Identifica candidato "NCM de peças/partes" pela assinatura textual genérica
  * (ex.: "partes ... destinadas ... aos aparelhos das posições 85.24 a 85.28",
@@ -199,7 +210,7 @@ export interface PartsNcmDetectionResult {
  * "exclusivamente destinadas aos aparelhos da posição 85.25", etc.).
  * Extrai os intervalos ou listas de posições declarados no texto oficial do NCM.
  */
-export function isPartsNcmPattern(description: string): PartsNcmDetectionResult {
+function isPartsNcmPattern(description: string): PartsNcmDetectionResult {
   if (!description || typeof description !== 'string') {
     return { isParts: false, detectedRanges: [] }
   }
@@ -270,7 +281,7 @@ export function isPartsNcmPattern(description: string): PartsNcmDetectionResult 
  * Verifica se uma dada posição (4 dígitos, ex: "8525") está compreendida
  * em algum dos intervalos de posições extraídos do NCM de partes.
  */
-export function isHeadingContainedInPartsRanges(
+function isHeadingContainedInPartsRanges(
   heading4Digits: string,
   ranges: PartsHeadingRange[],
 ): boolean {
@@ -289,7 +300,7 @@ export function isHeadingContainedInPartsRanges(
  * termos ontológicos de máquinas de destino do Sistema Harmonizado (ex: câmeras PTZ / estúdio -> 8525,
  * monitores / telas -> 8528, microfones / áudio -> 8518, computadores -> 8471, lentes -> 9002).
  */
-export function extractTargetMachineHeadings(targetMachines?: any[] | null): string[] {
+function extractTargetMachineHeadings(targetMachines?: any[] | null): string[] {
   if (!targetMachines || !Array.isArray(targetMachines) || targetMachines.length === 0) {
     return []
   }
@@ -393,7 +404,7 @@ export function extractTargetMachineHeadings(targetMachines?: any[] | null): str
  * ou se é uma peça/acessório dependente sem função independente.
  * Aplica princípios universais (RGI 1, RGI 3b, Nota 2).
  */
-export type ProductNatureCategory =
+type ProductNatureCategory =
   | 'aparelho com função própria completa'
   | 'acessório dependente (sem função autônoma, requer produto principal para operar)'
   | 'peça de reposição (substituição de componente)'
@@ -402,7 +413,7 @@ export type ProductNatureCategory =
  * Normaliza o valor de product_nature declarado na Fase 0 / product_understanding
  * para uma das três categorias mutuamente exclusivas.
  */
-export function normalizeProductNature(val?: any): ProductNatureCategory {
+function normalizeProductNature(val?: any): ProductNatureCategory {
   const raw = String(val || '')
     .toLowerCase()
     .trim()
@@ -445,7 +456,7 @@ export function normalizeProductNature(val?: any): ProductNatureCategory {
  * O termo "controlador" / "controle" no texto comercial NÃO é tratado como prova de aparelho autônomo
  * quando a Fase 0 declara "acessório dependente".
  */
-export function evaluateProductHasStandaloneFunction(params: {
+function evaluateProductHasStandaloneFunction(params: {
   productUnderstanding?: any
   productText?: string
   isKit?: boolean
@@ -534,7 +545,7 @@ export function evaluateProductHasStandaloneFunction(params: {
  * Princípio universal: posições que contenham a assinatura "não especificados nem compreendidos noutras posições"
  * ou "não especificadas nem compreendidas em outras posições" (ex.: 8543, 8479, etc.).
  */
-export function isResidualStandaloneDeviceNcm(description: string): boolean {
+function isResidualStandaloneDeviceNcm(description: string): boolean {
   if (!description || typeof description !== 'string') return false
   const text = description.toLowerCase()
   return (
@@ -547,7 +558,7 @@ export function isResidualStandaloneDeviceNcm(description: string): boolean {
 /**
  * Interface do veredito de precedência de partes sobre residual de função própria.
  */
-export interface PartsPrecedenceVerdict {
+interface PartsPrecedenceVerdict {
   applied: boolean
   winning_parts_ncm: string | null
   winning_parts_desc?: string | null
@@ -565,7 +576,7 @@ export interface PartsPrecedenceVerdict {
  * ("não especificados nem compreendidos noutras posições", ex.: 8543), pois por RGI 1 a destinação
  * específica a aparelhos de determinada posição prevalece sobre o cesto residual.
  */
-export function evaluatePartsPrecedenceOverResidual(params: {
+function evaluatePartsPrecedenceOverResidual(params: {
   productNature: ProductNatureCategory
   currentRecNcm: string
   currentRecDesc: string
@@ -683,7 +694,7 @@ export function evaluatePartsPrecedenceOverResidual(params: {
 /**
  * Avalia a telemetria da lógica de partes com vínculo indireto para gravação no log
  */
-export function evaluatePartsLogicTelemetry(params: {
+function evaluatePartsLogicTelemetry(params: {
   recommendedNcm: string
   recommendedDesc: string
   alternatives: any[]

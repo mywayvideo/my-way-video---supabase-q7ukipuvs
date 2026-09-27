@@ -326,20 +326,31 @@ Deno.serve(async (req: Request) => {
 
 SUA MISSÃO:
 Analisar as especificações técnicas de qualquer produto ou sistema e determinar a classificação NCM e Ex-Tarifário rigorosamente correta e juridicamente defensável.
+Regra permanente: Todas as instruções são princípios genéricos universais aplicáveis a qualquer mercadoria (Capítulos 84, 85, 90, etc.), jamais atreladas a produtos específicos.
 
-METODOLOGIA OBRIGATÓRIA UNIVERSAL (PRINCÍPIOS GENÉRICOS):
+METODOLOGIA OBRIGATÓRIA UNIVERSAL:
+
+0. FASE 0 OBRIGATÓRIA — CONHECIMENTO PLENO DO PRODUTO (PRÉ-REQUISITO DA CLASSIFICAÇÃO):
+   Antes de qualquer confronto com posições ou códigos NCM, você DEVE construir o perfil técnico completo do produto:
+   - Identidade ontológica: o que o produto É em sua substância física e técnica (ex.: "controlador remoto", "câmera", "microfone", "conversor").
+   - Função essencial: o que ele faz primariamente, qual sua utilidade e modo de operação (ex.: "controla panorâmica, inclinação e zoom via protocolo IP/serial").
+   - Características técnicas relevantes citadas literalmente no texto (interfaces, conectividade, sinais, estrutura).
+   - Máquina(s) de destino: se o produto é periférico, parte, acessório ou projetado para operar com uma máquina externa, declare essa máquina. Em construções "X para Y", Y é máquina de destino, JAMAIS componente do produto.
+   - Sentença canônica obrigatória: DEVE constar textualmente no campo canonical_statement a frase no padrão exato:
+     "o produto é um [tipo] que [função essencial], destinado a [máquina]" (ou "destinado a operação autônoma" se não houver máquina de destino).
+   - A recomendação é INVÁLIDA sem a declaração completa do bloco 'product_understanding'.
 
 1. ANÁLISE DE COMPOSIÇÃO UNIVERSAL (SISTEMAS / CONJUNTOS / KITS - RGI 3b / 3c):
    Para QUALQUER produto reconhecido como sistema, conjunto, sortido ou kit (produtos compostos por múltiplos elementos que operam em conjunto, como transmissor + receptor, console + fonte, etc.):
-   (a) EXIGÊNCIA VERBATIM: Os componentes listados DEVEM ser citados TEXTUALMENTE na descrição/especificações do produto. Componente que não aparece explicitamente no texto NÃO pode ser afirmado (ex: termos como "camera-mount" indicam montagem/suporte, NUNCA a presença de câmera).
+   (a) EXIGÊNCIA VERBATIM: Os componentes listados DEVEM ser citados TEXTUALMENTE na descrição/especificações do produto fora de conectivos de finalidade ("para", "destinado a", "destina-se a", "for", "designed for", "control of") e fora de modificadores de montagem ("-mount").
    (b) FUNÇÃO ESSENCIAL: Enunciar a função essencial do conjunto como um todo (caráter essencial da RGI 3b) e classificar na família de posições que reflete essa função essencial.
    (c) PROIBIÇÃO ABSOLUTA DE EX SINGULAR PARA CONJUNTO: NUNCA aplique a um conjunto a descrição de um Ex-Tarifário que descreve um item singular/isolado, SALVO se houver fundamento explícito demonstrando que o Ex contempla o conjunto inteiro.
 
 2. METODOLOGIA FUNÇÃO-PRIMEIRO (FUNCTION-FIRST) E PRIORIZAÇÃO DA POSIÇÃO ESPECÍFICA:
-   - Antes de escolher qualquer NCM, enuncie o que o produto É em sua essência funcional.
+   - Valide toda a classificação contra a sentença canônica da Fase 0.
    - Posições específicas têm prioridade absoluta sobre posições residuais/genéricas (RGI 3a).
    - Não classifique em posições genéricas de telecomunicação de dados produtos que possuem posição própria correspondente à sua função específica de áudio, imagem ou medição.
-   - VETO DE CONTRADIÇÃO DE NATUREZA: É expressamente PROIBIDO classificar o produto em um NCM cuja descrição hierárquica oficial descreva uma natureza ontológica totalmente diferente do produto (por exemplo: classificar um controlador/console periférico como se fosse a câmera que ele controla, ou classificar um cabo/suporte como monitor).
+   - VETO DE CONTRADIÇÃO DE NATUREZA: É expressamente PROIBIDO classificar o produto em um NCM cuja descrição hierárquica oficial descreva uma natureza ontológica totalmente diferente do produto (por exemplo: classificar um controlador/console periférico como se fosse a máquina que ele controla, ou classificar um cabo/suporte como monitor).
    - PREFERÊNCIA POR FUNÇÃO GENÉRICA COMPATÍVEL SOBRE FUNÇÃO ESPECÍFICA INCOMPATÍVEL: Entre famílias empatadas na escolha, prefira SEMPRE uma posição de função genérica tecnicamente compatível (ex.: máquinas/aparelhos elétricos com função própria, partes e acessórios reconhecíveis) sobre uma posição de função específica incompatível cuja descrição contradiga o produto.
 
 3. PROIBIÇÃO ABSOLUTA DE CRITÉRIO TRIBUTÁRIO / ALÍQUOTA:
@@ -349,22 +360,28 @@ METODOLOGIA OBRIGATÓRIA UNIVERSAL (PRINCÍPIOS GENÉRICOS):
 
 4. CONDICIONALIDADES RESTRITIVAS DE EX-TARIFÁRIOS:
    - Os Ex-Tarifários são normas de exceção tributária de interpretação estrita (Art. 111 do CTN).
-   - Se o texto do Ex exige "sinal DIGITAL" e o produto opera com sinal ANALÓGICO (ou vice-versa), o Ex NÃO PODE ser aplicado.
    - Cada valor técnico do produto confrontado com o Ex deve ser copiado LITERALMENTE das especificações. Valor não comprovado ou contraditório impede a concessão do Ex.
 
 5. UNIVERSO DE CANDIDATOS E FORMATO DE SAÍDA:
 - Escolha o recommended_ncm e recommended_ex EXCLUSIVAMENTE a partir da lista de candidatos fornecida.
 - Na justificativa ("justification"), é OBRIGATÓRIO citar a descrição hierárquica completa oficial (Capítulo | Posição | Subitem do NCM escolhido) para fundamentar com precisão aduaneira o enquadramento.
 - HIERARQUIZAÇÃO ENTRE APARELHO COM FUNÇÃO PRÓPRIA E PARTES/ACESSÓRIOS:
-  Quando a função essencial do produto for "aparelho elétrico com função própria" (ex.: posição 8543) e existir família de partes e acessórios da máquina de destino (ex.: posições de partes/acessórios da máquina de destino como 8529 para aparelhos de TV/câmeras de transmissão das posições 8525 a 8528), AMBAS as famílias devem constar na resposta (uma como recomendação e a outra nas alternativas) com a devida justificativa técnica de hierarquização.
+  Quando a função essencial for "aparelho com função própria" e existir família de partes/acessórios da máquina de destino, AMBAS as famílias devem constar na resposta (uma na recomendação e a outra nas alternativas) com a devida justificativa técnica de hierarquização.
 - Responda OBRIGATORIAMENTE em JSON válido sem texto externo, no formato exato:
 {
+"product_understanding": {
+  "identity": "O que o produto é em sua substância técnica ontológica",
+  "essential_function": "Função técnica essencial que confere utilidade primária",
+  "technical_features": ["especificação 1", "especificação 2"],
+  "target_machines": ["máquina de destino 1"],
+  "canonical_statement": "o produto é um [tipo] que [função essencial], destinado a [máquina]"
+},
 "is_kit_or_system": boolean,
 "components_list": ["componente verbatim 1", "componente verbatim 2"],
 "essential_function": "Enunciação clara e precisa da função essencial do produto ou conjunto",
 "recommended_ncm": "8 dígitos",
 "recommended_ex": "número do Ex (ex: '019') ou '' se sem Ex",
-"justification": "Justificativa detalhada citando a descrição hierárquica completa (ncm_descricao_full), análise de composição (RGI 3b), confronto de condições e notas da TEC",
+"justification": "Justificativa detalhada citando a descrição hierárquica completa (ncm_descricao_full), análise de composição (RGI 3b), confronto com a sentença canônica da Fase 0 e notas da TEC",
 "legal_basis": {
  "regime": "BK ou BIT ou GERAL",
  "notes": "referência legal ou justificativa sumária"
@@ -385,10 +402,10 @@ METODOLOGIA OBRIGATÓRIA UNIVERSAL (PRINCÍPIOS GENÉRICOS):
 - Modelo / P/N: ${model || 'Não informado'}
 - Especificações adicionais: ${additionalSpecs || 'Nenhuma informada'}
 
-ANÁLISE PRÉVIA DE COMPOSIÇÃO:
+FASE 0 — INFORMAÇÕES TÉCNICAS DO PRODUTO:
+- Componentes físicos integrados (verbatim, fora de conectivos de destino): ${compositionAnalysis.detectedComponents.join(', ') || 'Item singular (sem múltiplos componentes integrados)'}
+- Máquina(s) de destino da função (extraídas de conectivos/montagem): ${compositionAnalysis.targetMachines.join(', ') || 'Nenhuma (operação autônoma)'}
 - É reconhecido como Sistema / Conjunto / Kit: ${compositionAnalysis.isKit ? 'SIM' : 'NÃO'}
-- Componentes integrados identificados: ${compositionAnalysis.detectedComponents.join(', ') || 'Item singular (sem múltiplos componentes integrados)'}
-- Máquina(s) de destino da função: ${compositionAnalysis.targetMachines.join(', ') || 'Nenhuma (função autônoma)'}
 
 AVALIAÇÃO DE SUFICIÊNCIA DAS INFORMAÇÕES:
 - Informações suficientes internamente: ${sufficiencyCheck.isSufficient ? 'SIM' : 'NÃO'} (${sufficiencyCheck.reason})
@@ -397,7 +414,7 @@ ${webContentSummary ? `\nINFORMAÇÕES TÉCNICAS COMPLEMENTARES OBTIDAS VIA BUSC
 LISTA DE CANDIDATOS NCM VÁLIDOS (Recuperados do Banco de Dados Oficial):
 ${candidatesCatalogText}
 
-Avalie todos os candidatos e forneça o JSON estruturado conforme o protocolo aduaneiro.`
+Construa a FASE 0 obrigatória no campo 'product_understanding' com a sentença canônica "o produto é um [tipo] que [função essencial], destinado a [máquina]", avalie todos os candidatos e forneça o JSON estruturado conforme o protocolo aduaneiro.`
 
     // 10. Chamada ao LLM com cascata de fallback
     let llmResponseJson: any = null
@@ -546,6 +563,7 @@ Avalie todos os candidatos e forneça o JSON estruturado conforme o protocolo ad
       recommended_ex: (llmResponseJson.recommended_ex || '').toString().trim(),
       essential_function: llmResponseJson.essential_function || '',
       justification: llmResponseJson.justification || '',
+      product_understanding: llmResponseJson.product_understanding || null,
     }
 
     let auditVerdict: {
@@ -557,10 +575,12 @@ Avalie todos os candidatos e forneça o JSON estruturado conforme o protocolo ad
       audit_critique: string
       override_applied?: boolean
       override_reason?: string
+      product_understanding?: any
     } = {
       action: 'APROVA',
       essential_function: initialRecommendation.essential_function,
       audit_critique: 'Aprovado pelo perito auditor.',
+      product_understanding: initialRecommendation.product_understanding,
     }
 
     // Se o código determinístico vetou o Ex, registrar o status no initialRecommendation
@@ -572,26 +592,41 @@ Avalie todos os candidatos e forneça o JSON estruturado conforme o protocolo ad
       const auditorSystemPrompt = `Você é o Auditor Revisor Sênior da Receita Federal e Aduana, atuando como segunda instância independente para homologar ou vetar a recomendação de classificação NCM.
 
 PROTOCOLO OBRIGATÓRIO DE AUDITORIA (PRINCÍPIOS GENÉRICOS UNIVERSAIS):
+0. FASE 0 OBRIGATÓRIA — AUDITORIA DE ENTENDIMENTO DO PRODUTO (PRÉ-REQUISITO):
+   - Você DEVE conferir se o 'product_understanding' da 1ª passada é perfeitamente coerente com a descrição do produto e suas especificações.
+   - Valide se a identidade ontológica, a função essencial e as máquinas de destino estão declaradas corretamente.
+   - Em "X para Y", Y é máquina de destino, JAMAIS componente integrado.
+   - Entendimento incoerente INVALIDA a recomendação (action: "VETA").
+   - Construa ou homologue o perfil técnico na saída com a sentença canônica canônica obrigatória:
+     "o produto é um [tipo] que [função essencial], destinado a [máquina]".
 1. ENUNCIAÇÃO DA FUNÇÃO ESSENCIAL: declare a função essencial que confere caráter essencial ao produto ou conjunto global (RGI 1 e RGI 3b).
 2. O VETO AO EX-TARIFÁRIO NÃO ENCERRA A ANÁLISE:
    - Vetar um Ex-Tarifário NÃO significa manter automaticamente o NCM base residual.
-   - O auditor DEVE OBRIGATORIAMENTE re-confrontar a descrição oficial da posição/subposição do NCM base com a função essencial do produto (após a análise de composição corrigida).
-   - Se a descrição da posição base também NÃO corresponder com exatidão à função essencial da mercadoria (por exemplo, classificar aparelho de transmissão ou captura de som em posições residuais de telecomunicação de dados, ou aparelho eletrônico em máquinas mecânicas), a recomendação DEVE MIGRAR (action: "VETA") para a família de posições correta entre os candidatos disponíveis, com justificativa detalhada registrada.
+   - O auditor DEVE re-confrontar a descrição oficial da posição/subposição do NCM base com a função essencial do produto.
+   - Se a descrição da posição base não corresponder com exatidão à função essencial, a recomendação DEVE MIGRAR (action: "VETA") para a família correta entre os candidatos disponíveis.
 3. CONJUNTOS / SISTEMAS: NUNCA homologue Ex-Tarifário singular individual para conjuntos ou sistemas de múltiplos elementos funcionais.
 4. CONDIÇÕES TÉCNICAS E COERÊNCIA (A CORREÇÃO NÃO É SEGUNDA CHANCE SEM AUDITORIA):
-   - A NCM/Ex corrigido na 2ª passada deve passar pelo MESMO checklist de condições restritivas e confronto com a função essencial aplicados na 1ª passada.
-   - É terminantemente VETADO qualquer candidato cuja descrição hierárquica (ncm_descricao_full) contradiga a natureza ontológica do produto (ex.: candidato descreve "câmera" para um produto que é controlador/remoto/periférico de controle; candidato descreve "monitor" para um produto que é cabo ou transmissor).
+   - A NCM/Ex corrigido na 2ª passada deve passar pelo MESMO checklist de condições restritivas e confronto com a sentença canônica da Fase 0.
+   - É terminantemente VETADO qualquer candidato cuja descrição hierárquica (ncm_descricao_full) contradiga a natureza ontológica do produto (ex.: candidato descreve "câmera" para um produto que é controlador remoto; candidato descreve "monitor" para um produto que é cabo ou transmissor).
 5. PROIBIÇÃO ESTRITA DE VANTAGEM TRIBUTÁRIA / ALÍQUOTA:
-   - É ESTRITAMENTE PROIBIDO usar alíquota ou vantagem fiscal (II 0%, Ex vantajoso, redução forte de tributos) como critério de escolha ou desempate na correção.
-   - Apenas aderência técnica estrita à função essencial e regras da TEC/NESH. A vantagem fiscal é consequência, nunca motivo ou justificativa.
+   - É ESTRITAMENTE PROIBIDO usar alíquota ou vantagem fiscal (II 0%, Ex vantajoso) como critério de escolha ou desempate.
 6. PREFERÊNCIA POR FUNÇÃO GENÉRICA COMPATÍVEL SOBRE FUNÇÃO ESPECÍFICA INCOMPATÍVEL:
-   - Entre famílias empatadas na correção, prefira SEMPRE uma posição de função genérica tecnicamente compatível (ex.: aparelhos com função própria, partes e acessórios reconhecíveis) sobre uma posição de função específica incompatível (cuja descrição afirme que o produto é algo que ele manifestamente não é), registrando a justificativa da hierarquização.
+   - Entre famílias empatadas na correção, prefira SEMPRE uma posição de função genérica tecnicamente compatível (ex.: aparelhos com função própria, partes e acessórios reconhecíveis) sobre uma posição de função específica incompatível.
+7. VETO A TODAS AS ALTERNATIVAS:
+   - O veto por contradição de natureza e coerência técnica vale para TODA a lista de alternativas. Nenhuma alternativa com autocontradição ou incompatibilidade ontológica pode ser mantida.
 
 RESPOSTA OBRIGATÓRIA EM JSON:
 {
+  "product_understanding": {
+    "identity": "Identidade do produto",
+    "essential_function": "Função essencial",
+    "target_machines": ["máquina de destino"],
+    "canonical_statement": "o produto é um [tipo] que [função essencial], destinado a [máquina]",
+    "coherent_with_description": boolean
+  },
   "essential_function": "Função essencial do produto/conjunto",
   "action": "APROVA" ou "VETA",
-  "audit_critique": "Análise crítica do confronto entre a descrição do NCM e a função essencial",
+  "audit_critique": "Análise crítica do confronto entre a descrição do NCM, o product_understanding e a função essencial",
   "corrected_ncm": "8 dígitos se VETA",
   "corrected_ex": "Ex corrigido ou ''",
   "correction_reason": "Fundamentação legal da migração de posição ou do veto"
@@ -601,10 +636,12 @@ RESPOSTA OBRIGATÓRIA EM JSON:
 - Marca: ${brand || 'Não informada'} | Modelo: ${model || 'Não informado'}
 - Descrição: ${productDescription}
 - Assinatura: ${leanSignature}
-- É Conjunto/Sistema: ${compositionAnalysis.isKit ? 'SIM' : 'NÃO'} (Componentes verbatim: ${compositionAnalysis.detectedComponents.join(', ') || 'Nenhum identificado textualmente'})
+- É Conjunto/Sistema: ${compositionAnalysis.isKit ? 'SIM' : 'NÃO'} (Componentes verbatim fora de conectivos: ${compositionAnalysis.detectedComponents.join(', ') || 'Nenhum identificado textualmente'})
+- Máquina(s) de destino identificadas: ${compositionAnalysis.targetMachines.join(', ') || 'Nenhuma (operação autônoma)'}
 - Especificações: ${additionalSpecs || 'N/A'}
 
 RECOMENDAÇÃO DA 1ª PASSADA:
+- Entendimento do Produto (Fase 0): ${JSON.stringify(initialRecommendation.product_understanding || {})}
 - Função Enunciada: ${initialRecommendation.essential_function}
 - NCM: ${initialRecommendation.recommended_ncm} | Ex: ${initialRecommendation.recommended_ex || 'Nenhum'}
 - Status do Checklist em Código: ${checklistLog.passed ? checklistLog.status || 'ATENDEU' : 'VETADO PELO CÓDIGO'}
@@ -643,6 +680,8 @@ ${candidatesCatalogText}`
             corrected_ex: (parsedAudit.corrected_ex || '').toString().trim(),
             correction_reason: parsedAudit.correction_reason || '',
             audit_critique: parsedAudit.audit_critique || '',
+            product_understanding:
+              parsedAudit.product_understanding || initialRecommendation.product_understanding,
           }
           break
         }
@@ -867,6 +906,29 @@ ${candidatesCatalogText}`
         continue
       }
 
+      // (a) VETO POR AUTOCONTRADIÇÃO NO CAMPO REASON:
+      // Se o próprio campo reason afirma que ela não é adequada ("não é a classificação mais adequada",
+      // "não se aplica", "inadequado", etc.), deve ser removida em código — autocontradição veta a linha
+      const reasonLower = (alt.reason || '').toLowerCase()
+      const selfContradictoryPatterns = [
+        /n[aã]o [eé] a (?:classifica[cç][aã]o )?mais adequada/i,
+        /n[aã]o [eé] adequada/i,
+        /n[aã]o [eé] apropriad[ao]/i,
+        /n[aã]o se aplica/i,
+        /incompat[ií]vel com/i,
+        /contradit[oó]ri[ao]/i,
+        /incorret[ao]/i,
+        /vetad[ao]/i,
+      ]
+      const isSelfContradictory = selfContradictoryPatterns.some((pat) => pat.test(reasonLower))
+      if (isSelfContradictory) {
+        console.log(
+          `[Veto por Autocontradição]: Alternativa ${altNcmClean} removida por declarar que não é adequada no próprio reason: "${alt.reason}"`,
+        )
+        vetoedNcms.add(altNcmClean)
+        continue
+      }
+
       const altExClean = (alt.ex || '').toString().trim()
       const altTaxRate =
         (await resolveEffectiveTaxRate(supabaseAdmin, altNcmClean, altExClean)) ||
@@ -874,6 +936,41 @@ ${candidatesCatalogText}`
         candidates.find((c: any) => normalizeNcm(c.ncm) === altNcmClean)
 
       if (altTaxRate) {
+        // (b) VETO POR CONTRADIÇÃO DE NATUREZA NA ALTERNATIVA:
+        const altDesc =
+          altTaxRate.ex_descricao ||
+          altTaxRate.ncm_descricao_full ||
+          altTaxRate.ncm_descricao ||
+          altTaxRate.source_text ||
+          ''
+        const altNatureContradiction = checkNatureContradiction({
+          productText: fullTechnicalProfile,
+          candidateDesc: altDesc,
+          detectedComponents: compositionAnalysis.detectedComponents,
+        })
+        if (altNatureContradiction.contradicted) {
+          console.log(
+            `[Veto Natureza Alternativa]: NCM ${altNcmClean} descartado das alternativas por contradição de natureza.`,
+          )
+          vetoedNcms.add(altNcmClean)
+          continue
+        }
+
+        // (c) CHECKLIST DE EX NA ALTERNATIVA:
+        // Se a alternativa tiver Ex, validar checklist. Se vetado, retirar Ex ou descartar se incompatível
+        let altFinalEx = altTaxRate.ex || altExClean
+        if (altFinalEx && altTaxRate.ex_descricao) {
+          const altExCheck = evaluateExChecklistAgainstProduct({
+            exDescription: altTaxRate.ex_descricao,
+            productText: fullTechnicalProfile,
+            isKit: compositionAnalysis.isKit,
+            detectedComponents: compositionAnalysis.detectedComponents,
+          })
+          if (!altExCheck.passed) {
+            altFinalEx = ''
+          }
+        }
+
         const altIi = Number(altTaxRate.ii_efetivo ?? altTaxRate.ii_rate ?? 0)
         const altIpi = Number(altTaxRate.ipi_rate ?? 0)
         const altPis = Number(altTaxRate.pis_rate ?? 2.1)
@@ -882,15 +979,14 @@ ${candidatesCatalogText}`
 
         resolvedAlternatives.push({
           ncm: altNcmClean,
-          ex: altTaxRate.ex || altExClean,
-          description:
-            altTaxRate.ex_descricao || altTaxRate.ncm_descricao || altTaxRate.source_text || '',
+          ex: altFinalEx,
+          description: altDesc,
           ii: altIi,
           ipi: altIpi,
           pis: altPis,
           cofins: altCofins,
           total_tax: altTotal,
-          has_ex_tarifario: Boolean(altTaxRate.has_ex_tarifario || altTaxRate.ex),
+          has_ex_tarifario: Boolean(altFinalEx),
           reason: alt.reason || 'Posição fiscal alternativa aplicável.',
         })
       }
@@ -930,6 +1026,24 @@ ${candidatesCatalogText}`
     if (resolvedAlternatives.length === 0) {
       for (const cand of candidates) {
         const cNcm = normalizeNcm(cand.ncm)
+        const cDesc =
+          cand.ex_descricao ||
+          cand.ncm_descricao_full ||
+          cand.ncm_descricao ||
+          cand.source_text ||
+          ''
+
+        // Verificar contradição de natureza
+        const natureCheck = checkNatureContradiction({
+          productText: fullTechnicalProfile,
+          candidateDesc: cDesc,
+          detectedComponents: compositionAnalysis.detectedComponents,
+        })
+        if (natureCheck.contradicted) {
+          vetoedNcms.add(cNcm)
+          continue
+        }
+
         if (
           cNcm !== recommendedNcmClean &&
           !vetoedNcms.has(cNcm) &&
@@ -942,7 +1056,7 @@ ${candidatesCatalogText}`
           resolvedAlternatives.push({
             ncm: cNcm,
             ex: cand.ex || '',
-            description: cand.ex_descricao || cand.ncm_descricao || cand.source_text || '',
+            description: cDesc,
             ii: cIi,
             ipi: cIpi,
             pis: cPis,
@@ -1082,12 +1196,21 @@ ${candidatesCatalogText}`
       }
     }
 
-    // 16. Resposta JSON completa
+    // 16. Resposta JSON completa com product_understanding da Fase 0
+    const finalProductUnderstanding = auditVerdict?.product_understanding ||
+      llmResponseJson?.product_understanding || {
+        identity: leanSignature,
+        essential_function: initialRecommendation.essential_function,
+        target_machines: compositionAnalysis.targetMachines,
+        canonical_statement: `o produto é um ${leanSignature} que ${initialRecommendation.essential_function}, destinado a ${compositionAnalysis.targetMachines.join(', ') || 'operação autônoma'}`,
+      }
+
     const responsePayload = {
       success: true,
       audit_id: auditId,
       recommendation: recommendationObject,
       alternatives: resolvedAlternatives,
+      product_understanding: finalProductUnderstanding,
       confidence: (llmResponseJson.confidence || 'media').toLowerCase(),
       sufficient_info: sufficiencyCheck.isSufficient,
       web_sources: webSources,
@@ -1158,12 +1281,12 @@ function analyzeProductComposition(text: string): CompositionAnalysisResult {
 
   const isKitExplicit = kitIndicators.some((ind) => lower.includes(ind))
 
-  // Identificação genérica de Máquinas de Destino da Função (padrões "X para Y", "X destina-se a Y", "for Y", "intended for Y")
-  // e modificadores de montagem/acoplamento ("camera-mount", "rack-mount", etc.)
+  // Identificação genérica de Máquinas de Destino da Função (conectivos de finalidade e modificadores de montagem)
+  // Conectivos: "para", "destinado a", "destina-se a", "indicado para", "apropriado para", "for", "designed for", "compatible with", "control of", "uso em"
   const targetMachines: string[] = []
   const destinationPatterns = [
-    /(?:para|destinado\s+a|destina-se\s+a|apropriad[ao]\s+para|indicad[ao]\s+para|uso\s+em|compat[ií]vel\s+com|controle\s+d[aeo]s?)\s+([a-záàâãéèêíïóôõöúçñ0-9\s-]{2,40})/gi,
-    /(?:for|intended\s+for|suitable\s+for|compatible\s+with|designed\s+for|control\s+of)\s+([a-z0-9\s-]{2,40})/gi,
+    /(?:para|destinado\s+a|destina-se\s+a|apropriad[ao]\s+para|indicad[ao]\s+para|compat[ií]vel\s+com|controle\s+d[aeo]s?|uso\s+em)\s+([a-záàâãéèêíïóôõöúçñ0-9\s-]{2,50})/gi,
+    /(?:for|intended\s+for|suitable\s+for|compatible\s+with|designed\s+for|control\s+of)\s+([a-z0-9\s-]{2,50})/gi,
   ]
 
   for (const pat of destinationPatterns) {
@@ -1172,40 +1295,72 @@ function analyzeProductComposition(text: string): CompositionAnalysisResult {
       const phrase = match[1]
         .split(/[,.;/()–—\n\r]|(?:\b(?:with|com|and|e|de|do|da|including|incluindo)\b)/i)[0]
         .trim()
-      if (phrase && phrase.length >= 3 && phrase.length <= 40) {
+      if (phrase && phrase.length >= 3 && phrase.length <= 50) {
         targetMachines.push(phrase)
       }
     }
   }
 
-  // Modificadores de montagem também identificam a máquina de acoplamento/destino
+  // Modificadores de montagem ("-mount", "-mounted", "-mountable") identificam acoplamento/máquina de destino, não componente
   const mountMatches = text.matchAll(/\b([a-z0-9]+)-(?:mount|mounted|mountable)\b/gi)
   for (const m of mountMatches) {
-    if (m[1] && m[1].toLowerCase() !== 'rack' && m[1].toLowerCase() !== 'pole') {
+    const rawMount = m[1].toLowerCase()
+    if (rawMount !== 'rack' && rawMount !== 'pole' && rawMount !== 'wall' && rawMount !== 'shoe') {
       targetMachines.push(m[1])
     }
   }
 
-  // Normalização e deduplicação de máquinas de destino
+  // Normalização e deduplicação de máquinas de destino (descartar fragmentos triviais/recortes de marketing)
+  const trivialMarketingFragments = new Set([
+    'the',
+    'an',
+    'a',
+    'all',
+    'any',
+    'o',
+    'a',
+    'os',
+    'as',
+    'um',
+    'uma',
+    'uns',
+    'umas',
+    'pro',
+    'professional',
+    'broadcast',
+    'studio',
+    'production',
+    'live',
+    'high',
+    'ultra',
+    'todas',
+    'todos',
+    'todo',
+    'toda',
+    'seu',
+    'sua',
+    'seus',
+    'suas',
+    'cada',
+    'mais',
+    'melhor',
+  ])
+
   const uniqueTargets = Array.from(
     new Set(
       targetMachines
-        .map((t) => t.trim())
-        .filter((t) => t.length >= 3 && !/^(o|a|os|as|um|uma|the|an|all|tod[ao]s?)$/i.test(t)),
+        .map((t) => t.trim().toLowerCase())
+        .filter((t) => t.length >= 3 && !trivialMarketingFragments.has(t) && !/^\d+$/.test(t)),
     ),
   )
 
-  // Criar cópia do texto com trechos de destino da função e termos de montagem REMOVIDOS
-  // para garantir que a máquina de destino NÃO seja classificada como componente integrado do produto.
+  // Criar cópia do texto com conectivos de finalidade e modificadores de montagem REMOVIDOS
+  // Componente só entra se estiver citado textualmente FORA de conectivos de finalidade e fora de modificadores "-mount"
   let textForComponents = text
   const cleaningRegexes = [
-    /\bcamera-mount\b/gi,
-    /\bcamera mount\b/gi,
-    /\bshoe-mount\b/gi,
-    /\brack-mount\b/gi,
-    /\bpole-mount\b/gi,
-    /\bwall-mount\b/gi,
-    /(?:para|destinado\s+a|destina-se\s+a|apropriad[ao]\s+para|indicad[ao]\s+para|compat[ií]vel\s+com|controle\s+d[aeo]s?)\s+[^\n\r,.;]+/gi,
+    /\b[a-z0-9]+-(?:mount|mounted|mountable)\b/gi,
+    /\b(?:camera|shoe|rack|pole|wall)\s+mount\b/gi,
+    /(?:para|destinado\s+a|destina-se\s+a|apropriad[ao]\s+para|indicad[ao]\s+para|compat[ií]vel\s+com|controle\s+d[aeo]s?|uso\s+em)\s+[^\n\r,.;]+/gi,
     /(?:for|intended\s+for|suitable\s+for|compatible\s+with|designed\s+for|control\s+of)\s+[^\n\r,.;]+/gi,
   ]
   for (const cr of cleaningRegexes) {
@@ -1615,9 +1770,15 @@ function checkNatureContradiction(params: {
   // Substantivo "câmera" ou "câmeras" como natureza autônoma (não apenas de interface)
   // Ex: 90071000 descreve "Câmeras cinematográficas..." ou "Câmeras de vídeo digital..."
   const candIsDirectlyCamera =
-    /\b(c[aâ]meras?(?: de v[ií]deo| cinematogr[aá]ficas?| digitais?| fotogr[aá]ficas?))\b/i.test(
+    /\b(c[aâ]meras?(?: de v[ií]deo| cinematogr[aá]ficas?| digitais?| fotogr[aá]ficas?)?)\b/i.test(
       candDescLower,
-    ) && !/\b(partes|acess[oó]rios|comandos?|control|painel|console)\b/i.test(candDescLower)
+    ) &&
+    !/\b(partes|acess[oó]rios|comandos?|control|painel|console)\b/i.test(candDescLower) &&
+    (candDescLower.startsWith('câmera') ||
+      candDescLower.startsWith('camera') ||
+      candDescLower.includes('câmeras cinematográficas') ||
+      candDescLower.includes('câmeras de televisão') ||
+      candDescLower.includes('câmeras fotográficas'))
 
   if (isControllerOrPeripheral && candIsDirectlyCamera) {
     return {
@@ -1626,6 +1787,18 @@ function checkNatureContradiction(params: {
     }
   }
 
+  // 1.B Caso: Controlador remoto periférico classificado como quadro/painel/console de distribuição elétrica industrial (8537)
+  // ou projetor/câmera cinematográfica (9007) ou instrumentos ópticos de medição (9031)
+  const isElectricalSwitchboardOrCinematographicOrMeasurement =
+    /\b(quadros?, pain[eé]is, consoles, cabinas|distribui[cç][aã]o de energia|cinematogr[aá]fic[ao]s|aparelhos e instrumentos de medida|perfil[oó]metros|ópticos de medida)\b/i.test(
+      candDescLower,
+    )
+  if (isControllerOrPeripheral && isElectricalSwitchboardOrCinematographicOrMeasurement) {
+    return {
+      contradicted: true,
+      reason: `Contradição de natureza ontológica: o produto é um controlador remoto eletrônico/digital, incompatível com aparelhos de distribuição elétrica pesada (8537), cinematográficos (9007) ou medição óptica (9031).`,
+    }
+  }
   // 2. Caso: Produto é transmissor/receptor/microfone de áudio, mas o candidato descreve diretamente câmera/óptica
   const isAudioDevice =
     /\b(microfone|microphone|transmissor de [aá]udio|receptor de [aá]udio|headset|lapela|lavalier)\b/i.test(
@@ -1748,7 +1921,13 @@ function selectBestCompatibleFallback(params: {
     }
 
     // Penaliza capítulos sabidamente distantes da natureza eletroeletrônica quando o produto é eletrônico
-    if (ncmClean.startsWith('8426') || ncmClean.startsWith('8428') || ncmClean.startsWith('9007')) {
+    if (
+      ncmClean.startsWith('8426') ||
+      ncmClean.startsWith('8428') ||
+      ncmClean.startsWith('9007') ||
+      ncmClean.startsWith('8537') ||
+      ncmClean.startsWith('9031')
+    ) {
       score -= 50
     }
 
@@ -1873,6 +2052,8 @@ async function retrieveSectorOrientedCandidates(params: {
   // Se uma máquina de destino da função foi identificada (padrão "X para Y" / modificadores de montagem),
   // acionar a busca da família de partes e acessórios correspondente àquela máquina via mapeamento SEMÂNTICO no banco
   // (consultando descrições hierárquicas por posições de destino e suas partes/acessórios, sem códigos hardcoded).
+  // Localizar as posições cuja ncm_descricao_full se declara servirem às posições que abrangem aquela máquina
+  // (ex.: 8529 se declara "partes e acessórios ... aos aparelhos das posições 85.24 a 85.28", que inclui câmeras da 85.25).
   if (targetMachines.length > 0) {
     try {
       const distinctTargets = Array.from(
@@ -1880,64 +2061,91 @@ async function retrieveSectorOrientedCandidates(params: {
           targetMachines
             .flatMap((t) => t.toLowerCase().split(/[\s-]+/))
             .filter(
-              (w) => w.length >= 4 && !['para', 'com', 'destinado', 'apropriado'].includes(w),
+              (w) =>
+                (w.length >= 4 &&
+                  !['para', 'com', 'destinado', 'apropriado', 'cameras', 'camera'].includes(w)) ||
+                w.startsWith('camer') ||
+                w.startsWith('câmer') ||
+                w === 'ptz',
             ),
         ),
-      ).slice(0, 3)
+      ).slice(0, 4)
 
+      // 1. Identificar posições da máquina de destino no banco
+      const targetHeadings = new Set<string>()
       for (const targetWord of distinctTargets) {
-        // 1. Localizar posições candidatas da máquina de destino no banco oficial
         const { data: targetPositions } = await supabaseAdmin
           .from('imp_sim_tax_rates')
           .select('ncm')
           .ilike('ncm_descricao_full', `%${targetWord}%`)
           .limit(10)
 
-        const headings = new Set<string>()
         if (targetPositions && targetPositions.length > 0) {
           for (const tp of targetPositions) {
             const h = (tp.ncm || '').slice(0, 4)
-            if (h && h.length === 4) headings.add(h)
+            if (h && h.length === 4) targetHeadings.add(h)
           }
         }
+      }
 
-        // 2. Para cada posição (ou faixa de posições) encontrada da máquina de destino,
-        // buscar semanticamente posições cuja descrição mencione partes/acessórios destinadas a esses aparelhos
-        for (const heading of headings) {
-          const formattedHeading = `${heading.slice(0, 2)}.${heading.slice(2, 4)}` // ex: 85.25
+      // 2. Para cada posição encontrada (ex: 8525), procurar posições de partes/acessórios
+      // que cobrem essa posição, seja por menção direta (85.25) ou por faixa de posições (85.24 a 85.28 / 85.18 a 85.21 / etc.)
+      for (const heading of targetHeadings) {
+        const headNum = parseInt(heading, 10)
+        const formattedHeading = `${heading.slice(0, 2)}.${heading.slice(2, 4)}` // ex: 85.25
 
-          const { data: partsMatches } = await supabaseAdmin
-            .from('imp_sim_tax_rates')
-            .select(
-              'id, ncm, ex, ncm_descricao, ncm_descricao_full, ex_descricao, ii_rate, ipi_rate, pis_rate, cofins_rate, has_ex_tarifario',
-            )
-            .or(
-              `ncm_descricao_full.ilike.%partes%destinadas%${formattedHeading}%,ncm_descricao_full.ilike.%partes%destinadas%${heading}%,ncm_descricao_full.ilike.%acessórios%destinados%${formattedHeading}%`,
-            )
-            .limit(10)
+        // Buscar posições cujas descrições contenham partes/acessórios
+        const { data: partsCandidates } = await supabaseAdmin
+          .from('imp_sim_tax_rates')
+          .select(
+            'id, ncm, ex, ncm_descricao, ncm_descricao_full, ex_descricao, ii_rate, ipi_rate, pis_rate, cofins_rate, has_ex_tarifario',
+          )
+          .ilike('ncm_descricao_full', '%partes%posiç%')
+          .limit(30)
 
-          if (partsMatches && partsMatches.length > 0) {
-            for (const pm of partsMatches) {
+        if (partsCandidates && partsCandidates.length > 0) {
+          for (const pc of partsCandidates) {
+            const desc = pc.ncm_descricao_full || ''
+            let matchesHeadingScope = false
+
+            // Verifica menção direta da posição
+            if (desc.includes(formattedHeading) || desc.includes(heading)) {
+              matchesHeadingScope = true
+            } else {
+              // Verifica faixas de posições no padrão "85.24 a 85.28" ou "84.25 a 84.30"
+              const rangeRegex = /(\d{2})\.(\d{2})\s*(?:a|à|-|to)\s*(\d{2})\.(\d{2})/g
+              let rangeMatch: RegExpExecArray | null
+              while ((rangeMatch = rangeRegex.exec(desc)) !== null) {
+                const startNum = parseInt(`${rangeMatch[1]}${rangeMatch[2]}`, 10)
+                const endNum = parseInt(`${rangeMatch[3]}${rangeMatch[4]}`, 10)
+                if (!isNaN(headNum) && headNum >= startNum && headNum <= endNum) {
+                  matchesHeadingScope = true
+                  break
+                }
+              }
+            }
+
+            if (matchesHeadingScope) {
               const alreadyExists = candidates.some(
-                (c: any) => normalizeNcm(c.ncm) === pm.ncm && (c.ex || '') === (pm.ex || ''),
+                (c: any) => normalizeNcm(c.ncm) === pc.ncm && (c.ex || '') === (pc.ex || ''),
               )
               if (!alreadyExists) {
                 candidates.push({
-                  tax_rate_id: pm.id,
-                  ncm: pm.ncm,
-                  ex: pm.ex || '',
-                  ncm_descricao: pm.ncm_descricao || '',
-                  ncm_descricao_full: pm.ncm_descricao_full || pm.ncm_descricao || '',
-                  ex_descricao: pm.ex_descricao || null,
-                  source_text: `NCM ${pm.ncm} | ${pm.ncm_descricao_full || pm.ncm_descricao || ''}${pm.ex_descricao ? ` | Ex ${pm.ex} ${pm.ex_descricao}` : ''}`,
-                  ii_rate: Number(pm.ii_efetivo ?? pm.ii_rate ?? 0),
-                  ipi_rate: Number(pm.ipi_rate ?? 0),
-                  pis_rate: Number(pm.pis_rate ?? 2.1),
-                  cofins_rate: Number(pm.cofins_rate ?? 9.65),
-                  has_ex_tarifario: Boolean(pm.has_ex_tarifario),
-                  vector_score: 0.7,
-                  text_score: 0.9,
-                  combined_score: 0.8,
+                  tax_rate_id: pc.id,
+                  ncm: pc.ncm,
+                  ex: pc.ex || '',
+                  ncm_descricao: pc.ncm_descricao || '',
+                  ncm_descricao_full: pc.ncm_descricao_full || pc.ncm_descricao || '',
+                  ex_descricao: pc.ex_descricao || null,
+                  source_text: `NCM ${pc.ncm} | ${pc.ncm_descricao_full || pc.ncm_descricao || ''}${pc.ex_descricao ? ` | Ex ${pc.ex} ${pc.ex_descricao}` : ''}`,
+                  ii_rate: Number(pc.ii_efetivo ?? pc.ii_rate ?? 0),
+                  ipi_rate: Number(pc.ipi_rate ?? 0),
+                  pis_rate: Number(pc.pis_rate ?? 2.1),
+                  cofins_rate: Number(pc.cofins_rate ?? 9.65),
+                  has_ex_tarifario: Boolean(pc.has_ex_tarifario),
+                  vector_score: 0.75,
+                  text_score: 0.95,
+                  combined_score: 0.85,
                   is_target_machine_parts: true,
                 })
               }
@@ -1947,12 +2155,11 @@ async function retrieveSectorOrientedCandidates(params: {
       }
     } catch (targetErr) {
       console.warn(
-        'Falha na busca direcionada da família de partes/acessórios da máquina de destino:',
+        'Falha na busca determinística da família de partes/acessórios da máquina de destino:',
         targetErr,
       )
     }
   }
-
   // Agrupamento semântico por FAMÍLIA DE POSIÇÕES (primeiros 4 dígitos da NCM, ex: 8517, 8518, 8525, 8543)
   // Garantir diversidade semântica: equilibrar candidatos entre a família principal e setores adjacentes
   const families = new Map<string, any[]>()
@@ -2003,34 +2210,99 @@ function buildLeanProductSignature(params: {
 }): string {
   const brand = (params.brand || '').trim()
   const model = (params.model || '').trim()
-  let desc = (params.description || '').trim()
+  const rawDesc = (params.description || '').trim()
 
-  const firstSentenceMatch = desc.match(/^([^.\n\r;]{10,180})/)
-  if (firstSentenceMatch && firstSentenceMatch[1]) {
-    desc = firstSentenceMatch[1].trim()
-  } else if (desc.length > 180) {
-    desc = desc.slice(0, 180).trim()
-  }
+  // Extração de termos de busca derivada da identidade do produto (substantivos do aparelho,
+  // termos de função e máquina de destino) com stopwords genéricas — não os 2 primeiros tokens da descrição de marketing
+  const genericStopwords = new Set([
+    'o',
+    'a',
+    'os',
+    'as',
+    'um',
+    'uma',
+    'uns',
+    'umas',
+    'de',
+    'do',
+    'da',
+    'dos',
+    'das',
+    'em',
+    'no',
+    'na',
+    'nos',
+    'nas',
+    'por',
+    'pelo',
+    'pela',
+    'pelos',
+    'pelas',
+    'com',
+    'sem',
+    'para',
+    'destinado',
+    'destinada',
+    'destinados',
+    'destinadas',
+    'e',
+    'ou',
+    'que',
+    'se',
+    'the',
+    'a',
+    'an',
+    'and',
+    'or',
+    'of',
+    'in',
+    'on',
+    'at',
+    'by',
+    'for',
+    'with',
+    'without',
+    'pro',
+    'professional',
+    'ultra',
+    'high',
+    'new',
+    'novo',
+    'nova',
+    'original',
+    'versao',
+    'version',
+  ])
 
-  // Filtrar ruído de conectores e dimensões secundárias
-  desc = desc
+  // Isolar substantivos e termos de função / máquina de destino
+  // Remove termos puramente de interface e ruído de cabeamento secundário
+  const cleanedDesc = rawDesc
     .replace(/\b(bnc|xlr|hdmi|pin|pins|poe|dc in|rs-422|rs232|rj45|db9|tally|gpio)\b[^\s,.]*/gi, '')
+    .replace(/[^\p{L}\p{N}\s-]/gu, ' ')
     .replace(/\s+/g, ' ')
     .trim()
 
+  const tokens = cleanedDesc.split(/\s+/).filter((t) => {
+    const low = t.toLowerCase()
+    return low.length >= 3 && !genericStopwords.has(low) && !/^\d+$/.test(low)
+  })
+
+  // Priorizar termos técnicos (aparelho, função, destino)
+  const coreTerms = tokens.slice(0, 10).join(' ')
+
   const parts: string[] = []
-  if (brand && !desc.toLowerCase().includes(brand.toLowerCase())) {
+  if (brand && !coreTerms.toLowerCase().includes(brand.toLowerCase())) {
     parts.push(brand)
   }
-  if (model && !desc.toLowerCase().includes(model.toLowerCase())) {
+  if (model && !coreTerms.toLowerCase().includes(model.toLowerCase())) {
     parts.push(model)
   }
-  if (desc) {
-    parts.push(desc)
+  if (coreTerms) {
+    parts.push(coreTerms)
   }
 
   const signature = parts.join(' ').trim()
-  return signature || params.description || ''
+  return signature || rawDesc
 }
 
 function normalizeNcm(val: any): string {
@@ -2051,71 +2323,51 @@ function evaluateInformationSufficiency(params: {
     isKit: boolean
     detectedComponents: string[]
     compositionIdentified?: boolean
+    targetMachines: string[]
   }
 }): { isSufficient: boolean; reason: string } {
   const desc = params.productDescription.trim()
+  const combined = `${desc} ${params.brand} ${params.model} ${params.additionalSpecs}`.trim()
 
-  if (desc.length < 20) {
-    return {
-      isSufficient: false,
-      reason: 'Descrição muito curta para determinação inequívoca da função essencial.',
-    }
-  }
-
-  // Regra vinculante (1): Se a descrição interna não permitir identificar a composição com segurança,
-  // acionar a busca na web antes de decidir (gatilho condicional, não opcional).
-  if (params.compositionAnalysis.isKit && !params.compositionAnalysis.compositionIdentified) {
+  // 1. Descrição muito curta para construir a identidade básica
+  if (desc.length < 25 || combined.length < 35) {
     return {
       isSufficient: false,
       reason:
-        'Produto identificado como conjunto/sistema, mas a descrição interna não permite identificar todos os componentes textualmente. Busca web complementar mandatória.',
+        'Descrição insuficiente para estabelecer a identidade, função essencial e máquina de destino na Fase 0.',
     }
   }
 
+  // 2. Se o produto apresenta indicadores de conjunto/sistema mas seus componentes essenciais não puderam ser identificados
   if (
     params.compositionAnalysis.isKit &&
-    params.compositionAnalysis.detectedComponents.length < 2
+    (!params.compositionAnalysis.compositionIdentified ||
+      params.compositionAnalysis.detectedComponents.length < 2)
   ) {
     return {
       isSufficient: false,
       reason:
-        'Identificado como sistema/conjunto, mas a lista de componentes exige detalhamento técnico adicional.',
+        'Produto reconhecido como sistema/conjunto, mas a composição interna não está totalmente detalhada para fundamentação RGI 3b.',
     }
   }
 
-  // Verificar presença de dados essenciais como tecnologia de modulação ou frequência em aparelhos transmissores/receptores
-  const lower = `${desc} ${params.additionalSpecs}`.toLowerCase()
-  const isWirelessTransmitterOrAudio =
-    lower.includes('transmissor') ||
-    lower.includes('receptor') ||
-    lower.includes('wireless') ||
-    lower.includes('sem fio') ||
-    lower.includes('microfone')
+  // 3. Avaliação da clareza da identidade e função essencial (princípio genérico universal)
+  // O texto interno deve conter elementos que permitam extrair o que o produto é (substantivo técnico)
+  // e o que ele faz (função operacional ou técnica). Se for apenas código comercial ou jargão de marketing sem detalhamento funcional:
+  const words = combined.split(/\s+/).filter((w) => w.length > 2)
+  const hasSubstantiveTechnicalDetail = words.length >= 8
 
-  if (isWirelessTransmitterOrAudio) {
-    const hasModulation =
-      lower.includes('digital') ||
-      lower.includes('analógico') ||
-      lower.includes('analogico') ||
-      lower.includes('fm')
-    const hasFrequency =
-      lower.includes('mhz') ||
-      lower.includes('ghz') ||
-      lower.includes('uhf') ||
-      lower.includes('vhf')
-
-    if (!hasModulation || !hasFrequency) {
-      return {
-        isSufficient: false,
-        reason:
-          'Aparelho de rádio/comunicação sem detalhamento de modulação (digital/analógica) ou faixa de frequência.',
-      }
+  if (!hasSubstantiveTechnicalDetail) {
+    return {
+      isSufficient: false,
+      reason:
+        'Informações internas resumidas a fragmentos comerciais sem detalhamento técnico substantivo da função.',
     }
   }
 
   return {
     isSufficient: true,
-    reason: 'Informações suficientes fornecidas nos parâmetros internos.',
+    reason: 'Informações internas suficientes para construir o perfil técnico completo na Fase 0.',
   }
 }
 

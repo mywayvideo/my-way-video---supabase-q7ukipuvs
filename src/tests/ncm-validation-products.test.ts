@@ -53,11 +53,28 @@ describe('NCM Product Validation & Recalibration Tests', () => {
     const isAcceptedNcm = recommendedNcm === '85437099' || recommendedNcm === '85299090'
     expect(isAcceptedNcm).toBe(true)
 
+    // FASE 0: product_understanding deve estar presente e com sentença canônica
+    expect(result.product_understanding).toBeDefined()
+    expect(result.product_understanding.canonical_statement).toBeDefined()
+    const canonLower = (result.product_understanding.canonical_statement || '').toLowerCase()
+    expect(canonLower.includes('o produto é um') || canonLower.includes('o produto e um')).toBe(true)
+
     // Falha 1 & 3: Propagação de veto e presença de 85437099 e 85299090
-    // O NCM 85371020 (vetado pelo auditor) NÃO PODE aparecer nem na recomendação nem nas alternativas
+    // Os NCMs 85371020, 90071000 e 90314990 NÃO PODEM aparecer nem na recomendação nem nas alternativas
     expect(recommendedNcm).not.toBe('85371020')
+    expect(recommendedNcm).not.toBe('90071000')
+    expect(recommendedNcm).not.toBe('90314990')
     const altNcms = (result.alternatives || []).map((a: any) => a.ncm.replace(/\D/g, ''))
     expect(altNcms.includes('85371020')).toBe(false)
+    expect(altNcms.includes('90071000')).toBe(false)
+    expect(altNcms.includes('90314990')).toBe(false)
+
+    // Nenhuma alternativa pode ter autocontradição no campo reason ("não é a classificação mais adequada" etc.)
+    for (const alt of result.alternatives || []) {
+      const altReason = (alt.reason || '').toLowerCase()
+      expect(altReason.includes('não é a classificação mais adequada')).toBe(false)
+      expect(altReason.includes('não e a classificação mais adequada')).toBe(false)
+    }
 
     // Ambas as famílias (85437099 e 85299090) devem estar presentes entre recomendação e alternativas
     const allPresentNcms = [recommendedNcm, ...altNcms]
@@ -134,6 +151,8 @@ describe('NCM Product Validation & Recalibration Tests', () => {
     expect(res.status).toBe(200)
     const result = await res.json()
     expect(result.success).toBe(true)
+    expect(result.product_understanding).toBeDefined()
+    expect(result.product_understanding.canonical_statement).toBeDefined()
     const ncm = result.recommendation.ncm.replace(/\D/g, '')
     expect(ncm.startsWith('8525')).toBe(true)
   }, 60000)
@@ -184,6 +203,10 @@ describe('NCM Product Validation & Recalibration Tests', () => {
     // SEM Ex 019 e SEM 8517.62 como recomendado
     expect(ncmDigits.startsWith('851762')).toBe(false)
     expect(ncmDigits.startsWith('8518')).toBe(true)
+
+    // FASE 0: product_understanding deve estar presente
+    expect(result.product_understanding).toBeDefined()
+    expect(result.product_understanding.canonical_statement).toBeDefined()
 
     // O sistema deve ter reconhecido como conjunto/sistema (RGI 3b)
     if (result.composition_analysis) {

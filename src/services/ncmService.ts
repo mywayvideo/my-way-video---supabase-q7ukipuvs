@@ -199,6 +199,14 @@ export interface ClassifyNcmParams {
 export interface ClassifyNcmResponse {
   success: boolean
   audit_id: string | null
+  product_understanding?: {
+    identity: string
+    essential_function: string
+    technical_features?: string[]
+    target_machines?: string[]
+    canonical_statement: string
+    coherent_with_description?: boolean
+  }
   recommendation: {
     ncm: string
     ex: string
@@ -245,6 +253,7 @@ export interface ClassifyNcmResponse {
     audit_critique: string
     override_applied?: boolean
     override_reason?: string
+    product_understanding?: any
   }
   checklist_log?: {
     passed: boolean

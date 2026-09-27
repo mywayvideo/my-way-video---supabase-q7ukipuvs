@@ -7,7 +7,7 @@ const supabaseAnonKey = process.env.VITE_SUPABASE_PUBLISHABLE_KEY || ''
 describe('classify-ncm Edge Function live deploy check & validation', () => {
   const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
-  it('checks edge function health endpoint returning version 3.5.0-build.607', async () => {
+  it('checks edge function health endpoint returning version 3.5.0-build.608', async () => {
     const res = await fetch(`${supabaseUrl}/functions/v1/classify-ncm?health=true`, {
       method: 'GET',
     })
@@ -16,7 +16,7 @@ describe('classify-ncm Edge Function live deploy check & validation', () => {
     const data = await res.json()
     expect(data.status).toBe('ok')
     expect(data.function).toBe('classify-ncm')
-    expect(data.version).toBe('3.5.0-build.607')
+    expect(data.version).toBe('3.5.0-build.608')
     expect(data.features).toContain('phase0_canonical_composition_derivation')
     expect(data.features).toContain('phase0_tripartite_product_nature')
     expect(data.features).toContain('orphan_ncm_sweep_invariant')
@@ -281,14 +281,19 @@ describe('classify-ncm Edge Function live deploy check & validation', () => {
         Authorization: `Bearer ${jwt}`,
       },
       body: JSON.stringify({
-        product_description: 'Sony UWP-D21 Camera-Mount Wireless Omni Lavalier Microphone System. Includes URX-P40 camera-mount receiver and UTX-B40 bodypack transmitter with ECM-V1BMP lavalier microphone. Digital Audio Processing for high-quality sound.',
+        product_id: '0d6f7946-c95d-4d5e-9219-edc30b31feac',
+        product_description: 'Sony UWP-D21 Camera-Mount Wireless Omni Lavalier Microphone System (UC14: 470 to 542 MHz) - Wireless Transmission: Analog UHF | RF Channels: 2772',
         brand: 'Sony',
-        model: 'UWP-D21',
+        model: 'UWP-D21/14',
         top_n: 15,
         save_log: true,
       }),
     })
 
+    console.log('[DEBUG UWP-D21 Status]:', res.status)
+    if (!res.ok) {
+      console.error('[DEBUG UWP-D21 Error Body]:', await res.text())
+    }
     expect(res.status).toBe(200)
     const result = await res.json()
     console.log('[UWP-D21 Result]:', JSON.stringify({

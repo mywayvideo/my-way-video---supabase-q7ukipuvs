@@ -65,6 +65,118 @@ interface CompositionAnalysisResult {
 }
 
 // =============================================================================
+// SALVAGUARDA DEFENSIVA UNIVERSAL DE PROVEDORES DE IA
+// =============================================================================
+
+export interface ProviderValidationResult {
+  supported: boolean
+  reason: string
+}
+
+/**
+ * Valida se um registro de provedor de IA cadastrado na tabela ai_providers
+ * pode ser consumido pela rotina de inferência nativa da classify-ncm.
+ *
+ * Provedores suportados nativamente:
+ *  - OpenAI (provider_type='openai' ou nome contendo openai/gpt)
+ *  - DeepSeek (provider_type='deepseek' ou nome contendo deepseek)
+ *  - Gemini (provider_type='gemini' ou nome contendo gemini)
+ *  - Custom SOMENTE SE tiver endpoint compatível com OpenAI chat completions
+ *    (ex.: LiteLLM, Ollama com /v1, OpenRouter).
+ *
+ * Provedores INCOMPATÍVEIS e REJEITADOS defensivamente:
+ *  - Anthropic nativo (ex: endpoint /v1/messages, x-api-key)
+ *  - Provedores custom cujo endpoint aponte para APIs proprietárias incompatíveis
+ *  - Provedores sem nome de secret de API key definido
+ */
+export function isSupportedAIProvider(provider: {
+  provider_type?: string | null
+  provider_name?: string | null
+  model_id?: string | null
+  custom_endpoint?: string | null
+  api_key_secret_name?: string | null
+}): ProviderValidationResult {
+  if (!provider) {
+    return { supported: false, reason: 'Objeto de configuração do provedor nulo ou indefinido.' }
+  }
+
+  const pType = (provider.provider_type || '').toLowerCase().trim()
+  const pName = (provider.provider_name || '').toLowerCase().trim()
+  const endpoint = (provider.custom_endpoint || '').toLowerCase().trim()
+  const model = (provider.model_id || '').toLowerCase().trim()
+  const secretName = (provider.api_key_secret_name || '').toUpperCase().trim()
+
+  // 1. Anthropic nativo (Claude via Messages API não-compatível com OpenAI)
+  const isAnthropicApi =
+    endpoint.includes('anthropic.com') ||
+    endpoint.includes('/v1/messages') ||
+    secretName.includes('ANTHROPIC') ||
+    pType.includes('anthropic') ||
+    (pType === 'custom' && (pName.includes('claude') || model.includes('claude')))
+
+  if (isAnthropicApi) {
+    return {
+      supported: false,
+      reason: `Provedor proprietário Anthropic/Claude não é compatível nativamente com o cliente OpenAI da classify-ncm (endpoint: ${provider.custom_endpoint || 'api.anthropic.com'}).`,
+    }
+  }
+
+  // 2. Secret name de chave obrigatório
+  if (!secretName) {
+    return {
+      supported: false,
+      reason: 'api_key_secret_name não definido no cadastro do provedor.',
+    }
+  }
+
+  // 3. Provedores padrão suportados
+  if (pType === 'openai' || pName.includes('openai') || model.includes('gpt-')) {
+    return { supported: true, reason: 'Provedor OpenAI nativo.' }
+  }
+
+  if (pType === 'deepseek' || pName.includes('deepseek') || model.includes('deepseek')) {
+    return { supported: true, reason: 'Provedor DeepSeek nativo.' }
+  }
+
+  if (pType === 'gemini' || pName.includes('gemini') || model.includes('gemini')) {
+    return { supported: true, reason: 'Provedor Gemini nativo.' }
+  }
+
+  // 4. Provedores custom
+  if (pType === 'custom') {
+    if (!endpoint) {
+      return {
+        supported: false,
+        reason: 'Provedor tipo custom sem custom_endpoint definido.',
+      }
+    }
+
+    const isOpenAiCompatible =
+      endpoint.endsWith('/chat/completions') ||
+      endpoint.includes('/v1/chat/completions') ||
+      endpoint.includes('generativelanguage.googleapis.com') ||
+      endpoint.includes('openrouter.ai') ||
+      endpoint.includes('together.xyz') ||
+      endpoint.includes('groq.com')
+
+    if (!isOpenAiCompatible) {
+      return {
+        supported: false,
+        reason: `Endpoint custom "${endpoint}" não segue o protocolo OpenAI chat completions (/chat/completions).`,
+      }
+    }
+
+    return { supported: true, reason: 'Provedor custom com endpoint OpenAI compatível.' }
+  }
+
+  // Qualquer outro provedor não catalogado
+  return {
+    supported: false,
+    reason: `Tipo de provedor "${provider.provider_type}" não suportado nativamente na classify-ncm.`,
+  }
+}
+
+// =============================================================================
 // PRINCÍPIO GENÉRICO UNIVERSAL: DETECÇÃO E VÍNCULO INDIRETO DE NCMs DE PEÇAS
 // =============================================================================
 
@@ -370,7 +482,7 @@ Deno.serve(async (req: Request) => {
       JSON.stringify({
         status: 'ok',
         function: 'classify-ncm',
-        version: '3.5.0-build.607',
+        version: '3.5.0-build.608',
         knowledge_base_version: '3.1',
         features: [
           'phase0_canonical_composition_derivation',
@@ -386,6 +498,7 @@ Deno.serve(async (req: Request) => {
           'parts_ncm_indirect_linking',
           'parts_vs_dependent_accessory_distinction',
           'expanded_parts_deterministic_retrieval',
+          'defensive_ai_provider_safeguards',
         ],
         timestamp: new Date().toISOString(),
       }),
@@ -631,19 +744,84 @@ Deno.serve(async (req: Request) => {
       )
     }
 
-    const allProviders = rawProviders as (LLMProviderConfig & { role?: string })[]
+    const allRawProviders = rawProviders as (LLMProviderConfig & { role?: string })[]
 
-    // Separar provedores dedicados para Análise (1ª passada) e Auditoria (2ª passada)
-    // Se houver provedores com role='analyst', usá-los prioritariamente na 1ª passada.
-    // Se houver provedores com role='auditor', usá-los prioritariamente na 2ª passada (ex: DeepSeek).
+    // SALVAGUARDA DEFENSIVA (1): Filtrar provedores suportados nativamente pela função.
+    // Ignorar (com log de aviso claro, sem derrubar a inferência) qualquer provedor cujo provider_type
+    // não seja suportado nativamente — em especial provider_type='custom' com endpoint não-OpenAI-compatível
+    // como o Anthropic /v1/messages.
+    const ignoredProvidersSummary: Array<{ id: string; name: string; reason: string }> = []
+    const allProviders: (LLMProviderConfig & { role?: string })[] = []
+
+    for (const prov of allRawProviders) {
+      const pCheck = isSupportedAIProvider(prov)
+      if (!pCheck.supported) {
+        console.warn(
+          `[Salvaguarda Defensiva Provedor de IA]: Provedor ignorado "${prov.provider_name}" (${prov.model_id}, type=${prov.provider_type || 'não informado'}). Motivo: ${pCheck.reason}`,
+        )
+        ignoredProvidersSummary.push({
+          id: prov.id,
+          name: prov.provider_name,
+          reason: pCheck.reason,
+        })
+      } else {
+        allProviders.push(prov)
+      }
+    }
+
+    if (allProviders.length === 0) {
+      const reasonsList = ignoredProvidersSummary
+        .map((ip) => `"${ip.name}": ${ip.reason}`)
+        .join('; ')
+      console.error(
+        `Nenhum provedor de IA suportado permaneceu ativo após filtragem defensiva. Provedores ignorados: ${reasonsList}`,
+      )
+      return new Response(
+        JSON.stringify({
+          error: `Nenhum provedor de IA compatível e suportado está ativo. Provedores desconsiderados: ${reasonsList}`,
+          ignored_providers: ignoredProvidersSummary,
+        }),
+        { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      )
+    }
+
+    // SALVAGUARDA DEFENSIVA (2): Separar provedores para Análise (1ª passada) e Auditoria (2ª passada).
+    // Se após filtrar não restar provedor ativo para um papel necessário (analyst/auditor), retornar erro claro
+    // dizendo qual provedor foi ignorado e por quê, em vez de tentar chamada com configuração ou chave errada.
     const analystProviders = allProviders.filter(
       (p) => (p.role || 'general') === 'analyst' || (p.role || 'general') === 'general',
     )
     const primaryAnalystProviders = analystProviders.length > 0 ? analystProviders : allProviders
 
+    if (primaryAnalystProviders.length === 0) {
+      const reasonsList = ignoredProvidersSummary
+        .map((ip) => `"${ip.name}": ${ip.reason}`)
+        .join('; ')
+      return new Response(
+        JSON.stringify({
+          error: `Nenhum provedor ativo compatível para o papel de analista (1ª passada). Provedores ignorados: ${reasonsList}`,
+          ignored_providers: ignoredProvidersSummary,
+        }),
+        { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      )
+    }
+
     const auditorProvidersList = allProviders.filter((p) => (p.role || 'general') === 'auditor')
     const primaryAuditorProviders =
       auditorProvidersList.length > 0 ? auditorProvidersList : allProviders
+
+    if (primaryAuditorProviders.length === 0) {
+      const reasonsList = ignoredProvidersSummary
+        .map((ip) => `"${ip.name}": ${ip.reason}`)
+        .join('; ')
+      return new Response(
+        JSON.stringify({
+          error: `Nenhum provedor ativo compatível para o papel de auditor (2ª passada). Provedores ignorados: ${reasonsList}`,
+          ignored_providers: ignoredProvidersSummary,
+        }),
+        { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      )
+    }
 
     // 9. PROMPT UNIVERSAL COM ANÁLISE DE COMPOSIÇÃO (RGI 3b / 3c) E RESTRIÇÃO DE EX
     // Incluir TODOS os candidatos recuperados (incluindo os vindos da expansão de família hierárquica)
@@ -1914,7 +2092,7 @@ ${candidatesCatalogText}`
       composition_analysis: compositionAnalysis,
       checklist_log: checklistLog,
       parts_indirect_logic: partsTelemetry,
-      version: '3.5.0-build.607',
+      version: '3.5.0-build.608',
       timestamp: new Date().toISOString(),
     }
 
@@ -3395,10 +3573,20 @@ async function invokeLLMWithTimeout(
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
 
   try {
-    const provType = (provider.provider_type || provider.provider_name || '').toLowerCase()
+    const pCheck = isSupportedAIProvider(provider)
+    if (!pCheck.supported) {
+      throw new Error(
+        `Provedor não suportado na inferência (${provider.provider_name}): ${pCheck.reason}`,
+      )
+    }
 
-    if (provType.includes('deepseek')) {
-      const res = await fetch('https://api.deepseek.com/chat/completions', {
+    const provType = (provider.provider_type || '').toLowerCase().trim()
+    const provName = (provider.provider_name || '').toLowerCase().trim()
+
+    // DeepSeek
+    if (provType === 'deepseek' || provName.includes('deepseek')) {
+      const endpoint = provider.custom_endpoint || 'https://api.deepseek.com/chat/completions'
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -3416,30 +3604,32 @@ async function invokeLLMWithTimeout(
       return data.choices?.[0]?.message?.content || ''
     }
 
-    if (provType.includes('claude') || provType.includes('anthropic')) {
-      const res = await fetch(provider.custom_endpoint || 'https://api.anthropic.com/v1/messages', {
+    // Gemini (OpenAI compatível endpoint ou endpoint v1beta)
+    if (provType === 'gemini' || provName.includes('gemini')) {
+      const endpoint =
+        provider.custom_endpoint ||
+        'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions'
+      const res = await fetch(endpoint, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-        },
+        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: provider.model_id || 'claude-haiku-4-5-20251001',
-          max_tokens: 3000,
+          model: provider.model_id || 'gemini-2.0-flash',
           temperature: 0.1,
-          system: systemPrompt,
-          messages: [{ role: 'user', content: userPrompt }],
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt },
+          ],
         }),
         signal: controller.signal,
       })
-      if (!res.ok) throw new Error(`Anthropic API (${res.status}): ${await res.text()}`)
+      if (!res.ok) throw new Error(`Gemini API (${res.status}): ${await res.text()}`)
       const data = await res.json()
-      return data.content?.[0]?.text || ''
+      return data.choices?.[0]?.message?.content || ''
     }
 
-    // Default: OpenAI compatível
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    // OpenAI ou custom com endpoint OpenAI-compatível
+    const endpoint = provider.custom_endpoint || 'https://api.openai.com/v1/chat/completions'
+    const res = await fetch(endpoint, {
       method: 'POST',
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -3454,7 +3644,7 @@ async function invokeLLMWithTimeout(
       signal: controller.signal,
     })
 
-    if (!res.ok) throw new Error(`OpenAI API (${res.status}): ${await res.text()}`)
+    if (!res.ok) throw new Error(`OpenAI-compatible API (${res.status}): ${await res.text()}`)
     const data = await res.json()
     return data.choices?.[0]?.message?.content || ''
   } finally {

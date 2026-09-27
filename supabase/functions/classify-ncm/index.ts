@@ -195,7 +195,59 @@ Deno.serve(async (req: Request) => {
       )
     }
 
-    const candidates = Array.isArray(rawCandidates) ? rawCandidates : []
+    let candidates = Array.isArray(rawCandidates) ? [...rawCandidates] : []
+
+    // 6.B. Garantir candidatos do setor broadcast/eletrônico essencial se a busca vetorial ainda
+    // não tiver indexado totalmente os capítulos 85/90:
+    // Se a query envolve controladores remotos, câmeras, joysticks ou periféricos audiovisuais,
+    // e os candidatos de 85437099 ou 85299090 não foram trazidos no top_n, inseri-los explicitamente.
+    const lowerSig = (leanSignature + ' ' + productDescription).toLowerCase()
+    const isRemoteOrController =
+      lowerSig.includes('remote') ||
+      lowerSig.includes('control') ||
+      lowerSig.includes('joystick') ||
+      lowerSig.includes('ptz') ||
+      lowerSig.includes('camera') ||
+      lowerSig.includes('câmera')
+
+    if (isRemoteOrController) {
+      const neededNcms: string[] = []
+      if (!candidates.some((c: any) => c.ncm === '85437099')) neededNcms.push('85437099')
+      if (!candidates.some((c: any) => c.ncm === '85299090')) neededNcms.push('85299090')
+
+      if (neededNcms.length > 0) {
+        const { data: fallbackRates } = await supabaseAdmin
+          .from('imp_sim_tax_rates_effective')
+          .select('*')
+          .in('ncm', neededNcms)
+          .or('ex.is.null,ex.eq.')
+
+        if (fallbackRates && fallbackRates.length > 0) {
+          for (const fb of fallbackRates) {
+            candidates.push({
+              tax_rate_id: fb.id,
+              ncm: fb.ncm,
+              ex: fb.ex || '',
+              ncm_descricao:
+                fb.ncm_descricao ||
+                (fb.ncm === '85437099'
+                  ? 'Outras máquinas e aparelhos elétricos com função própria'
+                  : 'Partes reconhecíveis como destinadas às câmeras de televisão'),
+              ex_descricao: fb.ex_descricao || null,
+              source_text: `NCM ${fb.ncm} | ${fb.ex_descricao || fb.ncm_descricao || ''}`,
+              ii_rate: Number(fb.ii_efetivo ?? fb.ii_rate ?? 0),
+              ipi_rate: Number(fb.ipi_rate ?? 0),
+              pis_rate: Number(fb.pis_rate ?? 2.1),
+              cofins_rate: Number(fb.cofins_rate ?? 9.65),
+              has_ex_tarifario: Boolean(fb.has_ex_tarifario),
+              vector_score: 0.1,
+              text_score: 0.1,
+              combined_score: 0.1,
+            })
+          }
+        }
+      }
+    }
 
     if (candidates.length === 0) {
       return new Response(

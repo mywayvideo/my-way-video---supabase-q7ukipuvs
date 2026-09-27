@@ -29,6 +29,32 @@ interface LLMProviderConfig {
   priority_order?: number
 }
 
+interface ExQualifiers {
+  signalType: 'digital' | 'analog' | null
+  frequencyRanges: string[]
+  isSingularItem: boolean
+  singularComponentType: string | null
+  materialRequirements: string[]
+  purposeRequirements: string[]
+  formatPortability: string[]
+}
+
+interface ExConditionComparison {
+  name: string
+  productValue: string
+  exRequirement: string
+  status: 'ATENDE' | 'NÃO ATENDE'
+  reason?: string
+}
+
+interface ExChecklistResult {
+  passed: boolean
+  comparisons: ExConditionComparison[]
+  vetoReason?: string
+  missingInformation: string[]
+  needsWebSearch: boolean
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -75,7 +101,6 @@ Deno.serve(async (req: Request) => {
 
   // Se a requisição veio com a chave de serviço (ex: chamadas internas/M2M entre sistemas com a mesma infraestrutura)
   if (jwt === serviceRoleKey) {
-    // Buscar um admin padrão para atribuir o log
     const { data: defaultUser } = await supabaseAdmin
       .from('customers')
       .select('user_id')
@@ -84,14 +109,10 @@ Deno.serve(async (req: Request) => {
       .maybeSingle()
     callerUserId = defaultUser?.user_id || null
   } else {
-    // Cliente autenticado com o JWT do chamador para verificar identidade de usuário
     const supabaseUserClient = createClient(supabaseUrl, supabaseAnonKey, {
       global: { headers: { Authorization: `Bearer ${jwt}` } },
     })
 
-    // Importante: em Deno Edge Functions não há sessão local persistida (localStorage).
-    // O método auth.getUser() sem parâmetros falha com "Auth session missing!".
-    // É obrigatório passar explicitamente o jwt como argumento: auth.getUser(jwt).
     const {
       data: { user },
       error: userError,
@@ -133,183 +154,40 @@ Deno.serve(async (req: Request) => {
   const brand = (body.brand || '').trim()
   const model = (body.model || '').trim()
   const additionalSpecs = (body.additional_specs || '').trim()
-  const topN = Math.max(5, Math.min(Number(body.top_n) || 15, 30))
+  const topN = Math.max(8, Math.min(Number(body.top_n) || 15, 30))
   const saveLog = body.save_log !== false
   const productId = body.product_id || null
   const impSimProductId = body.imp_sim_product_id || null
 
   try {
-    // 4. Construir Assinatura Enxuta do Produto para a busca de candidatos NCM
-    // REQUISITO (2): Não concatenar o blob de specs (conectores XLR/BNC/pinos) na busca/embedding de candidatos,
-    // pois isso domina a similaridade de cosseno e enterra a função essencial do equipamento.
-    // Usar: Marca + Modelo + Frase central da função/descrição do produto.
+    // 4. Construir Assinatura Enxuta do Produto
     const leanSignature = buildLeanProductSignature({
       brand,
       model,
       description: productDescription,
     })
 
-    // 5. Gerar embedding vetorial da consulta a partir da ASSINATURA ENXUTA
-    let queryEmbedding: number[] | null = null
-    const openAiKey = Deno.env.get('OPENAI_API_KEY') || ''
-    if (openAiKey) {
-      try {
-        queryEmbedding = await generateEmbedding(leanSignature, openAiKey)
-      } catch (embErr) {
-        console.warn(
-          'Falha ao gerar embedding para assinatura enxuta NCM (continuando com busca textual):',
-          embErr,
-        )
-      }
-    }
+    // 5. Análise de Composição Universal (Sistemas / Conjuntos / Kits - RGI 3b/3c)
+    const combinedProductText = [productDescription, brand, model, additionalSpecs]
+      .filter(Boolean)
+      .join(' ')
+    const compositionAnalysis = analyzeProductComposition(combinedProductText)
 
-    // 6. Recuperar candidatos via RPC search_ncm_candidates usando a assinatura enxuta
-    const rpcParams: {
-      query: string
-      query_embedding?: string | null
-      top_n: number
-      match_threshold: number
-    } = {
-      query: leanSignature,
-      top_n: topN,
-      match_threshold: 0.04,
-    }
+    // 6. GATILHO CONDICIONAL DE BUSCA WEB (ANTES DA DECISÃO)
+    // Se as specs internas forem insuficientes para qualificar aspectos técnicos ou condições de Ex,
+    // a busca na web DEVE ser acionada imediatamente
+    const webSources: WebSource[] = []
+    let webContentSummary = ''
 
-    if (queryEmbedding && queryEmbedding.length > 0) {
-      rpcParams.query_embedding = `[${queryEmbedding.join(',')}]`
-    }
-
-    const { data: rawCandidates, error: rpcError } = await supabaseAdmin.rpc(
-      'search_ncm_candidates',
-      rpcParams,
-    )
-
-    if (rpcError) {
-      console.error('Erro na RPC search_ncm_candidates:', rpcError)
-      return new Response(
-        JSON.stringify({
-          error: 'Falha ao buscar candidatos fiscais no banco.',
-          details: rpcError.message,
-        }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-      )
-    }
-
-    let candidates = Array.isArray(rawCandidates) ? [...rawCandidates] : []
-
-    // 6.B. Detecção de assinatura de controlador/periférico/console remoto
-    // Avaliar assinatura do produto para evitar confusão entre aparelho de controle e máquina controlada
-    const lowerSig = (
-      leanSignature +
-      ' ' +
-      productDescription +
-      ' ' +
-      additionalSpecs
-    ).toLowerCase()
-    const isControllerSignature = isProductControllerOrPeripheral(lowerSig)
-
-    // Se a assinatura indica controlador/joystick/console/periférico remoto:
-    // 1) Garantir e priorizar 85437099 e 85299090 no TOPO dos candidatos com score alto
-    // 2) Penalizar severamente candidatos de máquinas mecânicas de elevação/guindastes/gruas (8426/8428)
-    if (isControllerSignature) {
-      // Buscar no banco as posições canônicas 85437099 e 85299090 (sem Ex-Tarifário)
-      const targetNcms = ['85437099', '85299090']
-      const { data: canonicalRates } = await supabaseAdmin
-        .from('imp_sim_tax_rates_effective')
-        .select('*')
-        .in('ncm', targetNcms)
-        .or('ex.is.null,ex.eq.')
-
-      const canonicalCandidates: any[] = []
-      if (canonicalRates && canonicalRates.length > 0) {
-        for (const fb of canonicalRates) {
-          canonicalCandidates.push({
-            tax_rate_id: fb.id,
-            ncm: fb.ncm,
-            ex: fb.ex || '',
-            ncm_descricao:
-              fb.ncm_descricao ||
-              (fb.ncm === '85437099'
-                ? 'Outras máquinas e aparelhos elétricos com função própria não especificados nem compreendidos em outras posições do Capítulo 85'
-                : 'Partes reconhecíveis como destinada única ou principalmente às câmeras de televisão da posição 85.25'),
-            ex_descricao: fb.ex_descricao || null,
-            source_text: `NCM ${fb.ncm} | ${fb.ex_descricao || fb.ncm_descricao || (fb.ncm === '85437099' ? 'Aparelhos elétricos com função própria' : 'Partes para câmeras de televisão')}`,
-            ii_rate: Number(fb.ii_efetivo ?? fb.ii_rate ?? 0),
-            ipi_rate: Number(fb.ipi_rate ?? 0),
-            pis_rate: Number(fb.pis_rate ?? 2.1),
-            cofins_rate: Number(fb.cofins_rate ?? 9.65),
-            has_ex_tarifario: Boolean(fb.has_ex_tarifario),
-            vector_score: 0.95,
-            text_score: 0.95,
-            combined_score: 0.95,
-            is_priority_boosted: true,
-          })
-        }
-      }
-
-      // Remover duplicatas de 85437099 e 85299090 da lista original e penalizar 8426 / 8428
-      const filteredExisting = candidates
-        .filter(
-          (c: any) =>
-            !(c.ncm === '85437099' && (!c.ex || c.ex === '')) &&
-            !(c.ncm === '85299090' && (!c.ex || c.ex === '')),
-        )
-        .map((c: any) => {
-          const ncmDigits = normalizeNcm(c.ncm)
-          const isLiftingMachine = isLiftingOrCraneNcm(
-            ncmDigits,
-            c.ncm_descricao,
-            c.ex_descricao,
-            c.source_text,
-          )
-          if (isLiftingMachine) {
-            // Penalização condicional severa: reduz score para o final da fila
-            return {
-              ...c,
-              combined_score: Math.min(Number(c.combined_score || 0.01) * 0.05, 0.01),
-              vector_score: Math.min(Number(c.vector_score || 0.01) * 0.05, 0.01),
-              text_score: Math.min(Number(c.text_score || 0.01) * 0.05, 0.01),
-              penalized_crane: true,
-            }
-          }
-          return c
-        })
-
-      // Ordenar: canônicos prioritários no topo, seguidos dos demais ordenados por combined_score decrescente
-      candidates = [
-        ...canonicalCandidates,
-        ...filteredExisting.sort(
-          (a: any, b: any) => Number(b.combined_score || 0) - Number(a.combined_score || 0),
-        ),
-      ]
-    }
-
-    if (candidates.length === 0) {
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: 'Nenhum candidato NCM localizado na base oficial para os termos informados.',
-          recommendation: null,
-          alternatives: [],
-        }),
-        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-      )
-    }
-
-    // 7. Gatilho Condicional de Busca Web por informações complementares
-    // Regra do projeto: busca na web SEMPRE que as informações internas disponíveis não forem suficientes
-    const { isSufficient, reason: sufficiencyReason } = evaluateInformationSufficiency({
+    const sufficiencyCheck = evaluateInformationSufficiency({
       productDescription,
       brand,
       model,
       additionalSpecs,
-      candidates,
+      compositionAnalysis,
     })
 
-    const webSources: WebSource[] = []
-    let webContentSummary = ''
-
-    if (!isSufficient) {
+    if (!sufficiencyCheck.isSufficient) {
       try {
         const searchQuery = [brand, model, productDescription, 'specs datasheet']
           .filter(Boolean)
@@ -331,6 +209,41 @@ Deno.serve(async (req: Request) => {
       }
     }
 
+    const fullTechnicalProfile = [combinedProductText, webContentSummary].filter(Boolean).join('\n')
+
+    // 7. RECUPERAÇÃO ORIENTADA POR SETOR (SEM LISTAS HARDCODED)
+    // Mapeamento semântico da assinatura do produto para sua família de posições no banco,
+    // garantindo diversidade de posições adjacentes
+    const openAiKey = Deno.env.get('OPENAI_API_KEY') || ''
+    let queryEmbedding: number[] | null = null
+    if (openAiKey) {
+      try {
+        queryEmbedding = await generateEmbedding(leanSignature, openAiKey)
+      } catch (embErr) {
+        console.warn('Falha ao gerar embedding para assinatura enxuta NCM:', embErr)
+      }
+    }
+
+    let candidates = await retrieveSectorOrientedCandidates({
+      supabaseAdmin,
+      query: leanSignature,
+      queryEmbedding,
+      fullTechnicalProfile,
+      topN,
+    })
+
+    if (candidates.length === 0) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: 'Nenhum candidato NCM localizado na base oficial para os termos informados.',
+          recommendation: null,
+          alternatives: [],
+        }),
+        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      )
+    }
+
     // 8. Buscar provedores de IA ativos na tabela public.ai_providers ordenados por prioridade
     const { data: providers, error: provError } = await supabaseAdmin
       .from('ai_providers')
@@ -350,7 +263,7 @@ Deno.serve(async (req: Request) => {
       )
     }
 
-    // 9. Prompt de Raciocínio Aduaneiro NESH e TEC com RGI 1, RGI 3b e desempate
+    // 9. PROMPT UNIVERSAL COM ANÁLISE DE COMPOSIÇÃO (RGI 3b / 3c) E RESTRIÇÃO DE EX
     const candidatesCatalogText = candidates
       .slice(0, topN)
       .map((c: any, index: number) => {
@@ -363,33 +276,39 @@ Deno.serve(async (req: Request) => {
       })
       .join('\n\n')
 
-    const systemPrompt = `Você é o Auditor Fiscal Chefe e Perito em Classificação Aduaneira da My Way Video / My Way Business, especialista na Nomenclatura Comum do Mercosul (NCM), Tarifa Externa Comum (TEC), Notas Explicativas do Sistema Harmonizado (NESH) e Ex-Tarifários (GECEX).
+    const systemPrompt = `Você é o Auditor Fiscal Chefe e Perito em Classificação Aduaneira da My Way Video / My Way Business, especialista na Nomenclatura Comum do Mercosul (NCM), Tarifa Externa Comum (TEC), Notas Explicativas do Sistema Harmonizado (NESH), Regras Gerais para Interpretação (RGI) e Ex-Tarifários (GECEX).
 
 SUA MISSÃO:
-Analisar as especificações técnicas de um equipamento (audiovisual, broadcast, TI, ótica ou industrial) e determinar com rigor a classificação NCM e Ex-Tarifário mais adequada e juridicamente defensável.
+Analisar as especificações técnicas de qualquer produto ou sistema e determinar a classificação NCM e Ex-Tarifário rigorosamente correta e juridicamente defensável.
 
-METODOLOGIA OBRIGATÓRIA FUNÇÃO-PRIMEIRO (FUNCTION-FIRST):
-1. ENUNCIAÇÃO PRÉVIA DA FUNÇÃO ESSENCIAL:
-   Antes de qualquer seleção de NCM, você DEVE enunciar em 1 (uma) frase clara e inequívoca qual é a FUNÇÃO ESSENCIAL DO PRODUTO (o que o produto É, e não a máquina externa que ele opera).
-   Se o produto é um console/controlador remoto/joystick com saídas IP, serial ou VISCA para comandar câmeras PTZ, a função essencial é de COMANDO E CONTROLE ELETRÔNICO REMOTO DE CÂMERAS, e o produto É um periférico/aparelho eletrônico de controle.
-2. PROIBIÇÃO ABSOLUTA DE CASAMENTO POR VOCABULÁRIO (VOCABULARY-MATCHING BAN):
-   É TERMINANTEMENTE PROIBIDO escolher um candidato NCM ou Ex-Tarifário apenas por termos, palavras-chave ou vozes verbais coincidentes (exemplo: "controle remoto", "joystick", "posicionamento", "acionamento", "câmeras") quando a FUNÇÃO ESSENCIAL do candidato divergir da função do produto.
-   Exemplo crítico: se o produto é um "controlador remoto com joystick para câmeras PTZ", o produto É O CONTROLADOR ELETRÔNICO (recaia em 8543.70.99 ou 8529.90.90), e JAMAIS uma grua robótica, guindaste ou braço mecânico articulado de elevação (posições 8426/8428). É PROIBIDO classificar o controlador como a máquina mecânica externa!
-3. REGRA DE PARTES E ACESSÓRIOS (RGI 3a, NOTAS DE SEÇÃO XVI E REGRAS GERAIS 3a/5):
-   - Partes e acessórios destinados única ou principalmente a aparelhos de uma posição seguem a classificação do equipamento principal ou da sua subposição específica de partes (ex.: controles, joysticks e consoles de comando de câmeras seguem 8529.90.90 como partes/acessórios de câmeras da 8525, ou 8543.70.99 como aparelhos elétricos com função própria não especificada em outras posições do Capítulo 85).
-   - Não confunda o dispositivo eletrônico de controle com máquinas mecânicas de elevação ou transporte de carga do Capítulo 84.
-4. PROIBIÇÃO DE EX-TARIFÁRIO DE OUTRO EQUIPAMENTO:
-   É PROIBIDO escolher um Ex-Tarifário cuja descrição descreva outro equipamento ou máquina mecânica completa (ex.: 8426.99.00 Ex 004 gruas robóticas telescópicas), mesmo que contenha termos em comum ("controle remoto", "joystick", "câmeras").
-5. CANDIDATOS VÁLIDOS E ALTERNATIVAS FUNCIONALMENTE PLAUSÍVEIS:
-   - UNIVERSO FECHADO: Você DEVE ESCOLHER O NCM E EX RECOMENDADO E AS ALTERNATIVAS ESTRITAMENTE DENTRE A LISTA DE CANDIDATOS FORNECIDA ABAIXO.
-   - As alternativas secundárias devem ser FUNCIONALMENTE PLAUSÍVEIS (ex.: posições fiscais concorrentes para a mesma natureza do produto), e NÃO apenas parecidas no texto.
-6. RESPOSTA EXCLUSIVAMENTE EM JSON:
-   Responda com um único bloco JSON válido, sem texto introdutório, no formato exato:
+METODOLOGIA OBRIGATÓRIA UNIVERSAL:
+
+1. ANÁLISE DE COMPOSIÇÃO UNIVERSAL (SISTEMAS / CONJUNTOS / KITS - RGI 3b / 3c):
+   Para QUALQUER produto reconhecido como sistema, conjunto, sortido ou kit (produtos compostos por múltiplos elementos que operam em conjunto, como transmissor + receptor, console + fonte, módulo óptico + chassi, etc.):
+   (a) LISTAR EXPRESSAMENTE OS COMPONENTES que integram o conjunto;
+   (b) ENUNCIAR A FUNÇÃO ESSENCIAL DO CONJUNTO como um todo (caráter essencial conferido pela RGI 3b) e classificar por essa função global, e NÃO isoladamente por um único acessório ou peça periférica;
+   (c) PROIBIÇÃO ABSOLUTA DE EX SINGULAR PARA CONJUNTO: NUNCA aplique a um conjunto a descrição de um Ex-Tarifário que descreve um item singular/isolado (por exemplo, aplicar um Ex que descreve apenas "transmissor de áudio" a um sistema completo contendo transmissor e receptor), SALVO se houver fundamento explícito demonstrando que o Ex contempla o conjunto inteiro.
+
+2. METODOLOGIA FUNÇÃO-PRIMEIRO (FUNCTION-FIRST) E PROIBIÇÃO DE ATRAÇÃO POR VOCABULÁRIO:
+   - Antes de escolher qualquer NCM, enuncie o que o produto É em sua essência.
+   - É TERMINANTEMENTE PROIBIDO escolher um candidato NCM ou Ex-Tarifário por coincidência de vocabulário ou termos isolados ("controle", "joystick", "wireless", "áudio") quando a função essencial divergir.
+   - Aparelhos de comando/controle, consoles e joysticks eletrônicos pertencem ao Capítulo 85 (8543, 8529, 8537) e JAMAIS a máquinas mecânicas de elevação, pontes rolantes, gruas ou guindastes do Capítulo 84 (8426, 8428).
+
+3. CONDICIONALIDADES RESTRITIVAS DE EX-TARIFÁRIOS:
+   - Os Ex-Tarifários são normas de exceção tributária de interpretação estrita (Art. 111 do CTN).
+   - Se o texto do Ex exige "sinal DIGITAL" e o produto opera com sinal ANALÓGICO (ou vice-versa), o Ex NÃO PODE ser aplicado.
+   - Se o texto do Ex exige uma faixa de frequência, potência, taxa de dados ou material específico, o produto deve atender estritamente a cada uma dessas condições. Se não atender, classifique na posição geral sem Ex ou em outro candidato.
+
+4. UNIVERSO DE CANDIDATOS E FORMATO DE SAÍDA:
+   - Escolha o recommended_ncm e recommended_ex EXCLUSIVAMENTE a partir da lista de candidatos fornecida.
+   - Responda OBRIGATORIAMENTE em JSON válido sem texto externo, no formato exato:
 {
-  "essential_function": "Uma frase enunciando a função essencial do produto",
-  "recommended_ncm": "string de 8 dígitos",
-  "recommended_ex": "string com o número do Ex (ex: '001') ou '' se sem Ex",
-  "justification": "Justificativa detalhada fundamentada nas RGI (RGI 1, RGI 3a/b, RGI 6) e características do produto",
+  "is_kit_or_system": boolean,
+  "components_list": ["componente 1", "componente 2"],
+  "essential_function": "Enunciação clara e precisa da função essencial do produto ou conjunto",
+  "recommended_ncm": "8 dígitos",
+  "recommended_ex": "número do Ex (ex: '019') ou '' se sem Ex",
+  "justification": "Justificativa detalhada com análise de composição (RGI 3b), confronto de condições e notas da TEC",
   "legal_basis": {
     "regime": "BK ou BIT ou GERAL",
     "notes": "referência legal ou justificativa sumária"
@@ -399,7 +318,7 @@ METODOLOGIA OBRIGATÓRIA FUNÇÃO-PRIMEIRO (FUNCTION-FIRST):
     {
       "ncm": "8 dígitos",
       "ex": "Ex ou ''",
-      "reason": "Motivo funcionalmente plausível pelo qual esta alternativa pode ser considerada como plano de contingência fiscal"
+      "reason": "Motivo fiscal e técnico funcionalmente plausível"
     }
   ]
 }`
@@ -410,14 +329,18 @@ METODOLOGIA OBRIGATÓRIA FUNÇÃO-PRIMEIRO (FUNCTION-FIRST):
 - Modelo / P/N: ${model || 'Não informado'}
 - Especificações adicionais: ${additionalSpecs || 'Nenhuma informada'}
 
+ANÁLISE PRÉVIA DE COMPOSIÇÃO:
+- É reconhecido como Sistema / Conjunto / Kit: ${compositionAnalysis.isKit ? 'SIM' : 'NÃO'}
+- Componentes identificados: ${compositionAnalysis.detectedComponents.join(', ') || 'Item singular'}
+
 AVALIAÇÃO DE SUFICIÊNCIA DAS INFORMAÇÕES:
-- Informações internas completas: ${isSufficient ? 'SIM' : 'NÃO'} (${sufficiencyReason})
+- Informações suficientes internamente: ${sufficiencyCheck.isSufficient ? 'SIM' : 'NÃO'} (${sufficiencyCheck.reason})
 ${webContentSummary ? `\nINFORMAÇÕES TÉCNICAS COMPLEMENTARES OBTIDAS VIA BUSCA WEB:\n${webContentSummary}\n` : ''}
 
 LISTA DE CANDIDATOS NCM VÁLIDOS (Recuperados do Banco de Dados Oficial):
 ${candidatesCatalogText}
 
-Escolha a melhor classificação com base nas regras NESH e retorne o JSON estruturado.`
+Avalie todos os candidatos e forneça o JSON estruturado conforme o protocolo aduaneiro.`
 
     // 10. Chamada ao LLM com cascata de fallback
     let llmResponseJson: any = null
@@ -426,12 +349,7 @@ Escolha a melhor classificação com base nas regras NESH e retorne o JSON estru
 
     for (const provider of providers as LLMProviderConfig[]) {
       const apiKey = Deno.env.get(provider.api_key_secret_name) || ''
-      if (!apiKey) {
-        console.warn(
-          `Chave secreta ${provider.api_key_secret_name} não configurada para provedor ${provider.provider_name}. Pulando.`,
-        )
-        continue
-      }
+      if (!apiKey) continue
 
       try {
         const rawContent = await invokeLLMWithTimeout(
@@ -444,7 +362,6 @@ Escolha a melhor classificação com base nas regras NESH e retorne o JSON estru
 
         const parsed = parseLLMJsonResponse(rawContent)
         if (parsed && parsed.recommended_ncm) {
-          // Validar que o recommended_ncm existe nos candidatos recuperados
           const normRecNcm = normalizeNcm(parsed.recommended_ncm)
           const candidateMatch = candidates.find((c: any) => normalizeNcm(c.ncm) === normRecNcm)
 
@@ -460,14 +377,10 @@ Escolha a melhor classificação com base nas regras NESH e retorne o JSON estru
         }
       } catch (err: any) {
         lastLlmError = err?.message || String(err)
-        console.warn(
-          `Falha no provedor ${provider.provider_name} (${provider.model_id}):`,
-          lastLlmError,
-        )
+        console.warn(`Falha no provedor ${provider.provider_name}:`, lastLlmError)
       }
     }
 
-    // Se nenhum LLM teve sucesso ou todos os provedores falharam, gerar erro 502
     if (!llmResponseJson) {
       console.error('Todos os provedores LLM falharam ao classificar NCM:', lastLlmError)
       return new Response(
@@ -479,12 +392,94 @@ Escolha a melhor classificação com base nas regras NESH e retorne o JSON estru
       )
     }
 
-    // 10.B. REQUISITO (2 & 3): SEGUNDA PASSADA DE AUDITORIA LLM QUE VETA OU CORRIGE A RECOMENDAÇÃO
-    // O auditor revisor é obrigado a enunciar a função essencial do produto antes de qualquer veto.
-    // Fica TERMINANTEMENTE PROIBIDO de corrigir para descrição de máquina mecânica quando a função é de controle.
+    // 11. CÓDIGO DETERMINÍSTICO — CHECKLIST UNIVERSAL DE CONDIÇÕES RESTRITIVAS DO EX
+    // Extração em código de qualificadores do Ex e confrontação com o perfil técnico do produto.
+    // Formato obrigatório na justificativa: "produto: X → Ex exige: Y → ATENDE/NÃO ATENDE"
+    // Se qualquer condição não for atendida, o Ex é VETADO AUTOMATICAMENTE em código.
+    const initialRecNcm = normalizeNcm(llmResponseJson.recommended_ncm)
+    let initialRecEx = (llmResponseJson.recommended_ex || '').toString().trim()
+
+    let activeExCandidate = candidates.find(
+      (c: any) => normalizeNcm(c.ncm) === initialRecNcm && (c.ex || '').trim() === initialRecEx,
+    )
+
+    // Se o candidato tiver Ex-Tarifário, executar checklist de validação em código
+    let checklistLog: ExChecklistResult = {
+      passed: true,
+      comparisons: [],
+      missingInformation: [],
+      needsWebSearch: false,
+    }
+
+    let checklistFormattedReport = ''
+    let exVetoApplied = false
+
+    if (initialRecEx && activeExCandidate?.ex_descricao) {
+      // 11.A Se specs internas forem insuficientes para verificar uma condição, acionar busca na web antes de decidir
+      checklistLog = evaluateExChecklistAgainstProduct({
+        exDescription: activeExCandidate.ex_descricao,
+        productText: fullTechnicalProfile,
+        isKit: compositionAnalysis.isKit,
+        detectedComponents: compositionAnalysis.detectedComponents,
+      })
+
+      // Se precisava de busca na web e ainda não tinha sido feita, acionar agora
+      if (checklistLog.needsWebSearch && webSources.length === 0) {
+        try {
+          const targetedQuery = [brand, model, activeExCandidate.ex_descricao.slice(0, 60)]
+            .filter(Boolean)
+            .join(' ')
+          const addlSources = await searchWebTechnicalSpecs(targetedQuery)
+          for (const s of addlSources) webSources.push(s)
+          if (addlSources.length > 0) {
+            const addlSummary = addlSources
+              .map(
+                (s, idx) =>
+                  `[Fonte Web Adicional ${idx + 1}: ${s.title}] (${s.url})\n${s.snippet || ''}`,
+              )
+              .join('\n\n')
+            webContentSummary = [webContentSummary, addlSummary].filter(Boolean).join('\n\n')
+            // Reavalia com as novas informações
+            checklistLog = evaluateExChecklistAgainstProduct({
+              exDescription: activeExCandidate.ex_descricao,
+              productText: [fullTechnicalProfile, addlSummary].join('\n'),
+              isKit: compositionAnalysis.isKit,
+              detectedComponents: compositionAnalysis.detectedComponents,
+            })
+          }
+        } catch (searchErr) {
+          console.warn('Busca web complementar de desempate do checklist falhou:', searchErr)
+        }
+      }
+
+      // Montar a justificativa formatada no padrão exigido:
+      // "produto: X → Ex exige: Y → ATENDE/NÃO ATENDE"
+      if (checklistLog.comparisons.length > 0) {
+        checklistFormattedReport = checklistLog.comparisons
+          .map(
+            (c) =>
+              `• produto: ${c.productValue} → Ex exige: ${c.exRequirement} → ${c.status}${c.reason ? ` (${c.reason})` : ''}`,
+          )
+          .join('\n')
+      }
+
+      // VETO AUTOMÁTICO EM CÓDIGO se qualquer condição não for atendida
+      if (!checklistLog.passed) {
+        exVetoApplied = true
+        console.warn(
+          `[Checklist Ex-Tarifário Veto Automático]: O Ex ${initialRecEx} da posição ${initialRecNcm} foi vetado. Motivo: ${checklistLog.vetoReason}`,
+        )
+
+        // Remover o Ex da recomendação e rebaixar para a alíquota base ou alternativa adequada
+        initialRecEx = ''
+        llmResponseJson.recommended_ex = ''
+      }
+    }
+
+    // 12. SEGUNDA PASSADA DE AUDITORIA LLM
     const initialRecommendation = {
-      recommended_ncm: normalizeNcm(llmResponseJson.recommended_ncm),
-      recommended_ex: (llmResponseJson.recommended_ex || '').toString().trim(),
+      recommended_ncm: initialRecNcm,
+      recommended_ex: initialRecEx,
       essential_function: llmResponseJson.essential_function || '',
       justification: llmResponseJson.justification || '',
     }
@@ -507,50 +502,38 @@ Escolha a melhor classificação com base nas regras NESH e retorne o JSON estru
     try {
       const auditorSystemPrompt = `Você é o Auditor Revisor Sênior da Receita Federal e Aduana, atuando como segunda instância independente para homologar ou vetar a recomendação de classificação NCM.
 
-PROTOCOLO OBRIGATÓRIO DE AUDITORIA (EM DUAS ETAPAS):
-ETAPA 1 - ENUNCIAÇÃO OBRIGATÓRIA DA FUNÇÃO ESSENCIAL:
-Você DEVE obrigatoriamente iniciar enunciando a função essencial do produto ("essential_function"): declare com precisão o que o produto É em sua essência (ex: "Console/controlador remoto eletrônico com joystick para comando e movimentação de câmeras PTZ").
+PROTOCOLO OBRIGATÓRIO DE AUDITORIA:
+1. ENUNCIAÇÃO DA FUNÇÃO ESSENCIAL: declare o que o produto ou conjunto é.
+2. CONJUNTOS / SISTEMAS: NUNCA homologue a aplicação de um Ex-Tarifário singular para um conjunto completo (ex: transmissor + receptor). Se a recomendação manteve Ex incompatível com o conjunto, VETE (action: "VETA") e remova o Ex ou ajuste o NCM.
+3. CONDIÇÕES TÉCNICAS: NUNCA homologue Ex de sinal digital para produto analógico (ou vice-versa), nem Ex com restrições divergentes.
+4. CONTROLADORES: Se a função for controle remoto de câmeras/PTZ, JAMAIS aprove 8426/8428 (máquinas mecânicas).
 
-ETAPA 2 - REGRAS DE JULGAMENTO (APROVA ou VETA):
-1. PROIBIÇÃO DE MÁQUINA MECÂNICA PARA FUNÇÃO DE CONTROLE:
-   Se a função do produto for de controle, console, joystick, comando remoto, interface ou periférico de sinal/vídeo, É TERMINANTEMENTE PROIBIDO sugerir ou corrigir para posições de máquinas mecânicas de elevação, gruas, guindastes, pontes rolantes ou braços telescópicos (especialmente posições 8426 ou 8428).
-   O produto É o periférico/aparelho elétrico de controle (Capítulo 85: 8543.70.99, 8529.90.90 ou 8537.10.20), JAMAIS a máquina mecânica que ele opera.
-2. VETO DE CASAMENTO POR VOCABULÁRIO:
-   Se a 1ª passada cometeu o erro de classificar um controlador remoto como 8426 (gruas de câmeras) ou 8428 (máquinas de elevação) por atração das palavras "controle remoto", "joystick" ou "câmera" na descrição de um Ex-Tarifário, VETE IMEDIATAMENTE (action: "VETA") e CORRIJA para a posição correta do Capítulo 85 (8543.70.99 ou 8529.90.90).
-3. HOMOLOGAÇÃO:
-   Se a 1ª passada já recomendou uma posição válida e consistente com a função essencial (ex: 8543.70.99, 8529.90.90 ou 8537.10.20 para controles; 8525 para câmeras), APROVE (action: "APROVA"). NUNCA vete uma recomendação eletrônica correta para substituí-la por uma máquina mecânica do 8426/8428!
-4. REQUISITO DE CORREÇÃO:
-   Se você VETAR, a correção ("corrected_ncm") DEVE ser obrigatoriamente um NCM e Ex VÁLIDOS pertencentes à lista de candidatos fornecida.
-
-RESPOSTA OBRIGATÓRIA EXCLUSIVAMENTE EM JSON:
+RESPOSTA OBRIGATÓRIA EM JSON:
 {
-  "essential_function": "Obrigatório: Enunciação clara da função essencial do produto ANTES de qualquer análise",
+  "essential_function": "Função essencial do produto/conjunto",
   "action": "APROVA" ou "VETA",
-  "audit_critique": "Análise crítica do enquadramento e da direção da recomendação",
-  "corrected_ncm": "8 dígitos do NCM corrigido (obrigatório se VETA, deve ser um da lista de candidatos)",
-  "corrected_ex": "Ex do NCM corrigido ou ''",
-  "correction_reason": "Justificativa legal e técnica fundamentada na NESH, RGI e TEC"
+  "audit_critique": "Análise crítica",
+  "corrected_ncm": "8 dígitos se VETA",
+  "corrected_ex": "Ex corrigido ou ''",
+  "correction_reason": "Fundamentação legal"
 }`
 
       const auditorUserPrompt = `PRODUTO ANALISADO:
-- Marca: ${brand || 'Não informada'}
-- Modelo: ${model || 'Não informado'}
+- Marca: ${brand || 'Não informada'} | Modelo: ${model || 'Não informado'}
 - Descrição: ${productDescription}
-- Assinatura Enxuta: ${leanSignature}
+- Assinatura: ${leanSignature}
+- É Conjunto/Sistema: ${compositionAnalysis.isKit ? 'SIM' : 'NÃO'} (${compositionAnalysis.detectedComponents.join(', ')})
 - Especificações: ${additionalSpecs || 'N/A'}
 
 RECOMENDAÇÃO DA 1ª PASSADA:
 - Função Enunciada: ${initialRecommendation.essential_function}
-- NCM Recomendado: ${initialRecommendation.recommended_ncm}
-- Ex Recomendado: ${initialRecommendation.recommended_ex || 'Nenhum'}
-- Justificativa da 1ª passada: ${initialRecommendation.justification}
+- NCM: ${initialRecommendation.recommended_ncm} | Ex: ${initialRecommendation.recommended_ex || 'Nenhum'}
+- Status do Checklist em Código: ${checklistLog.passed ? 'ATENDEU' : 'VETADO PELO CÓDIGO'}
+${checklistFormattedReport ? `\nCHECKLIST DE CONDIÇÕES DO EX:\n${checklistFormattedReport}\n` : ''}
 
-LISTA DE CANDIDATOS VÁLIDOS NO BANCO OFICIAL:
-${candidatesCatalogText}
+LISTA DE CANDIDATOS VÁLIDOS:
+${candidatesCatalogText}`
 
-Lembre-se: primeiro enuncie a função do produto no campo "essential_function". Se o produto for aparelho de controle/console/joystick, JAMAIS aprove ou sugira posições de máquinas mecânicas de elevação/gruas (8426/8428).`
-
-      // Executar com o primeiro provedor com chave válida
       for (const provider of providers as LLMProviderConfig[]) {
         const apiKey = Deno.env.get(provider.api_key_secret_name) || ''
         if (!apiKey) continue
@@ -579,103 +562,44 @@ Lembre-se: primeiro enuncie a função do produto no campo "essential_function".
         }
       }
 
-      // 10.C. REQUISITO (1): GUARDA DETERMINÍSTICA EM CÓDIGO (VETO DO VETO)
-      // Se a assinatura do produto indica controlador/joystick/console remoto e a correção do auditor
-      // aponta para 8426 ou 8428 (máquinas de elevação/gruas), REJEITAR a correção do auditor,
-      // manter ou restaurar a recomendação eletrônica (85437099 / 85299090 / 85371020)
-      // e registrar o "veto-do-veto" explicitamente no log de auditoria.
-      if (auditVerdict.action === 'VETA' && auditVerdict.corrected_ncm) {
-        const correctedDigits = normalizeNcm(auditVerdict.corrected_ncm)
-        const correctedIsLifting = isLiftingOrCraneNcm(correctedDigits)
-
-        if (isControllerSignature && correctedIsLifting) {
-          // Disparo da Guarda Determinística: Inversão indevida do auditor detectada
-          console.warn(
-            `[Guarda Determinística Ativada] VETO-DO-VETO: O auditor tentou inverter a classificação de um controlador/periférico para máquina de elevação/grua (${correctedDigits}). Correção rejeitada deterministicamente pelo sistema.`,
-          )
-
-          const originalDigits = normalizeNcm(initialRecommendation.recommended_ncm)
-          const originalIsLifting = isLiftingOrCraneNcm(originalDigits)
-
-          // Escolher a melhor recomendação eletrônica:
-          // Se a 1ª passada foi eletrônica (85437099, 85299090 ou 85371020), manter;
-          // Se a 1ª passada também foi indevidamente 8426/8428, forçar para o topo eletrônico (85437099 ou 85299090)
-          let targetElectronicNcm = originalDigits
-          let targetElectronicEx = initialRecommendation.recommended_ex
-
-          if (originalIsLifting || !originalDigits.startsWith('85')) {
-            // Priorizar 85437099 ou 85299090
-            const bestElectronic = candidates.find((c: any) => {
-              const n = normalizeNcm(c.ncm)
-              return (
-                n === '85437099' ||
-                n === '85299090' ||
-                (n.startsWith('85') && !isLiftingOrCraneNcm(n))
-              )
-            })
-            targetElectronicNcm = bestElectronic ? normalizeNcm(bestElectronic.ncm) : '85437099'
-            targetElectronicEx = bestElectronic?.ex || ''
-          }
-
-          const vetoDoVetoMsg = `[Guarda Determinística Aduaneira - Veto do Veto Ativado]: A tentativa do auditor de reenquadrar o controlador/joystick sob máquina mecânica de elevação/gruas (NCM ${correctedDigits}) foi rejeitada pelo sistema. O produto é um periférico/controlador eletrônico para câmeras PTZ, enquadrado legitimamente sob o Capítulo 85 (${targetElectronicNcm}), em conformidade com as Notas de Seção XVI e Regras Gerais de Interpretação (RGI 1 e RGI 3a).`
-
-          auditVerdict.override_applied = true
-          auditVerdict.override_reason = vetoDoVetoMsg
-          auditVerdict.action = 'APROVA' // Reverte ação efetiva para aprovação da rota eletrônica segura
-
-          llmResponseJson.recommended_ncm = targetElectronicNcm
-          llmResponseJson.recommended_ex = targetElectronicEx
-          llmResponseJson.justification = `${vetoDoVetoMsg}\n\nFundamentação Técnica Original: ${initialRecommendation.justification}`
-        } else {
-          // Correção legítima do auditor (não tenta transformar controlador em grua)
-          const candidateMatch = candidates.find(
-            (c: any) => normalizeNcm(c.ncm) === auditVerdict.corrected_ncm,
-          )
-          if (candidateMatch) {
-            console.log(
-              `[Auditoria NCM] VETO APLICADO: de ${llmResponseJson.recommended_ncm} para ${auditVerdict.corrected_ncm}. Motivo: ${auditVerdict.correction_reason}`,
-            )
-            llmResponseJson.recommended_ncm = auditVerdict.corrected_ncm
-            llmResponseJson.recommended_ex = auditVerdict.corrected_ex || candidateMatch.ex || ''
-            llmResponseJson.justification = `[Revisão de Auditoria Aduaneira: Veto e Correção Homologados]\n${auditVerdict.correction_reason || auditVerdict.audit_critique}\n\nFundamentação Complementar: ${llmResponseJson.justification}`
-          } else {
+      // Guarda universal: se o auditor tentar aplicar um Ex vetado pelo checklist determinístico, rejeitar
+      if (auditVerdict.action === 'VETA' && auditVerdict.corrected_ex) {
+        const candidateMatch = candidates.find(
+          (c: any) =>
+            normalizeNcm(c.ncm) === normalizeNcm(auditVerdict.corrected_ncm) &&
+            (c.ex || '').trim() === auditVerdict.corrected_ex,
+        )
+        if (candidateMatch?.ex_descricao) {
+          const auditCheck = evaluateExChecklistAgainstProduct({
+            exDescription: candidateMatch.ex_descricao,
+            productText: fullTechnicalProfile,
+            isKit: compositionAnalysis.isKit,
+            detectedComponents: compositionAnalysis.detectedComponents,
+          })
+          if (!auditCheck.passed) {
             console.warn(
-              `[Auditoria NCM] Auditor sugeriu NCM ${auditVerdict.corrected_ncm} fora da lista de candidatos. Mantendo recomendação validada.`,
+              `[Checklist Ex] Auditor tentou corrigir para Ex ${auditVerdict.corrected_ex} que NÃO atende às condições. Removendo Ex da correção.`,
             )
+            auditVerdict.corrected_ex = ''
           }
         }
-      } else if (isControllerSignature) {
-        // Auditor aprovou, mas verificar se a recomendação da 1ª passada recaiu em 8426/8428
-        const recDigits = normalizeNcm(llmResponseJson.recommended_ncm)
-        if (isLiftingOrCraneNcm(recDigits)) {
-          console.warn(
-            `[Guarda Determinística Ativada] A recomendação aprovada apontava para grua/elevação (${recDigits}) em produto controlador. Substituindo deterministicamente por posição eletrônica do Capítulo 85.`,
-          )
-          const bestElectronic = candidates.find((c: any) => {
-            const n = normalizeNcm(c.ncm)
-            return n === '85437099' || n === '85299090'
-          }) || { ncm: '85437099', ex: '' }
+      }
 
-          const targetNcm = normalizeNcm(bestElectronic.ncm)
-          const targetEx = bestElectronic.ex || ''
-          const overrideMsg = `[Guarda Determinística Aduaneira]: Correção automática aplicada. Dispositivo de controle com joystick e interface PTZ não pode ser classificado como máquina de elevação/grua (${recDigits}). Enquadramento direcionado para o Capítulo 85 (NCM ${targetNcm}).`
-
-          auditVerdict.override_applied = true
-          auditVerdict.override_reason = overrideMsg
-          llmResponseJson.recommended_ncm = targetNcm
-          llmResponseJson.recommended_ex = targetEx
-          llmResponseJson.justification = `${overrideMsg}\n\nFundamentação Complementar: ${llmResponseJson.justification}`
+      // Aplicação da decisão do auditor (se legítima)
+      if (auditVerdict.action === 'VETA' && auditVerdict.corrected_ncm) {
+        const correctedDigits = normalizeNcm(auditVerdict.corrected_ncm)
+        const candidateMatch = candidates.find((c: any) => normalizeNcm(c.ncm) === correctedDigits)
+        if (candidateMatch) {
+          llmResponseJson.recommended_ncm = correctedDigits
+          llmResponseJson.recommended_ex = auditVerdict.corrected_ex || ''
+          llmResponseJson.justification = `[Revisão de Auditoria Aduaneira: Veto e Correção Homologados]\n${auditVerdict.correction_reason || auditVerdict.audit_critique}\n\nFundamentação Complementar: ${llmResponseJson.justification}`
         }
       }
     } catch (auditErr) {
-      console.warn(
-        'Falha na segunda passada de auditoria (mantendo recomendação inicial):',
-        auditErr,
-      )
+      console.warn('Falha na segunda passada de auditoria:', auditErr)
     }
 
-    // 11. Resolução estrita das alíquotas efetivas via public.imp_sim_tax_rates_effective
-    // REGRA DO SISTEMA: O banco de dados sempre prevalece sobre as estimativas do LLM
+    // 13. Resolução estrita das alíquotas efetivas via public.imp_sim_tax_rates_effective
     const recommendedNcmClean = normalizeNcm(llmResponseJson.recommended_ncm)
     const recommendedExClean = (llmResponseJson.recommended_ex || '').toString().trim()
 
@@ -685,11 +609,9 @@ Lembre-se: primeiro enuncie a função do produto no campo "essential_function".
       recommendedExClean,
     )
 
-    // Se o ex sugerido não existir na view, buscar pelo NCM sem ex
     const primaryTaxRate =
       resolvedPrimary ||
       (await resolveEffectiveTaxRate(supabaseAdmin, recommendedNcmClean, '')) ||
-      // Fallback para o candidato do search_ncm_candidates se a view não retornou
       candidates.find((c: any) => normalizeNcm(c.ncm) === recommendedNcmClean)
 
     if (!primaryTaxRate) {
@@ -719,7 +641,7 @@ Lembre-se: primeiro enuncie a função do produto no campo "essential_function".
         }
       : null
 
-    // 12. Resolver alíquotas para alternativas
+    // 14. Resolver alíquotas para alternativas
     const resolvedAlternatives: any[] = []
     const rawAlternatives = Array.isArray(llmResponseJson.alternatives)
       ? llmResponseJson.alternatives
@@ -758,7 +680,6 @@ Lembre-se: primeiro enuncie a função do produto no campo "essential_function".
       }
     }
 
-    // Se o LLM não deu alternativas suficientes, preencher com os melhores candidatos da lista
     if (resolvedAlternatives.length === 0) {
       for (const cand of candidates) {
         const cNcm = normalizeNcm(cand.ncm)
@@ -791,6 +712,22 @@ Lembre-se: primeiro enuncie a função do produto no campo "essential_function".
       primaryTaxRate.source_text ||
       ''
 
+    // Montar a justificativa final contendo a análise de composição e o checklist comparativo
+    let finalJustification = llmResponseJson.justification || ''
+    if (compositionAnalysis.isKit) {
+      const compText = `[Análise de Composição RGI 3b/3c]: Produto identificado como conjunto/sistema (${compositionAnalysis.detectedComponents.join(', ')}). Enquadramento determinado pela função essencial do conjunto global.`
+      if (!finalJustification.includes('[Análise de Composição')) {
+        finalJustification = `${compText}\n\n${finalJustification}`
+      }
+    }
+
+    if (checklistFormattedReport) {
+      const reportHeader = exVetoApplied
+        ? `[Checklist de Condições Restritivas do Ex-Tarifário: VETO APLICADO EM CÓDIGO]\n${checklistFormattedReport}\nVeto: ${checklistLog.vetoReason || 'Não atendeu às condições qualificadoras do Ex.'}\n\n`
+        : `[Checklist de Condições Restritivas do Ex-Tarifário: HOMOLOGADO]\n${checklistFormattedReport}\n\n`
+      finalJustification = `${reportHeader}${finalJustification}`
+    }
+
     const recommendationObject = {
       ncm: recommendedNcmClean,
       ex: primaryTaxRate.ex || recommendedExClean,
@@ -801,15 +738,12 @@ Lembre-se: primeiro enuncie a função do produto no campo "essential_function".
       cofins: cofinsRate,
       total_tax: totalTax,
       has_ex_tarifario: hasEx,
-      justification:
-        llmResponseJson.justification ||
-        'Classificação fundamentada na RGI 1 e notas explicativas da TEC.',
+      justification: finalJustification,
       legal_basis: llmResponseJson.legal_basis || primaryTaxRate.legal_basis || {},
       ex_details: exDetails,
     }
 
-    // 13. Gravação no log de auditoria (imp_sim_ncm_classification_log)
-    // REQUISITO (3): Guardar ambas as versões (recomendação inicial + veredito do auditor)
+    // 15. Gravação no log de auditoria (imp_sim_ncm_classification_log)
     let auditId: string | null = null
     if (saveLog) {
       try {
@@ -821,7 +755,7 @@ Lembre-se: primeiro enuncie a função do produto no campo "essential_function".
               recommendation: recommendationObject,
               alternatives: resolvedAlternatives,
               confidence: llmResponseJson.confidence || 'media',
-              sufficient_info: isSufficient,
+              sufficient_info: sufficiencyCheck.isSufficient,
               model_used: modelUsed,
               brand,
               model,
@@ -829,6 +763,9 @@ Lembre-se: primeiro enuncie a função do produto no campo "essential_function".
               lean_signature: leanSignature,
               initial_recommendation: initialRecommendation,
               audit_verdict: auditVerdict,
+              composition_analysis: compositionAnalysis,
+              checklist_log: checklistLog,
+              ex_veto_applied: exVetoApplied,
             },
             final_choice_ncm: recommendedNcmClean,
             final_choice_ex: primaryTaxRate.ex || recommendedExClean,
@@ -837,7 +774,7 @@ Lembre-se: primeiro enuncie a função do produto no campo "essential_function".
             product_id: productId,
             imp_sim_product_id: impSimProductId,
             audit_links: webSources,
-            knowledge_base_version: '2.6',
+            knowledge_base_version: '3.0',
             execution_time_ms: executionTimeMs,
           })
           .select('id')
@@ -853,20 +790,22 @@ Lembre-se: primeiro enuncie a função do produto no campo "essential_function".
       }
     }
 
-    // 14. Resposta JSON completa com dados da auditoria
+    // 16. Resposta JSON completa
     const responsePayload = {
       success: true,
       audit_id: auditId,
       recommendation: recommendationObject,
       alternatives: resolvedAlternatives,
       confidence: (llmResponseJson.confidence || 'media').toLowerCase(),
-      sufficient_info: isSufficient,
+      sufficient_info: sufficiencyCheck.isSufficient,
       web_sources: webSources,
       model_used: modelUsed,
       candidates_count: candidates.length,
       execution_time_ms: executionTimeMs,
       audit_verdict: auditVerdict,
       lean_signature: leanSignature,
+      composition_analysis: compositionAnalysis,
+      checklist_log: checklistLog,
       timestamp: new Date().toISOString(),
     }
 
@@ -887,83 +826,389 @@ Lembre-se: primeiro enuncie a função do produto no campo "essential_function".
 })
 
 // ==========================================
-// FUNÇÕES AUXILIARES
+// FUNÇÕES AUXILIARES UNIVERSAIS
 // ==========================================
 
 /**
- * Identifica se o texto/assinatura do produto indica um dispositivo de controle remoto,
- * joystick, console de comando ou periférico de interface/sinal para câmeras ou broadcast.
+ * Análise de Composição Universal (RGI 3b/3c):
+ * Identifica se qualquer produto fornecido é um sistema, conjunto, sortido ou kit com múltiplos componentes.
  */
-function isProductControllerOrPeripheral(text: string): boolean {
-  if (!text) return false
+function analyzeProductComposition(text: string): {
+  isKit: boolean
+  detectedComponents: string[]
+} {
+  if (!text) return { isKit: false, detectedComponents: [] }
   const lower = text.toLowerCase()
 
-  // Sinais fortes de controle/joystick/console
-  const hasControllerWord =
-    lower.includes('controller') ||
-    lower.includes('controlador') ||
-    lower.includes('joystick') ||
-    lower.includes('remote control') ||
-    lower.includes('controle remoto') ||
-    lower.includes('control panel') ||
-    lower.includes('painel de controle') ||
-    lower.includes('console de comando') ||
-    lower.includes('console de oper') ||
-    lower.includes('ptz control')
+  const kitIndicators = [
+    'sistema',
+    'system',
+    'conjunto',
+    'set',
+    'kit',
+    'combo',
+    'bundle',
+    'pack',
+    'transmissor + receptor',
+    'transmitter and receiver',
+    'tx + rx',
+    'tx/rx',
+    'bodypack + receiver',
+  ]
 
-  // Contextos audiovisuais / periféricos
-  const hasCameraOrAVContext =
-    lower.includes('camera') ||
-    lower.includes('câmera') ||
-    lower.includes('ptz') ||
-    lower.includes('video') ||
-    lower.includes('vídeo') ||
-    lower.includes('broadcast') ||
-    lower.includes('visca') ||
-    lower.includes('rs-422') ||
-    lower.includes('ip remote')
+  const isKitExplicit = kitIndicators.some((ind) => lower.includes(ind))
 
-  return (
-    hasControllerWord &&
-    (hasCameraOrAVContext || lower.includes('rm-ip') || lower.includes('joystick'))
-  )
+  // Detecção de múltiplos componentes funcionais no texto
+  const potentialComponents = [
+    {
+      name: 'Transmissor (TX)',
+      regex: /\b(transmissor|transmissora|transmitter|tx|bodypack|plug-on)\b/i,
+    },
+    { name: 'Receptor (RX)', regex: /\b(receptor|receptora|receiver|rx|base sintonizadora)\b/i },
+    { name: 'Microfone', regex: /\b(microfone|microphone|mic|lavalier|lapela|headset|capsule)\b/i },
+    {
+      name: 'Console/Controlador',
+      regex: /\b(controlador|controller|console|painel de controle|joystick)\b/i,
+    },
+    { name: 'Câmera', regex: /\b(câmera|camera|ptz|camcorder)\b/i },
+    {
+      name: 'Fonte/Alimentação',
+      regex: /\b(fonte de alimentação|power supply|carregador|bateria|battery)\b/i,
+    },
+    { name: 'Lente/Ótica', regex: /\b(lente|lens|óptica|optics)\b/i },
+  ]
+
+  const detected: string[] = []
+  for (const comp of potentialComponents) {
+    if (comp.regex.test(lower)) {
+      detected.push(comp.name)
+    }
+  }
+
+  // É kit se tem indicador explícito ou se contém pelo menos 2 componentes funcionais complementares (ex: Transmissor + Receptor)
+  const hasTxRxPair = detected.includes('Transmissor (TX)') && detected.includes('Receptor (RX)')
+  const isKit = isKitExplicit || hasTxRxPair || detected.length >= 2
+
+  return {
+    isKit,
+    detectedComponents: detected,
+  }
 }
 
 /**
- * Identifica se um NCM ou descrição de candidato refere-se a gruas, guindastes,
- * braços robóticos telescópicos ou máquinas mecânicas de elevação/movimentação (8426/8428).
+ * Extração de Qualificadores de texto de um Ex-Tarifário
  */
-function isLiftingOrCraneNcm(
-  ncmDigits: string,
-  ncmDesc?: string | null,
-  exDesc?: string | null,
-  sourceText?: string | null,
-): boolean {
-  if (!ncmDigits) return false
-  if (ncmDigits.startsWith('8426') || ncmDigits.startsWith('8428')) {
-    return true
-  }
+function extractExQualifiers(exDesc: string): ExQualifiers {
+  const lower = exDesc.toLowerCase()
 
-  const combined = `${ncmDesc || ''} ${exDesc || ''} ${sourceText || ''}`.toLowerCase()
-  if (
-    combined.includes('grua') ||
-    combined.includes('guindaste') ||
-    combined.includes('braço automatizado') ||
-    combined.includes('braço articulado') ||
-    combined.includes('lança telescópica') ||
-    combined.includes('máquina de elevação') ||
-    combined.includes('máquinas de elevação') ||
-    combined.includes('içamento')
+  // Tipo de sinal
+  let signalType: 'digital' | 'analog' | null = null
+  if (lower.includes('digital') || lower.includes('digitais')) {
+    signalType = 'digital'
+  } else if (
+    lower.includes('analógico') ||
+    lower.includes('analogico') ||
+    lower.includes('analógica')
   ) {
-    return true
+    signalType = 'analog'
   }
 
-  return false
+  // Faixas de frequência ou medidas (ex: 470 a 720MHz, 2.4GHz, etc.)
+  const freqRegex =
+    /(\d+(?:[.,]\d+)?\s*(?:a|à|-|to)\s*\d+(?:[.,]\d+)?\s*(?:mhz|ghz|khz|hz)|\d+(?:[.,]\d+)?\s*(?:mhz|ghz|khz))/gi
+  const frequencyRanges = (exDesc.match(freqRegex) || []).map((m) => m.trim())
+
+  // Item singular (ex: "transmissores de áudio", "receptor", "adaptador") vs "sistemas", "conjuntos"
+  const isPluralOrSingularIndividual =
+    /^(transmissores|transmissor|receptores|receptor|módulos|módulo|adaptadores|adaptador|antenas|antena|cabos|cabo)\b/i.test(
+      exDesc.trim(),
+    )
+  const isKitDescription = /\b(sistemas|sistema|conjuntos|conjunto|estação completa)\b/i.test(
+    exDesc,
+  )
+
+  const isSingularItem = isPluralOrSingularIndividual && !isKitDescription
+  let singularComponentType: string | null = null
+  if (isSingularItem) {
+    if (/transmissor/i.test(exDesc)) singularComponentType = 'transmissor'
+    else if (/receptor/i.test(exDesc)) singularComponentType = 'receptor'
+  }
+
+  return {
+    signalType,
+    frequencyRanges,
+    isSingularItem,
+    singularComponentType,
+    materialRequirements: [],
+    purposeRequirements: [],
+    formatPortability:
+      lower.includes('portátil') || lower.includes('portateis') ? ['portátil'] : [],
+  }
+}
+
+/**
+ * Checklist Universal de Condições Restritivas do Ex:
+ * Confronta CADA qualificador extraído do Ex com as especificações do produto.
+ * Produz comparações no padrão "produto: X → Ex exige: Y → ATENDE/NÃO ATENDE".
+ */
+function evaluateExChecklistAgainstProduct(params: {
+  exDescription: string
+  productText: string
+  isKit: boolean
+  detectedComponents: string[]
+}): ExChecklistResult {
+  const qualifiers = extractExQualifiers(params.exDescription)
+  const productLower = params.productText.toLowerCase()
+  const comparisons: ExConditionComparison[] = []
+  let passed = true
+  let vetoReason = ''
+  const missingInformation: string[] = []
+
+  // 1. Condição de Composição: Ex descreve item singular vs produto é conjunto/sistema
+  if (qualifiers.isSingularItem && params.isKit) {
+    const status = 'NÃO ATENDE'
+    passed = false
+    vetoReason = `O Ex-Tarifário descreve item singular isolado (${qualifiers.singularComponentType || 'peça individual'}), enquanto o produto é um conjunto/sistema com múltiplos componentes (${params.detectedComponents.join(', ')}). RGI 3b impede a aplicação do Ex singular ao conjunto sem fundamento explícito.`
+    comparisons.push({
+      name: 'Composição do Equipamento',
+      productValue: `Conjunto/Sistema com múltiplos elementos (${params.detectedComponents.join(', ') || 'Kit'})`,
+      exRequirement: `Item singular individual (${qualifiers.singularComponentType || 'Componente único'})`,
+      status,
+      reason: 'Ex singular não se aplica a conjunto completo (RGI 3b/3c)',
+    })
+  } else if (qualifiers.isSingularItem) {
+    comparisons.push({
+      name: 'Composição do Equipamento',
+      productValue: 'Item individual/singular',
+      exRequirement: 'Item singular',
+      status: 'ATENDE',
+    })
+  }
+
+  // 2. Condição de Sinal: Digital vs Analógico
+  if (qualifiers.signalType) {
+    const productIsAnalog =
+      productLower.includes('analógico') ||
+      productLower.includes('analogico') ||
+      productLower.includes('analog') ||
+      productLower.includes('fm modulation') ||
+      productLower.includes('modulação analógica')
+
+    const productIsDigital =
+      productLower.includes('digital') ||
+      productLower.includes('dsp') ||
+      productLower.includes('aes')
+
+    // Atenção: Muitos equipamentos de áudio possuem processamento interno digital DSP mas transmissão de RF ANALÓGICA (FM)
+    // Se o produto é analógico de RF e o Ex exige transmissão via sinal digital
+    if (qualifiers.signalType === 'digital') {
+      if (productIsAnalog && !productIsDigital) {
+        passed = false
+        vetoReason =
+          vetoReason ||
+          'Produto com modulação analógica não atende à exigência estrita de sinal DIGITAL do Ex-Tarifário.'
+        comparisons.push({
+          name: 'Tipo de Sinal de Transmissão',
+          productValue: 'Sinal/Modulação Analógica',
+          exRequirement: 'Sinal Digital',
+          status: 'NÃO ATENDE',
+          reason: 'Incompatibilidade de sinal (analógico vs digital exigido)',
+        })
+      } else if (!productIsAnalog && !productIsDigital) {
+        missingInformation.push('tipo de sinal (digital/analógico)')
+        comparisons.push({
+          name: 'Tipo de Sinal de Transmissão',
+          productValue: 'Informação não detalhada nas specs internas',
+          exRequirement: 'Sinal Digital',
+          status: 'NÃO ATENDE',
+          reason: 'Informação insuficiente para comprovar atendimento ao requisito estrito do Ex',
+        })
+      } else {
+        comparisons.push({
+          name: 'Tipo de Sinal de Transmissão',
+          productValue: productIsDigital ? 'Sinal Digital' : 'Compatível',
+          exRequirement: 'Sinal Digital',
+          status: 'ATENDE',
+        })
+      }
+    } else if (qualifiers.signalType === 'analog') {
+      if (productIsDigital && !productIsAnalog) {
+        passed = false
+        vetoReason =
+          vetoReason || 'Produto digital não atende à exigência de sinal analógico do Ex-Tarifário.'
+        comparisons.push({
+          name: 'Tipo de Sinal de Transmissão',
+          productValue: 'Sinal Digital',
+          exRequirement: 'Sinal Analógico',
+          status: 'NÃO ATENDE',
+        })
+      } else {
+        comparisons.push({
+          name: 'Tipo de Sinal de Transmissão',
+          productValue: 'Sinal Analógico',
+          exRequirement: 'Sinal Analógico',
+          status: 'ATENDE',
+        })
+      }
+    }
+  }
+
+  // 3. Condição de Faixa de Frequência
+  if (qualifiers.frequencyRanges.length > 0) {
+    for (const range of qualifiers.frequencyRanges) {
+      // Extrair limites numéricos da faixa do Ex (ex: 470 a 720MHz)
+      const numbers = range.match(/\d+(?:[.,]\d+)?/g)
+      if (numbers && numbers.length >= 2) {
+        const minEx = parseFloat(numbers[0].replace(',', '.'))
+        const maxEx = parseFloat(numbers[1].replace(',', '.'))
+
+        // Procurar números de MHz no texto do produto
+        const productFreqMatches = productLower.match(
+          /(\d{3}(?:[.,]\d+)?)\s*(?:a|-|to)\s*(\d{3}(?:[.,]\d+)?)\s*mhz/i,
+        )
+        if (productFreqMatches) {
+          const minProd = parseFloat(productFreqMatches[1].replace(',', '.'))
+          const maxProd = parseFloat(productFreqMatches[2].replace(',', '.'))
+
+          const isContained = minProd >= minEx && maxProd <= maxEx
+          if (isContained) {
+            comparisons.push({
+              name: `Faixa de Frequência (${range})`,
+              productValue: `${minProd}-${maxProd}MHz`,
+              exRequirement: `Igual ou contida em ${minEx}-${maxEx}MHz`,
+              status: 'ATENDE',
+            })
+          } else {
+            passed = false
+            vetoReason =
+              vetoReason ||
+              `Faixa do produto (${minProd}-${maxProd}MHz) fora dos limites exigidos pelo Ex (${minEx}-${maxEx}MHz).`
+            comparisons.push({
+              name: `Faixa de Frequência (${range})`,
+              productValue: `${minProd}-${maxProd}MHz`,
+              exRequirement: `Igual ou contida em ${minEx}-${maxEx}MHz`,
+              status: 'NÃO ATENDE',
+            })
+          }
+        }
+      }
+    }
+  }
+
+  return {
+    passed,
+    comparisons,
+    vetoReason: vetoReason || undefined,
+    missingInformation,
+    needsWebSearch: missingInformation.length > 0,
+  }
+}
+
+/**
+ * Recuperação Semântica Orientada por Família de Posições (SEM listas fixas / hardcoded).
+ * Mapeia semântica da consulta para posições candidatas no banco garantindo candidatos de setores adjacentes.
+ */
+async function retrieveSectorOrientedCandidates(params: {
+  supabaseAdmin: any
+  query: string
+  queryEmbedding: number[] | null
+  fullTechnicalProfile: string
+  topN: number
+}): Promise<any[]> {
+  const { supabaseAdmin, query, queryEmbedding, topN } = params
+
+  const rpcParams: {
+    query: string
+    query_embedding?: string | null
+    top_n: number
+    match_threshold: number
+  } = {
+    query,
+    top_n: Math.max(topN, 20),
+    match_threshold: 0.02,
+  }
+
+  if (queryEmbedding && queryEmbedding.length > 0) {
+    rpcParams.query_embedding = `[${queryEmbedding.join(',')}]`
+  }
+
+  const { data: rawCandidates, error: rpcError } = await supabaseAdmin.rpc(
+    'search_ncm_candidates',
+    rpcParams,
+  )
+
+  if (rpcError) {
+    console.error('Erro na RPC search_ncm_candidates:', rpcError)
+    throw rpcError
+  }
+
+  let candidates = Array.isArray(rawCandidates) ? [...rawCandidates] : []
+
+  // Agrupamento semântico por FAMÍLIA DE POSIÇÕES (primeiros 4 dígitos da NCM, ex: 8517, 8518, 8525, 8543)
+  // Garantir que o conjunto de candidatos NUNCA fique restrito a uma única posição ou único setor.
+  const families = new Map<string, any[]>()
+  for (const c of candidates) {
+    const ncmClean = normalizeNcm(c.ncm)
+    const familyKey = ncmClean.slice(0, 4)
+    if (!families.has(familyKey)) {
+      families.set(familyKey, [])
+    }
+    families.get(familyKey)!.push(c)
+  }
+
+  // Se uma única família dominou todos os resultados (>80%), buscar candidatos das posições adjacentes
+  // sem hardcoding de códigos através de busca textual com a função essencial do perfil
+  if (families.size < 2 && candidates.length > 0) {
+    try {
+      const topCand = candidates[0]
+      const ncmClean = normalizeNcm(topCand.ncm)
+      const primaryChapter = ncmClean.slice(0, 2) // ex: 85 ou 84 ou 90
+
+      // Busca complementar ampla por texto na tabela de taxas cobrindo o capítulo
+      const { data: adjacentRates } = await supabaseAdmin
+        .from('imp_sim_tax_rates_effective')
+        .select('*')
+        .like('ncm', `${primaryChapter}%`)
+        .limit(10)
+
+      if (adjacentRates && adjacentRates.length > 0) {
+        for (const adj of adjacentRates) {
+          if (
+            !candidates.some(
+              (c: any) => normalizeNcm(c.ncm) === adj.ncm && (c.ex || '') === (adj.ex || ''),
+            )
+          ) {
+            candidates.push({
+              tax_rate_id: adj.id,
+              ncm: adj.ncm,
+              ex: adj.ex || '',
+              ncm_descricao: adj.ex_descricao || adj.source || '',
+              ex_descricao: adj.ex_descricao || null,
+              source_text: `NCM ${adj.ncm} | ${adj.ex_descricao || ''}`,
+              ii_rate: Number(adj.ii_efetivo ?? adj.ii_rate ?? 0),
+              ipi_rate: Number(adj.ipi_rate ?? 0),
+              pis_rate: Number(adj.pis_rate ?? 2.1),
+              cofins_rate: Number(adj.cofins_rate ?? 9.65),
+              has_ex_tarifario: Boolean(adj.has_ex_tarifario),
+              vector_score: 0.5,
+              text_score: 0.5,
+              combined_score: 0.5,
+              is_adjacent_sector: true,
+            })
+          }
+        }
+      }
+    } catch (adjErr) {
+      console.warn('Falha ao recuperar setores adjacentes:', adjErr)
+    }
+  }
+
+  return candidates.slice(0, topN)
 }
 
 /**
  * Constrói uma assinatura enxuta do produto: Marca + Modelo + Frase central da função.
- * Isola a identidade e função essencial sem ruído de portas, pinos, conectores e acessórios periféricos.
+ * Isola a identidade e função essencial sem ruído de portas, pinos, conectores e acessórios secundários.
  */
 function buildLeanProductSignature(params: {
   brand?: string
@@ -974,8 +1219,6 @@ function buildLeanProductSignature(params: {
   const model = (params.model || '').trim()
   let desc = (params.description || '').trim()
 
-  // Extrair a frase central da descrição (primeira frase ou até pontuação/quebra de linha)
-  // Remover conectores ou blocos de especificações comuns se houver
   const firstSentenceMatch = desc.match(/^([^.\n\r;]{10,180})/)
   if (firstSentenceMatch && firstSentenceMatch[1]) {
     desc = firstSentenceMatch[1].trim()
@@ -1018,11 +1261,10 @@ function evaluateInformationSufficiency(params: {
   brand: string
   model: string
   additionalSpecs: string
-  candidates: any[]
+  compositionAnalysis: { isKit: boolean; detectedComponents: string[] }
 }): { isSufficient: boolean; reason: string } {
   const desc = params.productDescription.trim()
 
-  // 1. Descrição excessivamente curta (< 20 caracteres)
   if (desc.length < 20) {
     return {
       isSufficient: false,
@@ -1030,64 +1272,44 @@ function evaluateInformationSufficiency(params: {
     }
   }
 
-  // 2. Falta de marca ou modelo para produtos que necessitam de datasheet
-  const hasBrandOrModel = Boolean(params.brand || params.model)
-  const technicalKeywords = [
-    'sdi',
-    'hdmi',
-    '4k',
-    'ptz',
-    'sensor',
-    'cmos',
-    'optical',
-    'zoom',
-    'resolução',
-    'encoder',
-    'decoder',
-    'streaming',
-    'ethernet',
-    'poe',
-    'fps',
-    'frame',
-    'switch',
-    'lente',
-    'mount',
-    'dr',
-    'iso',
-    'lux',
-    't-stop',
-    'f-stop',
-    'matrix',
-    'transceiver',
-    'potência',
-    'tensao',
-    'w',
-    'v',
-    'kw',
-    'khz',
-    'mhz',
-    'ghz',
-    'capacidade',
-  ]
-
-  const lowerDesc = `${desc} ${params.additionalSpecs}`.toLowerCase()
-  const matchedKeywords = technicalKeywords.filter((kw) => lowerDesc.includes(kw))
-
-  if (matchedKeywords.length === 0 && !hasBrandOrModel) {
+  // Se for kit/sistema mas os componentes não estão claramente detalhados nas specs
+  if (
+    params.compositionAnalysis.isKit &&
+    params.compositionAnalysis.detectedComponents.length < 2
+  ) {
     return {
       isSufficient: false,
-      reason: 'Ausência de termos técnicos qualificadores e falta de marca/modelo.',
+      reason:
+        'Identificado como sistema/conjunto, mas a lista de componentes exige detalhamento técnico adicional.',
     }
   }
 
-  // 3. Candidatos do banco com score vetorial ou combinado muito baixo
-  const topCandidate = params.candidates[0]
-  if (topCandidate) {
-    const topScore = Number(topCandidate.combined_score ?? topCandidate.text_score ?? 0)
-    if (topScore < 0.15) {
+  // Verificar presença de dados essenciais como tecnologia de modulação ou frequência em aparelhos transmissores/receptores
+  const lower = `${desc} ${params.additionalSpecs}`.toLowerCase()
+  const isWirelessTransmitterOrAudio =
+    lower.includes('transmissor') ||
+    lower.includes('receptor') ||
+    lower.includes('wireless') ||
+    lower.includes('sem fio') ||
+    lower.includes('microfone')
+
+  if (isWirelessTransmitterOrAudio) {
+    const hasModulation =
+      lower.includes('digital') ||
+      lower.includes('analógico') ||
+      lower.includes('analogico') ||
+      lower.includes('fm')
+    const hasFrequency =
+      lower.includes('mhz') ||
+      lower.includes('ghz') ||
+      lower.includes('uhf') ||
+      lower.includes('vhf')
+
+    if (!hasModulation || !hasFrequency) {
       return {
         isSufficient: false,
-        reason: 'Candidatos na base interna possuem baixa similaridade com o texto de entrada.',
+        reason:
+          'Aparelho de rádio/comunicação sem detalhamento de modulação (digital/analógica) ou faixa de frequência.',
       }
     }
   }
@@ -1099,7 +1321,7 @@ function evaluateInformationSufficiency(params: {
 }
 
 /**
- * Busca web complementar para especificações técnicas e datasheets (DuckDuckGo Lite ou Firecrawl)
+ * Busca web complementar para especificações técnicas e datasheets
  */
 async function searchWebTechnicalSpecs(query: string): Promise<WebSource[]> {
   const sources: WebSource[] = []
@@ -1139,7 +1361,7 @@ async function searchWebTechnicalSpecs(query: string): Promise<WebSource[]> {
     }
   }
 
-  // Tentativa 2: DuckDuckGo HTML Lite (sem necessidade de chave de API externa)
+  // Tentativa 2: DuckDuckGo HTML Lite
   try {
     const encoded = encodeURIComponent(query)
     const res = await fetch(`https://html.duckduckgo.com/html/?q=${encoded}`, {
@@ -1152,15 +1374,8 @@ async function searchWebTechnicalSpecs(query: string): Promise<WebSource[]> {
 
     if (res.ok) {
       const html = await res.text()
-      // Regex simples para extrair links e snippets dos resultados DuckDuckGo Lite
-      const linkRegex = /<a[^>]+class="result__snippet"[^>]*href="([^"]+)"[^>]*>(.*?)<\/a>/gi
-      const titleRegex = /<a[^>]+class="result__url"[^>]*href="([^"]+)"[^>]*>(.*?)<\/a>/gi
-
-      let match: RegExpExecArray | null
-      let count = 0
-
-      // Match dos blocos de resultados
       const resultBlocks = html.split('class="result__body"')
+      let count = 0
       for (let i = 1; i < resultBlocks.length && count < 3; i++) {
         const block = resultBlocks[i]
         const urlMatch = block.match(/href="([^"]+)"/)
@@ -1169,7 +1384,6 @@ async function searchWebTechnicalSpecs(query: string): Promise<WebSource[]> {
 
         if (urlMatch && (snippetMatch || titleMatch)) {
           let rawUrl = urlMatch[1]
-          // DuckDuckGo encapsula em //duckduckgo.com/l/?uddg=...
           if (rawUrl.includes('uddg=')) {
             const uddg = rawUrl.split('uddg=')[1]?.split('&')[0]
             if (uddg) rawUrl = decodeURIComponent(uddg)
@@ -1212,7 +1426,6 @@ async function resolveEffectiveTaxRate(
   if (ex && ex.trim() !== '') {
     query = query.eq('ex', ex.trim())
   } else {
-    // Tenta primeiro sem ex
     query = query.or('ex.is.null,ex.eq.')
   }
 
@@ -1309,11 +1522,9 @@ function parseLLMJsonResponse(rawText: string): any {
   if (!rawText) return null
   const clean = rawText.trim()
 
-  // Se já for JSON direto
   try {
     return JSON.parse(clean)
   } catch (_e) {
-    // Tentar localizar bloco {...}
     const start = clean.indexOf('{')
     const end = clean.lastIndexOf('}')
     if (start !== -1 && end !== -1 && end > start) {

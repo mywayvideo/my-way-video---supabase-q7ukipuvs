@@ -90,4 +90,58 @@ describe('NCM Product Validation & Recalibration Tests', () => {
     const ncm = result.recommendation.ncm.replace(/\D/g, '')
     expect(ncm.startsWith('8525')).toBe(true)
   }, 60000)
+
+  it('validates Sony UWP-D21 wireless microphone system does NOT apply Ex 019 of 8517.62.91', async () => {
+    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+      email: 'qa.operator@mywayvideo.com',
+      password: 'Skip@Pass123!',
+    })
+
+    expect(authError).toBeNull()
+    const jwt = authData!.session!.access_token
+
+    // Sony UWP-D21 (sistema de microfone sem fio analógico UHF 470-542MHz, transmissor+receptor)
+    const res = await fetch(`${supabaseUrl}/functions/v1/classify-ncm`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${jwt}`,
+      },
+      body: JSON.stringify({
+        product_description:
+          'Sony UWP-D21 Sistema de microfone sem fio analógico UHF 470-542MHz composto por transmissor bodypack UTX-B40 e receptor portátil URX-P40 com microfone de lapela omnidirecional',
+        brand: 'Sony',
+        model: 'UWP-D21',
+        additional_specs:
+          'Wireless microphone system UHF 470-542MHz, analog FM modulation with DSP compander, package includes UTX-B40 bodypack transmitter, URX-P40 portable receiver, ECM-V1BMP lavalier mic',
+        top_n: 15,
+        save_log: true,
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    const result = await res.json()
+    expect(result.success).toBe(true)
+    expect(result.recommendation).toBeDefined()
+
+    const ncmDigits = result.recommendation.ncm.replace(/\D/g, '')
+    const exDigits = (result.recommendation.ex || '').toString().trim()
+
+    // Validação principal: NÃO pode manter o Ex 019 de 8517.62.91
+    if (ncmDigits === '85176291') {
+      expect(exDigits).not.toBe('019')
+    }
+
+    // Deve pertencer aos capítulos eletrônicos / telecomunicações (8517, 8518, 8527, 8525)
+    const validChapters = ['8517', '8518', '8525', '8527']
+    expect(validChapters.some((pref) => ncmDigits.startsWith(pref))).toBe(true)
+
+    // O sistema deve ter reconhecido como conjunto/sistema (RGI 3b)
+    if (result.composition_analysis) {
+      expect(result.composition_analysis.isKit).toBe(true)
+    }
+
+    // Justificativa deve existir e mencionar fundamentos
+    expect(result.recommendation.justification).toBeDefined()
+  }, 60000)
 })

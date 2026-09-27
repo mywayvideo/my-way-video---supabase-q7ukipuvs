@@ -326,22 +326,42 @@ export function NcmSuggestDialog({
                         {/* Linha Recomendada */}
                         <tr className="bg-amber-500/10 font-medium">
                           <td className="py-3 px-3">
-                            <span className="inline-flex items-center gap-1 text-amber-500 font-bold">
-                              <Sparkles className="w-3 h-3" />
-                              Recomendado
-                            </span>
+                            <div className="flex flex-col gap-1 items-start">
+                              <span className="inline-flex items-center gap-1 text-amber-500 font-bold">
+                                <Sparkles className="w-3 h-3" />
+                                Recomendado
+                              </span>
+                              {Boolean(
+                                result.recommendation.ex || result.recommendation.has_ex_tarifario,
+                              ) &&
+                                Number(result.recommendation.ii) <= 2 && (
+                                  <Badge
+                                    variant="destructive"
+                                    className="text-[9px] py-0 px-1 font-semibold uppercase tracking-wider bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/40 hover:bg-amber-500/30"
+                                  >
+                                    Requer revisão especialista
+                                  </Badge>
+                                )}
+                            </div>
                           </td>
                           <td className="py-3 px-3 font-mono font-bold text-primary">
                             {formatNcmDisplay(result.recommendation.ncm)}
                           </td>
                           <td className="py-3 px-3 font-mono text-muted-foreground">
                             {result.recommendation.ex ? (
-                              <Badge
-                                variant="outline"
-                                className="text-[10px] py-0 px-1 border-amber-500 text-amber-500"
-                              >
-                                Ex {result.recommendation.ex}
-                              </Badge>
+                              <div className="flex flex-col gap-1 items-start">
+                                <Badge
+                                  variant="outline"
+                                  className="text-[10px] py-0 px-1 border-amber-500 text-amber-500"
+                                >
+                                  Ex {result.recommendation.ex}
+                                </Badge>
+                                {Number(result.recommendation.ii) <= 2 && (
+                                  <span className="text-[9px] text-amber-600 dark:text-amber-400 font-medium whitespace-nowrap">
+                                    II Reduzido ({result.recommendation.ii}%)
+                                  </span>
+                                )}
+                              </div>
                             ) : (
                               '—'
                             )}
@@ -392,9 +412,19 @@ export function NcmSuggestDialog({
                                 </td>
                                 <td className="py-2.5 px-3 font-mono text-muted-foreground">
                                   {alt.ex ? (
-                                    <Badge variant="outline" className="text-[10px] py-0 px-1">
-                                      Ex {alt.ex}
-                                    </Badge>
+                                    <div className="flex flex-col gap-1 items-start">
+                                      <Badge variant="outline" className="text-[10px] py-0 px-1">
+                                        Ex {alt.ex}
+                                      </Badge>
+                                      {Number(alt.ii) <= 2 && (
+                                        <Badge
+                                          variant="outline"
+                                          className="text-[9px] py-0 px-1 text-amber-600 dark:text-amber-400 border-amber-500/40"
+                                        >
+                                          Revisão
+                                        </Badge>
+                                      )}
+                                    </div>
                                   ) : (
                                     '—'
                                   )}
@@ -476,9 +506,19 @@ export function NcmSuggestDialog({
                 {/* Ex-Tarifário Detalhes */}
                 {result.recommendation.has_ex_tarifario && result.recommendation.ex_details && (
                   <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-md text-xs space-y-1.5 break-words [overflow-wrap:anywhere]">
-                    <div className="font-semibold text-amber-500 flex items-center gap-1">
-                      <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                      <span>Ex-Tarifário Vinculado: Ex {result.recommendation.ex}</span>
+                    <div className="font-semibold text-amber-500 flex flex-wrap items-center justify-between gap-1">
+                      <div className="flex items-center gap-1">
+                        <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                        <span>Ex-Tarifário Vinculado: Ex {result.recommendation.ex}</span>
+                      </div>
+                      {Number(result.recommendation.ii) <= 2 && (
+                        <Badge
+                          variant="destructive"
+                          className="text-[10px] bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/40"
+                        >
+                          Requer revisão especialista (II {result.recommendation.ii}%)
+                        </Badge>
+                      )}
                     </div>
                     {result.recommendation.ex_details.descricao && (
                       <p className="text-foreground/90 leading-relaxed">

@@ -56,6 +56,6 @@
     "retry-image-migration": 2,
     "index-ncm-embeddings": 8,
     "ai-search-product-page": 2,
-    "classify-ncm": 128
+    "classify-ncm": 129
   }
 }

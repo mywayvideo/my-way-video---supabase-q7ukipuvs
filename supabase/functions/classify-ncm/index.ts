@@ -297,8 +297,9 @@ Deno.serve(async (req: Request) => {
       .map((c: any, index: number) => {
         const exText = c.ex ? ` [Ex-Tarifário: ${c.ex}]` : ' [Sem Ex]'
         const exDesc = c.ex_descricao ? ` | Ex-Desc: ${c.ex_descricao}` : ''
+        const fullDesc = c.ncm_descricao_full || c.ncm_descricao || c.source_text || ''
         return `${index + 1}. NCM: ${c.ncm}${exText}
-   Descrição: ${c.ncm_descricao || c.source_text || ''}${exDesc}
+   Descrição Hierárquica Completa: ${fullDesc}${exDesc}
    Alíquotas Banco: II=${c.ii_rate}%, IPI=${c.ipi_rate}%, PIS=${c.pis_rate}%, COFINS=${c.cofins_rate}%
    Scores: vector=${c.vector_score ?? 0}, combined=${c.combined_score ?? 0}`
       })
@@ -329,27 +330,28 @@ METODOLOGIA OBRIGATÓRIA UNIVERSAL (PRINCÍPIOS GENÉRICOS):
    - Cada valor técnico do produto confrontado com o Ex deve ser copiado LITERALMENTE das especificações. Valor não comprovado ou contraditório impede a concessão do Ex.
 
 4. UNIVERSO DE CANDIDATOS E FORMATO DE SAÍDA:
-   - Escolha o recommended_ncm e recommended_ex EXCLUSIVAMENTE a partir da lista de candidatos fornecida.
-   - Responda OBRIGATORIAMENTE em JSON válido sem texto externo, no formato exato:
+- Escolha o recommended_ncm e recommended_ex EXCLUSIVAMENTE a partir da lista de candidatos fornecida.
+- Na justificativa ("justification"), é OBRIGATÓRIO citar a descrição hierárquica completa oficial (Capítulo | Posição | Subitem do NCM escolhido) para fundamentar com precisão aduaneira o enquadramento.
+- Responda OBRIGATORIAMENTE em JSON válido sem texto externo, no formato exato:
 {
-  "is_kit_or_system": boolean,
-  "components_list": ["componente verbatim 1", "componente verbatim 2"],
-  "essential_function": "Enunciação clara e precisa da função essencial do produto ou conjunto",
-  "recommended_ncm": "8 dígitos",
-  "recommended_ex": "número do Ex (ex: '019') ou '' se sem Ex",
-  "justification": "Justificativa detalhada com análise de composição (RGI 3b), confronto de condições e notas da TEC",
-  "legal_basis": {
-    "regime": "BK ou BIT ou GERAL",
-    "notes": "referência legal ou justificativa sumária"
-  },
-  "confidence": "alta" | "media" | "baixa",
-  "alternatives": [
-    {
-      "ncm": "8 dígitos",
-      "ex": "Ex ou ''",
-      "reason": "Motivo fiscal e técnico funcionalmente plausível"
-    }
-  ]
+"is_kit_or_system": boolean,
+"components_list": ["componente verbatim 1", "componente verbatim 2"],
+"essential_function": "Enunciação clara e precisa da função essencial do produto ou conjunto",
+"recommended_ncm": "8 dígitos",
+"recommended_ex": "número do Ex (ex: '019') ou '' se sem Ex",
+"justification": "Justificativa detalhada citando a descrição hierárquica completa (ncm_descricao_full), análise de composição (RGI 3b), confronto de condições e notas da TEC",
+"legal_basis": {
+ "regime": "BK ou BIT ou GERAL",
+ "notes": "referência legal ou justificativa sumária"
+},
+"confidence": "alta" | "media" | "baixa",
+"alternatives": [
+ {
+   "ncm": "8 dígitos",
+   "ex": "Ex ou ''",
+   "reason": "Motivo fiscal e técnico funcionalmente plausível"
+ }
+]
 }`
 
     const userPrompt = `PRODUTO A CLASSIFICAR:
@@ -752,6 +754,7 @@ ${candidatesCatalogText}`
 
     const primaryDescription =
       primaryTaxRate.ex_descricao ||
+      primaryTaxRate.ncm_descricao_full ||
       primaryTaxRate.ncm_descricao ||
       primaryTaxRate.source_text ||
       ''
@@ -1320,13 +1323,13 @@ async function retrieveSectorOrientedCandidates(params: {
       ).slice(0, 3)
 
       for (const cleanComp of distinctComps) {
-        // Buscar posições oficiais no banco contendo o termo verbatim
+        // Buscar posições oficiais no banco contendo o termo verbatim sobre ncm_descricao_full (com fallback para ncm_descricao)
         const { data: compMatches } = await supabaseAdmin
           .from('imp_sim_tax_rates')
           .select(
-            'id, ncm, ex, ncm_descricao, ex_descricao, ii_rate, ipi_rate, pis_rate, cofins_rate, has_ex_tarifario',
+            'id, ncm, ex, ncm_descricao, ncm_descricao_full, ex_descricao, ii_rate, ipi_rate, pis_rate, cofins_rate, has_ex_tarifario',
           )
-          .ilike('ncm_descricao', `%${cleanComp}%`)
+          .or(`ncm_descricao_full.ilike.%${cleanComp}%,ncm_descricao.ilike.%${cleanComp}%`)
           .limit(8)
 
         if (compMatches && compMatches.length > 0) {
@@ -1340,8 +1343,9 @@ async function retrieveSectorOrientedCandidates(params: {
                 ncm: m.ncm,
                 ex: m.ex || '',
                 ncm_descricao: m.ncm_descricao || '',
+                ncm_descricao_full: m.ncm_descricao_full || m.ncm_descricao || '',
                 ex_descricao: m.ex_descricao || null,
-                source_text: `NCM ${m.ncm} | ${m.ncm_descricao || ''}${m.ex_descricao ? ` | Ex ${m.ex} ${m.ex_descricao}` : ''}`,
+                source_text: `NCM ${m.ncm} | ${m.ncm_descricao_full || m.ncm_descricao || ''}${m.ex_descricao ? ` | Ex ${m.ex} ${m.ex_descricao}` : ''}`,
                 ii_rate: Number(m.ii_efetivo ?? m.ii_rate ?? 0),
                 ipi_rate: Number(m.ipi_rate ?? 0),
                 pis_rate: Number(m.pis_rate ?? 2.1),

@@ -69,4 +69,18 @@ describe('RPC search_ncm_candidates validation', () => {
     expect(data.length).toBeGreaterThan(0)
     console.log('Query "microfone":', JSON.stringify(data?.slice(0, 3), null, 2))
   })
+
+  it('returns ncm_descricao_full in candidates from search_ncm_candidates', async () => {
+    const { data, error } = await supabase.rpc('search_ncm_candidates', {
+      query: 'microfone',
+      top_n: 5
+    })
+
+    expect(error).toBeNull()
+    expect(data).toBeDefined()
+    expect(data.length).toBeGreaterThan(0)
+    expect(data[0].ncm_descricao_full).toBeDefined()
+    expect(typeof data[0].ncm_descricao_full).toBe('string')
+    expect(data[0].ncm_descricao_full.length).toBeGreaterThan(0)
+  })
 })

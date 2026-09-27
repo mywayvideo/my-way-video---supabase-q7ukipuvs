@@ -143,7 +143,14 @@ describe('NCM Product Validation & Recalibration Tests', () => {
       expect(result.composition_analysis.isKit).toBe(true)
     }
 
-    // Justificativa deve existir e mencionar fundamentos
+    // Justificativa deve existir e mencionar a descrição hierárquica completa oficial
     expect(result.recommendation.justification).toBeDefined()
+    // A descrição hierárquica completa da família 8518 contém "aparelhos elétricos de amplificação de som" ou "Microfones"
+    const justLower = result.recommendation.justification.toLowerCase()
+    expect(
+      justLower.includes('8518') ||
+      justLower.includes('microfone') ||
+      justLower.includes('som')
+    ).toBe(true)
   }, 60000)
 })

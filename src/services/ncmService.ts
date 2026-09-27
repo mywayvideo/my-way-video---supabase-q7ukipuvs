@@ -5,7 +5,8 @@ export interface NcmCandidate {
   ncm: string
   ex: string
   ncm_descricao: string
-  ex_descricao: string
+  ncm_descricao_full?: string
+  ex_descricao: string | null
   source_text: string
   ii_rate: number
   ipi_rate: number
@@ -16,7 +17,6 @@ export interface NcmCandidate {
   text_score: number
   combined_score: number
 }
-
 export interface SearchNcmParams {
   query: string
   queryEmbedding?: number[] | string | null

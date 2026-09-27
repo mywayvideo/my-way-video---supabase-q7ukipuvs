@@ -53,6 +53,51 @@ describe('NCM Product Validation & Recalibration Tests', () => {
     const isAcceptedNcm = recommendedNcm === '85437099' || recommendedNcm === '85299090'
     expect(isAcceptedNcm).toBe(true)
 
+    // Falha 1 & 3: Propagação de veto e presença de 85437099 e 85299090
+    // O NCM 85371020 (vetado pelo auditor) NÃO PODE aparecer nem na recomendação nem nas alternativas
+    expect(recommendedNcm).not.toBe('85371020')
+    const altNcms = (result.alternatives || []).map((a: any) => a.ncm.replace(/\D/g, ''))
+    expect(altNcms.includes('85371020')).toBe(false)
+
+    // Ambas as famílias (85437099 e 85299090) devem estar presentes entre recomendação e alternativas
+    const allPresentNcms = [recommendedNcm, ...altNcms]
+    expect(allPresentNcms.includes('85437099')).toBe(true)
+    expect(allPresentNcms.includes('85299090')).toBe(true)
+
+    // Falha 2: Componente vs destino da função
+    // Em "controlador para câmeras PTZ", câmeras é DESTINO da função, NÃO componente integrado do produto
+    if (result.composition_analysis) {
+      const detectedComps = (result.composition_analysis.detectedComponents || []).map((c: string) =>
+        c.toLowerCase(),
+      )
+      expect(detectedComps.some((c: string) => c.includes('camera') || c.includes('câmera'))).toBe(false)
+      // O destino da função deve ter sido identificado
+      if (result.composition_analysis.targetMachines) {
+        const targets = result.composition_analysis.targetMachines.map((t: string) => t.toLowerCase())
+        expect(targets.some((t: string) => t.includes('camera') || t.includes('câmera') || t.includes('ptz'))).toBe(true)
+      }
+    }
+
+    // Falha 4: Invariante do checklist: status NÃO VERIFICADO implica passed:false
+    if (result.checklist_log) {
+      if (result.checklist_log.status === 'NÃO VERIFICADO') {
+        expect(result.checklist_log.passed).toBe(false)
+      }
+      if (result.checklist_log.status !== 'APROVADO') {
+        expect(result.checklist_log.passed).toBe(false)
+      }
+    }
+
+    // Falha 5: Regeneração da fundamentação legal (legal_basis):
+    // Nenhum código de Ex citado no legal_basis pode diferir do Ex final
+    const finalEx = (result.recommendation.ex || '').toString().trim()
+    const legalNotes = ((result.recommendation.legal_basis || {}).notes || '').toString()
+    const exCitedMatch = legalNotes.match(/ex(?:-tarif[aá]rio)?\s*[:#-]?\s*(\d{1,4})/i)
+    if (exCitedMatch) {
+      expect(finalEx).toBeTruthy()
+      expect(exCitedMatch[1].padStart(3, '0')).toBe(finalEx.padStart(3, '0'))
+    }
+
     // Se o auditor tentou vetar para câmera ou grua, a correção deve ter sido vetada
     if (result.audit_verdict) {
       const correctedDigits = (result.audit_verdict.corrected_ncm || '').replace(/\D/g, '')

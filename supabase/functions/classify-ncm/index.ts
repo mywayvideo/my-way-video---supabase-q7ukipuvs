@@ -57,6 +57,13 @@ interface ExChecklistResult {
   needsWebSearch: boolean
 }
 
+interface CompositionAnalysisResult {
+  isKit: boolean
+  detectedComponents: string[]
+  compositionIdentified: boolean
+  targetMachines: string[]
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -175,7 +182,8 @@ Deno.serve(async (req: Request) => {
     let combinedProductText = [productDescription, brand, model, additionalSpecs]
       .filter(Boolean)
       .join(' ')
-    let compositionAnalysis = analyzeProductComposition(combinedProductText)
+    let compositionAnalysis: CompositionAnalysisResult =
+      analyzeProductComposition(combinedProductText)
 
     // 6. GATILHO CONDICIONAL DE BUSCA WEB (ANTES DA DECISÃO)
     // Se a descrição interna não permitir identificar a composição (se for kit com composição indefinida)
@@ -243,7 +251,13 @@ Deno.serve(async (req: Request) => {
     if (openAiKey) {
       try {
         // Enriquecer embedding da consulta com a assinatura e componentes verbatim
-        const embeddingInput = [leanSignature, compositionAnalysis.detectedComponents.join(' ')]
+        const embeddingInput = [
+          leanSignature,
+          compositionAnalysis.detectedComponents.join(' '),
+          compositionAnalysis.targetMachines.length > 0
+            ? `partes acessorios ${compositionAnalysis.targetMachines.join(' ')}`
+            : '',
+        ]
           .filter(Boolean)
           .join(' ')
 
@@ -259,6 +273,7 @@ Deno.serve(async (req: Request) => {
       queryEmbedding,
       fullTechnicalProfile,
       detectedComponents: compositionAnalysis.detectedComponents,
+      targetMachines: compositionAnalysis.targetMachines,
       topN,
     })
 
@@ -340,6 +355,8 @@ METODOLOGIA OBRIGATÓRIA UNIVERSAL (PRINCÍPIOS GENÉRICOS):
 5. UNIVERSO DE CANDIDATOS E FORMATO DE SAÍDA:
 - Escolha o recommended_ncm e recommended_ex EXCLUSIVAMENTE a partir da lista de candidatos fornecida.
 - Na justificativa ("justification"), é OBRIGATÓRIO citar a descrição hierárquica completa oficial (Capítulo | Posição | Subitem do NCM escolhido) para fundamentar com precisão aduaneira o enquadramento.
+- HIERARQUIZAÇÃO ENTRE APARELHO COM FUNÇÃO PRÓPRIA E PARTES/ACESSÓRIOS:
+  Quando a função essencial do produto for "aparelho elétrico com função própria" (ex.: posição 8543) e existir família de partes e acessórios da máquina de destino (ex.: posições de partes/acessórios da máquina de destino como 8529 para aparelhos de TV/câmeras de transmissão das posições 8525 a 8528), AMBAS as famílias devem constar na resposta (uma como recomendação e a outra nas alternativas) com a devida justificativa técnica de hierarquização.
 - Responda OBRIGATORIAMENTE em JSON válido sem texto externo, no formato exato:
 {
 "is_kit_or_system": boolean,
@@ -370,7 +387,8 @@ METODOLOGIA OBRIGATÓRIA UNIVERSAL (PRINCÍPIOS GENÉRICOS):
 
 ANÁLISE PRÉVIA DE COMPOSIÇÃO:
 - É reconhecido como Sistema / Conjunto / Kit: ${compositionAnalysis.isKit ? 'SIM' : 'NÃO'}
-- Componentes identificados: ${compositionAnalysis.detectedComponents.join(', ') || 'Item singular'}
+- Componentes integrados identificados: ${compositionAnalysis.detectedComponents.join(', ') || 'Item singular (sem múltiplos componentes integrados)'}
+- Máquina(s) de destino da função: ${compositionAnalysis.targetMachines.join(', ') || 'Nenhuma (função autônoma)'}
 
 AVALIAÇÃO DE SUFICIÊNCIA DAS INFORMAÇÕES:
 - Informações suficientes internamente: ${sufficiencyCheck.isSufficient ? 'SIM' : 'NÃO'} (${sufficiencyCheck.reason})
@@ -804,7 +822,35 @@ ${candidatesCatalogText}`
         }
       : null
 
-    // 14. Resolver alíquotas para alternativas
+    // 14. Resolver alíquotas para alternativas com PROPAGAÇÃO DE VETO (Princípio Genérico):
+    // Um NCM vetado pelo auditor ou pelo checklist de código NÃO PODE aparecer na recomendação nem nas alternativas.
+    // Montar conjunto de NCMs vetados para exclusão estrita de toda a resposta.
+    const vetoedNcms = new Set<string>()
+
+    // Se o auditor vetou a 1ª passada, o NCM inicial foi vetado
+    if (auditVerdict.action === 'VETA') {
+      vetoedNcms.add(normalizeNcm(initialRecommendation.recommended_ncm))
+    }
+
+    // Se a correção do auditor foi vetada pelo override de natureza/tributário
+    if (auditVerdict.override_applied && auditVerdict.corrected_ncm) {
+      // O NCM originalmente proposto pelo auditor antes do override foi vetado
+      const rawAuditCorrection = normalizeNcm(
+        (auditVerdict.override_reason || '').match(/\b(\d{8})\b/)?.[1] || '',
+      )
+      if (rawAuditCorrection) {
+        vetoedNcms.add(rawAuditCorrection)
+      }
+    }
+
+    // Se a correção do auditor foi rejeitada e revertida
+    if (auditVerdict.action === 'APROVA' && auditVerdict.audit_critique.includes('foi rejeitada')) {
+      const matchRejected = auditVerdict.audit_critique.match(/para\s+(\d{8})\s+foi\s+rejeitada/i)
+      if (matchRejected && matchRejected[1]) {
+        vetoedNcms.add(normalizeNcm(matchRejected[1]))
+      }
+    }
+
     const resolvedAlternatives: any[] = []
     const rawAlternatives = Array.isArray(llmResponseJson.alternatives)
       ? llmResponseJson.alternatives
@@ -813,6 +859,13 @@ ${candidatesCatalogText}`
     for (const alt of rawAlternatives) {
       const altNcmClean = normalizeNcm(alt.ncm || '')
       if (!altNcmClean || altNcmClean === recommendedNcmClean) continue
+      // PROPAGAÇÃO DE VETO: se o NCM foi vetado pelo auditor, ignorar
+      if (vetoedNcms.has(altNcmClean)) {
+        console.log(
+          `[Propagação de Veto]: NCM alternativo ${altNcmClean} descartado pois foi vetado pelo auditor.`,
+        )
+        continue
+      }
 
       const altExClean = (alt.ex || '').toString().trim()
       const altTaxRate =
@@ -843,10 +896,45 @@ ${candidatesCatalogText}`
       }
     }
 
+    // Se sobrou espaço nas alternativas e temos família de partes/acessórios da máquina de destino,
+    // garantir que conste nas alternativas com justificativa de hierarquização
+    const partsCand = candidates.find(
+      (c: any) =>
+        Boolean(c.is_target_machine_parts) &&
+        normalizeNcm(c.ncm) !== recommendedNcmClean &&
+        !vetoedNcms.has(normalizeNcm(c.ncm)) &&
+        !resolvedAlternatives.some((a) => a.ncm === normalizeNcm(c.ncm)),
+    )
+    if (partsCand && resolvedAlternatives.length < 3) {
+      const pNcm = normalizeNcm(partsCand.ncm)
+      const pIi = Number(partsCand.ii_rate ?? 0)
+      const pIpi = Number(partsCand.ipi_rate ?? 0)
+      const pPis = Number(partsCand.pis_rate ?? 2.1)
+      const pCofins = Number(partsCand.cofins_rate ?? 9.65)
+      resolvedAlternatives.unshift({
+        ncm: pNcm,
+        ex: partsCand.ex || '',
+        description:
+          partsCand.ex_descricao || partsCand.ncm_descricao_full || partsCand.ncm_descricao || '',
+        ii: pIi,
+        ipi: pIpi,
+        pis: pPis,
+        cofins: pCofins,
+        total_tax: Number((pIi + pIpi + pPis + pCofins).toFixed(2)),
+        has_ex_tarifario: Boolean(partsCand.has_ex_tarifario),
+        reason:
+          'Família de partes e acessórios reconhecíveis da máquina de destino da função (RGI 1 / Nota 2 do Capítulo). Hierarquizada como alternativa diante de aparelho autônomo com função própria.',
+      })
+    }
+
     if (resolvedAlternatives.length === 0) {
       for (const cand of candidates) {
         const cNcm = normalizeNcm(cand.ncm)
-        if (cNcm !== recommendedNcmClean && resolvedAlternatives.length < 3) {
+        if (
+          cNcm !== recommendedNcmClean &&
+          !vetoedNcms.has(cNcm) &&
+          resolvedAlternatives.length < 3
+        ) {
           const cIi = Number(cand.ii_rate ?? 0)
           const cIpi = Number(cand.ipi_rate ?? 0)
           const cPis = Number(cand.pis_rate ?? 2.1)
@@ -861,7 +949,7 @@ ${candidatesCatalogText}`
             cofins: cCofins,
             total_tax: Number((cIi + cIpi + cPis + cCofins).toFixed(2)),
             has_ex_tarifario: Boolean(cand.has_ex_tarifario),
-            reason: 'Candidato alternativo com alta similaridade semântica na base oficial.',
+            reason: 'Candidato alternativo não vetado com aderência semântica na base oficial.',
           })
         }
       }
@@ -897,6 +985,41 @@ ${candidatesCatalogText}`
       finalJustification = `${reportHeader}${finalJustification}`
     }
 
+    // REGENERAÇÃO ESTRITA DA FUNDAMENTAÇÃO LEGAL (legal_basis):
+    // Proibido herdar referência a Ex remoto, vetado ou diferente do Ex final homologado.
+    // Verificação em código: nenhum código de Ex citado no legal_basis pode diferir do Ex final.
+    const finalExCode = (primaryTaxRate.ex || recommendedExClean || '').toString().trim()
+    let regeneratedLegalBasis = {
+      ...(llmResponseJson.legal_basis || primaryTaxRate.legal_basis || {}),
+    }
+
+    const rawNotes = (regeneratedLegalBasis.notes || '').toString()
+    // Procurar menções a Ex-Tarifário na nota
+    const exMentionMatch = rawNotes.match(/ex(?:-tarif[aá]rio)?\s*[:#-]?\s*(\d{1,4})/i)
+
+    if (exMentionMatch) {
+      const citedExDigits = exMentionMatch[1].padStart(3, '0')
+      const finalExDigits = finalExCode ? finalExCode.padStart(3, '0') : ''
+
+      if (!finalExCode || citedExDigits !== finalExDigits) {
+        // Ex citado difere do Ex final: REGENERAR notes por completo sem a menção ao Ex vetado/incompatível
+        const cleanedNotes = rawNotes
+          .replace(/conforme\s+descrito\s+no\s+ex-tarif[aá]rio\s*\d+/gi, '')
+          .replace(/com\s+ex-tarif[aá]rio\s*\d+/gi, '')
+          .replace(/ex-tarif[aá]rio\s*\d+/gi, '')
+          .replace(/\s{2,}/g, ' ')
+          .replace(/\s*\.\s*\./g, '.')
+          .trim()
+
+        regeneratedLegalBasis.notes =
+          cleanedNotes && cleanedNotes.length > 5
+            ? cleanedNotes
+            : `Classificação determinada pela função essencial na NCM ${recommendedNcmClean} (${regeneratedLegalBasis.regime || 'Geral'}), sem Ex-Tarifário concedido.`
+      }
+    } else if (!finalExCode && /ex-tarif[aá]rio/i.test(rawNotes)) {
+      regeneratedLegalBasis.notes = `Classificação na NCM ${recommendedNcmClean} com base nas Regras Gerais de Interpretação (RGI 1 / RGI 3). Sem aplicação de Ex-Tarifário.`
+    }
+
     const recommendationObject = {
       ncm: recommendedNcmClean,
       ex: primaryTaxRate.ex || recommendedExClean,
@@ -908,7 +1031,7 @@ ${candidatesCatalogText}`
       total_tax: totalTax,
       has_ex_tarifario: hasEx,
       justification: finalJustification,
-      legal_basis: llmResponseJson.legal_basis || primaryTaxRate.legal_basis || {},
+      legal_basis: regeneratedLegalBasis,
       ex_details: exDetails,
     }
 
@@ -1007,12 +1130,14 @@ ${candidatesCatalogText}`
  * Expressões descritivas de uso ou montagem (ex: "camera-mount", "para câmera", "for camera", "camera mount",
  * "rack mount", "pole mount", "shoe mount") indicam montagem/acessório ou compatibilidade, NUNCA a presença do aparelho como componente.
  */
-function analyzeProductComposition(text: string): {
-  isKit: boolean
-  detectedComponents: string[]
-  compositionIdentified: boolean
-} {
-  if (!text) return { isKit: false, detectedComponents: [], compositionIdentified: false }
+function analyzeProductComposition(text: string): CompositionAnalysisResult {
+  if (!text)
+    return {
+      isKit: false,
+      detectedComponents: [],
+      compositionIdentified: false,
+      targetMachines: [],
+    }
   const lower = text.toLowerCase()
 
   const kitIndicators = [
@@ -1033,58 +1158,103 @@ function analyzeProductComposition(text: string): {
 
   const isKitExplicit = kitIndicators.some((ind) => lower.includes(ind))
 
-  // Detecção estrita e verbatim de componentes reais do produto
-  // Cada componente só é incluído se o texto contiver o substantivo isolado real,
-  // excluindo menções puramente adjetivas de interface ou montagem
+  // Identificação genérica de Máquinas de Destino da Função (padrões "X para Y", "X destina-se a Y", "for Y", "intended for Y")
+  // e modificadores de montagem/acoplamento ("camera-mount", "rack-mount", etc.)
+  const targetMachines: string[] = []
+  const destinationPatterns = [
+    /(?:para|destinado\s+a|destina-se\s+a|apropriad[ao]\s+para|indicad[ao]\s+para|uso\s+em|compat[ií]vel\s+com|controle\s+d[aeo]s?)\s+([a-záàâãéèêíïóôõöúçñ0-9\s-]{2,40})/gi,
+    /(?:for|intended\s+for|suitable\s+for|compatible\s+with|designed\s+for|control\s+of)\s+([a-z0-9\s-]{2,40})/gi,
+  ]
+
+  for (const pat of destinationPatterns) {
+    let match: RegExpExecArray | null
+    while ((match = pat.exec(text)) !== null) {
+      const phrase = match[1]
+        .split(/[,.;/()–—\n\r]|(?:\b(?:with|com|and|e|de|do|da|including|incluindo)\b)/i)[0]
+        .trim()
+      if (phrase && phrase.length >= 3 && phrase.length <= 40) {
+        targetMachines.push(phrase)
+      }
+    }
+  }
+
+  // Modificadores de montagem também identificam a máquina de acoplamento/destino
+  const mountMatches = text.matchAll(/\b([a-z0-9]+)-(?:mount|mounted|mountable)\b/gi)
+  for (const m of mountMatches) {
+    if (m[1] && m[1].toLowerCase() !== 'rack' && m[1].toLowerCase() !== 'pole') {
+      targetMachines.push(m[1])
+    }
+  }
+
+  // Normalização e deduplicação de máquinas de destino
+  const uniqueTargets = Array.from(
+    new Set(
+      targetMachines
+        .map((t) => t.trim())
+        .filter((t) => t.length >= 3 && !/^(o|a|os|as|um|uma|the|an|all|tod[ao]s?)$/i.test(t)),
+    ),
+  )
+
+  // Criar cópia do texto com trechos de destino da função e termos de montagem REMOVIDOS
+  // para garantir que a máquina de destino NÃO seja classificada como componente integrado do produto.
+  let textForComponents = text
+  const cleaningRegexes = [
+    /\bcamera-mount\b/gi,
+    /\bcamera mount\b/gi,
+    /\bshoe-mount\b/gi,
+    /\brack-mount\b/gi,
+    /\bpole-mount\b/gi,
+    /\bwall-mount\b/gi,
+    /(?:para|destinado\s+a|destina-se\s+a|apropriad[ao]\s+para|indicad[ao]\s+para|compat[ií]vel\s+com|controle\s+d[aeo]s?)\s+[^\n\r,.;]+/gi,
+    /(?:for|intended\s+for|suitable\s+for|compatible\s+with|designed\s+for|control\s+of)\s+[^\n\r,.;]+/gi,
+  ]
+  for (const cr of cleaningRegexes) {
+    textForComponents = textForComponents.replace(cr, ' ')
+  }
+
+  // Detecção estrita e verbatim de componentes físicos integrados do produto
   const detected: string[] = []
 
   // 1. Transmissor
-  const txMatch = text.match(/\b(transmissor(?:a|es)?|transmitter(?:s)?|bodypack|plug-on)\b/i)
+  const txMatch = textForComponents.match(
+    /\b(transmissor(?:a|es)?|transmitter(?:s)?|bodypack|plug-on)\b/i,
+  )
   if (txMatch) {
     detected.push(txMatch[0])
   }
 
   // 2. Receptor
-  const rxMatch = text.match(/\b(receptor(?:a|es)?|receiver(?:s)?|base sintonizadora)\b/i)
+  const rxMatch = textForComponents.match(
+    /\b(receptor(?:a|es)?|receiver(?:s)?|base sintonizadora)\b/i,
+  )
   if (rxMatch) {
     detected.push(rxMatch[0])
   }
 
   // 3. Microfone / Cápsula
-  const micMatch = text.match(/\b(microfone(?:s)?|microphone(?:s)?|lavalier|lapela|headset)\b/i)
+  const micMatch = textForComponents.match(
+    /\b(microfone(?:s)?|microphone(?:s)?|lavalier|lapela|headset)\b/i,
+  )
   if (micMatch) {
     detected.push(micMatch[0])
   }
 
   // 4. Controlador / Console
-  const ctrlMatch = text.match(
+  const ctrlMatch = textForComponents.match(
     /\b(controlador(?:es)?|controller(?:s)?|console(?:s)?|joystick(?:s)?)\b/i,
   )
   if (ctrlMatch) {
     detected.push(ctrlMatch[0])
   }
 
-  // 5. Câmera: só deve ser reconhecida como componente se constar como dispositivo/substantivo autônomo,
-  // JAMAIS quando for modificador de montagem ou suporte (ex: "camera-mount", "camera mount", "for cameras", "para câmeras")
-  const textWithoutMountTerms = lower
-    .replace(/\bcamera-mount\b/g, '')
-    .replace(/\bcamera mount\b/g, '')
-    .replace(/\bpara c[aâ]meras?\b/g, '')
-    .replace(/\bfor (?:ptz )?cameras?\b/g, '')
-    .replace(/\bshoe-mount\b/g, '')
-    .replace(/\brack-mount\b/g, '')
-
-  const cameraMatch = textWithoutMountTerms.match(/\b(c[aâ]mera(?:s)?|camcorder(?:s)?)\b/i)
+  // 5. Câmera: só entra como componente se sobrou no texto LIMPO (ou seja, quando NÃO é destino da função)
+  const cameraMatch = textForComponents.match(/\b(c[aâ]mera(?:s)?|camcorder(?:s)?)\b/i)
   if (cameraMatch) {
-    // Apenas se o texto original ainda contiver a palavra câmera de forma substantiva
-    const originalWord = text.match(/\b(c[aâ]mera(?:s)?|camcorder(?:s)?)\b/i)
-    if (originalWord) {
-      detected.push(originalWord[0])
-    }
+    detected.push(cameraMatch[0])
   }
 
   // 6. Fonte / Alimentação / Bateria
-  const psuMatch = text.match(
+  const psuMatch = textForComponents.match(
     /\b(power supply|fonte de alimenta[cç][aã]o|carregador(?:es)?|bateria(?:s)?|battery)\b/i,
   )
   if (psuMatch) {
@@ -1092,7 +1262,7 @@ function analyzeProductComposition(text: string): {
   }
 
   // 7. Lente / Óptica
-  const lensMatch = text.match(/\b(lente(?:s)?|lens(?:es)?|[oó]ptica)\b/i)
+  const lensMatch = textForComponents.match(/\b(lente(?:s)?|lens(?:es)?|[oó]ptica)\b/i)
   if (lensMatch) {
     detected.push(lensMatch[0])
   }
@@ -1111,6 +1281,7 @@ function analyzeProductComposition(text: string): {
     isKit,
     detectedComponents: uniqueDetected,
     compositionIdentified,
+    targetMachines: uniqueTargets,
   }
 }
 
@@ -1376,8 +1547,9 @@ function evaluateExChecklistAgainstProduct(params: {
     }
   }
 
-  // Regra Vinculante 3: Checklist com extração vazia de qualificadores do Ex = status "NÃO VERIFICADO"
-  // + badge "requer revisão especialista" no painel — NUNCA passed:true silencioso com zero comparações.
+  // Invariante obrigatória do Checklist (Princípio Genérico):
+  // status "NÃO VERIFICADO" ou qualquer status que não seja "APROVADO" implica passed: false.
+  // Sincronizar o flag passed com o status em código para qualquer status que não seja comprovado/verificado.
   let checklistStatus: 'APROVADO' | 'VETADO' | 'NÃO VERIFICADO' = 'APROVADO'
   let requiresExpertReview = false
 
@@ -1405,8 +1577,12 @@ function evaluateExChecklistAgainstProduct(params: {
     requiresExpertReview = true
   }
 
+  // Sincronização estrita da invariante:
+  // Se o status for NÃO VERIFICADO ou VETADO, passed DEVE ser false.
+  const finalPassed = checklistStatus === 'APROVADO' && passed
+
   return {
-    passed,
+    passed: finalPassed,
     status: checklistStatus,
     requiresExpertReview,
     comparisons,
@@ -1598,9 +1774,17 @@ async function retrieveSectorOrientedCandidates(params: {
   queryEmbedding: number[] | null
   fullTechnicalProfile: string
   detectedComponents?: string[]
+  targetMachines?: string[]
   topN: number
 }): Promise<any[]> {
-  const { supabaseAdmin, query, queryEmbedding, topN, detectedComponents = [] } = params
+  const {
+    supabaseAdmin,
+    query,
+    queryEmbedding,
+    topN,
+    detectedComponents = [],
+    targetMachines = [],
+  } = params
 
   const rpcParams: {
     query: string
@@ -1629,7 +1813,7 @@ async function retrieveSectorOrientedCandidates(params: {
 
   let candidates = Array.isArray(rawCandidates) ? [...rawCandidates] : []
 
-  // Se componentes foram detectados verbatim na análise de composição (ex: microfone, receptor, transmissor, console, câmera),
+  // Se componentes foram detectados verbatim na análise de composição (ex: microfone, receptor, transmissor, console),
   // realizar busca direta no banco de posições fiscais que contemplem esses termos textualmente
   // para garantir que a família correspondente à assinatura/componente do produto entre priorizada
   if (detectedComponents.length > 0) {
@@ -1682,6 +1866,90 @@ async function retrieveSectorOrientedCandidates(params: {
       }
     } catch (compErr) {
       console.warn('Falha na busca direcionada por componente verbatim:', compErr)
+    }
+  }
+
+  // RECUPERAÇÃO DA FAMÍLIA DE PARTES E ACESSÓRIOS DA MÁQUINA DE DESTINO (Princípio Genérico):
+  // Se uma máquina de destino da função foi identificada (padrão "X para Y" / modificadores de montagem),
+  // acionar a busca da família de partes e acessórios correspondente àquela máquina via mapeamento SEMÂNTICO no banco
+  // (consultando descrições hierárquicas por posições de destino e suas partes/acessórios, sem códigos hardcoded).
+  if (targetMachines.length > 0) {
+    try {
+      const distinctTargets = Array.from(
+        new Set(
+          targetMachines
+            .flatMap((t) => t.toLowerCase().split(/[\s-]+/))
+            .filter(
+              (w) => w.length >= 4 && !['para', 'com', 'destinado', 'apropriado'].includes(w),
+            ),
+        ),
+      ).slice(0, 3)
+
+      for (const targetWord of distinctTargets) {
+        // 1. Localizar posições candidatas da máquina de destino no banco oficial
+        const { data: targetPositions } = await supabaseAdmin
+          .from('imp_sim_tax_rates')
+          .select('ncm')
+          .ilike('ncm_descricao_full', `%${targetWord}%`)
+          .limit(10)
+
+        const headings = new Set<string>()
+        if (targetPositions && targetPositions.length > 0) {
+          for (const tp of targetPositions) {
+            const h = (tp.ncm || '').slice(0, 4)
+            if (h && h.length === 4) headings.add(h)
+          }
+        }
+
+        // 2. Para cada posição (ou faixa de posições) encontrada da máquina de destino,
+        // buscar semanticamente posições cuja descrição mencione partes/acessórios destinadas a esses aparelhos
+        for (const heading of headings) {
+          const formattedHeading = `${heading.slice(0, 2)}.${heading.slice(2, 4)}` // ex: 85.25
+
+          const { data: partsMatches } = await supabaseAdmin
+            .from('imp_sim_tax_rates')
+            .select(
+              'id, ncm, ex, ncm_descricao, ncm_descricao_full, ex_descricao, ii_rate, ipi_rate, pis_rate, cofins_rate, has_ex_tarifario',
+            )
+            .or(
+              `ncm_descricao_full.ilike.%partes%destinadas%${formattedHeading}%,ncm_descricao_full.ilike.%partes%destinadas%${heading}%,ncm_descricao_full.ilike.%acessórios%destinados%${formattedHeading}%`,
+            )
+            .limit(10)
+
+          if (partsMatches && partsMatches.length > 0) {
+            for (const pm of partsMatches) {
+              const alreadyExists = candidates.some(
+                (c: any) => normalizeNcm(c.ncm) === pm.ncm && (c.ex || '') === (pm.ex || ''),
+              )
+              if (!alreadyExists) {
+                candidates.push({
+                  tax_rate_id: pm.id,
+                  ncm: pm.ncm,
+                  ex: pm.ex || '',
+                  ncm_descricao: pm.ncm_descricao || '',
+                  ncm_descricao_full: pm.ncm_descricao_full || pm.ncm_descricao || '',
+                  ex_descricao: pm.ex_descricao || null,
+                  source_text: `NCM ${pm.ncm} | ${pm.ncm_descricao_full || pm.ncm_descricao || ''}${pm.ex_descricao ? ` | Ex ${pm.ex} ${pm.ex_descricao}` : ''}`,
+                  ii_rate: Number(pm.ii_efetivo ?? pm.ii_rate ?? 0),
+                  ipi_rate: Number(pm.ipi_rate ?? 0),
+                  pis_rate: Number(pm.pis_rate ?? 2.1),
+                  cofins_rate: Number(pm.cofins_rate ?? 9.65),
+                  has_ex_tarifario: Boolean(pm.has_ex_tarifario),
+                  vector_score: 0.7,
+                  text_score: 0.9,
+                  combined_score: 0.8,
+                  is_target_machine_parts: true,
+                })
+              }
+            }
+          }
+        }
+      }
+    } catch (targetErr) {
+      console.warn(
+        'Falha na busca direcionada da família de partes/acessórios da máquina de destino:',
+        targetErr,
+      )
     }
   }
 

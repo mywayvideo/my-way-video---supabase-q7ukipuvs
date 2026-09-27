@@ -214,9 +214,17 @@ function buildSystemPrompt(context: GenerateContext): string {
   )
 
   parts.push(
+    `[REGRAS DE MARCAS E FABRICANTES (OBRIGATÓRIO)]\n` +
+      `- Quando o usuário perguntar quais marcas/fabricantes trabalhamos/atendemos/vendemos, responda EXCLUSIVAMENTE pela lista "Fabricantes disponíveis:" fornecida no contexto.\n` +
+      `- É PROIBIDO citar como marcas atendidas qualquer marca que não esteja nessa lista — inclusive marcas mencionadas em artigos de Inteligência de Mercado, no histórico da conversa ou no seu conhecimento geral.\n` +
+      `- O conteúdo de Inteligência de Mercado descreve o mercado em geral (feiras, lançamentos, tendências) e NÃO representa o nosso catálogo. Marcas citadas lá NÃO são marcas que trabalhamos.\n` +
+      `- Se o usuário pedir por uma marca fora da lista, seja honesto: informe que não trabalhamos com ela e, quando fizer sentido, sugira a mais próxima da lista.`,
+  )
+
+  parts.push(
     `REGRA DE GROUNDING (OBRIGATÓRIO E SEVERO — 4 PONTOS):\n` +
       `1. Você é PROIBIDA de inventar, alucinar ou citar nomes de produtos, marcas, fabricantes, SKUs ou preços que não estejam explicitamente presentes no array de produtos recebido do banco de dados na mensagem atual.\n` +
-      `2. Se o usuário perguntar sobre um produto que NÃO está no catálogo (ausente do array de produtos recebido) E não existirem dados de Inteligência de Mercado (MI) relevantes no contexto, você deve informar ao usuário que o item não existe no catálogo, SEM fornecer preço, especificação ou qualquer outra informação sobre ele. No entanto, se existirem dados de Inteligência de Mercado (MI) relevantes no contexto, você DEVE usar esses dados de MI para responder à pergunta, independentemente da intenção classificada (catálogo, comparação, compatibilidade, técnica, etc.). Os dados de MI são informações curadas e verificadas — usar esses dados para responder NÃO constitui alucinação. Quando o array de produtos estiver vazio mas existirem dados de MI relevantes, a resposta deve ser baseada exclusivamente no conteúdo de MI disponível, explorando-o integralmente (título, resumo, fonte, evento). A presença de dados de MI é condição suficiente para gerar uma resposta completa — você não deve exibir a mensagem padrão de recusa quando houver conteúdo de MI relevante.\n` +
+      `2. Se o usuário perguntar sobre um produto que NÃO está no catálogo (ausente do array de produtos recebido) E não existirem dados de Inteligência de Mercado (MI) relevantes no contexto, você deve informar ao usuário que o item não existe no catálogo, SEM fornecer preço, especificação ou qualquer outra informação sobre ele. No entanto, se existirem dados de Inteligência de Mercado (MI) relevantes no contexto, você DEVE usar esses dados de MI para responder a perguntas sobre mercado, novidades, lançamentos e tendências, independentemente da intenção classificada (catálogo, comparação, compatibilidade, técnica, etc.), ressalvadas as perguntas sobre marcas/fabricantes atendidos pela loja que devem seguir estritamente as REGRAS DE MARCAS E FABRICANTES. Os dados de MI são informações curadas e verificadas — usar esses dados para responder NÃO constitui alucinação. Quando o array de produtos estiver vazio mas existirem dados de MI relevantes para perguntas de mercado, a resposta deve ser baseada no conteúdo de MI disponível, explorando-o integralmente (título, resumo, fonte, evento). A presença de dados de MI é condição suficiente para gerar uma resposta completa sobre mercado — você não deve exibir a mensagem padrão de recusa quando houver conteúdo de MI relevante.\n` +
       `3. Se a pergunta exigir "Análise por Produto" ou "Comparativo Técnico" e NÃO houver produtos correspondentes no banco de dados, você NÃO deve criar essas seções com modelos fictícios. Você deve informar imediatamente que o item não está no catálogo.\n` +
       `4. O fato de um nome ser mencionado na pergunta do usuário NÃO significa que o produto existe no catálogo. A ÚNICA fonte de verdade é o array de produtos fornecido na mensagem atual.`,
   )
@@ -259,7 +267,7 @@ function buildSystemPrompt(context: GenerateContext): string {
   parts.push(
     `CONTEXTO DE INTELIGÊNCIA DE MERCADO:\n` +
       `Você pode receber informações de inteligência de mercado (tendências, análises, eventos) como contexto.\n` +
-      `Quando o array de produtos do catálogo estiver vazio mas existirem dados de MI relevantes, os dados de MI tornam-se a fonte primária de verdade e você DEVE basear sua resposta exclusivamente neles.\n` +
+      `Para perguntas sobre mercado, novidades, lançamentos e tendências, quando o array de produtos do catálogo estiver vazio mas existirem dados de MI relevantes, os dados de MI tornam-se a fonte primária de verdade e você DEVE basear sua resposta exclusivamente neles (lembrando que perguntas sobre quais marcas/fabricantes atendemos/trabalhamos seguem obrigatoriamente as REGRAS DE MARCAS E FABRICANTES e NUNCA usam dados de MI).\n` +
       `Nesse caso, apresente o conteúdo de MI de forma estruturada:\n` +
       `- Título da informação/notícia\n` +
       `- Resumo ou AI Summary do conteúdo\n` +

@@ -481,6 +481,181 @@ Deno.serve(async (req: Request) => {
     const searchQuery = removeStopWords(query) || query
     logCascade('A', 'stopwords', true, query, `cleaned="${searchQuery}"`)
 
+    // ── Roteamento determinístico de marcas/fabricantes atendidos ──
+    const allDbManufacturers: string[] = (manufacturers || [])
+      .map((m: any) => (m.name || '').trim())
+      .filter((n: string) => n.length > 0)
+
+    const lowerOriginalQuery = originalQuery.toLowerCase().trim()
+    const isBrandListQuestion =
+      /\b(quais|quais\s+s[aã]o|qual|lista(?:r)?|quaisquer)\b.*?\b(marcas|fabricantes)\b/i.test(
+        lowerOriginalQuery,
+      ) ||
+      /\b(marcas|fabricantes)\b.*?\b(trabalham|atendem|vendem|comercializam|possuem|tem|dispon[ií]veis|catalogad[ao]s)\b/i.test(
+        lowerOriginalQuery,
+      ) ||
+      /\b(com\s+quais|que)\b.*?\b(marcas|fabricantes)\b/i.test(lowerOriginalQuery)
+
+    // Detecção de "vocês trabalham com [marca]?", "tem [marca]?", "vendem [marca]?"
+    // apenas quando o foco é a marca/fabricante em si como parceira/catálogo atendido
+    let brandInquiryName: string | null = null
+    const specificBrandPatterns = [
+      /(?:voc[eê]s?\s+)?(?:trabalham|atendem|vendem|operam)\s+com\s+([a-zA-Z0-9\s\-]+?)(?:\?|\.|$|\s+(?:no\s+brasil|aqui|hoje))/i,
+      /(?:tem|possuem)\s+a\s+marca\s+([a-zA-Z0-9\s\-]+?)(?:\?|\.|$)/i,
+      /(?:a\s+marca|o\s+fabricante)\s+([a-zA-Z0-9\s\-]+?)\s+(?:[eé]\s+atendid[ao]|faz\s+parte)/i,
+    ]
+
+    for (const pat of specificBrandPatterns) {
+      const match = pat.exec(lowerOriginalQuery)
+      if (match && match[1]) {
+        const candidate = match[1].trim()
+        // Evita falsos positivos com perguntas genéricas de produto ou palavras muito longas
+        const candidateWords = candidate.split(/\s+/)
+        if (
+          candidate.length >= 2 &&
+          candidateWords.length <= 4 &&
+          !/c[aâ]mera|lente|produto|trip[eé]|monitor|microfone/i.test(candidate)
+        ) {
+          brandInquiryName = candidate
+          break
+        }
+      }
+    }
+
+    const isBrandQuestion = isBrandListQuestion || brandInquiryName !== null
+
+    if (isBrandQuestion && allDbManufacturers.length > 0) {
+      logCascade('B0', 'brand_routing', true, query)
+
+      let brandAnswer = ''
+
+      if (isBrandListQuestion) {
+        const formattedList = allDbManufacturers.join(', ')
+        const brandSystemPrompt =
+          `Você é o consultor da MY WAY BUSINESS. O usuário está perguntando quais marcas/fabricantes a loja trabalha/atende/vende.\n` +
+          `Abaixo está a lista ÚNICA e OFICIAL de fabricantes cadastrados no sistema:\n` +
+          `Fabricantes disponíveis: ${formattedList}\n\n` +
+          `INSTRUÇÕES RÍGIDAS (OBRIGATÓRIO):\n` +
+          `- Apresente as marcas da lista acima de forma clara, educada e profissional.\n` +
+          `- É TERMINANTEMENTE PROIBIDO inventar, acrescentar ou citar qualquer outra marca fora desta lista exata.\n` +
+          `- Não mencione nenhuma feira ou marca externa.\n` +
+          `- Informe que trabalhamos com essas marcas em nosso portfólio oficial.`
+
+        try {
+          const aiBrandResp = await generateResponse(
+            originalQuery,
+            {
+              agentSettings: { system_prompt: brandSystemPrompt },
+              products: [],
+              manufacturerList: formattedList,
+              history,
+            },
+            undefined,
+            supabase,
+          )
+          brandAnswer =
+            aiBrandResp?.content ||
+            `Trabalhamos oficialmente com as seguintes marcas e fabricantes: ${formattedList}.`
+        } catch (err) {
+          console.error(
+            '[ai-search] brand list LLM formatting failed, using deterministic fallback:',
+            err,
+          )
+          brandAnswer = `Trabalhamos oficialmente com as seguintes marcas e fabricantes: ${formattedList}.`
+        }
+      } else if (brandInquiryName) {
+        const targetClean = brandInquiryName.toLowerCase()
+        const matchedMfr = allDbManufacturers.find((m) => {
+          const mLower = m.toLowerCase()
+          return (
+            mLower === targetClean || targetClean.includes(mLower) || mLower.includes(targetClean)
+          )
+        })
+
+        const formattedList = allDbManufacturers.join(', ')
+        const isMatched = !!matchedMfr
+
+        const brandSpecificPrompt =
+          `Você é o consultor da MY WAY BUSINESS. O usuário perguntou se a loja trabalha com a marca "${brandInquiryName}".\n` +
+          `A lista ÚNICA e COMPLETA de marcas/fabricantes atendidos pela loja é:\n` +
+          `Fabricantes disponíveis: ${formattedList}\n\n` +
+          `Diagnóstico interno: A marca "${brandInquiryName}" ${isMatched ? `ESTÁ na lista oficial como "${matchedMfr}"` : 'NÃO ESTÁ na lista oficial'}.\n\n` +
+          `INSTRUÇÕES RÍGIDAS (OBRIGATÓRIO):\n` +
+          (isMatched
+            ? `- Confirme com clareza que SIM, trabalhamos com ${matchedMfr} em nosso portfólio oficial.\n- Seja prestativo e coloque-se à disposição para ajudar com os equipamentos da marca.`
+            : `- Informe com honestidade que NÃO trabalhamos com a marca "${brandInquiryName}".\n- É PROIBIDO inventar que atendemos essa marca.\n- Caso faça sentido, sugira brevemente as marcas mais próximas da lista oficial (${formattedList}) ou convide a verificar os fabricantes disponíveis.\n- NUNCA invente marcas fora da lista oficial.`)
+
+        try {
+          const aiBrandResp = await generateResponse(
+            originalQuery,
+            {
+              agentSettings: { system_prompt: brandSpecificPrompt },
+              products: [],
+              manufacturerList: formattedList,
+              history,
+            },
+            undefined,
+            supabase,
+          )
+          brandAnswer =
+            aiBrandResp?.content ||
+            (isMatched
+              ? `Sim, nós trabalhamos com a marca ${matchedMfr} em nosso portfólio oficial!`
+              : `No momento não trabalhamos com a marca ${brandInquiryName}. Nossa linha oficial conta com os seguintes fabricantes: ${formattedList}.`)
+        } catch (err) {
+          console.error(
+            '[ai-search] brand specific inquiry LLM failed, using deterministic fallback:',
+            err,
+          )
+          brandAnswer = isMatched
+            ? `Sim, nós trabalhamos com a marca ${matchedMfr} em nosso portfólio oficial!`
+            : `No momento não trabalhamos com a marca ${brandInquiryName}. Nossa linha oficial conta com os seguintes fabricantes: ${formattedList}.`
+        }
+      }
+
+      try {
+        if (session_id) {
+          await supabase
+            .from('chat_messages')
+            .insert({ session_id, role: 'user', message: originalQuery, content: originalQuery })
+          await supabase.from('chat_messages').insert({
+            session_id,
+            role: 'assistant',
+            message: brandAnswer,
+            content: JSON.stringify({
+              content: brandAnswer,
+              confidence_level: 'high',
+              referenced_internal_products: [],
+              should_show_whatsapp_button: false,
+              ai_referenced_count: 0,
+              full_search_results: 0,
+              type: 'institutional',
+            }),
+            type: 'institutional',
+          })
+        }
+      } catch (persistErr: any) {
+        console.error(
+          '[ai-search] brand routing persistence failed:',
+          persistErr?.message || persistErr,
+        )
+      }
+
+      const brandResult = {
+        content: brandAnswer,
+        confidence_level: 'high',
+        referenced_internal_products: [],
+        should_show_whatsapp_button: false,
+        ai_referenced_count: 0,
+        full_search_results: 0,
+        execution_id,
+      }
+      return new Response(JSON.stringify(brandResult), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 200,
+      })
+    }
+
     const isInstClassification =
       classificationIntent !== null
         ? classificationIntent === 'institutional'

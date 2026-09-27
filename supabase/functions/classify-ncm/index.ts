@@ -755,7 +755,7 @@ Deno.serve(async (req: Request) => {
       JSON.stringify({
         status: 'ok',
         function: 'classify-ncm',
-        version: '3.7.0-build.612',
+        version: '3.7.0-build.613',
         knowledge_base_version: '3.1',
         features: [
           'phase0_canonical_composition_derivation',
@@ -776,6 +776,8 @@ Deno.serve(async (req: Request) => {
           'target_machine_serviced_device_mapping',
           'expanded_parts_deterministic_retrieval',
           'defensive_ai_provider_safeguards',
+          'candidates_sweep_alternatives_promotion',
+          'alternatives_source_tracking',
         ],
         timestamp: new Date().toISOString(),
       }),
@@ -2036,216 +2038,171 @@ ${candidatesCatalogText}`
       }
 
       const altExClean = (alt.ex || '').toString().trim()
-      // =========================================================================
-      // CORREÇÃO (3) — INTEGRIDADE DE ALTERNATIVAS (PRINCÍPIO GENÉRICO UNIVERSAL)
-      // =========================================================================
-      // A descrição exibida de cada alternativa (e de seu Ex-Tarifário) deve
-      // pertencer à MESMA linha NCM+Ex do catálogo recuperado.
-      // Quando a descrição não corresponder à linha, substituir pela descrição oficial
-      // da linha correta, NUNCA reaproveitar texto de outra entrada.
-      let altTaxRate = altExClean
-        ? await resolveEffectiveTaxRate(supabaseAdmin, altNcmClean, altExClean)
-        : null
+      const altResolved = await resolveAlternativeEntry({
+        supabaseAdmin,
+        ncm: altNcmClean,
+        ex: altExClean,
+        candidates,
+        fullTechnicalProfile,
+        compositionAnalysis,
+        vetoedNcms,
+        reason: alt.reason || 'Posição fiscal alternativa sugerida pelas passadas de IA.',
+        source: 'citado pela IA',
+      })
 
-      if (!altTaxRate) {
-        altTaxRate = await resolveEffectiveTaxRate(supabaseAdmin, altNcmClean, '')
-      }
-
-      if (!altTaxRate) {
-        altTaxRate = candidates.find((c: any) => normalizeNcm(c.ncm) === altNcmClean)
-      }
-
-      if (altTaxRate) {
-        // Garantir que a linha oficial consultada seja estritamente daquela NCM+Ex
-        let officialRow = altTaxRate
-        const finalCandidateEx = (altTaxRate.ex || altExClean || '').toString().trim()
-
-        // Se a linha consultada divergir ou se não tiver a descrição oficial canônica da base
-        if (!officialRow.ncm_descricao_full) {
-          const { data: dbExactRow } = await supabaseAdmin
-            .from('imp_sim_tax_rates')
-            .select(
-              'ncm, ex, ncm_descricao_full, ncm_descricao, ex_descricao, ii_rate, ipi_rate, pis_rate, cofins_rate, has_ex_tarifario',
-            )
-            .eq('ncm', altNcmClean)
-            .limit(1)
-            .maybeSingle()
-          if (dbExactRow) {
-            officialRow = { ...officialRow, ...dbExactRow }
-          }
-        }
-
-        // A descrição oficial é rigorosamente a da própria linha NCM (ncm_descricao_full)
-        // e, havendo Ex válido e coincidente com a linha oficial, o ex_descricao oficial daquela linha
-        let altFinalEx = officialRow.ex || altExClean || ''
-        let altOfficialExDesc: string | null = officialRow.ex_descricao || null
-
-        // Se o Ex citado não existir na linha oficial recuperada para este NCM, zerar o Ex
-        // para não herdar descrição de Ex de outro NCM
-        if (altFinalEx && officialRow.ex && normalizeNcm(officialRow.ncm) === altNcmClean) {
-          if (String(officialRow.ex).trim() !== String(altFinalEx).trim()) {
-            altFinalEx = ''
-            altOfficialExDesc = null
-          }
-        } else if (altFinalEx && !officialRow.ex) {
-          // Verificar se esse NCM realmente tem esse Ex na base
-          const { data: exCheckRow } = await supabaseAdmin
-            .from('imp_sim_tax_rates')
-            .select('ex, ex_descricao')
-            .eq('ncm', altNcmClean)
-            .eq('ex', altFinalEx)
-            .maybeSingle()
-          if (!exCheckRow) {
-            altFinalEx = ''
-            altOfficialExDesc = null
-          } else {
-            altOfficialExDesc = exCheckRow.ex_descricao
-          }
-        }
-
-        // Validação de checklist de Ex se houver Ex
-        if (altFinalEx && altOfficialExDesc) {
-          const altExCheck = evaluateExChecklistAgainstProduct({
-            exDescription: altOfficialExDesc,
-            productText: fullTechnicalProfile,
-            isKit: compositionAnalysis.isKit,
-            detectedComponents: compositionAnalysis.detectedComponents,
-          })
-          if (!altExCheck.passed) {
-            altFinalEx = ''
-            altOfficialExDesc = null
-          }
-        }
-
-        // Montar a descrição estritamente atrelada à MESMA linha NCM+Ex do catálogo
-        const officialFullNcmDesc =
-          officialRow.ncm_descricao_full || officialRow.ncm_descricao || ''
-        const altDesc =
-          altFinalEx && altOfficialExDesc
-            ? `${officialFullNcmDesc} | Ex ${altFinalEx}: ${altOfficialExDesc}`
-            : officialFullNcmDesc
-
-        // (b) VETO POR CONTRADIÇÃO DE NATUREZA NA ALTERNATIVA:
-        const altNatureContradiction = checkNatureContradiction({
-          productText: fullTechnicalProfile,
-          candidateDesc: altDesc,
-          detectedComponents: compositionAnalysis.detectedComponents,
-        })
-        if (altNatureContradiction.contradicted) {
-          console.log(
-            `[Veto Natureza Alternativa]: NCM ${altNcmClean} descartado das alternativas por contradição de natureza.`,
-          )
-          vetoedNcms.add(altNcmClean)
-          continue
-        }
-
-        const altIi = Number(officialRow.ii_efetivo ?? officialRow.ii_rate ?? 0)
-        const altIpi = Number(officialRow.ipi_rate ?? 0)
-        const altPis = Number(officialRow.pis_rate ?? 2.1)
-        const altCofins = Number(officialRow.cofins_rate ?? 9.65)
-        const altTotal = Number((altIi + altIpi + altPis + altCofins).toFixed(2))
-
-        resolvedAlternatives.push({
-          ncm: altNcmClean,
-          ex: altFinalEx,
-          description: altDesc,
-          ii: altIi,
-          ipi: altIpi,
-          pis: altPis,
-          cofins: altCofins,
-          total_tax: altTotal,
-          has_ex_tarifario: Boolean(altFinalEx),
-          reason: alt.reason || 'Posição fiscal alternativa aplicável.',
-        })
+      if (altResolved) {
+        resolvedAlternatives.push(altResolved)
       }
     }
 
-    // Se sobrou espaço nas alternativas e temos família de partes/acessórios da máquina de destino,
-    // garantir que conste nas alternativas com justificativa de vínculo indireto obrigatória
-    const partsCand = candidates.find(
-      (c: any) =>
-        (Boolean(c.is_target_machine_parts) || Boolean(c.is_parts_indirect_linking)) &&
-        normalizeNcm(c.ncm) !== recommendedNcmClean &&
-        !vetoedNcms.has(normalizeNcm(c.ncm)) &&
-        !resolvedAlternatives.some((a) => a.ncm === normalizeNcm(c.ncm)),
-    )
-    if (partsCand && resolvedAlternatives.length < 3) {
-      const pNcm = normalizeNcm(partsCand.ncm)
-      const pIi = Number(partsCand.ii_rate ?? 0)
-      const pIpi = Number(partsCand.ipi_rate ?? 0)
-      const pPis = Number(partsCand.pis_rate ?? 2.1)
-      const pCofins = Number(partsCand.cofins_rate ?? 9.65)
-      const partsDesc =
-        partsCand.ex_descricao || partsCand.ncm_descricao_full || partsCand.ncm_descricao || ''
-      const partsPatternInfo = isPartsNcmPattern(partsDesc)
+    // =========================================================================
+    // CALIBRAÇÃO UNIVERSAL: MONTAGEM FINAL DE ALTERNATIVAS A PARTIR DOS
+    // CANDIDATOS AVALIADOS (EVALUATED CANDIDATES SWEEP)
+    // =========================================================================
+    // A lista de alternativas DEVE ser derivada dos evaluated_candidates, não
+    // apenas das menções explícitas das passadas de IA.
+    // Após o veredito final, varremos os candidatos avaliados e promovemos a
+    // alternativas os NCMs de maior aderência não citados, aplicando a hierarquia:
+    // 1. Candidatos de partes com vínculo indireto casado com target_machines
+    //    (salvo veto se produto for aparelho com função própria completa);
+    // 2. Residuais de função própria do mesmo capítulo da máquina servida / produto
+    //    (ex.: 8543 para Cap. 85, 8479 para Cap. 84, 9031 para Cap. 90);
+    // 3. Demais candidatos com aderência semântica / setorial por ordem de score;
+    // 4. Genéricos de terceiro nível por último.
+    const resolvedProductNature = normalizeProductNature(finalProductUnderstanding?.product_nature)
+    const isCompleteStandaloneProduct =
+      resolvedProductNature === 'aparelho com função própria completa'
+
+    // Classificação de candidatos não citados por tiers
+    const scoredCandidatesToPromote: Array<{
+      cand: any
+      tier: number
+      prioritySubScore: number
+      customReason: string
+    }> = []
+
+    for (const cand of candidates) {
+      const cNcm = normalizeNcm(cand.ncm)
+      if (!cNcm || cNcm === recommendedNcmClean) continue
+      if (vetoedNcms.has(cNcm)) continue
+      if (resolvedAlternatives.some((a) => a.ncm === cNcm)) continue
+
+      const cFullDesc = cand.ncm_descricao_full || cand.ncm_descricao || cand.source_text || ''
+      const partsPattern = isPartsNcmPattern(cFullDesc)
+      const isResidual = isResidualStandaloneDeviceNcm(cFullDesc)
+
+      // Verificar se as partes têm vínculo indireto com target_machines
+      let matchesTargetMachineRange = false
+      let matchedRangeText = ''
+      if (partsPattern.isParts && partsPattern.detectedRanges.length > 0) {
+        for (const heading of canonicalTargetMachineHeadings) {
+          if (isHeadingContainedInPartsRanges(heading, partsPattern.detectedRanges)) {
+            matchesTargetMachineRange = true
+            matchedRangeText = partsPattern.detectedRanges
+              .map((r) => `${r.rawStart} a ${r.rawEnd}`)
+              .join(', ')
+            break
+          }
+        }
+      }
+
+      // REGRA GENÉRICA 5: NCMs de partes NÃO podem ultrapassar/ser promovidos
+      // se o produto for aparelho com função própria completa (proibição inversa universal)
+      if (partsPattern.isParts && isCompleteStandaloneProduct) {
+        continue
+      }
+
       const targetStr =
         canonicalTargetMachines.length > 0
           ? canonicalTargetMachines.join(', ')
           : finalProductUnderstanding?.target_machines?.join(', ') ||
             'máquinas de destino da função'
 
-      const justificationReason =
-        partsPatternInfo.detectedRanges.length > 0
-          ? `Vínculo indireto: destina-se a ${targetStr}, dentro do intervalo de posições ${partsPatternInfo.detectedRanges.map((r) => `${r.rawStart} a ${r.rawEnd}`).join(', ')} declarado no texto oficial do NCM (RGI 1 / Nota 2 do Capítulo). Hierarquizada como alternativa válida diante de aparelho com função própria autônoma (RGI 3b).`
-          : `Família de partes e acessórios reconhecíveis destinada a ${targetStr} (RGI 1 / Nota 2 do Capítulo). Hierarquizada como alternativa válida diante de aparelho autônomo com função própria.`
+      const candChapter = cNcm.slice(0, 2)
+      const recChapter = recommendedNcmClean.slice(0, 2)
+      const primaryTargetHeading = canonicalTargetMachineHeadings[0] || ''
+      const targetChapter = primaryTargetHeading.slice(0, 2) || recChapter
 
-      resolvedAlternatives.unshift({
-        ncm: pNcm,
-        ex: partsCand.ex || '',
-        description: partsDesc,
-        ii: pIi,
-        ipi: pIpi,
-        pis: pPis,
-        cofins: pCofins,
-        total_tax: Number((pIi + pIpi + pPis + pCofins).toFixed(2)),
-        has_ex_tarifario: Boolean(partsCand.has_ex_tarifario),
-        reason: justificationReason,
-      })
+      const baseScore = Number(cand.combined_score ?? cand.vector_score ?? cand.text_score ?? 0.5)
+
+      // Tier 1: Partes casando primeiro (vínculo indireto com target_machines dentro do intervalo de posições)
+      if (partsPattern.isParts && matchesTargetMachineRange) {
+        const justification = `Vínculo indireto (Nota 2(b) do Cap. ${candChapter} / RGI 1): destina-se a ${targetStr}, dentro do intervalo de posições ${matchedRangeText} declarado expressamente no texto oficial do NCM. Promovido como alternativa a partir dos candidatos avaliados com vínculo indireto.`
+        scoredCandidatesToPromote.push({
+          cand,
+          tier: 1,
+          prioritySubScore: 100 + baseScore,
+          customReason: justification,
+        })
+      }
+      // Tier 2: Residual de função própria do mesmo capítulo da máquina servida / produto
+      else if (isResidual && (candChapter === targetChapter || candChapter === recChapter)) {
+        const justification = `Posição residual de função própria do Capítulo ${candChapter} (RGI 1 / RGI 6): abrange máquinas e aparelhos elétricos com função própria não especificados nas posições anteriores. Promovido como alternativa secundária a partir dos candidatos avaliados.`
+        scoredCandidatesToPromote.push({
+          cand,
+          tier: 2,
+          prioritySubScore: 50 + baseScore,
+          customReason: justification,
+        })
+      }
+      // Tier 3: Outros residuais de função própria de capítulos conexos
+      else if (isResidual) {
+        const justification = `Posição residual de função própria do Capítulo ${candChapter} (RGI 1): residual de aparelhos com função própria não compreendidos noutras posições. Promovido da varredura de candidatos avaliados.`
+        scoredCandidatesToPromote.push({
+          cand,
+          tier: 3,
+          prioritySubScore: 25 + baseScore,
+          customReason: justification,
+        })
+      }
+      // Tier 4: Candidatos de setor / família hierárquica específica (não genéricos residuais)
+      else if (cand.is_component_sector || cand.is_family_expansion) {
+        const justification = `Candidato avaliado com aderência setorial e semântica na base oficial (Capítulo ${candChapter}). Promovido da varredura de candidatos avaliados.`
+        scoredCandidatesToPromote.push({
+          cand,
+          tier: 4,
+          prioritySubScore: 10 + baseScore,
+          customReason: justification,
+        })
+      }
+      // Tier 5: Genéricos de terceiro nível por último
+      else {
+        const justification = `Posição fiscal alternativa aplicável com base nos candidatos avaliados no catálogo oficial.`
+        scoredCandidatesToPromote.push({
+          cand,
+          tier: 5,
+          prioritySubScore: baseScore,
+          customReason: justification,
+        })
+      }
     }
 
-    if (resolvedAlternatives.length === 0) {
-      for (const cand of candidates) {
-        const cNcm = normalizeNcm(cand.ncm)
-        // Integridade estrita: a descrição pertence à própria linha do candidato
-        const cFullDesc = cand.ncm_descricao_full || cand.ncm_descricao || ''
-        const cDesc =
-          cand.ex && cand.ex_descricao
-            ? `${cFullDesc} | Ex ${cand.ex}: ${cand.ex_descricao}`
-            : cFullDesc || cand.source_text || ''
+    // Ordenar por tier (menor tier = maior prioridade) e depois pelo prioritySubScore decrescente
+    scoredCandidatesToPromote.sort((a, b) => {
+      if (a.tier !== b.tier) return a.tier - b.tier
+      return b.prioritySubScore - a.prioritySubScore
+    })
 
-        // Verificar contradição de natureza
-        const natureCheck = checkNatureContradiction({
-          productText: fullTechnicalProfile,
-          candidateDesc: cDesc,
-          detectedComponents: compositionAnalysis.detectedComponents,
-        })
-        if (natureCheck.contradicted) {
-          vetoedNcms.add(cNcm)
-          continue
-        }
+    // Promover os melhores candidatos não citados para preencher as alternativas até o teto de 4
+    for (const item of scoredCandidatesToPromote) {
+      if (resolvedAlternatives.length >= 4) break
+      const cNcm = normalizeNcm(item.cand.ncm)
+      if (resolvedAlternatives.some((a) => a.ncm === cNcm)) continue
 
-        if (
-          cNcm !== recommendedNcmClean &&
-          !vetoedNcms.has(cNcm) &&
-          resolvedAlternatives.length < 3
-        ) {
-          const cIi = Number(cand.ii_rate ?? 0)
-          const cIpi = Number(cand.ipi_rate ?? 0)
-          const cPis = Number(cand.pis_rate ?? 2.1)
-          const cCofins = Number(cand.cofins_rate ?? 9.65)
-          resolvedAlternatives.push({
-            ncm: cNcm,
-            ex: cand.ex || '',
-            description: cDesc,
-            ii: cIi,
-            ipi: cIpi,
-            pis: cPis,
-            cofins: cCofins,
-            total_tax: Number((cIi + cIpi + cPis + cCofins).toFixed(2)),
-            has_ex_tarifario: Boolean(cand.has_ex_tarifario),
-            reason: 'Candidato alternativo não vetado com aderência semântica na base oficial.',
-          })
-        }
+      const altResolved = await resolveAlternativeEntry({
+        supabaseAdmin,
+        ncm: cNcm,
+        ex: (item.cand.ex || '').toString().trim(),
+        candidates,
+        fullTechnicalProfile,
+        compositionAnalysis,
+        vetoedNcms,
+        reason: item.customReason,
+        source: 'promovido da varredura de candidatos',
+      })
+
+      if (altResolved) {
+        resolvedAlternatives.push(altResolved)
       }
     }
 
@@ -2529,7 +2486,7 @@ ${candidatesCatalogText}`
       composition_analysis: compositionAnalysis,
       checklist_log: checklistLog,
       parts_indirect_logic: partsTelemetry,
-      version: '3.6.0-build.611',
+      version: '3.7.0-build.613',
       timestamp: new Date().toISOString(),
     }
 
@@ -2559,6 +2516,140 @@ ${candidatesCatalogText}`
  * fisicamente autônomos que operam juntos (ex.: transmissor + receptor no sistema de microfone sem fio),
  * NUNCA para aparelho singular com botões/joystick/periféricos integrados (ex.: Sony RM-IP500).
  */
+/**
+ * Resolve e valida uma entrada de alternativa contra imp_sim_tax_rates_effective e imp_sim_tax_rates,
+ * garantindo integridade estrita de NCM+Ex e calculando alíquotas oficiais e rastreamento de alternatives_source.
+ */
+async function resolveAlternativeEntry(params: {
+  supabaseAdmin: any
+  ncm: string
+  ex: string
+  candidates: any[]
+  fullTechnicalProfile: string
+  compositionAnalysis: CompositionAnalysisResult
+  vetoedNcms: Set<string>
+  reason: string
+  source: 'citado pela IA' | 'promovido da varredura de candidatos'
+}): Promise<any | null> {
+  const {
+    supabaseAdmin,
+    ncm,
+    ex,
+    candidates,
+    fullTechnicalProfile,
+    compositionAnalysis,
+    vetoedNcms,
+    reason,
+    source,
+  } = params
+
+  const altNcmClean = normalizeNcm(ncm)
+  const altExClean = (ex || '').toString().trim()
+  if (!altNcmClean || vetoedNcms.has(altNcmClean)) return null
+
+  let altTaxRate = altExClean
+    ? await resolveEffectiveTaxRate(supabaseAdmin, altNcmClean, altExClean)
+    : null
+
+  if (!altTaxRate) {
+    altTaxRate = await resolveEffectiveTaxRate(supabaseAdmin, altNcmClean, '')
+  }
+
+  if (!altTaxRate) {
+    altTaxRate = candidates.find((c: any) => normalizeNcm(c.ncm) === altNcmClean)
+  }
+
+  if (!altTaxRate) return null
+
+  let officialRow = altTaxRate
+
+  if (!officialRow.ncm_descricao_full) {
+    const { data: dbExactRow } = await supabaseAdmin
+      .from('imp_sim_tax_rates')
+      .select(
+        'ncm, ex, ncm_descricao_full, ncm_descricao, ex_descricao, ii_rate, ipi_rate, pis_rate, cofins_rate, has_ex_tarifario',
+      )
+      .eq('ncm', altNcmClean)
+      .limit(1)
+      .maybeSingle()
+    if (dbExactRow) {
+      officialRow = { ...officialRow, ...dbExactRow }
+    }
+  }
+
+  let altFinalEx = officialRow.ex || altExClean || ''
+  let altOfficialExDesc: string | null = officialRow.ex_descricao || null
+
+  if (altFinalEx && officialRow.ex && normalizeNcm(officialRow.ncm) === altNcmClean) {
+    if (String(officialRow.ex).trim() !== String(altFinalEx).trim()) {
+      altFinalEx = ''
+      altOfficialExDesc = null
+    }
+  } else if (altFinalEx && !officialRow.ex) {
+    const { data: exCheckRow } = await supabaseAdmin
+      .from('imp_sim_tax_rates')
+      .select('ex, ex_descricao')
+      .eq('ncm', altNcmClean)
+      .eq('ex', altFinalEx)
+      .maybeSingle()
+    if (!exCheckRow) {
+      altFinalEx = ''
+      altOfficialExDesc = null
+    } else {
+      altOfficialExDesc = exCheckRow.ex_descricao
+    }
+  }
+
+  if (altFinalEx && altOfficialExDesc) {
+    const altExCheck = evaluateExChecklistAgainstProduct({
+      exDescription: altOfficialExDesc,
+      productText: fullTechnicalProfile,
+      isKit: compositionAnalysis.isKit,
+      detectedComponents: compositionAnalysis.detectedComponents,
+    })
+    if (!altExCheck.passed) {
+      altFinalEx = ''
+      altOfficialExDesc = null
+    }
+  }
+
+  const officialFullNcmDesc = officialRow.ncm_descricao_full || officialRow.ncm_descricao || ''
+  const altDesc =
+    altFinalEx && altOfficialExDesc
+      ? `${officialFullNcmDesc} | Ex ${altFinalEx}: ${altOfficialExDesc}`
+      : officialFullNcmDesc
+
+  const altNatureContradiction = checkNatureContradiction({
+    productText: fullTechnicalProfile,
+    candidateDesc: altDesc,
+    detectedComponents: compositionAnalysis.detectedComponents,
+  })
+  if (altNatureContradiction.contradicted) {
+    vetoedNcms.add(altNcmClean)
+    return null
+  }
+
+  const altIi = Number(officialRow.ii_efetivo ?? officialRow.ii_rate ?? 0)
+  const altIpi = Number(officialRow.ipi_rate ?? 0)
+  const altPis = Number(officialRow.pis_rate ?? 2.1)
+  const altCofins = Number(officialRow.cofins_rate ?? 9.65)
+  const altTotal = Number((altIi + altIpi + altPis + altCofins).toFixed(2))
+
+  return {
+    ncm: altNcmClean,
+    ex: altFinalEx,
+    description: altDesc,
+    ii: altIi,
+    ipi: altIpi,
+    pis: altPis,
+    cofins: altCofins,
+    total_tax: altTotal,
+    has_ex_tarifario: Boolean(altFinalEx),
+    reason: reason || 'Posição fiscal alternativa aplicável.',
+    alternatives_source: source,
+  }
+}
+
 function evaluateCanonicalIsKit(params: {
   productUnderstanding?: any
   productText: string

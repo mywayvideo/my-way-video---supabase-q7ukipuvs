@@ -76,7 +76,7 @@ Deno.serve(async (req: Request) => {
       JSON.stringify({
         status: 'ok',
         function: 'classify-ncm',
-        version: '3.2.0-build.604',
+        version: '3.3.0-build.605',
         knowledge_base_version: '3.1',
         features: [
           'phase0_canonical_composition_derivation',
@@ -84,6 +84,10 @@ Deno.serve(async (req: Request) => {
           'ex_checklist_report_suppression_when_no_ex',
           'auditor_role_ai_providers',
           'two_pass_composite_models',
+          'family_expansion_6digits',
+          'intrafamily_qualifier_tiebreak',
+          'candidate_catalog_integrity_check',
+          'full_candidate_audit_logging',
         ],
         timestamp: new Date().toISOString(),
       }),
@@ -344,13 +348,16 @@ Deno.serve(async (req: Request) => {
       auditorProvidersList.length > 0 ? auditorProvidersList : allProviders
 
     // 9. PROMPT UNIVERSAL COM ANÁLISE DE COMPOSIÇÃO (RGI 3b / 3c) E RESTRIÇÃO DE EX
+    // Incluir TODOS os candidatos recuperados (incluindo os vindos da expansão de família hierárquica)
     const candidatesCatalogText = candidates
-      .slice(0, topN)
       .map((c: any, index: number) => {
         const exText = c.ex ? ` [Ex-Tarifário: ${c.ex}]` : ' [Sem Ex]'
         const exDesc = c.ex_descricao ? ` | Ex-Desc: ${c.ex_descricao}` : ''
         const fullDesc = c.ncm_descricao_full || c.ncm_descricao || c.source_text || ''
-        return `${index + 1}. NCM: ${c.ncm}${exText}
+        const expansionTag = c.is_family_expansion
+          ? ` [Origem: Expansão de Família Hierárquica ${c.expansion_parent_6 || ''}]`
+          : ''
+        return `${index + 1}. NCM: ${c.ncm}${exText}${expansionTag}
    Descrição Hierárquica Completa: ${fullDesc}${exDesc}
    Alíquotas Banco: II=${c.ii_rate}%, IPI=${c.ipi_rate}%, PIS=${c.pis_rate}%, COFINS=${c.cofins_rate}%
    Scores: vector=${c.vector_score ?? 0}, combined=${c.combined_score ?? 0}`
@@ -388,16 +395,23 @@ METODOLOGIA OBRIGATÓRIA UNIVERSAL:
    - VETO DE CONTRADIÇÃO DE NATUREZA: É expressamente PROIBIDO classificar o produto em um NCM cuja descrição hierárquica oficial descreva uma natureza ontológica totalmente diferente do produto (por exemplo: classificar um controlador/console periférico como se fosse a máquina que ele controla, ou classificar um cabo/suporte como monitor).
    - PREFERÊNCIA POR FUNÇÃO GENÉRICA COMPATÍVEL SOBRE FUNÇÃO ESPECÍFICA INCOMPATÍVEL: Entre famílias empatadas na escolha, prefira SEMPRE uma posição de função genérica tecnicamente compatível (ex.: máquinas/aparelhos elétricos com função própria, partes e acessórios reconhecíveis) sobre uma posição de função específica incompatível cuja descrição contradiga o produto.
 
-3. PROIBIÇÃO ABSOLUTA DE CRITÉRIO TRIBUTÁRIO / ALÍQUOTA:
+3. REGRA OBRIGATÓRIA DE DESEMPATE INTRAFAMÍLIA (DISCRIMINAÇÃO TÉCNICA TABULADA):
+   - Quando mais de uma subposição da mesma família (mesmos 4 ou 6 primeiros dígitos) estiver entre as candidatas (por exemplo: ramos irmãos 8525.89.xx, 8471.xx, 8518.xx, 9007.xx):
+     * O DISCRIMINADOR VINCULANTE É O QUALIFICADOR TÉCNICO TABULADO da subposição (número de captadores/sensores de imagem, resolução, tipo de transmissão, dimensões, potência, etc.), situado no SUFIXO FINAL da ncm_descricao_full (após a barra hierárquica "|" ou última vírgula).
+     * O qualificador de cada subposição irmã DEVE ser confrontado ponto a ponto com as especificações técnicas reais do produto extraídas na Fase 0.
+     * Prevalece OBRIGATORIAMENTE a subposição mais específica cujo qualificador técnico seja plenamente satisfeito pelas especificações do produto (ex.: havendo 3 sensores/captadores, prevalece a subposição específica "Com três ou mais captadores de imagem" sobre subposições genéricas ou residuais "Outras" / sensores únicos).
+     * É TERMINANTEMENTE PROIBIDO decidir por menor carga tributária ou por ordem de aparição na lista de candidatos.
+
+4. PROIBIÇÃO ABSOLUTA DE CRITÉRIO TRIBUTÁRIO / ALÍQUOTA:
    - É ESTRITAMENTE PROIBIDO utilizar alíquota ou vantagem tributária (II 0%, Ex vantajoso, redução de carga tributária) como critério de escolha ou desempate.
    - O enquadramento aduaneiro funda-se exclusivamente na função essencial, nas notas da TEC e no texto oficial da NCM/NESH.
    - A alíquota é mera consequência legal do enquadramento técnico, NUNCA motivo ou justificativa.
 
-4. CONDICIONALIDADES RESTRITIVAS DE EX-TARIFÁRIOS:
+5. CONDICIONALIDADES RESTRITIVAS DE EX-TARIFÁRIOS:
    - Os Ex-Tarifários são normas de exceção tributária de interpretação estrita (Art. 111 do CTN).
    - Cada valor técnico do produto confrontado com o Ex deve ser copiado LITERALMENTE das especificações. Valor não comprovado ou contraditório impede a concessão do Ex.
 
-5. UNIVERSO DE CANDIDATOS E FORMATO DE SAÍDA:
+6. UNIVERSO DE CANDIDATOS E FORMATO DE SAÍDA:
 - Escolha o recommended_ncm e recommended_ex EXCLUSIVAMENTE a partir da lista de candidatos fornecida.
 - Na justificativa ("justification"), é OBRIGATÓRIO citar a descrição hierárquica completa oficial (Capítulo | Posição | Subitem do NCM escolhido) para fundamentar com precisão aduaneira o enquadramento.
 - HIERARQUIZAÇÃO ENTRE APARELHO COM FUNÇÃO PRÓPRIA E PARTES/ACESSÓRIOS:
@@ -640,19 +654,25 @@ PROTOCOLO OBRIGATÓRIO DE AUDITORIA (PRINCÍPIOS GENÉRICOS UNIVERSAIS):
    - Construa ou homologue o perfil técnico na saída com a sentença canônica canônica obrigatória:
      "o produto é um [tipo] que [função essencial], destinado a [máquina]".
 1. ENUNCIAÇÃO DA FUNÇÃO ESSENCIAL: declare a função essencial que confere caráter essencial ao produto ou conjunto global (RGI 1 e RGI 3b).
-2. O VETO AO EX-TARIFÁRIO NÃO ENCERRA A ANÁLISE:
+2. DESEMPATE INTRAFAMÍLIA OBRIGATÓRIO (DISCRIMINAÇÃO TÉCNICA TABULADA):
+   - Quando mais de uma subposição da mesma família hierárquica (mesmos 4 ou 6 primeiros dígitos) estiver presente entre as candidatas:
+     * O DISCRIMINADOR VINCULANTE É O QUALIFICADOR TÉCNICO TABULADO da subposição (nº de captadores/sensores de imagem, resolução, tecnologia do sensor, tipo de modulação, dimensões, potência, etc.), situado no sufixo final da ncm_descricao_full.
+     * Esse qualificador DEVE ser confrontado rigorosamente com as especificações do produto extraídas na Fase 0 (ex.: se o produto tem 3 sensores de imagem CMOS/CCD, a subposição específica "Com três ou mais captadores de imagem" DEVE prevalecer sobre qualquer outra subposição residual ou de sensor único da mesma família).
+     * Prevalece OBRIGATORIAMENTE a subposição mais específica cujo qualificador seja satisfeito pelas especificações do produto.
+     * É TERMINANTEMENTE PROIBIDO decidir por menor carga tributária ou por ordem de aparição na lista. Se a 1ª passada escolheu uma subposição menos específica ou com qualificador incorreto, você DEVE VETAR e CORRIGIR ("corrected_ncm").
+3. O VETO AO EX-TARIFÁRIO NÃO ENCERRA A ANÁLISE:
    - Vetar um Ex-Tarifário NÃO significa manter automaticamente o NCM base residual.
    - O auditor DEVE re-confrontar a descrição oficial da posição/subposição do NCM base com a função essencial do produto.
    - Se a descrição da posição base não corresponder com exatidão à função essencial, a recomendação DEVE MIGRAR (action: "VETA") para a família correta entre os candidatos disponíveis.
-3. CONJUNTOS / SISTEMAS: NUNCA homologue Ex-Tarifário singular individual para conjuntos ou sistemas de múltiplos elementos funcionais.
-4. CONDIÇÕES TÉCNICAS E COERÊNCIA (A CORREÇÃO NÃO É SEGUNDA CHANCE SEM AUDITORIA):
+4. CONJUNTOS / SISTEMAS: NUNCA homologue Ex-Tarifário singular individual para conjuntos ou sistemas de múltiplos elementos funcionais.
+5. CONDIÇÕES TÉCNICAS E COERÊNCIA (A CORREÇÃO NÃO É SEGUNDA CHANCE SEM AUDITORIA):
    - A NCM/Ex corrigido na 2ª passada deve passar pelo MESMO checklist de condições restritivas e confronto com a sentença canônica da Fase 0.
    - É terminantemente VETADO qualquer candidato cuja descrição hierárquica (ncm_descricao_full) contradiga a natureza ontológica do produto (ex.: candidato descreve "câmera" para um produto que é controlador remoto; candidato descreve "monitor" para um produto que é cabo ou transmissor).
-5. PROIBIÇÃO ESTRITA DE VANTAGEM TRIBUTÁRIA / ALÍQUOTA:
+6. PROIBIÇÃO ESTRITA DE VANTAGEM TRIBUTÁRIA / ALÍQUOTA:
    - É ESTRITAMENTE PROIBIDO usar alíquota ou vantagem fiscal (II 0%, Ex vantajoso) como critério de escolha ou desempate.
-6. PREFERÊNCIA POR FUNÇÃO GENÉRICA COMPATÍVEL SOBRE FUNÇÃO ESPECÍFICA INCOMPATÍVEL:
+7. PREFERÊNCIA POR FUNÇÃO GENÉRICA COMPATÍVEL SOBRE FUNÇÃO ESPECÍFICA INCOMPATÍVEL:
    - Entre famílias empatadas na correção, prefira SEMPRE uma posição de função genérica tecnicamente compatível (ex.: aparelhos com função própria, partes e acessórios reconhecíveis) sobre uma posição de função específica incompatível.
-7. VETO A TODAS AS ALTERNATIVAS:
+8. VETO A TODAS AS ALTERNATIVAS:
    - O veto por contradição de natureza e coerência técnica vale para TODA a lista de alternativas. Nenhuma alternativa com autocontradição ou incompatibilidade ontológica pode ser mantida.
 
 RESPOSTA OBRIGATÓRIA EM JSON:
@@ -688,11 +708,12 @@ RECOMENDAÇÃO DA 1ª PASSADA:
 ${checklistFormattedReport ? `\nCHECKLIST DE CONDIÇÕES DO EX:\n${checklistFormattedReport}\n` : ''}
 
 ATENÇÃO AUDITOR:
-1. Se o Ex foi vetado ou se a posição base recomendada (${initialRecommendation.recommended_ncm}) não descreve a função essencial da mercadoria com exatidão e existem posições específicas de família no catálogo abaixo, VETE (action: "VETA") e MIGRE para o NCM mais adequado entre os candidatos disponíveis.
-2. VETAR O EX NÃO SIGNIFICA MANTER O NCM RESIDUAL: Você DEVE verificar se a posição base 4/6/8 dígitos faz sentido para o produto. Se não fizer, altere o NCM em "corrected_ncm".
-3. A CORREÇÃO DEVE RESPEITAR A NATUREZA DO PRODUTO: Jamais corrija para um NCM cuja descrição contradiga o que o produto é (ex.: não escolha NCM de câmera para controlador, nem NCM de máquinas para produto eletroeletrônico).
-4. É PROIBIDO escolher por benefício fiscal (alíquota zero/reduzida). O critério é 100% técnico.
-5. Se houver dúvida entre posições específicas que contradizem o produto e posições genéricas compatíveis (máquinas com função própria / partes e acessórios), prefira a genérica compatível.
+1. DESEMPATE INTRAFAMÍLIA: Verifique se existem subposições irmãs no mesmo ramo (mesmos 6 primeiros dígitos) no catálogo abaixo. Confrontar o qualificador discriminante no final da ncm_descricao_full com as especificações do produto (ex.: nº de sensores/captadores, resolução, tipo de transmissão). Prevalece SEMPRE a subposição mais específica correspondente às especificações reais. VETE e corrija se a 1ª passada escolheu subposição irmã menos específica ou inadequada.
+2. Se o Ex foi vetado ou se a posição base recomendada (${initialRecommendation.recommended_ncm}) não descreve a função essencial da mercadoria com exatidão e existem posições específicas de família no catálogo abaixo, VETE (action: "VETA") e MIGRE para o NCM mais adequado entre os candidatos disponíveis.
+3. VETAR O EX NÃO SIGNIFICA MANTER O NCM RESIDUAL: Você DEVE verificar se a posição base 4/6/8 dígitos faz sentido para o produto. Se não fizer, altere o NCM em "corrected_ncm".
+4. A CORREÇÃO DEVE RESPEITAR A NATUREZA DO PRODUTO: Jamais corrija para um NCM cuja descrição contradiga o que o produto é (ex.: não escolha NCM de câmera para controlador, nem NCM de máquinas para produto eletroeletrônico).
+5. É TERMINANTEMENTE PROIBIDO escolher por benefício fiscal (alíquota zero/reduzida) ou por ordem de recuperação. O critério é 100% técnico.
+6. Se houver dúvida entre posições específicas que contradizem o produto e posições genéricas compatíveis (máquinas com função própria / partes e acessórios), prefira a genérica compatível.
 
 LISTA DE CANDIDATOS VÁLIDOS:
 ${candidatesCatalogText}`
@@ -1032,19 +1053,96 @@ ${candidatesCatalogText}`
       }
 
       const altExClean = (alt.ex || '').toString().trim()
-      const altTaxRate =
-        (await resolveEffectiveTaxRate(supabaseAdmin, altNcmClean, altExClean)) ||
-        (await resolveEffectiveTaxRate(supabaseAdmin, altNcmClean, '')) ||
-        candidates.find((c: any) => normalizeNcm(c.ncm) === altNcmClean)
+      // =========================================================================
+      // CORREÇÃO (3) — INTEGRIDADE DE ALTERNATIVAS (PRINCÍPIO GENÉRICO UNIVERSAL)
+      // =========================================================================
+      // A descrição exibida de cada alternativa (e de seu Ex-Tarifário) deve
+      // pertencer à MESMA linha NCM+Ex do catálogo recuperado.
+      // Quando a descrição não corresponder à linha, substituir pela descrição oficial
+      // da linha correta, NUNCA reaproveitar texto de outra entrada.
+      let altTaxRate = altExClean
+        ? await resolveEffectiveTaxRate(supabaseAdmin, altNcmClean, altExClean)
+        : null
+
+      if (!altTaxRate) {
+        altTaxRate = await resolveEffectiveTaxRate(supabaseAdmin, altNcmClean, '')
+      }
+
+      if (!altTaxRate) {
+        altTaxRate = candidates.find((c: any) => normalizeNcm(c.ncm) === altNcmClean)
+      }
 
       if (altTaxRate) {
-        // (b) VETO POR CONTRADIÇÃO DE NATUREZA NA ALTERNATIVA:
+        // Garantir que a linha oficial consultada seja estritamente daquela NCM+Ex
+        let officialRow = altTaxRate
+        const finalCandidateEx = (altTaxRate.ex || altExClean || '').toString().trim()
+
+        // Se a linha consultada divergir ou se não tiver a descrição oficial canônica da base
+        if (!officialRow.ncm_descricao_full) {
+          const { data: dbExactRow } = await supabaseAdmin
+            .from('imp_sim_tax_rates')
+            .select(
+              'ncm, ex, ncm_descricao_full, ncm_descricao, ex_descricao, ii_rate, ipi_rate, pis_rate, cofins_rate, has_ex_tarifario',
+            )
+            .eq('ncm', altNcmClean)
+            .limit(1)
+            .maybeSingle()
+          if (dbExactRow) {
+            officialRow = { ...officialRow, ...dbExactRow }
+          }
+        }
+
+        // A descrição oficial é rigorosamente a da própria linha NCM (ncm_descricao_full)
+        // e, havendo Ex válido e coincidente com a linha oficial, o ex_descricao oficial daquela linha
+        let altFinalEx = officialRow.ex || altExClean || ''
+        let altOfficialExDesc: string | null = officialRow.ex_descricao || null
+
+        // Se o Ex citado não existir na linha oficial recuperada para este NCM, zerar o Ex
+        // para não herdar descrição de Ex de outro NCM
+        if (altFinalEx && officialRow.ex && normalizeNcm(officialRow.ncm) === altNcmClean) {
+          if (String(officialRow.ex).trim() !== String(altFinalEx).trim()) {
+            altFinalEx = ''
+            altOfficialExDesc = null
+          }
+        } else if (altFinalEx && !officialRow.ex) {
+          // Verificar se esse NCM realmente tem esse Ex na base
+          const { data: exCheckRow } = await supabaseAdmin
+            .from('imp_sim_tax_rates')
+            .select('ex, ex_descricao')
+            .eq('ncm', altNcmClean)
+            .eq('ex', altFinalEx)
+            .maybeSingle()
+          if (!exCheckRow) {
+            altFinalEx = ''
+            altOfficialExDesc = null
+          } else {
+            altOfficialExDesc = exCheckRow.ex_descricao
+          }
+        }
+
+        // Validação de checklist de Ex se houver Ex
+        if (altFinalEx && altOfficialExDesc) {
+          const altExCheck = evaluateExChecklistAgainstProduct({
+            exDescription: altOfficialExDesc,
+            productText: fullTechnicalProfile,
+            isKit: compositionAnalysis.isKit,
+            detectedComponents: compositionAnalysis.detectedComponents,
+          })
+          if (!altExCheck.passed) {
+            altFinalEx = ''
+            altOfficialExDesc = null
+          }
+        }
+
+        // Montar a descrição estritamente atrelada à MESMA linha NCM+Ex do catálogo
+        const officialFullNcmDesc =
+          officialRow.ncm_descricao_full || officialRow.ncm_descricao || ''
         const altDesc =
-          altTaxRate.ex_descricao ||
-          altTaxRate.ncm_descricao_full ||
-          altTaxRate.ncm_descricao ||
-          altTaxRate.source_text ||
-          ''
+          altFinalEx && altOfficialExDesc
+            ? `${officialFullNcmDesc} | Ex ${altFinalEx}: ${altOfficialExDesc}`
+            : officialFullNcmDesc
+
+        // (b) VETO POR CONTRADIÇÃO DE NATUREZA NA ALTERNATIVA:
         const altNatureContradiction = checkNatureContradiction({
           productText: fullTechnicalProfile,
           candidateDesc: altDesc,
@@ -1058,25 +1156,10 @@ ${candidatesCatalogText}`
           continue
         }
 
-        // (c) CHECKLIST DE EX NA ALTERNATIVA:
-        // Se a alternativa tiver Ex, validar checklist. Se vetado, retirar Ex ou descartar se incompatível
-        let altFinalEx = altTaxRate.ex || altExClean
-        if (altFinalEx && altTaxRate.ex_descricao) {
-          const altExCheck = evaluateExChecklistAgainstProduct({
-            exDescription: altTaxRate.ex_descricao,
-            productText: fullTechnicalProfile,
-            isKit: compositionAnalysis.isKit,
-            detectedComponents: compositionAnalysis.detectedComponents,
-          })
-          if (!altExCheck.passed) {
-            altFinalEx = ''
-          }
-        }
-
-        const altIi = Number(altTaxRate.ii_efetivo ?? altTaxRate.ii_rate ?? 0)
-        const altIpi = Number(altTaxRate.ipi_rate ?? 0)
-        const altPis = Number(altTaxRate.pis_rate ?? 2.1)
-        const altCofins = Number(altTaxRate.cofins_rate ?? 9.65)
+        const altIi = Number(officialRow.ii_efetivo ?? officialRow.ii_rate ?? 0)
+        const altIpi = Number(officialRow.ipi_rate ?? 0)
+        const altPis = Number(officialRow.pis_rate ?? 2.1)
+        const altCofins = Number(officialRow.cofins_rate ?? 9.65)
         const altTotal = Number((altIi + altIpi + altPis + altCofins).toFixed(2))
 
         resolvedAlternatives.push({
@@ -1128,12 +1211,12 @@ ${candidatesCatalogText}`
     if (resolvedAlternatives.length === 0) {
       for (const cand of candidates) {
         const cNcm = normalizeNcm(cand.ncm)
+        // Integridade estrita: a descrição pertence à própria linha do candidato
+        const cFullDesc = cand.ncm_descricao_full || cand.ncm_descricao || ''
         const cDesc =
-          cand.ex_descricao ||
-          cand.ncm_descricao_full ||
-          cand.ncm_descricao ||
-          cand.source_text ||
-          ''
+          cand.ex && cand.ex_descricao
+            ? `${cFullDesc} | Ex ${cand.ex}: ${cand.ex_descricao}`
+            : cFullDesc || cand.source_text || ''
 
         // Verificar contradição de natureza
         const natureCheck = checkNatureContradiction({
@@ -1316,6 +1399,30 @@ ${candidatesCatalogText}`
       ? `${analystModelUsed} + ${auditorModelUsed}`
       : analystModelUsed
 
+    // =========================================================================
+    // CORREÇÃO (4) — LOG COMPLETO DE CANDIDATOS AVALIADOS (AUDITORIA FUTURA)
+    // =========================================================================
+    // Gravar no log imp_sim_ncm_classification_log (payload agent_suggestion)
+    // a lista completa de candidatos avaliados (NCM, Ex, score/direção de recuperação,
+    // marcação se veio de expansão de família hierárquica, alíquotas).
+    const evaluatedCandidatesLog = candidates.map((c: any) => ({
+      ncm: normalizeNcm(c.ncm),
+      ex: (c.ex || '').toString().trim(),
+      description: c.ncm_descricao_full || c.ncm_descricao || '',
+      ex_description: c.ex_descricao || null,
+      vector_score: c.vector_score ?? null,
+      text_score: c.text_score ?? null,
+      combined_score: c.combined_score ?? null,
+      ii_rate: c.ii_rate ?? null,
+      ipi_rate: c.ipi_rate ?? null,
+      pis_rate: c.pis_rate ?? null,
+      cofins_rate: c.cofins_rate ?? null,
+      is_family_expansion: Boolean(c.is_family_expansion),
+      expansion_parent_6: c.expansion_parent_6 || null,
+      is_component_sector: Boolean(c.is_component_sector),
+      is_target_machine_parts: Boolean(c.is_target_machine_parts),
+    }))
+
     // 15. Gravação no log de auditoria (imp_sim_ncm_classification_log)
     let auditId: string | null = null
     if (saveLog) {
@@ -1342,6 +1449,8 @@ ${candidatesCatalogText}`
               composition_analysis: compositionAnalysis,
               checklist_log: checklistLog,
               ex_veto_applied: exVetoApplied,
+              evaluated_candidates: evaluatedCandidatesLog,
+              evaluated_candidates_count: evaluatedCandidatesLog.length,
             },
             final_choice_ncm: recommendedNcmClean,
             final_choice_ex: finalRecommendationEx,
@@ -1379,12 +1488,13 @@ ${candidatesCatalogText}`
       analyst_model: analystModelUsed,
       auditor_model: auditorModelUsed,
       candidates_count: candidates.length,
+      evaluated_candidates: evaluatedCandidatesLog,
       execution_time_ms: executionTimeMs,
       audit_verdict: auditVerdict,
       lean_signature: leanSignature,
       composition_analysis: compositionAnalysis,
       checklist_log: checklistLog,
-      version: '3.2.0-build.604',
+      version: '3.3.0-build.605',
       timestamp: new Date().toISOString(),
     }
 
@@ -2491,7 +2601,70 @@ async function retrieveSectorOrientedCandidates(params: {
     if (diversifiedCandidates.length >= topN + 5) break
   }
 
-  return diversifiedCandidates.slice(0, topN)
+  const selectedCandidates = diversifiedCandidates.slice(0, topN)
+
+  // =========================================================================
+  // CORREÇÃO (1) — EXPANSÃO DE FAMÍLIA HIERÁRQUICA (PRINCÍPIO GENÉRICO UNIVERSAL)
+  // =========================================================================
+  // Sempre que um NCM de 8 dígitos entrar como candidato na recuperação,
+  // incluir OBRIGATORIAMENTE todas as subposições irmãs do mesmo ramo hierárquico
+  // (mesmos 6 primeiros dígitos) presentes na base imp_sim_tax_rates, mesmo que
+  // fiquem acima do limite de candidatos por similaridade (topN).
+  try {
+    const candidatePrefixes6 = new Set<string>()
+    for (const c of selectedCandidates) {
+      const ncm8 = normalizeNcm(c.ncm)
+      if (ncm8 && ncm8.length === 8) {
+        candidatePrefixes6.add(ncm8.slice(0, 6))
+      }
+    }
+
+    if (candidatePrefixes6.size > 0) {
+      for (const prefix6 of candidatePrefixes6) {
+        const { data: siblingRows, error: sibError } = await supabaseAdmin
+          .from('imp_sim_tax_rates')
+          .select(
+            'id, ncm, ex, ncm_descricao, ncm_descricao_full, ex_descricao, ii_rate, ipi_rate, pis_rate, cofins_rate, has_ex_tarifario',
+          )
+          .like('ncm', `${prefix6}%`)
+
+        if (!sibError && siblingRows && siblingRows.length > 0) {
+          for (const s of siblingRows) {
+            const sNcm = normalizeNcm(s.ncm)
+            const sEx = (s.ex || '').toString().trim()
+            const exists = selectedCandidates.some(
+              (c: any) => normalizeNcm(c.ncm) === sNcm && (c.ex || '').toString().trim() === sEx,
+            )
+            if (!exists) {
+              selectedCandidates.push({
+                tax_rate_id: s.id,
+                ncm: s.ncm,
+                ex: s.ex || '',
+                ncm_descricao: s.ncm_descricao || '',
+                ncm_descricao_full: s.ncm_descricao_full || s.ncm_descricao || '',
+                ex_descricao: s.ex_descricao || null,
+                source_text: `NCM ${s.ncm} | ${s.ncm_descricao_full || s.ncm_descricao || ''}${s.ex_descricao ? ` | Ex ${s.ex} ${s.ex_descricao}` : ''}`,
+                ii_rate: Number(s.ii_efetivo ?? s.ii_rate ?? 0),
+                ipi_rate: Number(s.ipi_rate ?? 0),
+                pis_rate: Number(s.pis_rate ?? 2.1),
+                cofins_rate: Number(s.cofins_rate ?? 9.65),
+                has_ex_tarifario: Boolean(s.has_ex_tarifario),
+                vector_score: 0.5,
+                text_score: 0.5,
+                combined_score: 0.5,
+                is_family_expansion: true,
+                expansion_parent_6: prefix6,
+              })
+            }
+          }
+        }
+      }
+    }
+  } catch (expErr) {
+    console.warn('Falha na expansão de família hierárquica (não fatal):', expErr)
+  }
+
+  return selectedCandidates
 }
 
 /**

@@ -7,7 +7,7 @@ const supabaseAnonKey = process.env.VITE_SUPABASE_PUBLISHABLE_KEY || ''
 describe('classify-ncm Edge Function live deploy check & validation', () => {
   const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
-  it('checks edge function health endpoint returning version 3.2.0-build.604', async () => {
+  it('checks edge function health endpoint returning version 3.3.0-build.605', async () => {
     const res = await fetch(`${supabaseUrl}/functions/v1/classify-ncm?health=true`, {
       method: 'GET',
     })
@@ -16,10 +16,14 @@ describe('classify-ncm Edge Function live deploy check & validation', () => {
     const data = await res.json()
     expect(data.status).toBe('ok')
     expect(data.function).toBe('classify-ncm')
-    expect(data.version).toBe('3.2.0-build.604')
+    expect(data.version).toBe('3.3.0-build.605')
     expect(data.features).toContain('phase0_canonical_composition_derivation')
     expect(data.features).toContain('orphan_ncm_sweep_invariant')
     expect(data.features).toContain('ex_checklist_report_suppression_when_no_ex')
+    expect(data.features).toContain('family_expansion_6digits')
+    expect(data.features).toContain('intrafamily_qualifier_tiebreak')
+    expect(data.features).toContain('candidate_catalog_integrity_check')
+    expect(data.features).toContain('full_candidate_audit_logging')
   })
 
   it('verifies in imp_sim_ncm_classification_log that RM-IP500 and UWP-D21 records have new fields', async () => {
@@ -115,7 +119,58 @@ describe('classify-ncm Edge Function live deploy check & validation', () => {
     expect(result.product_understanding.canonical_statement).toBeDefined()
   }, 60000)
 
-  it('validates BURANO 8K live classification (expected: family 8525, camera/camcorder)', async () => {
+  it('validates HDC-3200R live classification (expected: 85258921 recommended, 85258913 absent or alternative, no 90181990)', async () => {
+    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+      email: 'qa.operator@mywayvideo.com',
+      password: 'Skip@Pass123!',
+    })
+
+    expect(authError).toBeNull()
+    const jwt = authData!.session!.access_token
+
+    const res = await fetch(`${supabaseUrl}/functions/v1/classify-ncm`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${jwt}`,
+      },
+      body: JSON.stringify({
+        product_description: 'Sony HDC-3200R 2/3-inch 3-CMOS 4K Broadcast Camera System. 4K HDR live production camera with 3x 2/3" 4K CMOS image sensors, global shutter, B4 lens mount.',
+        brand: 'Sony',
+        model: 'HDC-3200R',
+        top_n: 15,
+        save_log: true,
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    const result = await res.json()
+    console.log('[HDC-3200R Result]:', JSON.stringify({
+      ncm: result.recommendation?.ncm,
+      ex: result.recommendation?.ex,
+      description: result.recommendation?.description,
+      model_used: result.model_used,
+      evaluated_candidates_count: result.candidates_count,
+      alternatives: result.alternatives?.map((a: any) => ({ ncm: a.ncm, ex: a.ex, description: a.description })),
+      audit_id: result.audit_id,
+    }, null, 2))
+
+    expect(result.success).toBe(true)
+    // Recomendação rigorosa: 85258921 ("Com três ou mais captadores de imagem")
+    expect(result.recommendation.ncm).toBe('85258921')
+    // 85258913 não pode ser a recomendada
+    expect(result.recommendation.ncm).not.toBe('85258913')
+    // 90181990 NÃO pode aparecer nas alternativas
+    const has9018InAlts = result.alternatives.some((a: any) => a.ncm === '90181990')
+    expect(has9018InAlts).toBe(false)
+    // Se 85258913 estiver nas alternativas, a descrição deve ser coerente com a linha oficial
+    const alt85258913 = result.alternatives.find((a: any) => a.ncm === '85258913')
+    if (alt85258913) {
+      expect(alt85258913.description).not.toContain('9018')
+    }
+  }, 60000)
+
+  it('validates BURANO 8K live classification (expected: family 8525, camera/camcorder, most specific intrafamily subposition)', async () => {
     const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
       email: 'qa.operator@mywayvideo.com',
       password: 'Skip@Pass123!',

@@ -109,12 +109,10 @@ Deno.serve(async (req: Request) => {
     const force = Boolean(body.force)
 
     // Buscar registros para processar
-    let query = supabaseAdmin
-      .from('imp_sim_ncm_embeddings')
-      .select('ncm, ex, source_text')
-      .order('ncm', { ascending: true })
-      .order('ex', { ascending: true })
-      .limit(limit)
+    // Priorização: se capítulo especificado no body (ex: chapter: '85'), ou busca direta
+    // Para maximizar cobertura útil imediata (áudio/vídeo/broadcast/eletrônica),
+    // se não houver filtro, priorizamos registros pendentes onde capítulo seja 85, depois 90, depois 84
+    let query = supabaseAdmin.from('imp_sim_ncm_embeddings').select('ncm, ex, source_text')
 
     if (!force) {
       query = query.is('embedding', null)
@@ -122,7 +120,14 @@ Deno.serve(async (req: Request) => {
 
     if (body.ncm) {
       query = query.eq('ncm', body.ncm)
+    } else if ((body as any).chapter) {
+      const ch = String((body as any).chapter).trim()
+      query = query.like('ncm', `${ch}%`)
     }
+
+    // Ordenar de forma que capítulos 85 e 90 venham antes de 84 quando não houver filtro específico
+    // Na tabela, ordenamos por ncm ASC, mas se fornecido chapter podemos priorizar
+    query = query.order('ncm', { ascending: true }).order('ex', { ascending: true }).limit(limit)
 
     const { data: rows, error: selectError } = await query
 

@@ -55,22 +55,27 @@ export default function Index() {
         ...results,
         stock: [],
         search_results: {
-          ...(results.search_results || {}),
+          ...((results as any).search_results || {}),
           stock: [],
         },
       }
     : null
 
   useEffect(() => {
-    supabase
-      .from('products')
-      .select('*, manufacturer:manufacturers(*)')
-      .eq('is_discontinued', false)
-      .eq('is_special', true)
-      .order('created_at', { ascending: false })
-      .limit(8)
-      .then(({ data }) => setFeaturedProducts(data || []))
-      .catch((err) => console.error('Error fetching featured products:', err))
+    ;(async () => {
+      try {
+        const { data } = await supabase
+          .from('products')
+          .select('*, manufacturer:manufacturers(*)')
+          .eq('is_discontinued', false)
+          .eq('is_special', true)
+          .order('created_at', { ascending: false })
+          .limit(8)
+        setFeaturedProducts(data || [])
+      } catch (err) {
+        console.error('Error fetching featured products:', err)
+      }
+    })()
   }, [])
 
   useEffect(() => {

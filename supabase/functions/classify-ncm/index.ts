@@ -139,42 +139,38 @@ Deno.serve(async (req: Request) => {
   const impSimProductId = body.imp_sim_product_id || null
 
   try {
-    // 4. Montar query unificada para recuperação de candidatos NCM
-    const queryParts = [productDescription]
-    if (brand && !productDescription.toLowerCase().includes(brand.toLowerCase())) {
-      queryParts.unshift(brand)
-    }
-    if (model && !productDescription.toLowerCase().includes(model.toLowerCase())) {
-      queryParts.push(model)
-    }
-    if (additionalSpecs) {
-      queryParts.push(additionalSpecs)
-    }
-    const fullQuery = queryParts.join(' ').trim()
+    // 4. Construir Assinatura Enxuta do Produto para a busca de candidatos NCM
+    // REQUISITO (2): Não concatenar o blob de specs (conectores XLR/BNC/pinos) na busca/embedding de candidatos,
+    // pois isso domina a similaridade de cosseno e enterra a função essencial do equipamento.
+    // Usar: Marca + Modelo + Frase central da função/descrição do produto.
+    const leanSignature = buildLeanProductSignature({
+      brand,
+      model,
+      description: productDescription,
+    })
 
-    // 5. Gerar embedding vetorial da consulta se OpenAI API key estiver disponível
+    // 5. Gerar embedding vetorial da consulta a partir da ASSINATURA ENXUTA
     let queryEmbedding: number[] | null = null
     const openAiKey = Deno.env.get('OPENAI_API_KEY') || ''
     if (openAiKey) {
       try {
-        queryEmbedding = await generateEmbedding(fullQuery, openAiKey)
+        queryEmbedding = await generateEmbedding(leanSignature, openAiKey)
       } catch (embErr) {
         console.warn(
-          'Falha ao gerar embedding para query NCM (continuando com busca textual):',
+          'Falha ao gerar embedding para assinatura enxuta NCM (continuando com busca textual):',
           embErr,
         )
       }
     }
 
-    // 6. Recuperar candidatos via RPC search_ncm_candidates (PostgreSQL pgvector + trigramas)
-    // A base abrange capítulos 84, 85, 90 e 94 sem restrição
+    // 6. Recuperar candidatos via RPC search_ncm_candidates usando a assinatura enxuta
     const rpcParams: {
       query: string
       query_embedding?: string | null
       top_n: number
       match_threshold: number
     } = {
-      query: fullQuery,
+      query: leanSignature,
       top_n: topN,
       match_threshold: 0.04,
     }
@@ -283,28 +279,29 @@ Deno.serve(async (req: Request) => {
     const systemPrompt = `Você é o Auditor Fiscal Chefe e Perito em Classificação Aduaneira da My Way Video / My Way Business, especialista na Nomenclatura Comum do Mercosul (NCM), Tarifa Externa Comum (TEC), Notas Explicativas do Sistema Harmonizado (NESH) e Ex-Tarifários (GECEX).
 
 SUA MISSÃO:
-Analisar as especificações técnicas de um equipamento (audiovisual, broadcast, TI, ótica ou industrial) e determinar com precisão a classificação NCM e Ex-Tarifário mais adequada e juridicamente defensável.
+Analisar as especificações técnicas de um equipamento (audiovisual, broadcast, TI, ótica ou industrial) e determinar com rigor a classificação NCM e Ex-Tarifário mais adequada e juridicamente defensável.
 
-REGRAS OBRIGATÓRIAS DE DECISÃO:
-1. UNIVERSO FECHADO: Você DEVE ESCOLHER O NCM E EX RECOMENDADO E AS ALTERNATIVAS ESTRITAMENTE DENTRE A LISTA DE CANDIDATOS FORNECIDA ABAIXO. Nunca invente um NCM que não esteja na lista de candidatos.
-2. REGRAS GERAIS DE INTERPRETAÇÃO (RGI):
-   - RGI 1: Os títulos das Seções, Capítulos e Subcapítulos têm apenas valor indicativo. A classificação é determinada legalmente pelos textos das posições e das Notas de Seção e de Capítulo.
-   - RGI 3(b): Para produtos mistos, compostos de matérias diferentes ou constituídos pela reunião de artigos diferentes (ex.: switcher com encoder integrado, câmera com processamento de rede), classifique pela matéria ou artigo que lhe confira a CARACTERÍSTICA ESSENCIAL.
-   - RGI 6: A classificação nas subposições de uma mesma posição é determinada pelos textos dessas subposições.
-3. DESEMPATE ENTRE CAPÍTULOS TÉCNICOS (84 vs 85 vs 90):
-   - ATENÇÃO CRÍTICA: O Capítulo 84 é candidato pleno e representa grande parte da base industrial/TI (ex.: máquinas automáticas de processamento de dados 8471, impressoras, unidades de armazenamento, servidores, conversores industriais). NÃO o descarte em favor de 85 a menos que a função essencial seja telecomunicação/áudio/vídeo puro.
-   - Capítulo 84: Máquinas, aparelhos e instrumentos mecânicos; máquinas automáticas para processamento de dados e suas unidades.
-   - Capítulo 85: Máquinas, aparelhos e materiais elétricos, e suas partes; aparelhos de gravação ou de reprodução de som e de imagens em televisão (câmeras de estúdio, switchers, transmissores, conversores de sinal puro, amplificadores).
-   - Capítulo 90: Instrumentos e aparelhos de óptica (lentes objetivas, filtros ópticos, microscópios), cinematografia e instrumentos de precisão.
-4. EX-TARIFÁRIO E MENOR CARGA TRIBUTÁRIA DEFENSÁVEL:
-   - Se o equipamento atender estritamente aos requisitos técnicos descritos no texto do Ex-Tarifário cadastrado, PRIORIZE o Ex-Tarifário, pois confere redução legítima de alíquota do Imposto de Importação (II) prevista em Resolução GECEX.
-   - Se o produto não preencher 100% dos requisitos do Ex-Tarifário, escolha o código sem Ex ou o Ex genérico aplicável, justificando a razão.
-5. RESPOSTA EXCLUSIVAMENTE EM JSON:
+METODOLOGIA OBRIGATÓRIA FUNÇÃO-PRIMEIRO (FUNCTION-FIRST):
+1. ENUNCIAÇÃO PRÉVIA DA FUNÇÃO ESSENCIAL:
+   Antes de qualquer seleção de NCM, você DEVE enunciar em 1 (uma) frase clara e inequívoca qual é a FUNÇÃO ESSENCIAL DO PRODUTO (o que o produto É, e não a máquina externa que ele opera).
+2. PROIBIÇÃO ABSOLUTA DE CASAMENTO POR VOCABULÁRIO (VOCABULARY-MATCHING BAN):
+   É TERMINANTEMENTE PROIBIDO escolher um candidato NCM ou Ex-Tarifário apenas por termos, palavras-chave ou vozes verbais coincidentes (exemplo: "controle remoto", "posicionamento", "acionamento", "suporte", "base") quando a FUNÇÃO ESSENCIAL do candidato divergir da função do produto.
+   Exemplo crítico: se o produto é um "controlador remoto para câmeras", o produto É O CONTROLADOR/CONSOLA, e NÃO a grua mecânica, guindaste ou braço articulado (posição 8428). É PROIBIDO classificar o controlador como a grua controlada!
+3. REGRA DE PARTES E ACESSÓRIOS (RGI 3a, NOTAS DE SEÇÃO XVI E REGRAS GERAIS 3a/5):
+   - Partes e acessórios destinados única ou principalmente a aparelhos de uma posição seguem a classificação do equipamento principal ou da sua subposição específica de partes (ex.: controles, joysticks e consoles de comando de câmeras seguem 8529.90.90 como partes/acessórios de câmeras da 8525, ou 8543.70.99 como aparelhos elétricos com função própria não especificada em outras posições).
+   - Não confunda o dispositivo de controle com aparelhos industriais de movimentação de carga ou elevação do Capítulo 84.
+4. PROIBIÇÃO DE EX-TARIFÁRIO DE OUTRO EQUIPAMENTO:
+   É PROIBIDO escolher um Ex-Tarifário cuja descrição descreva outro equipamento ou máquina completa (ex.: gruas telescópicas com controle remoto), mesmo que haja vocabulário em comum ("controle remoto para acionamento").
+5. CANDIDATOS VÁLIDOS E ALTERNATIVAS FUNCIONALMENTE PLAUSÍVEIS:
+   - UNIVERSO FECHADO: Você DEVE ESCOLHER O NCM E EX RECOMENDADO E AS ALTERNATIVAS ESTRITAMENTE DENTRE A LISTA DE CANDIDATOS FORNECIDA ABAIXO.
+   - As alternativas secundárias devem ser FUNCIONALMENTE PLAUSÍVEIS (ex.: posições fiscais concorrentes para a mesma natureza do produto), e NÃO apenas parecidas no texto.
+6. RESPOSTA EXCLUSIVAMENTE EM JSON:
    Responda com um único bloco JSON válido, sem texto introdutório, no formato exato:
 {
+  "essential_function": "Uma frase enunciando a função essencial do produto",
   "recommended_ncm": "string de 8 dígitos",
   "recommended_ex": "string com o número do Ex (ex: '001') ou '' se sem Ex",
-  "justification": "Justificativa detalhada fundamentada nas RGI (RGI 1, RGI 3b ou RGI 6) e características do produto",
+  "justification": "Justificativa detalhada fundamentada nas RGI (RGI 1, RGI 3a/b, RGI 6) e características do produto",
   "legal_basis": {
     "regime": "BK ou BIT ou GERAL",
     "notes": "referência legal ou justificativa sumária"
@@ -314,7 +311,7 @@ REGRAS OBRIGATÓRIAS DE DECISÃO:
     {
       "ncm": "8 dígitos",
       "ex": "Ex ou ''",
-      "reason": "Motivo pelo qual esta alternativa pode ser considerada como plano de contingência fiscal"
+      "reason": "Motivo funcionalmente plausível pelo qual esta alternativa pode ser considerada como plano de contingência fiscal"
     }
   ]
 }`
@@ -391,6 +388,120 @@ Escolha a melhor classificação com base nas regras NESH e retorne o JSON estru
           details: lastLlmError,
         }),
         { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      )
+    }
+
+    // 10.B. REQUISITO (3): SEGUNDA PASSADA DE AUDITORIA LLM QUE VETA OU CORRIGE A RECOMENDAÇÃO
+    // O auditor revisor recebe a descrição/assinatura, a recomendação inicial e a justificativa da 1ª passada,
+    // e responde VETA ou APROVA. Se vetar, corrige escolhendo da mesma lista de candidatos.
+    const initialRecommendation = {
+      recommended_ncm: normalizeNcm(llmResponseJson.recommended_ncm),
+      recommended_ex: (llmResponseJson.recommended_ex || '').toString().trim(),
+      essential_function: llmResponseJson.essential_function || '',
+      justification: llmResponseJson.justification || '',
+    }
+
+    let auditVerdict: {
+      action: 'APROVA' | 'VETA'
+      essential_function: string
+      corrected_ncm?: string
+      corrected_ex?: string
+      correction_reason?: string
+      audit_critique: string
+    } = {
+      action: 'APROVA',
+      essential_function: initialRecommendation.essential_function,
+      audit_critique: 'Aprovado pelo perito auditor.',
+    }
+
+    try {
+      const auditorSystemPrompt = `Você é o Auditor Revisor Sênior da Receita Federal e Aduana, atuando como segunda instância independente para homologar ou vetar a recomendação de classificação NCM.
+
+SUA REGRA DE OURO (VETO OBRIGATÓRIO):
+VETE IMEDIATAMENTE (action: "VETA") se a recomendação da 1ª passada cometeu CASAMENTO POR VOCABULÁRIO:
+- Por exemplo, se o produto é um CONTROLADOR / JOYSTICK / CONSOLE REMOTO e a primeira passada recomendou uma GRUA TELESCÓPICA / MÁQUINA DE ELEVAÇÃO (NCM 8428.90.90 ou Ex 328) só porque no texto da grua constava a frase "com controle remoto para acionamento". O produto É o controle, não a máquina controlada!
+- VETE se a classificação não seguir a regra de partes e acessórios (RG 3a/5): partes de câmeras e equipamentos de TV/vídeo devem recair nas posições próprias de aparelhos ou partes do setor elétrico/eletrônico (ex: 8529.90.90 ou 8543.70.99), e NUNCA em máquinas de elevação mecânica do 8428.
+- Se você VETAR, DEVE CORRIGIR selecionando obrigatoriamente um NCM e Ex VÁLIDOS pertencentes à lista de candidatos fornecida.
+
+RESPOSTA OBRIGATÓRIA EM JSON:
+{
+  "action": "APROVA" ou "VETA",
+  "audit_critique": "Análise crítica do enquadramento, avaliando se houve armadilha de vocabulário ou divergência funcional",
+  "essential_function": "Enunciação clara da função essencial do produto",
+  "corrected_ncm": "8 dígitos do NCM corrigido (se VETA, deve ser um da lista de candidatos)",
+  "corrected_ex": "Ex do NCM corrigido ou ''",
+  "correction_reason": "Justificativa legal e técnica da correção fundamentada na NESH e TEC"
+}`
+
+      const auditorUserPrompt = `PRODUTO ANALISADO:
+- Marca: ${brand || 'Não informada'}
+- Modelo: ${model || 'Não informado'}
+- Descrição: ${productDescription}
+- Assinatura Enxuta: ${leanSignature}
+- Especificações: ${additionalSpecs || 'N/A'}
+
+RECOMENDAÇÃO DA 1ª PASSADA:
+- Função Enunciada: ${initialRecommendation.essential_function}
+- NCM Recomendado: ${initialRecommendation.recommended_ncm}
+- Ex Recomendado: ${initialRecommendation.recommended_ex || 'Nenhum'}
+- Justificativa da 1ª passada: ${initialRecommendation.justification}
+
+LISTA DE CANDIDATOS VÁLIDOS NO BANCO OFICIAL:
+${candidatesCatalogText}
+
+Avalie criticamente. Se houver erro de casamento vocabular ou se o produto for controlador/acessório de vídeo e tiver sido classificado como máquina mecânica de elevação/outro setor, VETE e CORRIJA.`
+
+      // Executar com o primeiro provedor com chave válida
+      for (const provider of providers as LLMProviderConfig[]) {
+        const apiKey = Deno.env.get(provider.api_key_secret_name) || ''
+        if (!apiKey) continue
+
+        const auditRawContent = await invokeLLMWithTimeout(
+          provider,
+          apiKey,
+          auditorSystemPrompt,
+          auditorUserPrompt,
+          20000,
+        )
+        const parsedAudit = parseLLMJsonResponse(auditRawContent)
+        if (parsedAudit && (parsedAudit.action === 'APROVA' || parsedAudit.action === 'VETA')) {
+          auditVerdict = {
+            action: parsedAudit.action,
+            essential_function:
+              parsedAudit.essential_function || initialRecommendation.essential_function,
+            corrected_ncm: parsedAudit.corrected_ncm
+              ? normalizeNcm(parsedAudit.corrected_ncm)
+              : undefined,
+            corrected_ex: (parsedAudit.corrected_ex || '').toString().trim(),
+            correction_reason: parsedAudit.correction_reason || '',
+            audit_critique: parsedAudit.audit_critique || '',
+          }
+          break
+        }
+      }
+
+      // Se o auditor vetou e forneceu uma correção válida que existe nos candidatos
+      if (auditVerdict.action === 'VETA' && auditVerdict.corrected_ncm) {
+        const candidateMatch = candidates.find(
+          (c: any) => normalizeNcm(c.ncm) === auditVerdict.corrected_ncm,
+        )
+        if (candidateMatch) {
+          console.log(
+            `[Auditoria NCM] VETO APLICADO: de ${llmResponseJson.recommended_ncm} para ${auditVerdict.corrected_ncm}. Motivo: ${auditVerdict.correction_reason}`,
+          )
+          llmResponseJson.recommended_ncm = auditVerdict.corrected_ncm
+          llmResponseJson.recommended_ex = auditVerdict.corrected_ex || candidateMatch.ex || ''
+          llmResponseJson.justification = `[Revisão de Auditoria Aduaneira: Veto e Correção Homologados]\n${auditVerdict.correction_reason || auditVerdict.audit_critique}\n\nFundamentação Complementar: ${llmResponseJson.justification}`
+        } else {
+          console.warn(
+            `[Auditoria NCM] Auditor sugeriu NCM ${auditVerdict.corrected_ncm} fora da lista de candidatos. Mantendo recomendação validada.`,
+          )
+        }
+      }
+    } catch (auditErr) {
+      console.warn(
+        'Falha na segunda passada de auditoria (mantendo recomendação inicial):',
+        auditErr,
       )
     }
 
@@ -529,6 +640,7 @@ Escolha a melhor classificação com base nas regras NESH e retorne o JSON estru
     }
 
     // 13. Gravação no log de auditoria (imp_sim_ncm_classification_log)
+    // REQUISITO (3): Guardar ambas as versões (recomendação inicial + veredito do auditor)
     let auditId: string | null = null
     if (saveLog) {
       try {
@@ -545,6 +657,9 @@ Escolha a melhor classificação com base nas regras NESH e retorne o JSON estru
               brand,
               model,
               additional_specs: additionalSpecs,
+              lean_signature: leanSignature,
+              initial_recommendation: initialRecommendation,
+              audit_verdict: auditVerdict,
             },
             final_choice_ncm: recommendedNcmClean,
             final_choice_ex: primaryTaxRate.ex || recommendedExClean,
@@ -553,7 +668,7 @@ Escolha a melhor classificação com base nas regras NESH e retorne o JSON estru
             product_id: productId,
             imp_sim_product_id: impSimProductId,
             audit_links: webSources,
-            knowledge_base_version: '2.0',
+            knowledge_base_version: '2.5',
             execution_time_ms: executionTimeMs,
           })
           .select('id')
@@ -569,7 +684,7 @@ Escolha a melhor classificação com base nas regras NESH e retorne o JSON estru
       }
     }
 
-    // 14. Resposta JSON completa da Fase 2
+    // 14. Resposta JSON completa com dados da auditoria
     const responsePayload = {
       success: true,
       audit_id: auditId,
@@ -581,6 +696,8 @@ Escolha a melhor classificação com base nas regras NESH e retorne o JSON estru
       model_used: modelUsed,
       candidates_count: candidates.length,
       execution_time_ms: executionTimeMs,
+      audit_verdict: auditVerdict,
+      lean_signature: leanSignature,
       timestamp: new Date().toISOString(),
     }
 
@@ -603,6 +720,49 @@ Escolha a melhor classificação com base nas regras NESH e retorne o JSON estru
 // ==========================================
 // FUNÇÕES AUXILIARES
 // ==========================================
+
+/**
+ * Constrói uma assinatura enxuta do produto: Marca + Modelo + Frase central da função.
+ * Isola a identidade e função essencial sem ruído de portas, pinos, conectores e acessórios periféricos.
+ */
+function buildLeanProductSignature(params: {
+  brand?: string
+  model?: string
+  description?: string
+}): string {
+  const brand = (params.brand || '').trim()
+  const model = (params.model || '').trim()
+  let desc = (params.description || '').trim()
+
+  // Extrair a frase central da descrição (primeira frase ou até pontuação/quebra de linha)
+  // Remover conectores ou blocos de especificações comuns se houver
+  const firstSentenceMatch = desc.match(/^([^.\n\r;]{10,180})/)
+  if (firstSentenceMatch && firstSentenceMatch[1]) {
+    desc = firstSentenceMatch[1].trim()
+  } else if (desc.length > 180) {
+    desc = desc.slice(0, 180).trim()
+  }
+
+  // Filtrar ruído de conectores e dimensões secundárias
+  desc = desc
+    .replace(/\b(bnc|xlr|hdmi|pin|pins|poe|dc in|rs-422|rs232|rj45|db9|tally|gpio)\b[^\s,.]*/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  const parts: string[] = []
+  if (brand && !desc.toLowerCase().includes(brand.toLowerCase())) {
+    parts.push(brand)
+  }
+  if (model && !desc.toLowerCase().includes(model.toLowerCase())) {
+    parts.push(model)
+  }
+  if (desc) {
+    parts.push(desc)
+  }
+
+  const signature = parts.join(' ').trim()
+  return signature || params.description || ''
+}
 
 function normalizeNcm(val: any): string {
   if (!val) return ''

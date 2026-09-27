@@ -242,7 +242,7 @@ export default function AssistedCheckoutPage() {
               a.latitude,
               a.longitude,
             )
-            a._distance = dist
+            ;(a as any)._distance = dist
             return dist <= 50
           })
         } else if (selectedShippingMethod === 'usa') {
@@ -268,7 +268,7 @@ export default function AssistedCheckoutPage() {
               a.latitude,
               a.longitude,
             )
-            a._distance = dist
+            ;(a as any)._distance = dist
             return dist > 50
           })
         } else if (selectedShippingMethod === 'brasil') {
@@ -387,7 +387,7 @@ export default function AssistedCheckoutPage() {
             prod.price_cost || 0,
           )
           if (bestDiscount.discountedPrice < (prod.price_usd || 0)) {
-            prod.original_price = prod.price_usd
+            ;(prod as any).original_price = prod.price_usd
             prod.price_usd = bestDiscount.discountedPrice
           }
           return prod

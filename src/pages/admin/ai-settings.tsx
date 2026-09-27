@@ -84,7 +84,7 @@ export default function AdminAISettings() {
   const navigate = useNavigate()
 
   const form = useForm<FormValues>({
-    resolver: zodResolver(formSchema),
+    resolver: zodResolver(formSchema) as any,
     defaultValues: {
       cache_expiration_days: 30,
       price_threshold_usd: 5000,
@@ -217,7 +217,7 @@ export default function AdminAISettings() {
               }))
             : [],
           technical_bridge: Array.isArray(aiSettingsData?.technical_bridge)
-            ? aiSettingsData.technical_bridge
+            ? (aiSettingsData.technical_bridge as any)
             : [],
           custom_stop_words: Array.isArray(aiSettingsData?.custom_stop_words)
             ? aiSettingsData.custom_stop_words.join(', ')

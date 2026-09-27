@@ -360,9 +360,12 @@ export default function Login() {
                         )
                         if (resetError) throw resetError
 
-                        const { error: rpcError } = await supabase.rpc('mark_migration_started', {
-                          target_email: targetEmail.toLowerCase().trim(),
-                        } as any)
+                        const { error: rpcError } = await (supabase.rpc as any)(
+                          'mark_migration_started',
+                          {
+                            target_email: targetEmail.toLowerCase().trim(),
+                          },
+                        )
                         if (rpcError) console.error('Error marking migration started:', rpcError)
 
                         toast({

@@ -17,27 +17,24 @@ export function usePriceSettings() {
     }
 
     if (!fetchPromise) {
-      fetchPromise = supabase
-        .from('price_settings' as any)
-        .select('markup, freight_per_kg_usd, weight_margin, exchange_rate, exchange_spread')
-        .limit(1)
-        .maybeSingle()
-        .then(
-          ({ data }: any) => {
-            if (data) {
-              cachedSettings = {
-                markup: Number(data.markup) || 0,
-                freight_per_kg_usd: Number(data.freight_per_kg_usd) || 0,
-                weight_margin: Number(data.weight_margin) || 0,
-                exchange_rate: Number(data.exchange_rate) || 0,
-                exchange_spread: Number(data.exchange_spread) || 0,
-              }
-              return cachedSettings
-            }
-            return null
-          },
-          () => null,
-        )
+      fetchPromise = (async () => {
+        const { data } = await supabase
+          .from('price_settings' as any)
+          .select('markup, freight_per_kg_usd, weight_margin, exchange_rate, exchange_spread')
+          .limit(1)
+          .maybeSingle()
+        if (data) {
+          cachedSettings = {
+            markup: Number((data as any).markup) || 0,
+            freight_per_kg_usd: Number((data as any).freight_per_kg_usd) || 0,
+            weight_margin: Number((data as any).weight_margin) || 0,
+            exchange_rate: Number((data as any).exchange_rate) || 0,
+            exchange_spread: Number((data as any).exchange_spread) || 0,
+          }
+          return cachedSettings
+        }
+        return null
+      })()
     }
     fetchPromise.then((res) => {
       setSettings(res)

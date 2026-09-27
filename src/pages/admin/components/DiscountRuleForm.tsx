@@ -34,9 +34,7 @@ const schema = z
     status: z.enum(['active', 'inactive']),
     start_date: z.string().optional().nullable(),
     end_date: z.string().optional().nullable(),
-    application_type: z.enum(['all', 'rule', 'specific_customers'], {
-      required_error: 'Tipo de beneficiário é obrigatório',
-    }),
+    application_type: z.enum(['all', 'rule', 'specific_customers']),
     customer_role: z.string().optional().nullable(),
   })
   .refine(
@@ -113,7 +111,7 @@ export default function DiscountRuleForm({ rule, onClose, onSave }: Props) {
     watch,
     formState: { errors },
   } = useForm<FormData>({
-    resolver: zodResolver(schema),
+    resolver: zodResolver(schema) as any,
     defaultValues: {
       name: rule?.name || '',
       discount_type: (rule?.discount_type as any) || 'margin_percentage',

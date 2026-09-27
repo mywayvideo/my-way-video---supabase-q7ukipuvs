@@ -141,7 +141,7 @@ export default function Product() {
 
   // Use state or derived state for isFavorite so it reacts to changes
   const isProductFavorite = product ? favorites.includes(product.id) : false
-  const { isAnimating, triggerAnimation } = useHeartAnimation()
+  const { isAnimating, trigger: triggerAnimation } = useHeartAnimation() as any
   const { user: authUser, isLoading: isAuthLoading } = useAuthState()
   const [localAIResult, setLocalAIResult] = useState<AIConsultantResult | null>(null)
 
@@ -199,9 +199,9 @@ export default function Product() {
     ? exchangeRateData.usd_to_brl * (1 + exchangeRateData.spread_percentage / 100)
     : 0
 
-  const hasNationalizedPrice = (product?.price_nationalized_sales || 0) > 0
+  const hasNationalizedPrice = ((product as any)?.price_nationalized_sales || 0) > 0
   const hasUsaPrice = product
-    ? (product.price_usd || 0) > 0 || (product.price_usa_rebate || 0) > 0
+    ? (product.price_usd || 0) > 0 || ((product as any).price_usa_rebate || 0) > 0
     : false
   const hasPrice = hasNationalizedPrice || hasUsaPrice
 
@@ -227,13 +227,14 @@ export default function Product() {
   const priceBrlResult = useMemo(() => {
     if (!product) return null
 
-    const hasNat = (product.price_nationalized_sales || 0) > 0
+    const hasNat = ((product as any).price_nationalized_sales || 0) > 0
 
     if (hasNat) {
+      const prodAny = product as any
       let natOriginal =
-        product.price_nationalized_currency === 'USD'
-          ? product.price_nationalized_sales! * exchangeRate
-          : product.price_nationalized_sales!
+        prodAny.price_nationalized_currency === 'USD'
+          ? prodAny.price_nationalized_sales! * exchangeRate
+          : prodAny.price_nationalized_sales!
 
       let natFinal = natOriginal
       if (discountPercentage > 0) {
@@ -573,9 +574,11 @@ export default function Product() {
                   </div>
                 </div>
                 {[
-                  ...(product.manufacturer?.name && product.manufacturer.name.trim() !== ''
-                    ? [{ l: 'Marca', v: product.manufacturer.name }]
-                    : typeof product.manufacturer === 'string' && product.manufacturer.trim() !== ''
+                  ...((product as any).manufacturer?.name &&
+                  (product as any).manufacturer.name.trim() !== ''
+                    ? [{ l: 'Marca', v: (product as any).manufacturer.name }]
+                    : typeof product.manufacturer === 'string' &&
+                        (product.manufacturer as any).trim() !== ''
                       ? [{ l: 'Marca', v: product.manufacturer }]
                       : []),
                   ...(product.sku && product.sku.trim() !== ''
@@ -667,7 +670,7 @@ export default function Product() {
                       </div>
                       <ProductPrice
                         originalPrice={
-                          originalPrice || product.price_usd || product.price_usa_rebate
+                          originalPrice || product.price_usd || (product as any).price_usa_rebate
                         }
                         discountedPrice={discountedPrice}
                         discountPercentage={discountPercentage}
@@ -686,19 +689,19 @@ export default function Product() {
                       </div>
                       <ProductPrice
                         originalPrice={
-                          product.price_nationalized_currency === 'USD'
-                            ? product.price_nationalized_sales! * exchangeRate
-                            : product.price_nationalized_sales!
+                          (product as any).price_nationalized_currency === 'USD'
+                            ? (product as any).price_nationalized_sales! * exchangeRate
+                            : (product as any).price_nationalized_sales!
                         }
                         discountedPrice={
                           discountPercentage > 0
-                            ? (product.price_nationalized_currency === 'USD'
-                                ? product.price_nationalized_sales! * exchangeRate
-                                : product.price_nationalized_sales!) *
+                            ? ((product as any).price_nationalized_currency === 'USD'
+                                ? (product as any).price_nationalized_sales! * exchangeRate
+                                : (product as any).price_nationalized_sales!) *
                               (1 - discountPercentage / 100)
-                            : product.price_nationalized_currency === 'USD'
-                              ? product.price_nationalized_sales! * exchangeRate
-                              : product.price_nationalized_sales!
+                            : (product as any).price_nationalized_currency === 'USD'
+                              ? (product as any).price_nationalized_sales! * exchangeRate
+                              : (product as any).price_nationalized_sales!
                         }
                         discountPercentage={discountPercentage}
                         ruleName={ruleName}
@@ -718,12 +721,12 @@ export default function Product() {
                       <span className="text-foreground flex items-center gap-1">
                         {(() => {
                           const costPrice = formatPrice(product.price_cost)
-                          const natCurrency = product.price_nationalized_currency || 'BRL'
-                          const costPriceNat = product.price_nationalized_cost
+                          const natCurrency = (product as any).price_nationalized_currency || 'BRL'
+                          const costPriceNat = (product as any).price_nationalized_cost
                             ? new Intl.NumberFormat(natCurrency === 'BRL' ? 'pt-BR' : 'en-US', {
                                 style: 'currency',
                                 currency: natCurrency,
-                              }).format(product.price_nationalized_cost)
+                              }).format((product as any).price_nationalized_cost)
                             : null
 
                           return (
@@ -955,7 +958,7 @@ export default function Product() {
                     Preço sob consulta
                   </p>
                   <p className="text-sm text-muted-foreground">
-                    {!product?.weight && !(product?.price_nationalized_sales || 0)
+                    {!product?.weight && !((product as any)?.price_nationalized_sales || 0)
                       ? 'Peso e preço nacional não cadastrados. '
                       : ''}
                     Entre em contato para um orçamento detalhado em BRL.
@@ -1001,12 +1004,12 @@ export default function Product() {
                       </div>
                     )}
 
-                    {isRebateActive && product?.date_rebate && (
+                    {isRebateActive && (product as any)?.date_rebate && (
                       <div className="mt-4 flex flex-col items-center text-amber-600 dark:text-amber-500 bg-amber-500/10 px-4 py-2.5 rounded-lg border border-amber-500/20 w-full text-sm shadow-sm">
                         <span className="text-[10px] font-bold uppercase tracking-widest text-amber-600/80 dark:text-amber-500/80">
                           Oferta termina em
                         </span>
-                        <CountdownTimer targetDate={product.date_rebate} />
+                        <CountdownTimer targetDate={(product as any).date_rebate} />
                       </div>
                     )}
 

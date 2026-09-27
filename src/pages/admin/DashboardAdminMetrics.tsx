@@ -180,9 +180,10 @@ export function DashboardAdminMetrics({ metrics, loadingMetrics, error, fetchMet
   let mostVisited = '-'
   let maxCount = 0
   Object.entries(pageCounts).forEach(([page, count]) => {
-    if (count > maxCount) {
+    const num = Number(count) || 0
+    if (num > maxCount) {
       mostVisited = page
-      maxCount = count
+      maxCount = num
     }
   })
 

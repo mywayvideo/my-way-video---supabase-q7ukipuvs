@@ -14,22 +14,20 @@ export function useExchangeRate() {
     }
 
     if (!fetchPromise) {
-      fetchPromise = supabase
-        .from('exchange_rate' as any)
-        .select('usd_to_brl, spread_percentage')
-        .limit(1)
-        .maybeSingle()
-        .then(
-          ({ data }: any) => {
-            if (data) {
-              const val = Number(data.usd_to_brl) * (1 + Number(data.spread_percentage) / 100)
-              cachedRate = val
-              return val
-            }
-            return null
-          },
-          () => null,
-        )
+      fetchPromise = (async () => {
+        const { data } = await supabase
+          .from('exchange_rate' as any)
+          .select('usd_to_brl, spread_percentage')
+          .limit(1)
+          .maybeSingle()
+        if (data) {
+          const val =
+            Number((data as any).usd_to_brl) * (1 + Number((data as any).spread_percentage) / 100)
+          cachedRate = val
+          return val
+        }
+        return null
+      })()
     }
     fetchPromise.then((val) => setRate(val ?? 0))
   }, [])

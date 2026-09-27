@@ -181,7 +181,7 @@ export default function Cart() {
         details,
         destination,
         exchangeRate as any,
-        shippingSettings,
+        shippingSettings as any,
       )
 
       let originalBasePrice = 0
@@ -223,7 +223,7 @@ export default function Cart() {
         discountedDetails,
         destination,
         exchangeRate as any,
-        shippingSettings,
+        shippingSettings as any,
       )
 
       return {

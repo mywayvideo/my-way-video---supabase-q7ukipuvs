@@ -202,38 +202,43 @@ export function NcmSuggestDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col p-0 gap-0 overflow-hidden bg-background border-border">
+      <DialogContent className="w-[96vw] max-w-5xl max-h-[92vh] flex flex-col p-0 gap-0 overflow-hidden bg-background border-border sm:rounded-xl">
         {/* Header */}
-        <DialogHeader className="p-6 pb-4 border-b bg-muted/20">
+        <DialogHeader className="p-5 sm:p-6 pb-4 border-b bg-muted/20 shrink-0">
           <div className="flex items-start justify-between gap-4">
-            <div>
+            <div className="min-w-0 flex-1">
               <DialogTitle className="text-xl font-bold flex items-center gap-2 text-primary">
-                <Sparkles className="w-5 h-5 text-amber-500 animate-pulse" />
-                Sugerir Classificação Fiscal NCM por IA
+                <Sparkles className="w-5 h-5 text-amber-500 animate-pulse shrink-0" />
+                <span>Sugerir Classificação Fiscal NCM por IA</span>
               </DialogTitle>
-              <DialogDescription className="text-sm text-muted-foreground mt-1">
+              <DialogDescription className="text-xs sm:text-sm text-muted-foreground mt-1 break-words">
                 Análise aduaneira automática com NESH, alíquotas efetivas de impostos e verificação
                 de Ex-Tarifários vigentes.
               </DialogDescription>
             </div>
-            {result?.confidence && renderConfidenceBadge(result.confidence)}
+            {result?.confidence && (
+              <div className="shrink-0">{renderConfidenceBadge(result.confidence)}</div>
+            )}
           </div>
 
           {/* Dados do produto informado */}
           <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs bg-background/80 p-2.5 rounded-md border">
-            <div className="truncate">
+            <div className="min-w-0">
               <span className="text-muted-foreground font-medium">Produto: </span>
-              <span className="font-semibold text-foreground">
+              <span
+                className="font-semibold text-foreground break-words line-clamp-2"
+                title={productName}
+              >
                 {productName || 'Não informado'}
               </span>
             </div>
-            <div className="truncate">
+            <div className="min-w-0">
               <span className="text-muted-foreground font-medium">Marca/Modelo: </span>
-              <span className="font-semibold text-foreground">
+              <span className="font-semibold text-foreground break-words">
                 {[brandName, modelName].filter(Boolean).join(' / ') || 'Não informado'}
               </span>
             </div>
-            <div className="truncate">
+            <div className="min-w-0">
               <span className="text-muted-foreground font-medium">NCM Atual no Form: </span>
               <span className="font-mono font-semibold text-foreground">
                 {cleanCurrent ? formatNcmDisplay(cleanCurrent) : 'Nenhum'}
@@ -242,8 +247,8 @@ export function NcmSuggestDialog({
           </div>
         </DialogHeader>
 
-        {/* Corpo com Scroll */}
-        <ScrollArea className="flex-1 p-6 overflow-y-auto">
+        {/* Corpo com Scroll interno sem truncamento */}
+        <ScrollArea className="flex-1 min-h-0 w-full p-4 sm:p-6 overflow-y-auto">
           {isLoading && (
             <div className="py-16 flex flex-col items-center justify-center space-y-4 text-center">
               <div className="relative">
@@ -455,32 +460,34 @@ export function NcmSuggestDialog({
                 </div>
 
                 {result.recommendation.description && (
-                  <p className="text-xs font-medium text-foreground/90 bg-muted/30 p-2.5 rounded border border-border/50">
-                    <span className="text-muted-foreground">Descrição Oficial NCM: </span>
-                    {result.recommendation.description}
-                  </p>
+                  <div className="text-xs font-medium text-foreground/90 bg-muted/30 p-3 rounded border border-border/50 break-words [overflow-wrap:anywhere]">
+                    <span className="text-muted-foreground font-semibold">
+                      Descrição Oficial NCM:{' '}
+                    </span>
+                    <span className="leading-relaxed">{result.recommendation.description}</span>
+                  </div>
                 )}
 
-                <div className="text-xs text-foreground/80 leading-relaxed whitespace-pre-line bg-background/50 p-3 rounded border">
+                <div className="text-xs text-foreground/80 leading-relaxed whitespace-pre-line bg-background/50 p-3.5 rounded border break-words [overflow-wrap:anywhere]">
                   {result.recommendation.justification ||
                     'Justificativa técnica não fornecida pelo agente.'}
                 </div>
 
                 {/* Ex-Tarifário Detalhes */}
                 {result.recommendation.has_ex_tarifario && result.recommendation.ex_details && (
-                  <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-md text-xs space-y-1">
+                  <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-md text-xs space-y-1.5 break-words [overflow-wrap:anywhere]">
                     <div className="font-semibold text-amber-500 flex items-center gap-1">
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                      Ex-Tarifário Vinculado: Ex {result.recommendation.ex}
+                      <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                      <span>Ex-Tarifário Vinculado: Ex {result.recommendation.ex}</span>
                     </div>
                     {result.recommendation.ex_details.descricao && (
-                      <p className="text-foreground/90">
-                        <span className="text-muted-foreground font-medium">Condição: </span>
+                      <p className="text-foreground/90 leading-relaxed">
+                        <span className="text-muted-foreground font-semibold">Condição: </span>
                         {result.recommendation.ex_details.descricao}
                       </p>
                     )}
                     {result.recommendation.ex_details.resolucao && (
-                      <p className="text-[11px] text-muted-foreground">
+                      <p className="text-[11px] text-muted-foreground pt-1">
                         Resolução: {result.recommendation.ex_details.resolucao}{' '}
                         {result.recommendation.ex_details.data_fim &&
                           `| Vigência até: ${result.recommendation.ex_details.data_fim}`}
@@ -494,16 +501,16 @@ export function NcmSuggestDialog({
               {result.alternatives && result.alternatives.length > 0 && (
                 <div className="p-4 border rounded-lg bg-muted/5 space-y-2">
                   <h4 className="text-sm font-semibold flex items-center gap-1.5 text-foreground">
-                    <Info className="w-4 h-4 text-muted-foreground" />
+                    <Info className="w-4 h-4 text-muted-foreground shrink-0" />
                     Análise das Alternativas Avaliadas
                   </h4>
                   <div className="space-y-2">
                     {result.alternatives.map((alt, idx) => (
                       <div
                         key={idx}
-                        className="p-2.5 bg-background/60 rounded border text-xs space-y-1"
+                        className="p-3 bg-background/60 rounded border text-xs space-y-1.5 break-words [overflow-wrap:anywhere]"
                       >
-                        <div className="flex items-center justify-between">
+                        <div className="flex flex-wrap items-center justify-between gap-1">
                           <span className="font-semibold text-foreground font-mono">
                             NCM {formatNcmDisplay(alt.ncm)} {alt.ex ? `(Ex ${alt.ex})` : ''}
                           </span>
@@ -512,12 +519,14 @@ export function NcmSuggestDialog({
                           </span>
                         </div>
                         {alt.description && (
-                          <p className="text-[11px] text-muted-foreground truncate">
+                          <p className="text-[11px] text-muted-foreground leading-relaxed">
                             {alt.description}
                           </p>
                         )}
                         {alt.reason && (
-                          <p className="text-foreground/80 italic text-[11px]">{alt.reason}</p>
+                          <p className="text-foreground/80 italic text-[11px] leading-relaxed border-l-2 border-border pl-2">
+                            {alt.reason}
+                          </p>
                         )}
                       </div>
                     ))}

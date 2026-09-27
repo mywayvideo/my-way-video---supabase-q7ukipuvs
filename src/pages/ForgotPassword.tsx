@@ -28,7 +28,7 @@ export default function ForgotPassword() {
       if (legacyUsers && legacyUsers.length > 0) {
         const legacyUser = legacyUsers[0]
         if (legacyUser.found) {
-          await supabase.rpc('mark_migration_started', { target_email: emailTrimmed })
+          await (supabase.rpc as any)('mark_migration_started', { target_email: emailTrimmed })
         }
       }
 

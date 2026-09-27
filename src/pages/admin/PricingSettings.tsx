@@ -45,13 +45,17 @@ export default function PricingSettings() {
 
   const fetchRate = async () => {
     try {
-      const { data, error } = await supabase.from('exchange_rate').select('*').limit(1).single()
-      if (error && error.code !== 'PGRST116') throw error
+      const { data, error } = await supabase
+        .from('exchange_rate' as any)
+        .select('*')
+        .limit(1)
+        .single()
+      if (error && (error as any).code !== 'PGRST116') throw error
       if (data) {
-        setRateData(data)
+        setRateData(data as any)
       }
     } catch (error) {
-      console.error(error)
+      console.error('Error fetching exchange rate:', error)
     } finally {
       setLoading(false)
     }
@@ -59,12 +63,11 @@ export default function PricingSettings() {
 
   const fetchFormulaSettings = async () => {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase
         .from('price_settings' as any)
         .select('*')
         .limit(1)
-        .single()
-
+        .single() as any)
       if (error && error.code !== 'PGRST116') throw error
 
       if (data) {

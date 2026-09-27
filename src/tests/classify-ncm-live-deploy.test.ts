@@ -48,6 +48,8 @@ describe('classify-ncm Edge Function live deploy check & validation', () => {
     expect(data.features).toContain('auditor_verdict_reinclusion_no_silent_fallback')
     expect(data.features).toContain('target_machine_serviced_device_mapping')
     expect(data.features).toContain('expanded_parts_deterministic_retrieval')
+    expect(data.features).toContain('candidates_sweep_alternatives_promotion')
+    expect(data.features).toContain('alternatives_source_tracking')
   })
 
   it('verifies in imp_sim_ncm_classification_log that RM-IP500 and UWP-D21 records have new fields', async () => {
@@ -128,10 +130,15 @@ describe('classify-ncm Edge Function live deploy check & validation', () => {
     // Justificativa obrigatória citando Nota 2(b) do Cap. 85 e intervalo de posições (85.24 a 85.28)
     expect(result.recommendation.justification).toMatch(/(?:Nota 2\(b\)|Nota 2|85\.24|8524)/i)
 
-    // 85437099 rebaixado a alternativa residual
+    // 85437099 rebaixado a alternativa residual (ou promovido da varredura)
     const residualAlt = result.alternatives.find((a: any) => a.ncm === '85437099')
     expect(residualAlt).toBeDefined()
-    expect(residualAlt.reason).toMatch(/(?:residual|fun[çc][aã]o pr[oó]pria|rebaixad[ao]|8529|Nota 2)/i)
+    expect(residualAlt.alternatives_source).toBeDefined()
+    expect(residualAlt.reason).toMatch(/(?:residual|fun[çc][aã]o pr[oó]pria|rebaixad[ao]|8529|Nota 2|candidatos)/i)
+    // Esperado conter 90319090 nas alternativas e cada uma com alternatives_source gravado
+    for (const alt of result.alternatives) {
+      expect(alt.alternatives_source).toBeDefined()
+    }
 
     // Telemetria parts_indirect_logic com parts_precedence_applied
     expect(result.parts_indirect_logic).toBeDefined()

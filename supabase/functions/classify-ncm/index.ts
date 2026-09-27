@@ -2070,9 +2070,11 @@ ${candidatesCatalogText}`
     //    (ex.: 8543 para Cap. 85, 8479 para Cap. 84, 9031 para Cap. 90);
     // 3. Demais candidatos com aderência semântica / setorial por ordem de score;
     // 4. Genéricos de terceiro nível por último.
-    const resolvedProductNature = normalizeProductNature(finalProductUnderstanding?.product_nature)
+    const resolvedProductNatureForSweep = normalizeProductNature(
+      finalProductUnderstanding?.product_nature,
+    )
     const isCompleteStandaloneProduct =
-      resolvedProductNature === 'aparelho com função própria completa'
+      resolvedProductNatureForSweep === 'aparelho com função própria completa'
 
     // Classificação de candidatos não citados por tiers
     const scoredCandidatesToPromote: Array<{
@@ -2096,7 +2098,7 @@ ${candidatesCatalogText}`
       let matchesTargetMachineRange = false
       let matchedRangeText = ''
       if (partsPattern.isParts && partsPattern.detectedRanges.length > 0) {
-        for (const heading of canonicalTargetMachineHeadings) {
+        for (const heading of resolvedTargetHeadings) {
           if (isHeadingContainedInPartsRanges(heading, partsPattern.detectedRanges)) {
             matchesTargetMachineRange = true
             matchedRangeText = partsPattern.detectedRanges
@@ -2121,7 +2123,7 @@ ${candidatesCatalogText}`
 
       const candChapter = cNcm.slice(0, 2)
       const recChapter = recommendedNcmClean.slice(0, 2)
-      const primaryTargetHeading = canonicalTargetMachineHeadings[0] || ''
+      const primaryTargetHeading = resolvedTargetHeadings[0] || ''
       const targetChapter = primaryTargetHeading.slice(0, 2) || recChapter
 
       const baseScore = Number(cand.combined_score ?? cand.vector_score ?? cand.text_score ?? 0.5)

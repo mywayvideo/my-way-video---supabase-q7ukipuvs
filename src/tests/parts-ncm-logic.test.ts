@@ -279,7 +279,12 @@ describe('Parts NCM Universal Indirect Linking Logic (Frontend/Contract)', () =>
         }
       }
 
-      const isCurrentResidual = isResidualStandaloneDeviceNcm(params.currentRecDesc)
+      const cleanRecNcm = params.currentRecNcm.replace(/\D/g, '')
+      const isCurrentResidual =
+        isResidualStandaloneDeviceNcm(params.currentRecDesc) ||
+        cleanRecNcm.startsWith('8543') ||
+        cleanRecNcm.startsWith('8537')
+
       if (!isCurrentResidual) {
         return {
           shouldOverride: false,
@@ -289,7 +294,7 @@ describe('Parts NCM Universal Indirect Linking Logic (Frontend/Contract)', () =>
             applied: false,
             winning_parts_ncm: null,
             demoted_residual_ncm: null,
-            reason: 'Recomendação atual não é NCM residual de função própria.',
+            reason: 'Recomendação atual não é NCM residual ou de comando elétrico superável por partes específicas.',
           },
         }
       }
@@ -388,6 +393,41 @@ describe('Parts NCM Universal Indirect Linking Logic (Frontend/Contract)', () =>
       expect(evalResult.verdict.demoted_residual_ncm).toBe('85437099')
     })
 
+    it('applies parts precedence over 85371020 for dependent accessory with matching parts target heading (RM-IP500 case)', () => {
+      const candidates = [
+        {
+          ncm: '85299090',
+          ncm_descricao_full:
+            'Máquinas, aparelhos e materiais elétricos... partes e acessórios reconhecíveis como destinada... aos aparelhos das posições 85.24 a 85.28',
+        },
+        {
+          ncm: '85371020',
+          ncm_descricao_full:
+            'Quadros, painéis, consoles, cabinas e outros suportes com aparelhos das posições 85.35 ou 85.36 para comando elétrico ou distribuição de energia elétrica',
+        },
+        {
+          ncm: '85437099',
+          ncm_descricao_full:
+            'Outras máquinas e aparelhos elétricos com função própria, não especificados nem compreendidos noutras posições',
+        },
+      ]
+
+      const evalResult = evaluatePartsPrecedenceOverResidual({
+        productNature: 'acessório dependente (sem função autônoma, requer produto principal para operar)',
+        currentRecNcm: '85371020',
+        currentRecDesc:
+          'Quadros, painéis, consoles, cabinas e outros suportes com aparelhos das posições 85.35 ou 85.36 para comando elétrico ou distribuição de energia elétrica',
+        candidates,
+        targetHeadings: ['8525'],
+      })
+
+      expect(evalResult.shouldOverride).toBe(true)
+      expect(evalResult.winningCandidate?.ncm).toBe('85299090')
+      expect(evalResult.demotedCandidate?.ncm).toBe('85371020')
+      expect(evalResult.verdict.applied).toBe(true)
+      expect(evalResult.verdict.winning_parts_ncm).toBe('85299090')
+    })
+
     it('does NOT apply parts precedence for complete apparatus with standalone function (HDC-3200R case)', () => {
       const candidates = [
         {
@@ -452,6 +492,14 @@ describe('Parts NCM Universal Indirect Linking Logic (Frontend/Contract)', () =>
           if (/\b(microfones?|mics?|alto-falantes?|fones?|headsets?|[aá]udio)\b/i.test(lower)) {
             headings.add('8518')
           }
+          if (
+            /\b(computadores?|computador|servidores?|servidor|notebooks?|notebook|mainframes?|workstations?|workstation|unidade de processamento de dados)\b/i.test(
+              lower,
+            ) &&
+            !/\b(control(?:e|ador|ler)|remot[eo]|ptz|c[aâ]mera)\b/i.test(lower)
+          ) {
+            headings.add('8471')
+          }
           if (/\b(lentes?|objetivas?|teleobjetivas?|filtros? [oó]pticos?)\b/i.test(lower)) {
             headings.add('9002')
           }
@@ -477,6 +525,24 @@ describe('Parts NCM Universal Indirect Linking Logic (Frontend/Contract)', () =>
         const tm = ['teleobjetivas e lentes broadcast']
         const headings = extractTargetMachineHeadings(tm)
         expect(headings).toContain('9002')
+      })
+
+      it('never maps camera controller or PTZ controller terms to 8471', () => {
+        const tm = [
+          'controle de câmeras PTZ',
+          'controlador PTZ',
+          'Sony RM-IP500 remote controller for cameras',
+          'câmeras PTZ Sony BRC-X1000/1',
+        ]
+        const headings = extractTargetMachineHeadings(tm)
+        expect(headings).toContain('8525')
+        expect(headings).not.toContain('8471')
+      })
+
+      it('maps real data processing units / computers to 8471 only with real evidence', () => {
+        const tm = ['servidor central de processamento de dados', 'computador de bordo']
+        const headings = extractTargetMachineHeadings(tm)
+        expect(headings).toContain('8471')
       })
 
       it('handles null, empty or undefined gracefully', () => {

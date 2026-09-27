@@ -2142,6 +2142,7 @@ export type Database = {
           order_seq: number
           order_year: number
           payment_condition: string | null
+          payment_status: string
           payment_term_days: number | null
           payment_terms_notes: string | null
           public_token: string | null
@@ -2178,6 +2179,7 @@ export type Database = {
           order_seq: number
           order_year: number
           payment_condition?: string | null
+          payment_status?: string
           payment_term_days?: number | null
           payment_terms_notes?: string | null
           public_token?: string | null
@@ -2214,6 +2216,7 @@ export type Database = {
           order_seq?: number
           order_year?: number
           payment_condition?: string | null
+          payment_status?: string
           payment_term_days?: number | null
           payment_terms_notes?: string | null
           public_token?: string | null

@@ -65,31 +65,31 @@ interface CompositionAnalysisResult {
 }
 
 Deno.serve(async (req: Request) => {
-if (req.method === 'OPTIONS') {
-  return new Response('ok', { headers: corsHeaders })
-}
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders })
+  }
 
-// Endpoint de verificação de integridade e versão do deploy (GET / ou query param ?health=true)
-const reqUrl = new URL(req.url)
-if (req.method === 'GET' || reqUrl.searchParams.get('health') === 'true') {
-  return new Response(
-    JSON.stringify({
-      status: 'ok',
-      function: 'classify-ncm',
-      version: '3.1.0-build.603',
-      knowledge_base_version: '3.1',
-      features: [
-        'phase0_product_understanding',
-        'auditor_role_ai_providers',
-        'two_pass_composite_models',
-        'ex_veto_cleared_invariant',
-        'legal_basis_regeneration',
-      ],
-      timestamp: new Date().toISOString(),
-    }),
-    { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-  )
-}
+  // Endpoint de verificação de integridade e versão do deploy (GET / ou query param ?health=true)
+  const reqUrl = new URL(req.url)
+  if (req.method === 'GET' || reqUrl.searchParams.get('health') === 'true') {
+    return new Response(
+      JSON.stringify({
+        status: 'ok',
+        function: 'classify-ncm',
+        version: '3.2.0-build.604',
+        knowledge_base_version: '3.1',
+        features: [
+          'phase0_canonical_composition_derivation',
+          'orphan_ncm_sweep_invariant',
+          'ex_checklist_report_suppression_when_no_ex',
+          'auditor_role_ai_providers',
+          'two_pass_composite_models',
+        ],
+        timestamp: new Date().toISOString(),
+      }),
+      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+    )
+  }
   const startTime = Date.now()
 
   // 1. Validação de método HTTP
@@ -198,8 +198,7 @@ if (req.method === 'GET' || reqUrl.searchParams.get('health') === 'true') {
     })
 
     // 5. Análise de Composição Universal (Sistemas / Conjuntos / Kits - RGI 3b/3c)
-    // Regra vinculante: componentes devem ser citados TEXTUALMENTE na descrição/especificações do produto (verbatim).
-    // Componente que não aparece explicitamente no texto não pode ser afirmado.
+    // Inicialização prévia de componentes com base no texto comercial para suficiência inicial
     let combinedProductText = [productDescription, brand, model, additionalSpecs]
       .filter(Boolean)
       .join(' ')
@@ -335,11 +334,14 @@ if (req.method === 'GET' || reqUrl.searchParams.get('health') === 'true') {
     // Separar provedores dedicados para Análise (1ª passada) e Auditoria (2ª passada)
     // Se houver provedores com role='analyst', usá-los prioritariamente na 1ª passada.
     // Se houver provedores com role='auditor', usá-los prioritariamente na 2ª passada (ex: DeepSeek).
-    const analystProviders = allProviders.filter((p) => (p.role || 'general') === 'analyst' || (p.role || 'general') === 'general')
+    const analystProviders = allProviders.filter(
+      (p) => (p.role || 'general') === 'analyst' || (p.role || 'general') === 'general',
+    )
     const primaryAnalystProviders = analystProviders.length > 0 ? analystProviders : allProviders
 
     const auditorProvidersList = allProviders.filter((p) => (p.role || 'general') === 'auditor')
-    const primaryAuditorProviders = auditorProvidersList.length > 0 ? auditorProvidersList : allProviders
+    const primaryAuditorProviders =
+      auditorProvidersList.length > 0 ? auditorProvidersList : allProviders
 
     // 9. PROMPT UNIVERSAL COM ANÁLISE DE COMPOSIÇÃO (RGI 3b / 3c) E RESTRIÇÃO DE EX
     const candidatesCatalogText = candidates
@@ -726,7 +728,10 @@ ${candidatesCatalogText}`
             break
           }
         } catch (auditCallErr) {
-          console.warn(`Falha na chamada de auditoria com provedor ${provider.provider_name}:`, auditCallErr)
+          console.warn(
+            `Falha na chamada de auditoria com provedor ${provider.provider_name}:`,
+            auditCallErr,
+          )
         }
       }
 
@@ -830,7 +835,7 @@ ${candidatesCatalogText}`
 
               llmResponseJson.recommended_ncm = fallbackNcmClean
               llmResponseJson.recommended_ex = fallbackExClean
-              llmResponseJson.justification = `[Revisão de Auditoria Aduaneira: Veto e Enquadramento Técnico Compatível]\n${auditVerdict.override_reason}\n\nFundamentação Complementar: ${llmResponseJson.justification}`
+              llmResponseJson.justification = `[Revisão de Auditoria Aduaneira: Veto e Enquadramento Técnico Compatível]\n${auditVerdict.override_reason}`
 
               // Atualizar checklist se o novo candidato tiver Ex
               if (fallbackExClean && fallbackCandidate.ex_descricao) {
@@ -850,7 +855,7 @@ ${candidatesCatalogText}`
             // Correção do auditor é tecnicamente válida e aceita
             llmResponseJson.recommended_ncm = correctedDigits
             llmResponseJson.recommended_ex = correctedExDigits
-            llmResponseJson.justification = `[Revisão de Auditoria Aduaneira: Veto e Correção Homologados]\n${auditVerdict.correction_reason || auditVerdict.audit_critique}\n\nFundamentação Complementar: ${llmResponseJson.justification}`
+            llmResponseJson.justification = `[Revisão de Auditoria Aduaneira: Veto e Correção Homologados]\n${auditVerdict.correction_reason || auditVerdict.audit_critique}`
 
             if (correctedExDigits) {
               checklistLog = correctedChecklistLog
@@ -865,7 +870,9 @@ ${candidatesCatalogText}`
     // 13. Resolução estrita das alíquotas efetivas via public.imp_sim_tax_rates_effective
     const recommendedNcmClean = normalizeNcm(llmResponseJson.recommended_ncm)
     // INVARIANTE ABSOLUTA: Se o veto ao Ex foi aplicado (exVetoApplied === true), recommendedExClean DEVE ser vazio ('')
-    const recommendedExClean = exVetoApplied ? '' : (llmResponseJson.recommended_ex || '').toString().trim()
+    const recommendedExClean = exVetoApplied
+      ? ''
+      : (llmResponseJson.recommended_ex || '').toString().trim()
 
     const resolvedPrimary = await resolveEffectiveTaxRate(
       supabaseAdmin,
@@ -904,6 +911,57 @@ ${candidatesCatalogText}`
           data_fim: primaryTaxRate.ex_data_fim || null,
         }
       : null
+
+    // CALIBRAÇÃO: COMPOSITION_ANALYSIS DERIVADA DIRETAMENTE DA FASE 0 (Auditada pela IA)
+    // Descartar extração ruidosa de targetMachines por regex comercial.
+    // Derivar targetMachines canônicas de product_understanding.target_machines.
+    // isKit: true SOMENTE se o produto é comercializado como conjunto de múltiplos itens fisicamente
+    // autônomos vendidos juntos (ex: transmissor + receptor), JAMAIS aparelho singular.
+    const finalProductUnderstanding = auditVerdict?.product_understanding ||
+      llmResponseJson?.product_understanding || {
+        identity: leanSignature,
+        essential_function: initialRecommendation.essential_function,
+        target_machines: compositionAnalysis.targetMachines,
+        canonical_statement: `o produto é um ${leanSignature} que ${initialRecommendation.essential_function}, destinado a ${compositionAnalysis.targetMachines.join(', ') || 'operação autônoma'}`,
+      }
+
+    const rawTargetMachinesFromPhase0: string[] = Array.isArray(
+      finalProductUnderstanding?.target_machines,
+    )
+      ? finalProductUnderstanding.target_machines
+      : []
+
+    // Filtrar e normalizar targetMachines da Fase 0
+    const canonicalTargetMachines = Array.from(
+      new Set(
+        rawTargetMachinesFromPhase0
+          .map((tm: any) => String(tm || '').trim())
+          .filter(
+            (tm: string) =>
+              tm.length >= 3 &&
+              !/^(controle|panorâmica|panor[aâ]mica|zoom|pan|tilt|operacao|operação|autonoma|autônoma|nenhuma)$/i.test(
+                tm,
+              ),
+          ),
+      ),
+    )
+
+    // Avaliação canônica de isKit: apenas se múltiplos itens fisicamente autônomos
+    // (ex: transmissor + receptor, TX+RX) ou explicitamente reconhecido pelo modelo e auditado
+    const isActuallyKit = evaluateCanonicalIsKit({
+      productUnderstanding: finalProductUnderstanding,
+      productText: combinedProductText,
+      initialDetectedComponents: compositionAnalysis.detectedComponents,
+    })
+
+    compositionAnalysis = {
+      isKit: isActuallyKit,
+      detectedComponents: isActuallyKit ? compositionAnalysis.detectedComponents : [],
+      compositionIdentified: isActuallyKit
+        ? compositionAnalysis.detectedComponents.length >= 2
+        : true,
+      targetMachines: canonicalTargetMachines,
+    }
 
     // 14. Resolver alíquotas para alternativas com PROPAGAÇÃO DE VETO (Princípio Genérico):
     // Um NCM vetado pelo auditor ou pelo checklist de código NÃO PODE aparecer na recomendação nem nas alternativas.
@@ -1071,7 +1129,11 @@ ${candidatesCatalogText}`
       for (const cand of candidates) {
         const cNcm = normalizeNcm(cand.ncm)
         const cDesc =
-          cand.ex_descricao || cand.ncm_descricao_full || cand.ncm_descricao || cand.source_text || ''
+          cand.ex_descricao ||
+          cand.ncm_descricao_full ||
+          cand.ncm_descricao ||
+          cand.source_text ||
+          ''
 
         // Verificar contradição de natureza
         const natureCheck = checkNatureContradiction({
@@ -1127,11 +1189,13 @@ ${candidatesCatalogText}`
       }
     }
 
-    if (checklistFormattedReport) {
+    // SUPRESSÃO DO BLOCO DE EX QUANDO NÃO HÁ EX:
+    // O bloco de checklist formatado só é injetado no relatório do usuário se houver Ex homologado na resposta final.
+    // Sem Ex na resposta final (finalRecommendationEx vazio), o bloco é omitido do relatório ao usuário,
+    // mantendo os detalhes técnicos preservados no checklist_log interno e na telemetria.
+    if (checklistFormattedReport && Boolean(recommendedExClean) && !exVetoApplied) {
       let reportHeader = ''
-      if (exVetoApplied) {
-        reportHeader = `[Checklist de Condições Restritivas do Ex-Tarifário: VETO APLICADO EM CÓDIGO]\n${checklistFormattedReport}\nVeto: ${checklistLog.vetoReason || 'Não atendeu às condições qualificadoras do Ex.'}\n\n`
-      } else if (checklistLog.status === 'NÃO VERIFICADO') {
+      if (checklistLog.status === 'NÃO VERIFICADO') {
         reportHeader = `[Checklist de Condições Restritivas do Ex-Tarifário: NÃO VERIFICADO - REQUER REVISÃO ESPECIALISTA]\n${checklistFormattedReport}\n\n`
       } else {
         reportHeader = `[Checklist de Condições Restritivas do Ex-Tarifário: HOMOLOGADO]\n${checklistFormattedReport}\n\n`
@@ -1139,10 +1203,14 @@ ${candidatesCatalogText}`
       finalJustification = `${reportHeader}${finalJustification}`
     }
 
+    // Se o veto de Ex foi aplicado, o Ex final NUNCA pode carregar valor de Ex vetado
+    const finalRecommendationEx = exVetoApplied ? '' : primaryTaxRate.ex || recommendedExClean || ''
+    const finalHasEx = exVetoApplied ? false : hasEx && Boolean(finalRecommendationEx)
+
     // REGENERAÇÃO ESTRITA DA FUNDAMENTAÇÃO LEGAL (legal_basis):
     // Proibido herdar referência a Ex remoto, vetado ou diferente do Ex final homologado.
     // Verificação em código: nenhum código de Ex citado no legal_basis pode diferir do Ex final.
-    const finalExCode = (primaryTaxRate.ex || recommendedExClean || '').toString().trim()
+    const finalExCode = finalRecommendationEx.toString().trim()
     let regeneratedLegalBasis = {
       ...(llmResponseJson.legal_basis || primaryTaxRate.legal_basis || {}),
     }
@@ -1174,9 +1242,58 @@ ${candidatesCatalogText}`
       regeneratedLegalBasis.notes = `Classificação na NCM ${recommendedNcmClean} com base nas Regras Gerais de Interpretação (RGI 1 / RGI 3). Sem aplicação de Ex-Tarifário.`
     }
 
-    // Se o veto de Ex foi aplicado, o Ex final NUNCA pode carregar valor de Ex vetado
-    const finalRecommendationEx = exVetoApplied ? '' : (primaryTaxRate.ex || recommendedExClean || '')
-    const finalHasEx = exVetoApplied ? false : (hasEx && Boolean(finalRecommendationEx))
+    // =========================================================================
+    // VARREDURA UNIVERSAL EM CASCATA DE MENÇÕES ÓRFÃS DE NCM/EX (INVARIANTE)
+    // =========================================================================
+    // Todo código NCM de 8 dígitos ou fragmento hierárquico (ex: 90319090, 9031.90.90, 9031)
+    // ou menção de Ex pertencentes a candidatos vetados ou que não coincidam com o NCM/Ex final homologado
+    // (ou com a própria linha da alternativa em que aparece) devem ser suprimidos/substituídos por
+    // referência canônica neutra à função essencial do produto.
+
+    // 1. Limpeza profunda em recommendation.justification
+    finalJustification = sanitizeOrphanNcmReferences({
+      text: finalJustification,
+      allowedNcm: recommendedNcmClean,
+      allowedEx: finalRecommendationEx,
+      vetoedNcms,
+      essentialFunction: initialRecommendation.essential_function || 'aparelho com função própria',
+    })
+
+    // 2. Limpeza profunda em recommendation.legal_basis.notes
+    if (regeneratedLegalBasis.notes) {
+      regeneratedLegalBasis.notes = sanitizeOrphanNcmReferences({
+        text: String(regeneratedLegalBasis.notes),
+        allowedNcm: recommendedNcmClean,
+        allowedEx: finalRecommendationEx,
+        vetoedNcms,
+        essentialFunction:
+          initialRecommendation.essential_function || 'aparelho com função própria',
+      })
+    }
+
+    // 3. Limpeza profunda em alternatives[].reason e alternatives[].description
+    for (const alt of resolvedAlternatives) {
+      if (alt.reason) {
+        alt.reason = sanitizeOrphanNcmReferences({
+          text: String(alt.reason),
+          allowedNcm: alt.ncm,
+          allowedEx: alt.ex || '',
+          vetoedNcms,
+          essentialFunction:
+            initialRecommendation.essential_function || 'aparelho com função própria',
+        })
+      }
+      if (alt.description) {
+        alt.description = sanitizeOrphanNcmReferences({
+          text: String(alt.description),
+          allowedNcm: alt.ncm,
+          allowedEx: alt.ex || '',
+          vetoedNcms,
+          essentialFunction:
+            initialRecommendation.essential_function || 'aparelho com função própria',
+        })
+      }
+    }
 
     const recommendationObject = {
       ncm: recommendedNcmClean,
@@ -1198,16 +1315,6 @@ ${candidatesCatalogText}`
     const compositeModelUsed = auditorModelUsed
       ? `${analystModelUsed} + ${auditorModelUsed}`
       : analystModelUsed
-
-    // 16. Resposta JSON completa com product_understanding da Fase 0
-    const finalProductUnderstanding =
-      auditVerdict?.product_understanding ||
-      llmResponseJson?.product_understanding || {
-        identity: leanSignature,
-        essential_function: initialRecommendation.essential_function,
-        target_machines: compositionAnalysis.targetMachines,
-        canonical_statement: `o produto é um ${leanSignature} que ${initialRecommendation.essential_function}, destinado a ${compositionAnalysis.targetMachines.join(', ') || 'operação autônoma'}`,
-      }
 
     // 15. Gravação no log de auditoria (imp_sim_ncm_classification_log)
     let auditId: string | null = null
@@ -1277,7 +1384,7 @@ ${candidatesCatalogText}`
       lean_signature: leanSignature,
       composition_analysis: compositionAnalysis,
       checklist_log: checklistLog,
-      version: '3.1.0-build.603',
+      version: '3.2.0-build.604',
       timestamp: new Date().toISOString(),
     }
 
@@ -1300,6 +1407,137 @@ ${candidatesCatalogText}`
 // ==========================================
 // FUNÇÕES AUXILIARES UNIVERSAIS
 // ==========================================
+
+/**
+ * Avaliação canônica de isKit para a composição (Fase 0):
+ * Regra: isKit é TRUE SOMENTE quando o produto é comercializado como conjunto de múltiplos itens
+ * fisicamente autônomos que operam juntos (ex.: transmissor + receptor no sistema de microfone sem fio),
+ * NUNCA para aparelho singular com botões/joystick/periféricos integrados (ex.: Sony RM-IP500).
+ */
+function evaluateCanonicalIsKit(params: {
+  productUnderstanding?: any
+  productText: string
+  initialDetectedComponents: string[]
+}): boolean {
+  const pu = params.productUnderstanding || {}
+  const identity = String(pu.identity || '').toLowerCase()
+  const essentialFunction = String(pu.essential_function || '').toLowerCase()
+  const rawText = params.productText.toLowerCase()
+
+  // Se a identidade ontológica declara um aparelho unitário singular
+  const singularUnitPatterns = [
+    /\b(controlador|controller|painel|mesa|console|c[aâ]mera|camcorder|conversor|gravador|monitor|switch|roteador|aparelho individual|dispositivo singular)\b/i,
+  ]
+  const isSingularIdentity = singularUnitPatterns.some((pat) => pat.test(identity))
+
+  // Se for explicitamente par transmissor + receptor autônomos
+  const hasAutonomousTxRxPair =
+    (/\b(transmissor|transmitter|bodypack|utx|tx)\b/i.test(rawText) &&
+      /\b(receptor|receiver|urx|rx)\b/i.test(rawText)) ||
+    /\b(transmissor\s*\+\s*receptor|transmitter\s+and\s+receiver|sistema\s+sem\s+fio\s+completo)\b/i.test(
+      rawText,
+    )
+
+  if (hasAutonomousTxRxPair) {
+    return true
+  }
+
+  // Se a identidade for expressamente singular (ex: controlador remoto), NUNCA é kit
+  if (isSingularIdentity) {
+    return false
+  }
+
+  // Se o próprio product_understanding declarou is_kit_or_system
+  if (pu.is_kit_or_system === true || pu.is_kit === true) {
+    return true
+  }
+
+  // Itens autônomos múltiplos explícitos
+  return false
+}
+
+/**
+ * Varredura Universal de Menções Órfãs de NCM/Ex (Princípio Genérico):
+ * Elimina referências textuais a NCMs vetados (ex: 9031, 90319090, 9031.90.90) ou Ex vetados
+ * de justificativas, notas legais e razões de alternativas, substituindo por referências canônicas neutras.
+ */
+function sanitizeOrphanNcmReferences(params: {
+  text: string
+  allowedNcm: string
+  allowedEx?: string
+  vetoedNcms: Set<string>
+  essentialFunction: string
+}): string {
+  let result = params.text || ''
+  if (!result) return ''
+
+  const allowedClean = normalizeNcm(params.allowedNcm)
+  const allowedExClean = (params.allowedEx || '').toString().trim()
+  const vetoedSet = params.vetoedNcms
+
+  // 1. Substituir menções diretas a NCMs vetados (com ou sem pontuação)
+  for (const vetoed of vetoedSet) {
+    if (!vetoed || vetoed === allowedClean) continue
+
+    // Formatos: 90319090, 9031.90.90, 9031.90, 9031
+    const ncm8 = vetoed
+    const ncmFormatted = `${vetoed.slice(0, 4)}.${vetoed.slice(4, 6)}.${vetoed.slice(6, 8)}`
+    const ncmPos = vetoed.slice(0, 4)
+    const ncmPosFormatted = `${vetoed.slice(0, 2)}.${vetoed.slice(2, 4)}`
+
+    // Veto explícito de 8 dígitos
+    const regex8 = new RegExp(`(?:ncm\\s*)?(?:${ncm8}|${ncmFormatted.replace(/\./g, '\\.')})`, 'gi')
+    result = result.replace(regex8, `posição fiscal correspondente à função essencial`)
+
+    // Veto de menções que citam especificamente a posição vetada como recomendada
+    // Ex: "A classificação recomendada é NCM 90319090" -> "A classificação recomendada é NCM ${allowedClean}"
+    const recRegex = new RegExp(
+      `(?:classifica[cç][aã]o recomendada [eé] (?:a )?NCM\\s*)(?:${ncm8}|${ncmFormatted.replace(/\./g, '\\.')})`,
+      'gi',
+    )
+    result = result.replace(recRegex, `classificação recomendada é NCM ${allowedClean}`)
+  }
+
+  // 2. Varrer qualquer NCM de 8 dígitos presente no texto que NÃO SEJA o NCM permitido
+  // e que pertença aos capítulos regulados (84, 85, 90) caso não coincida
+  const anyNcm8Regex = /\b(\d{4})\.?(\d{2})\.?(\d{2})\b/g
+  result = result.replace(anyNcm8Regex, (match, p1, p2, p3) => {
+    const rawDigits = `${p1}${p2}${p3}`
+    if (rawDigits === allowedClean) {
+      return match
+    }
+    // Se for NCM diferente do permitido e vetado
+    if (vetoedSet.has(rawDigits) || vetoedSet.has(rawDigits.slice(0, 4))) {
+      return 'posição fiscal correspondente'
+    }
+    return match
+  })
+
+  // 3. Suprimir menções órfãs a "Fundamentação Complementar:" que perpetuem argumentos de NCM vetado
+  // Se o trecho de "Fundamentação Complementar" mencionar posição vetada ou afirmar recomendação oposta
+  result = result.replace(
+    /Fundamenta[cç][aã]o Complementar:\s*A classifica[cç][aã]o recomendada [eé].*?(?=(?:\n\n|$))/gis,
+    '',
+  )
+
+  // 4. Se não há Ex permitido, suprimir qualquer menção a Ex vetado (ex: "com Ex 247", "Ex-Tarifário 019")
+  if (!allowedExClean) {
+    result = result
+      .replace(/conforme\s+descrito\s+no\s+ex-tarif[aá]rio\s*\d+/gi, '')
+      .replace(/com\s+ex-tarif[aá]rio\s*\d+/gi, '')
+      .replace(/ex-tarif[aá]rio\s*\d+/gi, '')
+      .replace(/\[Checklist de Condições Restritivas do Ex-Tarifário:[^\]]+\]\s*/gi, '')
+  }
+
+  // 5. Normalizar espaços múltiplos e pontuação duplicada
+  result = result
+    .replace(/\s{2,}/g, ' ')
+    .replace(/\s*\.\s*\./g, '.')
+    .replace(/\n\s*\n\s*\n/g, '\n\n')
+    .trim()
+
+  return result
+}
 
 /**
  * Análise de Composição Universal (RGI 3b/3c):
@@ -1369,9 +1607,38 @@ function analyzeProductComposition(text: string): CompositionAnalysisResult {
 
   // Normalização e deduplicação de máquinas de destino (descartar fragmentos triviais/recortes de marketing)
   const trivialMarketingFragments = new Set([
-    'the', 'an', 'a', 'all', 'any', 'o', 'a', 'os', 'as', 'um', 'uma', 'uns', 'umas',
-    'pro', 'professional', 'broadcast', 'studio', 'production', 'live', 'high', 'ultra',
-    'todas', 'todos', 'todo', 'toda', 'seu', 'sua', 'seus', 'suas', 'cada', 'mais', 'melhor',
+    'the',
+    'an',
+    'a',
+    'all',
+    'any',
+    'o',
+    'a',
+    'os',
+    'as',
+    'um',
+    'uma',
+    'uns',
+    'umas',
+    'pro',
+    'professional',
+    'broadcast',
+    'studio',
+    'production',
+    'live',
+    'high',
+    'ultra',
+    'todas',
+    'todos',
+    'todo',
+    'toda',
+    'seu',
+    'sua',
+    'seus',
+    'suas',
+    'cada',
+    'mais',
+    'melhor',
   ])
 
   const uniqueTargets = Array.from(
@@ -1802,7 +2069,11 @@ function checkNatureContradiction(params: {
       candDescLower,
     ) &&
     !/\b(partes|acess[oó]rios|comandos?|control|painel|console)\b/i.test(candDescLower) &&
-    (candDescLower.startsWith('câmera') || candDescLower.startsWith('camera') || candDescLower.includes('câmeras cinematográficas') || candDescLower.includes('câmeras de televisão') || candDescLower.includes('câmeras fotográficas'))
+    (candDescLower.startsWith('câmera') ||
+      candDescLower.startsWith('camera') ||
+      candDescLower.includes('câmeras cinematográficas') ||
+      candDescLower.includes('câmeras de televisão') ||
+      candDescLower.includes('câmeras fotográficas'))
 
   if (isControllerOrPeripheral && candIsDirectlyCamera) {
     return {
@@ -1945,7 +2216,13 @@ function selectBestCompatibleFallback(params: {
     }
 
     // Penaliza capítulos sabidamente distantes da natureza eletroeletrônica quando o produto é eletrônico
-    if (ncmClean.startsWith('8426') || ncmClean.startsWith('8428') || ncmClean.startsWith('9007') || ncmClean.startsWith('8537') || ncmClean.startsWith('9031')) {
+    if (
+      ncmClean.startsWith('8426') ||
+      ncmClean.startsWith('8428') ||
+      ncmClean.startsWith('9007') ||
+      ncmClean.startsWith('8537') ||
+      ncmClean.startsWith('9031')
+    ) {
       score -= 50
     }
 
@@ -2079,7 +2356,12 @@ async function retrieveSectorOrientedCandidates(params: {
           targetMachines
             .flatMap((t) => t.toLowerCase().split(/[\s-]+/))
             .filter(
-              (w) => w.length >= 4 && !['para', 'com', 'destinado', 'apropriado', 'cameras', 'camera'].includes(w) || w.startsWith('camer') || w.startsWith('câmer') || w === 'ptz',
+              (w) =>
+                (w.length >= 4 &&
+                  !['para', 'com', 'destinado', 'apropriado', 'cameras', 'camera'].includes(w)) ||
+                w.startsWith('camer') ||
+                w.startsWith('câmer') ||
+                w === 'ptz',
             ),
         ),
       ).slice(0, 4)
@@ -2228,11 +2510,63 @@ function buildLeanProductSignature(params: {
   // Extração de termos de busca derivada da identidade do produto (substantivos do aparelho,
   // termos de função e máquina de destino) com stopwords genéricas — não os 2 primeiros tokens da descrição de marketing
   const genericStopwords = new Set([
-    'o', 'a', 'os', 'as', 'um', 'uma', 'uns', 'umas', 'de', 'do', 'da', 'dos', 'das',
-    'em', 'no', 'na', 'nos', 'nas', 'por', 'pelo', 'pela', 'pelos', 'pelas', 'com', 'sem',
-    'para', 'destinado', 'destinada', 'destinados', 'destinadas', 'e', 'ou', 'que', 'se',
-    'the', 'a', 'an', 'and', 'or', 'of', 'in', 'on', 'at', 'by', 'for', 'with', 'without',
-    'pro', 'professional', 'ultra', 'high', 'new', 'novo', 'nova', 'original', 'versao', 'version',
+    'o',
+    'a',
+    'os',
+    'as',
+    'um',
+    'uma',
+    'uns',
+    'umas',
+    'de',
+    'do',
+    'da',
+    'dos',
+    'das',
+    'em',
+    'no',
+    'na',
+    'nos',
+    'nas',
+    'por',
+    'pelo',
+    'pela',
+    'pelos',
+    'pelas',
+    'com',
+    'sem',
+    'para',
+    'destinado',
+    'destinada',
+    'destinados',
+    'destinadas',
+    'e',
+    'ou',
+    'que',
+    'se',
+    'the',
+    'a',
+    'an',
+    'and',
+    'or',
+    'of',
+    'in',
+    'on',
+    'at',
+    'by',
+    'for',
+    'with',
+    'without',
+    'pro',
+    'professional',
+    'ultra',
+    'high',
+    'new',
+    'novo',
+    'nova',
+    'original',
+    'versao',
+    'version',
   ])
 
   // Isolar substantivos e termos de função / máquina de destino
@@ -2294,15 +2628,21 @@ function evaluateInformationSufficiency(params: {
   if (desc.length < 25 || combined.length < 35) {
     return {
       isSufficient: false,
-      reason: 'Descrição insuficiente para estabelecer a identidade, função essencial e máquina de destino na Fase 0.',
+      reason:
+        'Descrição insuficiente para estabelecer a identidade, função essencial e máquina de destino na Fase 0.',
     }
   }
 
   // 2. Se o produto apresenta indicadores de conjunto/sistema mas seus componentes essenciais não puderam ser identificados
-  if (params.compositionAnalysis.isKit && (!params.compositionAnalysis.compositionIdentified || params.compositionAnalysis.detectedComponents.length < 2)) {
+  if (
+    params.compositionAnalysis.isKit &&
+    (!params.compositionAnalysis.compositionIdentified ||
+      params.compositionAnalysis.detectedComponents.length < 2)
+  ) {
     return {
       isSufficient: false,
-      reason: 'Produto reconhecido como sistema/conjunto, mas a composição interna não está totalmente detalhada para fundamentação RGI 3b.',
+      reason:
+        'Produto reconhecido como sistema/conjunto, mas a composição interna não está totalmente detalhada para fundamentação RGI 3b.',
     }
   }
 
@@ -2315,7 +2655,8 @@ function evaluateInformationSufficiency(params: {
   if (!hasSubstantiveTechnicalDetail) {
     return {
       isSufficient: false,
-      reason: 'Informações internas resumidas a fragmentos comerciais sem detalhamento técnico substantivo da função.',
+      reason:
+        'Informações internas resumidas a fragmentos comerciais sem detalhamento técnico substantivo da função.',
     }
   }
 

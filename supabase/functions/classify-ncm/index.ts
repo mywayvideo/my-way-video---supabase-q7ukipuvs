@@ -64,6 +64,227 @@ interface CompositionAnalysisResult {
   targetMachines: string[]
 }
 
+// =============================================================================
+// PRINCÍPIO GENÉRICO UNIVERSAL: DETECÇÃO E VÍNCULO INDIRETO DE NCMs DE PEÇAS
+// =============================================================================
+
+export interface PartsHeadingRange {
+  start: number
+  end: number
+  rawStart: string
+  rawEnd: string
+}
+
+export interface PartsNcmDetectionResult {
+  isParts: boolean
+  detectedRanges: PartsHeadingRange[]
+}
+
+/**
+ * Identifica candidato "NCM de peças/partes" pela assinatura textual genérica
+ * (ex.: "partes ... destinadas ... aos aparelhos das posições 85.24 a 85.28",
+ * "partes e acessórios reconhecíveis como destinada... às máquinas das posições 84.70 a 84.72",
+ * "exclusivamente destinadas aos aparelhos da posição 85.25", etc.).
+ * Extrai os intervalos ou listas de posições declarados no texto oficial do NCM.
+ */
+export function isPartsNcmPattern(description: string): PartsNcmDetectionResult {
+  if (!description || typeof description !== 'string') {
+    return { isParts: false, detectedRanges: [] }
+  }
+
+  const text = description.toLowerCase()
+
+  // 1. Assinatura primária: menção a partes/acessórios e destinação/utilização
+  const hasPartsWord = /\b(?:partes?|pe[çc]as?|acess[oó]rios?)\b/i.test(text)
+  const hasDestinedWord =
+    /\b(?:destinad[ao]s?|utilizad[ao]s?|concebid[ao]s?|pr[oó]pri[ao]s?|exclusiva(?:mente)?|principalmente)\b/i.test(
+      text,
+    )
+  const hasPositionWord =
+    /\b(?:posi[çc][oõ]es|posi[çc][aã]o|subposi[çc][oõ]es|subposi[çc][aã]o|n[úu]meros?)\b/i.test(
+      text,
+    )
+
+  const isPartsSignature = hasPartsWord && (hasDestinedWord || hasPositionWord)
+  if (!isPartsSignature) {
+    return { isParts: false, detectedRanges: [] }
+  }
+
+  const detectedRanges: PartsHeadingRange[] = []
+
+  // 2. Extração genérica de intervalos no formato "85.24 a 85.28", "84.25 a 84.30", "84.70 a 84.72"
+  const rangeRegex = /(\d{2})\.?(\d{2})\s*(?:a|à|-|at[ée]|to)\s*(\d{2})\.?(\d{2})/gi
+  let match: RegExpExecArray | null
+  while ((match = rangeRegex.exec(text)) !== null) {
+    const startNum = parseInt(`${match[1]}${match[2]}`, 10)
+    const endNum = parseInt(`${match[3]}${match[4]}`, 10)
+    if (!isNaN(startNum) && !isNaN(endNum) && startNum <= endNum) {
+      detectedRanges.push({
+        start: startNum,
+        end: endNum,
+        rawStart: `${match[1]}.${match[2]}`,
+        rawEnd: `${match[3]}.${match[4]}`,
+      })
+    }
+  }
+
+  // 3. Extração de posições pontuais declaradas após menção a posições/subposições
+  // Ex: "aos aparelhos da posição 85.25", "às máquinas da subposição 8471.30"
+  const singlePosRegex =
+    /(?:posi[çc][aã]o|subposi[çc][aã]o|n[úu]meros?)\s*(?:n[°ºo]\s*)?(\d{2})\.?(\d{2})/gi
+  let singleMatch: RegExpExecArray | null
+  while ((singleMatch = singlePosRegex.exec(text)) !== null) {
+    const posNum = parseInt(`${singleMatch[1]}${singleMatch[2]}`, 10)
+    if (!isNaN(posNum)) {
+      const alreadyCovered = detectedRanges.some((r) => posNum >= r.start && posNum <= r.end)
+      if (!alreadyCovered) {
+        detectedRanges.push({
+          start: posNum,
+          end: posNum,
+          rawStart: `${singleMatch[1]}.${singleMatch[2]}`,
+          rawEnd: `${singleMatch[1]}.${singleMatch[2]}`,
+        })
+      }
+    }
+  }
+
+  return {
+    isParts: true,
+    detectedRanges,
+  }
+}
+
+/**
+ * Verifica se uma dada posição (4 dígitos, ex: "8525") está compreendida
+ * em algum dos intervalos de posições extraídos do NCM de partes.
+ */
+export function isHeadingContainedInPartsRanges(
+  heading4Digits: string,
+  ranges: PartsHeadingRange[],
+): boolean {
+  if (!heading4Digits || !ranges || ranges.length === 0) return false
+  const headNum = parseInt(heading4Digits.replace(/\D/g, '').slice(0, 4), 10)
+  if (isNaN(headNum)) return false
+
+  return ranges.some((range) => headNum >= range.start && headNum <= range.end)
+}
+
+/**
+ * Avalia se o produto sob análise possui função própria completa e autônoma,
+ * ou se é uma peça/acessório dependente sem função independente.
+ * Aplica princípios universais (RGI 1, RGI 3b, Nota 2).
+ */
+export function evaluateProductHasStandaloneFunction(params: {
+  productUnderstanding?: any
+  productText?: string
+  isKit?: boolean
+}): boolean {
+  const pu = params.productUnderstanding
+  const text = (params.productText || '').toLowerCase()
+
+  // Se o product_understanding declarou categoricamente a função
+  const puFunction = (pu?.essential_function || pu?.primary_use || '').toLowerCase()
+  const puNature = (pu?.technical_nature || '').toLowerCase()
+
+  // Sinais de equipamento autônomo / aparelho completo com função própria
+  const standaloneIndicators = [
+    'aparelho com função própria',
+    'aparelho completo',
+    'função própria',
+    'standalone',
+    'autônomo',
+    'sistema de microfone',
+    'câmera',
+    'controlador',
+    'painel de controle',
+    'mesa de corte',
+    'switch',
+    'roteador',
+    'processador',
+    'transmissor',
+    'receptor',
+  ]
+
+  const partsIndicators = [
+    'mera peça',
+    'peça de reposição',
+    'componente passivo',
+    'gabinete vazio',
+    'chassi sem circuitos',
+    'parafuso',
+    'engrenagem',
+    'conector avulso',
+  ]
+
+  for (const partTerm of partsIndicators) {
+    if (puNature.includes(partTerm) || puFunction.includes(partTerm)) {
+      return false
+    }
+  }
+
+  if (params.isKit) return true
+
+  for (const ind of standaloneIndicators) {
+    if (puNature.includes(ind) || puFunction.includes(ind) || text.includes(ind)) {
+      return true
+    }
+  }
+
+  // Por padrão, produtos no catálogo com circuitos eletrônicos, fonte e controles são aparelhos autônomos
+  return true
+}
+
+/**
+ * Avalia a telemetria da lógica de partes com vínculo indireto para gravação no log
+ */
+export function evaluatePartsLogicTelemetry(params: {
+  recommendedNcm: string
+  recommendedDesc: string
+  alternatives: any[]
+  candidates: any[]
+  targetMachines: string[]
+}): {
+  parts_logic_triggered: boolean
+  matched_range?: string | null
+  parts_candidates_found: string[]
+  recommended_is_parts: boolean
+  alternative_parts: string[]
+  notes: string
+} {
+  const partsCands = (params.candidates || []).filter((c: any) => {
+    const desc = c.ncm_descricao_full || c.ncm_descricao || c.source_text || ''
+    return isPartsNcmPattern(desc).isParts
+  })
+
+  const recPattern = isPartsNcmPattern(params.recommendedDesc)
+  const altParts = (params.alternatives || []).filter((a: any) => {
+    return isPartsNcmPattern(a.description || a.reason || '').isParts
+  })
+
+  let matchedRangeStr: string | null = null
+  for (const pc of partsCands) {
+    const desc = pc.ncm_descricao_full || pc.ncm_descricao || pc.source_text || ''
+    const pInfo = isPartsNcmPattern(desc)
+    if (pInfo.detectedRanges.length > 0) {
+      matchedRangeStr = pInfo.detectedRanges.map((r) => `${r.rawStart} a ${r.rawEnd}`).join(', ')
+      break
+    }
+  }
+
+  const triggered = partsCands.length > 0 || recPattern.isParts || altParts.length > 0
+
+  return {
+    parts_logic_triggered: triggered,
+    matched_range: matchedRangeStr,
+    parts_candidates_found: partsCands.map((c: any) => normalizeNcm(c.ncm)),
+    recommended_is_parts: recPattern.isParts,
+    alternative_parts: altParts.map((a: any) => normalizeNcm(a.ncm)),
+    notes: triggered
+      ? `Lógica universal de partes com vínculo indireto avaliada (${partsCands.length} candidatos de partes na base).`
+      : 'Nenhum candidato de partes com vínculo indireto envolvido.',
+  }
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -76,7 +297,7 @@ Deno.serve(async (req: Request) => {
       JSON.stringify({
         status: 'ok',
         function: 'classify-ncm',
-        version: '3.3.0-build.605',
+        version: '3.4.0-build.606',
         knowledge_base_version: '3.1',
         features: [
           'phase0_canonical_composition_derivation',
@@ -88,6 +309,7 @@ Deno.serve(async (req: Request) => {
           'intrafamily_qualifier_tiebreak',
           'candidate_catalog_integrity_check',
           'full_candidate_audit_logging',
+          'parts_ncm_indirect_linking',
         ],
         timestamp: new Date().toISOString(),
       }),
@@ -411,11 +633,20 @@ METODOLOGIA OBRIGATÓRIA UNIVERSAL:
    - Os Ex-Tarifários são normas de exceção tributária de interpretação estrita (Art. 111 do CTN).
    - Cada valor técnico do produto confrontado com o Ex deve ser copiado LITERALMENTE das especificações. Valor não comprovado ou contraditório impede a concessão do Ex.
 
-6. UNIVERSO DE CANDIDATOS E FORMATO DE SAÍDA:
+6. PRINCÍPIO UNIVERSAL DE VÍNCULO INDIRETO PARA NCMs DE PARTES E ACESSÓRIOS:
+   - Identificação do padrão: Linhas cuja descrição hierárquica possui assinatura de "partes/acessórios destinados aos aparelhos/máquinas das posições X a Y" (ou posições específicas equivalentes, ex: 8529.90.90 cobrindo 85.24 a 85.28, 8431 cobrindo 84.25 a 84.30, 8473 cobrindo 84.70 a 84.72, etc.).
+   - O teste de enquadramento NÃO é similaridade vetorial/textual com o texto do NCM (o texto do NCM não descreve produto algum, apenas cita intervalos de posições).
+   - Teste de vínculo indireto: O produto em análise (função essencial e máquinas de destino da Fase 0 / product_understanding) destina-se a operar com aparelhos compreendidos dentro do intervalo ou lista de posições declarado no texto do NCM?
+     * Se SIM: O NCM de partes é candidato válido e legítimo para a mercadoria (RGI 1 e 2; Nota 2 dos Capítulos 84 e 85).
+     * CONCORRÊNCIA COM APARELHO COMPLETO DE FUNÇÃO PRÓPRIA (RGI 3): Se o produto possui função própria completa e autônoma (não sendo mera peça/acessório passivo ou dependente), a posição de aparelho com função própria prevalece na recomendação (RGI 3b/3c), e o NCM de partes DEVE constar como alternativa com justificativa explícita do vínculo indireto. Se o produto for genuinamente parte/acessório sem função própria autônoma, o NCM de partes deve ser recomendado.
+   - PROIBIÇÃO INVERSA ESTREITA: Um NCM de partes/acessórios NUNCA pode ser recomendado quando o produto tem função própria completa e independente (ex.: sistemas completos de microfone/áudio, câmeras de vídeo autônomas, receptores/transmissores completos com função própria). Peças não podem vencer equipamentos completos.
+   - JUSTIFICATIVA OBRIGATÓRIA DE VÍNCULO INDIRETO: Sempre que um NCM de partes for recomendado OU listado nas alternativas, a justificativa/reason DEVE explicitar o vínculo indireto: citar textualmente o intervalo de posições declarado no NCM e as máquinas/funções de destino extraídas da Fase 0 (ex.: "destina-se a câmeras PTZ, posição 8525, dentro do intervalo 85.24 a 85.28 declarado no texto oficial do NCM").
+
+7. UNIVERSO DE CANDIDATOS E FORMATO DE SAÍDA:
 - Escolha o recommended_ncm e recommended_ex EXCLUSIVAMENTE a partir da lista de candidatos fornecida.
 - Na justificativa ("justification"), é OBRIGATÓRIO citar a descrição hierárquica completa oficial (Capítulo | Posição | Subitem do NCM escolhido) para fundamentar com precisão aduaneira o enquadramento.
 - HIERARQUIZAÇÃO ENTRE APARELHO COM FUNÇÃO PRÓPRIA E PARTES/ACESSÓRIOS:
-  Quando a função essencial for "aparelho com função própria" e existir família de partes/acessórios da máquina de destino, AMBAS as famílias devem constar na resposta (uma na recomendação e a outra nas alternativas) com a devida justificativa técnica de hierarquização.
+  Quando a função essencial for "aparelho com função própria" e existir família de partes/acessórios da máquina de destino, AMBAS as famílias devem constar na resposta (uma na recomendação e a outra nas alternativas) com a devida justificativa técnica de hierarquização e vínculo indireto.
 - Responda OBRIGATORIAMENTE em JSON válido sem texto externo, no formato exato:
 {
 "product_understanding": {
@@ -674,6 +905,11 @@ PROTOCOLO OBRIGATÓRIO DE AUDITORIA (PRINCÍPIOS GENÉRICOS UNIVERSAIS):
    - Entre famílias empatadas na correção, prefira SEMPRE uma posição de função genérica tecnicamente compatível (ex.: aparelhos com função própria, partes e acessórios reconhecíveis) sobre uma posição de função específica incompatível.
 8. VETO A TODAS AS ALTERNATIVAS:
    - O veto por contradição de natureza e coerência técnica vale para TODA a lista de alternativas. Nenhuma alternativa com autocontradição ou incompatibilidade ontológica pode ser mantida.
+9. VÍNCULO INDIRETO PARA NCMs DE PARTES E ACESSÓRIOS:
+   - Para candidatos NCM de partes (assinatura "partes destinadas aos aparelhos das posições X a Y" ou posições equivalentes):
+   - O enquadramento afere-se pelo destino do produto (target_machines da Fase 0) confrontado com as posições dos aparelhos declaradas no texto do NCM. Se as máquinas de destino caírem no intervalo citado no NCM de partes, o NCM de partes é perfeitamente válido.
+   - PROIBIÇÃO INVERSA: NCM de peças não pode ser recomendado quando o produto tem função própria completa e não é parte/acessório (aparelho completo prevalece na recomendação por RGI 3b; o NCM de partes DEVE constar como alternativa com justificativa do vínculo indireto).
+   - JUSTIFICATIVA OBRIGATÓRIA DO VÍNCULO INDIRETO: Ao recomendar ou listar NCM de partes, a justificativa/reason deve citar o intervalo de posições declarado no texto e os destinos da Fase 0 (ex.: "destina-se a câmeras, posição 8525, dentro do intervalo 85.24 a 85.28 declarado no texto").
 
 RESPOSTA OBRIGATÓRIA EM JSON:
 {
@@ -714,6 +950,7 @@ ATENÇÃO AUDITOR:
 4. A CORREÇÃO DEVE RESPEITAR A NATUREZA DO PRODUTO: Jamais corrija para um NCM cuja descrição contradiga o que o produto é (ex.: não escolha NCM de câmera para controlador, nem NCM de máquinas para produto eletroeletrônico).
 5. É TERMINANTEMENTE PROIBIDO escolher por benefício fiscal (alíquota zero/reduzida) ou por ordem de recuperação. O critério é 100% técnico.
 6. Se houver dúvida entre posições específicas que contradizem o produto e posições genéricas compatíveis (máquinas com função própria / partes e acessórios), prefira a genérica compatível.
+7. VÍNCULO INDIRETO DE PEÇAS: Se houver candidatos com padrão "partes destinadas aos aparelhos das posições X a Y", avalie se as target_machines da Fase 0 estão no intervalo. Se o produto tiver função própria autônoma, peças NÃO devem vencer o recomendado, mas DEVEM constar nas alternativas com justificativa explícita do vínculo indireto citando as posições.
 
 LISTA DE CANDIDATOS VÁLIDOS:
 ${candidatesCatalogText}`
@@ -825,11 +1062,44 @@ ${candidatesCatalogText}`
             }
           }
 
-          // Se a correção do auditor foi VETADA pela verificação de natureza ontológica ou critério fiscal
-          if (natureContradiction.contradicted || taxCriterionCheck.violatesTaxProhibition) {
+          // (2.B) PROIBIÇÃO INVERSA UNIVERSAL DE PEÇAS:
+          // Se o produto possui função própria completa e autônoma na Fase 0 / product_understanding
+          // e o candidato corrigido do auditor for um NCM de peças com vínculo indireto
+          // (ex.: "partes destinadas aos aparelhos das posições X a Y"):
+          // Peças NUNCA podem ser recomendadas para equipamento completo autônomo (RGI 3b).
+          const isCandidateParts = isPartsNcmPattern(
+            candidateMatch.ncm_descricao_full ||
+              candidateMatch.ncm_descricao ||
+              candidateMatch.source_text ||
+              '',
+          )
+          const productHasStandaloneFunction = evaluateProductHasStandaloneFunction({
+            productUnderstanding:
+              auditVerdict.product_understanding || initialRecommendation.product_understanding,
+            productText: fullTechnicalProfile,
+            isKit: compositionAnalysis.isKit,
+          })
+
+          const partsInverseViolation = isCandidateParts.isParts && productHasStandaloneFunction
+
+          if (partsInverseViolation) {
+            console.warn(
+              `[Auditoria 2ª Passada: VETO POR PROIBIÇÃO INVERSA DE PEÇAS] Candidato ${correctedDigits} é NCM de peças, mas o produto possui função própria completa autônoma. Peças não podem vencer equipamento completo.`,
+            )
+          }
+
+          // Se a correção do auditor foi VETADA pela verificação de natureza ontológica, critério fiscal ou proibição inversa de peças
+          if (
+            natureContradiction.contradicted ||
+            taxCriterionCheck.violatesTaxProhibition ||
+            partsInverseViolation
+          ) {
+            const vetoReasonText = partsInverseViolation
+              ? `Proibição inversa de peças: produto possui função própria completa autônoma (RGI 3b), não podendo ser enquadrado em NCM de partes (${correctedDigits}).`
+              : natureContradiction.reason || taxCriterionCheck.reason
             console.warn(
               `[Auditoria 2ª Passada: VETO DA CORREÇÃO] Correção para ${correctedDigits} foi vetada:`,
-              natureContradiction.reason || taxCriterionCheck.reason,
+              vetoReasonText,
             )
 
             // (4) PREFERÊNCIA POR FUNÇÃO GENÉRICA COMPATÍVEL SOBRE ESPECÍFICA INCOMPATÍVEL:
@@ -849,7 +1119,7 @@ ${candidatesCatalogText}`
               )
 
               auditVerdict.override_applied = true
-              auditVerdict.override_reason = `Correção do auditor para ${correctedDigits} vetada (${natureContradiction.reason || taxCriterionCheck.reason}). Aplicada preferência técnica por função genérica compatível NCM ${fallbackNcmClean}.`
+              auditVerdict.override_reason = `Correção do auditor para ${correctedDigits} vetada (${vetoReasonText}). Aplicada preferência técnica por função genérica compatível NCM ${fallbackNcmClean}.`
               auditVerdict.corrected_ncm = fallbackNcmClean
               auditVerdict.corrected_ex = fallbackExClean
               auditVerdict.correction_reason = auditVerdict.override_reason
@@ -1178,10 +1448,10 @@ ${candidatesCatalogText}`
     }
 
     // Se sobrou espaço nas alternativas e temos família de partes/acessórios da máquina de destino,
-    // garantir que conste nas alternativas com justificativa de hierarquização
+    // garantir que conste nas alternativas com justificativa de vínculo indireto obrigatória
     const partsCand = candidates.find(
       (c: any) =>
-        Boolean(c.is_target_machine_parts) &&
+        (Boolean(c.is_target_machine_parts) || Boolean(c.is_parts_indirect_linking)) &&
         normalizeNcm(c.ncm) !== recommendedNcmClean &&
         !vetoedNcms.has(normalizeNcm(c.ncm)) &&
         !resolvedAlternatives.some((a) => a.ncm === normalizeNcm(c.ncm)),
@@ -1192,19 +1462,31 @@ ${candidatesCatalogText}`
       const pIpi = Number(partsCand.ipi_rate ?? 0)
       const pPis = Number(partsCand.pis_rate ?? 2.1)
       const pCofins = Number(partsCand.cofins_rate ?? 9.65)
+      const partsDesc =
+        partsCand.ex_descricao || partsCand.ncm_descricao_full || partsCand.ncm_descricao || ''
+      const partsPatternInfo = isPartsNcmPattern(partsDesc)
+      const targetStr =
+        canonicalTargetMachines.length > 0
+          ? canonicalTargetMachines.join(', ')
+          : finalProductUnderstanding?.target_machines?.join(', ') ||
+            'máquinas de destino da função'
+
+      const justificationReason =
+        partsPatternInfo.detectedRanges.length > 0
+          ? `Vínculo indireto: destina-se a ${targetStr}, dentro do intervalo de posições ${partsPatternInfo.detectedRanges.map((r) => `${r.rawStart} a ${r.rawEnd}`).join(', ')} declarado no texto oficial do NCM (RGI 1 / Nota 2 do Capítulo). Hierarquizada como alternativa válida diante de aparelho com função própria autônoma (RGI 3b).`
+          : `Família de partes e acessórios reconhecíveis destinada a ${targetStr} (RGI 1 / Nota 2 do Capítulo). Hierarquizada como alternativa válida diante de aparelho autônomo com função própria.`
+
       resolvedAlternatives.unshift({
         ncm: pNcm,
         ex: partsCand.ex || '',
-        description:
-          partsCand.ex_descricao || partsCand.ncm_descricao_full || partsCand.ncm_descricao || '',
+        description: partsDesc,
         ii: pIi,
         ipi: pIpi,
         pis: pPis,
         cofins: pCofins,
         total_tax: Number((pIi + pIpi + pPis + pCofins).toFixed(2)),
         has_ex_tarifario: Boolean(partsCand.has_ex_tarifario),
-        reason:
-          'Família de partes e acessórios reconhecíveis da máquina de destino da função (RGI 1 / Nota 2 do Capítulo). Hierarquizada como alternativa diante de aparelho autônomo com função própria.',
+        reason: justificationReason,
       })
     }
 
@@ -1271,6 +1553,32 @@ ${candidatesCatalogText}`
         finalJustification = `${compText}\n\n${finalJustification}`
       }
     }
+
+    // JUSTIFICATIVA OBRIGATÓRIA DE VÍNCULO INDIRETO QUANDO PEÇAS FOR RECOMENDADO:
+    const recPartsCheck = isPartsNcmPattern(primaryDescription)
+    if (recPartsCheck.isParts && recPartsCheck.detectedRanges.length > 0) {
+      const targetStr =
+        canonicalTargetMachines.length > 0
+          ? canonicalTargetMachines.join(', ')
+          : finalProductUnderstanding?.target_machines?.join(', ') || 'aparelhos de destino'
+      const rangesStr = recPartsCheck.detectedRanges
+        .map((r) => `${r.rawStart} a ${r.rawEnd}`)
+        .join(', ')
+      const indirectLinkNote = `[Vínculo Indireto de Peças/Acessórios]: Destina-se a ${targetStr}, enquadrando-se no intervalo de posições ${rangesStr} declarado expressamente no texto oficial da NCM (RGI 1 e 2; Nota 2 do Capítulo).`
+      if (!finalJustification.includes('[Vínculo Indireto')) {
+        finalJustification = `${indirectLinkNote}\n\n${finalJustification}`
+      }
+    }
+
+    // TELEMETRIA E AUDITORIA DA LÓGICA DE PEÇAS (Requisito 5):
+    // Identificar se a lógica de peças com vínculo indireto foi acionada e qual intervalo casou
+    const partsTelemetry = evaluatePartsLogicTelemetry({
+      recommendedNcm: recommendedNcmClean,
+      recommendedDesc: primaryDescription,
+      alternatives: resolvedAlternatives,
+      candidates,
+      targetMachines: canonicalTargetMachines,
+    })
 
     // SUPRESSÃO DO BLOCO DE EX QUANDO NÃO HÁ EX:
     // O bloco de checklist formatado só é injetado no relatório do usuário se houver Ex homologado na resposta final.
@@ -1421,6 +1729,8 @@ ${candidatesCatalogText}`
       expansion_parent_6: c.expansion_parent_6 || null,
       is_component_sector: Boolean(c.is_component_sector),
       is_target_machine_parts: Boolean(c.is_target_machine_parts),
+      is_parts_indirect_linking: Boolean(c.is_parts_indirect_linking),
+      matched_parts_ranges: c.matched_parts_ranges || null,
     }))
 
     // 15. Gravação no log de auditoria (imp_sim_ncm_classification_log)
@@ -1449,6 +1759,7 @@ ${candidatesCatalogText}`
               composition_analysis: compositionAnalysis,
               checklist_log: checklistLog,
               ex_veto_applied: exVetoApplied,
+              parts_indirect_logic: partsTelemetry,
               evaluated_candidates: evaluatedCandidatesLog,
               evaluated_candidates_count: evaluatedCandidatesLog.length,
             },
@@ -1494,7 +1805,8 @@ ${candidatesCatalogText}`
       lean_signature: leanSignature,
       composition_analysis: compositionAnalysis,
       checklist_log: checklistLog,
-      version: '3.3.0-build.605',
+      parts_indirect_logic: partsTelemetry,
+      version: '3.4.0-build.606',
       timestamp: new Date().toISOString(),
     }
 
@@ -1592,8 +1904,6 @@ function sanitizeOrphanNcmReferences(params: {
     // Formatos: 90319090, 9031.90.90, 9031.90, 9031
     const ncm8 = vetoed
     const ncmFormatted = `${vetoed.slice(0, 4)}.${vetoed.slice(4, 6)}.${vetoed.slice(6, 8)}`
-    const ncmPos = vetoed.slice(0, 4)
-    const ncmPosFormatted = `${vetoed.slice(0, 2)}.${vetoed.slice(2, 4)}`
 
     // Veto explícito de 8 dígitos
     const regex8 = new RegExp(`(?:ncm\\s*)?(?:${ncm8}|${ncmFormatted.replace(/\./g, '\\.')})`, 'gi')
@@ -1610,6 +1920,8 @@ function sanitizeOrphanNcmReferences(params: {
 
   // 2. Varrer qualquer NCM de 8 dígitos presente no texto que NÃO SEJA o NCM permitido
   // e que pertença aos capítulos regulados (84, 85, 90) caso não coincida
+  // PRESERVAÇÃO: Não corromper intervalos de posições de 4 dígitos declarados em textos de vínculo indireto
+  // (ex: "85.24 a 85.28", "posições 84.25 a 84.30"). Apenas códigos completos de 8 dígitos vetados são varridos.
   const anyNcm8Regex = /\b(\d{4})\.?(\d{2})\.?(\d{2})\b/g
   result = result.replace(anyNcm8Regex, (match, p1, p2, p3) => {
     const rawDigits = `${p1}${p2}${p3}`
@@ -1617,7 +1929,7 @@ function sanitizeOrphanNcmReferences(params: {
       return match
     }
     // Se for NCM diferente do permitido e vetado
-    if (vetoedSet.has(rawDigits) || vetoedSet.has(rawDigits.slice(0, 4))) {
+    if (vetoedSet.has(rawDigits)) {
       return 'posição fiscal correspondente'
     }
     return match
@@ -2453,12 +2765,11 @@ async function retrieveSectorOrientedCandidates(params: {
     }
   }
 
-  // RECUPERAÇÃO DA FAMÍLIA DE PARTES E ACESSÓRIOS DA MÁQUINA DE DESTINO (Princípio Genérico):
-  // Se uma máquina de destino da função foi identificada (padrão "X para Y" / modificadores de montagem),
-  // acionar a busca da família de partes e acessórios correspondente àquela máquina via mapeamento SEMÂNTICO no banco
-  // (consultando descrições hierárquicas por posições de destino e suas partes/acessórios, sem códigos hardcoded).
-  // Localizar as posições cuja ncm_descricao_full se declara servirem às posições que abrangem aquela máquina
-  // (ex.: 8529 se declara "partes e acessórios ... aos aparelhos das posições 85.24 a 85.28", que inclui câmeras da 85.25).
+  // RECUPERAÇÃO UNIVERSAL DE NCMs DE PARTES POR VÍNCULO INDIRETO:
+  // Se máquinas de destino foram identificadas na Fase 0 / targetMachines (ou termos de acoplamento):
+  // 1. Identificar posições dessas máquinas na base oficial
+  // 2. Recuperar genericamente NCMs com assinatura "partes destinadas às posições X a Y"
+  //    cujo intervalo abranja as posições das máquinas de destino
   if (targetMachines.length > 0) {
     try {
       const distinctTargets = Array.from(
@@ -2476,7 +2787,7 @@ async function retrieveSectorOrientedCandidates(params: {
         ),
       ).slice(0, 4)
 
-      // 1. Identificar posições da máquina de destino no banco
+      // Identificar posições da máquina de destino no banco
       const targetHeadings = new Set<string>()
       for (const targetWord of distinctTargets) {
         const { data: targetPositions } = await supabaseAdmin
@@ -2493,74 +2804,63 @@ async function retrieveSectorOrientedCandidates(params: {
         }
       }
 
-      // 2. Para cada posição encontrada (ex: 8525), procurar posições de partes/acessórios
-      // que cobrem essa posição, seja por menção direta (85.25) ou por faixa de posições (85.24 a 85.28 / 85.18 a 85.21 / etc.)
-      for (const heading of targetHeadings) {
-        const headNum = parseInt(heading, 10)
-        const formattedHeading = `${heading.slice(0, 2)}.${heading.slice(2, 4)}` // ex: 85.25
+      // Buscar linhas com assinatura textual genérica de partes destinadas a posições
+      // (ex.: "partes reconhecíveis como destinadas... aos aparelhos das posições X a Y")
+      const { data: partsCandidates } = await supabaseAdmin
+        .from('imp_sim_tax_rates')
+        .select(
+          'id, ncm, ex, ncm_descricao, ncm_descricao_full, ex_descricao, ii_rate, ipi_rate, pis_rate, cofins_rate, has_ex_tarifario',
+        )
+        .ilike('ncm_descricao_full', '%partes%destinad%posiç%')
+        .limit(60)
 
-        // Buscar posições cujas descrições contenham partes/acessórios
-        const { data: partsCandidates } = await supabaseAdmin
-          .from('imp_sim_tax_rates')
-          .select(
-            'id, ncm, ex, ncm_descricao, ncm_descricao_full, ex_descricao, ii_rate, ipi_rate, pis_rate, cofins_rate, has_ex_tarifario',
-          )
-          .ilike('ncm_descricao_full', '%partes%posiç%')
-          .limit(30)
+      if (partsCandidates && partsCandidates.length > 0) {
+        for (const pc of partsCandidates) {
+          const desc = pc.ncm_descricao_full || ''
+          const partsInfo = isPartsNcmPattern(desc)
+          if (!partsInfo.isParts) continue
 
-        if (partsCandidates && partsCandidates.length > 0) {
-          for (const pc of partsCandidates) {
-            const desc = pc.ncm_descricao_full || ''
-            let matchesHeadingScope = false
-
-            // Verifica menção direta da posição
-            if (desc.includes(formattedHeading) || desc.includes(heading)) {
-              matchesHeadingScope = true
-            } else {
-              // Verifica faixas de posições no padrão "85.24 a 85.28" ou "84.25 a 84.30"
-              const rangeRegex = /(\d{2})\.(\d{2})\s*(?:a|à|-|to)\s*(\d{2})\.(\d{2})/g
-              let rangeMatch: RegExpExecArray | null
-              while ((rangeMatch = rangeRegex.exec(desc)) !== null) {
-                const startNum = parseInt(`${rangeMatch[1]}${rangeMatch[2]}`, 10)
-                const endNum = parseInt(`${rangeMatch[3]}${rangeMatch[4]}`, 10)
-                if (!isNaN(headNum) && headNum >= startNum && headNum <= endNum) {
-                  matchesHeadingScope = true
-                  break
-                }
-              }
+          const matchedRanges: string[] = []
+          for (const heading of targetHeadings) {
+            if (isHeadingContainedInPartsRanges(heading, partsInfo.detectedRanges)) {
+              matchedRanges.push(heading)
             }
+          }
 
-            if (matchesHeadingScope) {
-              const alreadyExists = candidates.some(
-                (c: any) => normalizeNcm(c.ncm) === pc.ncm && (c.ex || '') === (pc.ex || ''),
-              )
-              if (!alreadyExists) {
-                candidates.push({
-                  tax_rate_id: pc.id,
-                  ncm: pc.ncm,
-                  ex: pc.ex || '',
-                  ncm_descricao: pc.ncm_descricao || '',
-                  ncm_descricao_full: pc.ncm_descricao_full || pc.ncm_descricao || '',
-                  ex_descricao: pc.ex_descricao || null,
-                  source_text: `NCM ${pc.ncm} | ${pc.ncm_descricao_full || pc.ncm_descricao || ''}${pc.ex_descricao ? ` | Ex ${pc.ex} ${pc.ex_descricao}` : ''}`,
-                  ii_rate: Number(pc.ii_efetivo ?? pc.ii_rate ?? 0),
-                  ipi_rate: Number(pc.ipi_rate ?? 0),
-                  pis_rate: Number(pc.pis_rate ?? 2.1),
-                  cofins_rate: Number(pc.cofins_rate ?? 9.65),
-                  has_ex_tarifario: Boolean(pc.has_ex_tarifario),
-                  vector_score: 0.75,
-                  text_score: 0.95,
-                  combined_score: 0.85,
-                  is_target_machine_parts: true,
-                })
-              }
+          if (matchedRanges.length > 0) {
+            const alreadyExists = candidates.some(
+              (c: any) => normalizeNcm(c.ncm) === pc.ncm && (c.ex || '') === (pc.ex || ''),
+            )
+            if (!alreadyExists) {
+              candidates.push({
+                tax_rate_id: pc.id,
+                ncm: pc.ncm,
+                ex: pc.ex || '',
+                ncm_descricao: pc.ncm_descricao || '',
+                ncm_descricao_full: pc.ncm_descricao_full || pc.ncm_descricao || '',
+                ex_descricao: pc.ex_descricao || null,
+                source_text: `NCM ${pc.ncm} | ${pc.ncm_descricao_full || pc.ncm_descricao || ''}${pc.ex_descricao ? ` | Ex ${pc.ex} ${pc.ex_descricao}` : ''}`,
+                ii_rate: Number(pc.ii_efetivo ?? pc.ii_rate ?? 0),
+                ipi_rate: Number(pc.ipi_rate ?? 0),
+                pis_rate: Number(pc.pis_rate ?? 2.1),
+                cofins_rate: Number(pc.cofins_rate ?? 9.65),
+                has_ex_tarifario: Boolean(pc.has_ex_tarifario),
+                vector_score: 0.75,
+                text_score: 0.95,
+                combined_score: 0.85,
+                is_target_machine_parts: true,
+                is_parts_indirect_linking: true,
+                matched_parts_ranges: partsInfo.detectedRanges.map(
+                  (r) => `${r.rawStart} a ${r.rawEnd}`,
+                ),
+              })
             }
           }
         }
       }
     } catch (targetErr) {
       console.warn(
-        'Falha na busca determinística da família de partes/acessórios da máquina de destino:',
+        'Falha na busca determinística de NCMs de partes por vínculo indireto:',
         targetErr,
       )
     }

@@ -16,7 +16,7 @@ describe('classify-ncm Edge Function live deploy check & validation', () => {
     const data = await res.json()
     expect(data.status).toBe('ok')
     expect(data.function).toBe('classify-ncm')
-    expect(data.version).toBe('3.3.0-build.605')
+    expect(data.version).toBe('3.4.0-build.606')
     expect(data.features).toContain('phase0_canonical_composition_derivation')
     expect(data.features).toContain('orphan_ncm_sweep_invariant')
     expect(data.features).toContain('ex_checklist_report_suppression_when_no_ex')
@@ -24,6 +24,7 @@ describe('classify-ncm Edge Function live deploy check & validation', () => {
     expect(data.features).toContain('intrafamily_qualifier_tiebreak')
     expect(data.features).toContain('candidate_catalog_integrity_check')
     expect(data.features).toContain('full_candidate_audit_logging')
+    expect(data.features).toContain('parts_ncm_indirect_linking')
   })
 
   it('verifies in imp_sim_ncm_classification_log that RM-IP500 and UWP-D21 records have new fields', async () => {
@@ -111,9 +112,14 @@ describe('classify-ncm Edge Function live deploy check & validation', () => {
     }
     // Calibração 3: sem bloco de checklist de Ex no relatório quando não há Ex
     expect(result.recommendation.justification).not.toContain('[Checklist de Condições Restritivas do Ex-Tarifário')
-    // Invariante: 85299090 deve constar nas alternativas (família de partes e acessórios da câmera de destino)
-    const hasPartsAlt = result.alternatives.some((a: any) => a.ncm === '85299090')
-    expect(hasPartsAlt).toBe(true)
+    // Invariante: 85299090 deve constar nas alternativas com justificativa de vínculo indireto
+    const partsAlt = result.alternatives.find((a: any) => a.ncm === '85299090')
+    expect(partsAlt).toBeDefined()
+    // Requisito 4: Justificativa obrigatória explicitando vínculo indireto e intervalo
+    expect(partsAlt.reason).toMatch(/(?:v[ií]nculo indireto|partes e acess[oó]rios|85\.24|8524)/i)
+    // Requisito 5: Telemetria de partes presente no payload
+    expect(result.parts_indirect_logic).toBeDefined()
+    expect(result.parts_indirect_logic.parts_logic_triggered).toBe(true)
     // Product understanding da Fase 0
     expect(result.product_understanding).toBeDefined()
     expect(result.product_understanding.canonical_statement).toBeDefined()
@@ -254,6 +260,9 @@ describe('classify-ncm Edge Function live deploy check & validation', () => {
     // Proibido Ex 019
     expect(result.recommendation.ex).not.toBe('019')
     expect(result.recommendation.ex).toBe('')
+    // Requisito 3: Proibição inversa — NCM de peças NÃO pode vencer equipamento completo de áudio
+    expect(result.recommendation.ncm).not.toBe('85299090')
+    expect(result.recommendation.description).not.toMatch(/^Partes\b/i)
     // Alternatives também não podem ter 8517.62 se vetado
     const has8517InAlts = result.alternatives.some((a: any) => a.ncm.startsWith('8517'))
     expect(has8517InAlts).toBe(false)

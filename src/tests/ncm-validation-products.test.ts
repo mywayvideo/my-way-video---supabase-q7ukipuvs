@@ -133,8 +133,10 @@ describe('NCM Product Validation & Recalibration Tests', () => {
     }
 
     // Deve pertencer aos capítulos eletrônicos / telecomunicações (8517, 8518, 8527, 8525)
-    const validChapters = ['8517', '8518', '8525', '8527']
-    expect(validChapters.some((pref) => ncmDigits.startsWith(pref))).toBe(true)
+    // Esperado pelo usuário no diagnóstico: aterrissar na família de microfones/áudio (8518),
+    // SEM Ex 019 e SEM 8517.62 como recomendado
+    expect(ncmDigits.startsWith('851762')).toBe(false)
+    expect(ncmDigits.startsWith('8518')).toBe(true)
 
     // O sistema deve ter reconhecido como conjunto/sistema (RGI 3b)
     if (result.composition_analysis) {

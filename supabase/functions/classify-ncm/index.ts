@@ -43,7 +43,7 @@ interface ExConditionComparison {
   name: string
   productValue: string
   exRequirement: string
-  status: 'ATENDE' | 'NÃO ATENDE'
+  status: 'ATENDE' | 'NÃO ATENDE' | 'NÃO COMPROVADO'
   reason?: string
 }
 
@@ -168,18 +168,21 @@ Deno.serve(async (req: Request) => {
     })
 
     // 5. Análise de Composição Universal (Sistemas / Conjuntos / Kits - RGI 3b/3c)
-    const combinedProductText = [productDescription, brand, model, additionalSpecs]
+    // Regra vinculante: componentes devem ser citados TEXTUALMENTE na descrição/especificações do produto (verbatim).
+    // Componente que não aparece explicitamente no texto não pode ser afirmado.
+    let combinedProductText = [productDescription, brand, model, additionalSpecs]
       .filter(Boolean)
       .join(' ')
-    const compositionAnalysis = analyzeProductComposition(combinedProductText)
+    let compositionAnalysis = analyzeProductComposition(combinedProductText)
 
     // 6. GATILHO CONDICIONAL DE BUSCA WEB (ANTES DA DECISÃO)
-    // Se as specs internas forem insuficientes para qualificar aspectos técnicos ou condições de Ex,
-    // a busca na web DEVE ser acionada imediatamente
+    // Se a descrição interna não permitir identificar a composição (se for kit com composição indefinida)
+    // ou se as specs internas forem insuficientes para qualificar aspectos técnicos,
+    // acionar a busca na web OBRIGATORIAMENTE antes de decidir (gatilho condicional, não opcional).
     const webSources: WebSource[] = []
     let webContentSummary = ''
 
-    const sufficiencyCheck = evaluateInformationSufficiency({
+    let sufficiencyCheck = evaluateInformationSufficiency({
       productDescription,
       brand,
       model,
@@ -203,6 +206,25 @@ Deno.serve(async (req: Request) => {
           webContentSummary = webSources
             .map((s, idx) => `[Fonte ${idx + 1}: ${s.title}] (${s.url})\n${s.snippet || ''}`)
             .join('\n\n')
+
+          // Reavaliar composição e suficiência enriquecidas pelo conteúdo web
+          combinedProductText = [
+            productDescription,
+            brand,
+            model,
+            additionalSpecs,
+            webContentSummary,
+          ]
+            .filter(Boolean)
+            .join(' ')
+          compositionAnalysis = analyzeProductComposition(combinedProductText)
+          sufficiencyCheck = evaluateInformationSufficiency({
+            productDescription,
+            brand,
+            model,
+            additionalSpecs,
+            compositionAnalysis,
+          })
         }
       } catch (webErr) {
         console.warn('Busca web complementar falhou sem interromper classificação:', webErr)
@@ -213,12 +235,17 @@ Deno.serve(async (req: Request) => {
 
     // 7. RECUPERAÇÃO ORIENTADA POR SETOR (SEM LISTAS HARDCODED)
     // Mapeamento semântico da assinatura do produto para sua família de posições no banco,
-    // garantindo diversidade de posições adjacentes
+    // garantindo diversidade de posições adjacentes e priorização da família correspondente à assinatura
     const openAiKey = Deno.env.get('OPENAI_API_KEY') || ''
     let queryEmbedding: number[] | null = null
     if (openAiKey) {
       try {
-        queryEmbedding = await generateEmbedding(leanSignature, openAiKey)
+        // Enriquecer embedding da consulta com a assinatura e componentes verbatim
+        const embeddingInput = [leanSignature, compositionAnalysis.detectedComponents.join(' ')]
+          .filter(Boolean)
+          .join(' ')
+
+        queryEmbedding = await generateEmbedding(embeddingInput, openAiKey)
       } catch (embErr) {
         console.warn('Falha ao gerar embedding para assinatura enxuta NCM:', embErr)
       }
@@ -229,6 +256,7 @@ Deno.serve(async (req: Request) => {
       query: leanSignature,
       queryEmbedding,
       fullTechnicalProfile,
+      detectedComponents: compositionAnalysis.detectedComponents,
       topN,
     })
 
@@ -281,30 +309,31 @@ Deno.serve(async (req: Request) => {
 SUA MISSÃO:
 Analisar as especificações técnicas de qualquer produto ou sistema e determinar a classificação NCM e Ex-Tarifário rigorosamente correta e juridicamente defensável.
 
-METODOLOGIA OBRIGATÓRIA UNIVERSAL:
+METODOLOGIA OBRIGATÓRIA UNIVERSAL (PRINCÍPIOS GENÉRICOS):
 
 1. ANÁLISE DE COMPOSIÇÃO UNIVERSAL (SISTEMAS / CONJUNTOS / KITS - RGI 3b / 3c):
-   Para QUALQUER produto reconhecido como sistema, conjunto, sortido ou kit (produtos compostos por múltiplos elementos que operam em conjunto, como transmissor + receptor, console + fonte, módulo óptico + chassi, etc.):
-   (a) LISTAR EXPRESSAMENTE OS COMPONENTES que integram o conjunto;
-   (b) ENUNCIAR A FUNÇÃO ESSENCIAL DO CONJUNTO como um todo (caráter essencial conferido pela RGI 3b) e classificar por essa função global, e NÃO isoladamente por um único acessório ou peça periférica;
-   (c) PROIBIÇÃO ABSOLUTA DE EX SINGULAR PARA CONJUNTO: NUNCA aplique a um conjunto a descrição de um Ex-Tarifário que descreve um item singular/isolado (por exemplo, aplicar um Ex que descreve apenas "transmissor de áudio" a um sistema completo contendo transmissor e receptor), SALVO se houver fundamento explícito demonstrando que o Ex contempla o conjunto inteiro.
+   Para QUALQUER produto reconhecido como sistema, conjunto, sortido ou kit (produtos compostos por múltiplos elementos que operam em conjunto, como transmissor + receptor, console + fonte, etc.):
+   (a) EXIGÊNCIA VERBATIM: Os componentes listados DEVEM ser citados TEXTUALMENTE na descrição/especificações do produto. Componente que não aparece explicitamente no texto NÃO pode ser afirmado (ex: termos como "camera-mount" indicam montagem/suporte, NUNCA a presença de câmera).
+   (b) FUNÇÃO ESSENCIAL: Enunciar a função essencial do conjunto como um todo (caráter essencial da RGI 3b) e classificar na família de posições que reflete essa função essencial.
+   (c) PROIBIÇÃO ABSOLUTA DE EX SINGULAR PARA CONJUNTO: NUNCA aplique a um conjunto a descrição de um Ex-Tarifário que descreve um item singular/isolado, SALVO se houver fundamento explícito demonstrando que o Ex contempla o conjunto inteiro.
 
-2. METODOLOGIA FUNÇÃO-PRIMEIRO (FUNCTION-FIRST) E PROIBIÇÃO DE ATRAÇÃO POR VOCABULÁRIO:
-   - Antes de escolher qualquer NCM, enuncie o que o produto É em sua essência.
-   - É TERMINANTEMENTE PROIBIDO escolher um candidato NCM ou Ex-Tarifário por coincidência de vocabulário ou termos isolados ("controle", "joystick", "wireless", "áudio") quando a função essencial divergir.
+2. METODOLOGIA FUNÇÃO-PRIMEIRO (FUNCTION-FIRST) E PRIORIZAÇÃO DA POSIÇÃO ESPECÍFICA:
+   - Antes de escolher qualquer NCM, enuncie o que o produto É em sua essência funcional.
+   - Posições específicas têm prioridade absoluta sobre posições residuais/genéricas (RGI 3a).
+   - Não classifique em posições genéricas de telecomunicação de dados produtos que possuem posição própria correspondente à sua função específica de áudio, imagem ou medição.
    - Aparelhos de comando/controle, consoles e joysticks eletrônicos pertencem ao Capítulo 85 (8543, 8529, 8537) e JAMAIS a máquinas mecânicas de elevação, pontes rolantes, gruas ou guindastes do Capítulo 84 (8426, 8428).
 
 3. CONDICIONALIDADES RESTRITIVAS DE EX-TARIFÁRIOS:
    - Os Ex-Tarifários são normas de exceção tributária de interpretação estrita (Art. 111 do CTN).
    - Se o texto do Ex exige "sinal DIGITAL" e o produto opera com sinal ANALÓGICO (ou vice-versa), o Ex NÃO PODE ser aplicado.
-   - Se o texto do Ex exige uma faixa de frequência, potência, taxa de dados ou material específico, o produto deve atender estritamente a cada uma dessas condições. Se não atender, classifique na posição geral sem Ex ou em outro candidato.
+   - Cada valor técnico do produto confrontado com o Ex deve ser copiado LITERALMENTE das especificações. Valor não comprovado ou contraditório impede a concessão do Ex.
 
 4. UNIVERSO DE CANDIDATOS E FORMATO DE SAÍDA:
    - Escolha o recommended_ncm e recommended_ex EXCLUSIVAMENTE a partir da lista de candidatos fornecida.
    - Responda OBRIGATORIAMENTE em JSON válido sem texto externo, no formato exato:
 {
   "is_kit_or_system": boolean,
-  "components_list": ["componente 1", "componente 2"],
+  "components_list": ["componente verbatim 1", "componente verbatim 2"],
   "essential_function": "Enunciação clara e precisa da função essencial do produto ou conjunto",
   "recommended_ncm": "8 dígitos",
   "recommended_ex": "número do Ex (ex: '019') ou '' se sem Ex",
@@ -477,9 +506,11 @@ Avalie todos os candidatos e forneça o JSON estruturado conforme o protocolo ad
     }
 
     // 12. SEGUNDA PASSADA DE AUDITORIA LLM
+    // Se a 1ª passada recomendou posição genérica residual (ex: 85176291 ou similar) quando há candidatos
+    // específicos de setor ou componentes no catálogo de candidatos, alertar na auditoria
     const initialRecommendation = {
       recommended_ncm: initialRecNcm,
-      recommended_ex: initialRecEx,
+      recommended_ex: (llmResponseJson.recommended_ex || '').toString().trim(),
       essential_function: llmResponseJson.essential_function || '',
       justification: llmResponseJson.justification || '',
     }
@@ -499,30 +530,39 @@ Avalie todos os candidatos e forneça o JSON estruturado conforme o protocolo ad
       audit_critique: 'Aprovado pelo perito auditor.',
     }
 
+    // Se o código determinístico vetou o Ex, registrar o status no initialRecommendation
+    if (exVetoApplied) {
+      initialRecommendation.recommended_ex = ''
+    }
+
     try {
       const auditorSystemPrompt = `Você é o Auditor Revisor Sênior da Receita Federal e Aduana, atuando como segunda instância independente para homologar ou vetar a recomendação de classificação NCM.
 
-PROTOCOLO OBRIGATÓRIO DE AUDITORIA:
-1. ENUNCIAÇÃO DA FUNÇÃO ESSENCIAL: declare o que o produto ou conjunto é.
-2. CONJUNTOS / SISTEMAS: NUNCA homologue a aplicação de um Ex-Tarifário singular para um conjunto completo (ex: transmissor + receptor). Se a recomendação manteve Ex incompatível com o conjunto, VETE (action: "VETA") e remova o Ex ou ajuste o NCM.
-3. CONDIÇÕES TÉCNICAS: NUNCA homologue Ex de sinal digital para produto analógico (ou vice-versa), nem Ex com restrições divergentes.
-4. CONTROLADORES: Se a função for controle remoto de câmeras/PTZ, JAMAIS aprove 8426/8428 (máquinas mecânicas).
+PROTOCOLO OBRIGATÓRIO DE AUDITORIA (PRINCÍPIOS GENÉRICOS UNIVERSAIS):
+1. ENUNCIAÇÃO DA FUNÇÃO ESSENCIAL: declare a função essencial que confere caráter essencial ao produto ou conjunto global (RGI 1 e RGI 3b).
+2. O VETO AO EX-TARIFÁRIO NÃO ENCERRA A ANÁLISE:
+   - Vetar um Ex-Tarifário NÃO significa manter automaticamente o NCM base residual.
+   - O auditor DEVE OBRIGATORIAMENTE re-confrontar a descrição oficial da posição/subposição do NCM base com a função essencial do produto (após a análise de composição corrigida).
+   - Se a descrição da posição base também NÃO corresponder com exatidão à função essencial da mercadoria (por exemplo, classificar aparelho de transmissão ou captura de som em posições residuais de telecomunicação de dados, ou aparelho eletrônico em máquinas mecânicas), a recomendação DEVE MIGRAR (action: "VETA") para a família de posições correta entre os candidatos disponíveis, com justificativa detalhada registrada.
+3. CONJUNTOS / SISTEMAS: NUNCA homologue Ex-Tarifário singular individual para conjuntos ou sistemas de múltiplos elementos funcionais.
+4. CONDIÇÕES TÉCNICAS E COERÊNCIA: NUNCA homologue Ex cujas exigências sejam incompatíveis com os valores literais das especificações do produto (ex: Ex de sinal digital para transmissão analógica, faixas de frequência incompatíveis).
+5. CLASSIFICAÇÃO SETORIAL CORRETA: Aparelhos e consoles de controle pertencem ao setor eletroeletrônico (Capítulo 85) e nunca a máquinas de movimentação/elevação mecânicas (Capítulo 84).
 
 RESPOSTA OBRIGATÓRIA EM JSON:
 {
   "essential_function": "Função essencial do produto/conjunto",
   "action": "APROVA" ou "VETA",
-  "audit_critique": "Análise crítica",
+  "audit_critique": "Análise crítica do confronto entre a descrição do NCM e a função essencial",
   "corrected_ncm": "8 dígitos se VETA",
   "corrected_ex": "Ex corrigido ou ''",
-  "correction_reason": "Fundamentação legal"
+  "correction_reason": "Fundamentação legal da migração de posição ou do veto"
 }`
 
       const auditorUserPrompt = `PRODUTO ANALISADO:
 - Marca: ${brand || 'Não informada'} | Modelo: ${model || 'Não informado'}
 - Descrição: ${productDescription}
 - Assinatura: ${leanSignature}
-- É Conjunto/Sistema: ${compositionAnalysis.isKit ? 'SIM' : 'NÃO'} (${compositionAnalysis.detectedComponents.join(', ')})
+- É Conjunto/Sistema: ${compositionAnalysis.isKit ? 'SIM' : 'NÃO'} (Componentes verbatim: ${compositionAnalysis.detectedComponents.join(', ') || 'Nenhum identificado textualmente'})
 - Especificações: ${additionalSpecs || 'N/A'}
 
 RECOMENDAÇÃO DA 1ª PASSADA:
@@ -530,6 +570,10 @@ RECOMENDAÇÃO DA 1ª PASSADA:
 - NCM: ${initialRecommendation.recommended_ncm} | Ex: ${initialRecommendation.recommended_ex || 'Nenhum'}
 - Status do Checklist em Código: ${checklistLog.passed ? 'ATENDEU' : 'VETADO PELO CÓDIGO'}
 ${checklistFormattedReport ? `\nCHECKLIST DE CONDIÇÕES DO EX:\n${checklistFormattedReport}\n` : ''}
+
+ATENÇÃO AUDITOR:
+1. Se o Ex foi vetado ou se a posição base recomendada (${initialRecommendation.recommended_ncm}) não descreve a função essencial da mercadoria com exatidão e existem posições específicas de família no catálogo abaixo (ex: aparelho funcionalmente de áudio vs posição genérica de telecomunicação, ou controle eletrônico vs máquinas), VETE (action: "VETA") e MIGRE para o NCM mais adequado entre os candidatos disponíveis.
+2. VETAR O EX NÃO SIGNIFICA MANTER O NCM RESIDUAL: Você DEVE verificar se a posição base 4/6/8 dígitos faz sentido para o produto. Se não fizer, altere o NCM em "corrected_ncm".
 
 LISTA DE CANDIDATOS VÁLIDOS:
 ${candidatesCatalogText}`
@@ -832,12 +876,18 @@ ${candidatesCatalogText}`
 /**
  * Análise de Composição Universal (RGI 3b/3c):
  * Identifica se qualquer produto fornecido é um sistema, conjunto, sortido ou kit com múltiplos componentes.
+ * REGRA VINCULANTE (Princípio Genérico):
+ * Componentes listados na análise de composição DEVEM ser citados TEXTUALMENTE na descrição/especificações do produto (verbatim).
+ * Componente que não aparece explicitamente no texto NÃO pode ser afirmado.
+ * Expressões descritivas de uso ou montagem (ex: "camera-mount", "para câmera", "for camera", "camera mount",
+ * "rack mount", "pole mount", "shoe mount") indicam montagem/acessório ou compatibilidade, NUNCA a presença do aparelho como componente.
  */
 function analyzeProductComposition(text: string): {
   isKit: boolean
   detectedComponents: string[]
+  compositionIdentified: boolean
 } {
-  if (!text) return { isKit: false, detectedComponents: [] }
+  if (!text) return { isKit: false, detectedComponents: [], compositionIdentified: false }
   const lower = text.toLowerCase()
 
   const kitIndicators = [
@@ -858,40 +908,84 @@ function analyzeProductComposition(text: string): {
 
   const isKitExplicit = kitIndicators.some((ind) => lower.includes(ind))
 
-  // Detecção de múltiplos componentes funcionais no texto
-  const potentialComponents = [
-    {
-      name: 'Transmissor (TX)',
-      regex: /\b(transmissor|transmissora|transmitter|tx|bodypack|plug-on)\b/i,
-    },
-    { name: 'Receptor (RX)', regex: /\b(receptor|receptora|receiver|rx|base sintonizadora)\b/i },
-    { name: 'Microfone', regex: /\b(microfone|microphone|mic|lavalier|lapela|headset|capsule)\b/i },
-    {
-      name: 'Console/Controlador',
-      regex: /\b(controlador|controller|console|painel de controle|joystick)\b/i,
-    },
-    { name: 'Câmera', regex: /\b(câmera|camera|ptz|camcorder)\b/i },
-    {
-      name: 'Fonte/Alimentação',
-      regex: /\b(fonte de alimentação|power supply|carregador|bateria|battery)\b/i,
-    },
-    { name: 'Lente/Ótica', regex: /\b(lente|lens|óptica|optics)\b/i },
-  ]
-
+  // Detecção estrita e verbatim de componentes reais do produto
+  // Cada componente só é incluído se o texto contiver o substantivo isolado real,
+  // excluindo menções puramente adjetivas de interface ou montagem
   const detected: string[] = []
-  for (const comp of potentialComponents) {
-    if (comp.regex.test(lower)) {
-      detected.push(comp.name)
+
+  // 1. Transmissor
+  const txMatch = text.match(/\b(transmissor(?:a|es)?|transmitter(?:s)?|bodypack|plug-on)\b/i)
+  if (txMatch) {
+    detected.push(txMatch[0])
+  }
+
+  // 2. Receptor
+  const rxMatch = text.match(/\b(receptor(?:a|es)?|receiver(?:s)?|base sintonizadora)\b/i)
+  if (rxMatch) {
+    detected.push(rxMatch[0])
+  }
+
+  // 3. Microfone / Cápsula
+  const micMatch = text.match(/\b(microfone(?:s)?|microphone(?:s)?|lavalier|lapela|headset)\b/i)
+  if (micMatch) {
+    detected.push(micMatch[0])
+  }
+
+  // 4. Controlador / Console
+  const ctrlMatch = text.match(
+    /\b(controlador(?:es)?|controller(?:s)?|console(?:s)?|joystick(?:s)?)\b/i,
+  )
+  if (ctrlMatch) {
+    detected.push(ctrlMatch[0])
+  }
+
+  // 5. Câmera: só deve ser reconhecida como componente se constar como dispositivo/substantivo autônomo,
+  // JAMAIS quando for modificador de montagem ou suporte (ex: "camera-mount", "camera mount", "for cameras", "para câmeras")
+  const textWithoutMountTerms = lower
+    .replace(/\bcamera-mount\b/g, '')
+    .replace(/\bcamera mount\b/g, '')
+    .replace(/\bpara c[aâ]meras?\b/g, '')
+    .replace(/\bfor (?:ptz )?cameras?\b/g, '')
+    .replace(/\bshoe-mount\b/g, '')
+    .replace(/\brack-mount\b/g, '')
+
+  const cameraMatch = textWithoutMountTerms.match(/\b(c[aâ]mera(?:s)?|camcorder(?:s)?)\b/i)
+  if (cameraMatch) {
+    // Apenas se o texto original ainda contiver a palavra câmera de forma substantiva
+    const originalWord = text.match(/\b(c[aâ]mera(?:s)?|camcorder(?:s)?)\b/i)
+    if (originalWord) {
+      detected.push(originalWord[0])
     }
   }
 
-  // É kit se tem indicador explícito ou se contém pelo menos 2 componentes funcionais complementares (ex: Transmissor + Receptor)
-  const hasTxRxPair = detected.includes('Transmissor (TX)') && detected.includes('Receptor (RX)')
-  const isKit = isKitExplicit || hasTxRxPair || detected.length >= 2
+  // 6. Fonte / Alimentação / Bateria
+  const psuMatch = text.match(
+    /\b(power supply|fonte de alimenta[cç][aã]o|carregador(?:es)?|bateria(?:s)?|battery)\b/i,
+  )
+  if (psuMatch) {
+    detected.push(psuMatch[0])
+  }
+
+  // 7. Lente / Óptica
+  const lensMatch = text.match(/\b(lente(?:s)?|lens(?:es)?|[oó]ptica)\b/i)
+  if (lensMatch) {
+    detected.push(lensMatch[0])
+  }
+
+  // Deduplicação preservando verbatim
+  const uniqueDetected = Array.from(new Set(detected))
+
+  const hasTxRxPair =
+    uniqueDetected.some((d) => /transmi/i.test(d)) && uniqueDetected.some((d) => /recep/i.test(d))
+  const isKit = isKitExplicit || hasTxRxPair || uniqueDetected.length >= 2
+
+  // A composição é considerada identificada se não é kit ou se, sendo kit, os componentes foram encontrados no texto
+  const compositionIdentified = !isKit || uniqueDetected.length >= 2
 
   return {
     isKit,
-    detectedComponents: detected,
+    detectedComponents: uniqueDetected,
+    compositionIdentified,
   }
 }
 
@@ -949,7 +1043,14 @@ function extractExQualifiers(exDesc: string): ExQualifiers {
 /**
  * Checklist Universal de Condições Restritivas do Ex:
  * Confronta CADA qualificador extraído do Ex com as especificações do produto.
- * Produz comparações no padrão "produto: X → Ex exige: Y → ATENDE/NÃO ATENDE".
+ * Produz comparações no padrão "produto: X → Ex exige: Y → ATENDE/NÃO ATENDE/NÃO COMPROVADO".
+ *
+ * REGRAS VINCULANTES (Princípios Genéricos):
+ * 1. Cada productValue do checklist DEVE ser copiado LITERALMENTE das specs do produto.
+ * 2. Valor não presente nas specs = status "NÃO COMPROVADO" + acionar busca web para verificar.
+ * 3. Verificação de consistência em código: se a descrição contém o termo "analog"/"analógico"
+ *    (português/inglês, case-insensitive), o checklist NÃO PODE registrar valor "digital" contraditório,
+ *    e vice-versa — quando detectar contradição, forçar "NÃO COMPROVADO" + busca web.
  */
 function evaluateExChecklistAgainstProduct(params: {
   exDescription: string
@@ -958,11 +1059,13 @@ function evaluateExChecklistAgainstProduct(params: {
   detectedComponents: string[]
 }): ExChecklistResult {
   const qualifiers = extractExQualifiers(params.exDescription)
-  const productLower = params.productText.toLowerCase()
+  const productText = params.productText || ''
+  const productLower = productText.toLowerCase()
   const comparisons: ExConditionComparison[] = []
   let passed = true
   let vetoReason = ''
   const missingInformation: string[] = []
+  let needsWebSearch = false
 
   // 1. Condição de Composição: Ex descreve item singular vs produto é conjunto/sistema
   if (qualifiers.isSingularItem && params.isKit) {
@@ -987,67 +1090,109 @@ function evaluateExChecklistAgainstProduct(params: {
 
   // 2. Condição de Sinal: Digital vs Analógico
   if (qualifiers.signalType) {
-    const productIsAnalog =
-      productLower.includes('analógico') ||
-      productLower.includes('analogico') ||
-      productLower.includes('analog') ||
-      productLower.includes('fm modulation') ||
-      productLower.includes('modulação analógica')
+    // Busca verbatim do termo na descrição/specs
+    const analogSnippetMatch = productText.match(
+      /\b(wireless transmission:\s*analog\s*\w*|analog(?:a|o|ic[ao]s?)?|anal[óo]gic[ao]s?|fm modulation|modula[cç][aã]o anal[óo]gica)\b/i,
+    )
+    const digitalSnippetMatch = productText.match(
+      /\b(wireless transmission:\s*digital\s*\w*|digital(?:is|es)?|modula[cç][aã]o digital|transmiss[aã]o digital)\b/i,
+    )
 
-    const productIsDigital =
-      productLower.includes('digital') ||
-      productLower.includes('dsp') ||
-      productLower.includes('aes')
+    const hasAnalogTerm = Boolean(analogSnippetMatch)
+    const hasDigitalTerm = Boolean(digitalSnippetMatch)
 
-    // Atenção: Muitos equipamentos de áudio possuem processamento interno digital DSP mas transmissão de RF ANALÓGICA (FM)
-    // Se o produto é analógico de RF e o Ex exige transmissão via sinal digital
+    // Detecção de contradição direta em código:
+    // Se a descrição contém "analog"/"analógico" e o Ex exige digital (ou vice-versa)
     if (qualifiers.signalType === 'digital') {
-      if (productIsAnalog && !productIsDigital) {
+      if (hasAnalogTerm && !hasDigitalTerm) {
+        // Copiar literal das specs
+        const literalValue = analogSnippetMatch ? analogSnippetMatch[0] : 'Analog'
         passed = false
         vetoReason =
           vetoReason ||
-          'Produto com modulação analógica não atende à exigência estrita de sinal DIGITAL do Ex-Tarifário.'
+          `Produto opera com sinal analógico ("${literalValue}"), incompatível com a exigência estrita de sinal DIGITAL do Ex-Tarifário.`
         comparisons.push({
           name: 'Tipo de Sinal de Transmissão',
-          productValue: 'Sinal/Modulação Analógica',
+          productValue: literalValue,
           exRequirement: 'Sinal Digital',
           status: 'NÃO ATENDE',
-          reason: 'Incompatibilidade de sinal (analógico vs digital exigido)',
+          reason: 'Incompatibilidade de sinal (analógico nas specs vs digital exigido pelo Ex)',
         })
-      } else if (!productIsAnalog && !productIsDigital) {
-        missingInformation.push('tipo de sinal (digital/analógico)')
+      } else if (hasAnalogTerm && hasDigitalTerm) {
+        // Contradição detectada nas specs (ex: transmissão analógica com DSP digital)
+        // Regra vinculante: forçar "NÃO COMPROVADO" + busca web
+        needsWebSearch = true
+        missingInformation.push(
+          'confirmação se a transmissão de sinal é estritamente digital ou analógica',
+        )
         comparisons.push({
           name: 'Tipo de Sinal de Transmissão',
-          productValue: 'Informação não detalhada nas specs internas',
+          productValue: `${analogSnippetMatch![0]} / ${digitalSnippetMatch![0]}`,
           exRequirement: 'Sinal Digital',
-          status: 'NÃO ATENDE',
-          reason: 'Informação insuficiente para comprovar atendimento ao requisito estrito do Ex',
+          status: 'NÃO COMPROVADO',
+          reason:
+            'Contradição detectada nas especificações (termos analógico e digital presentes). Necessária averiguação técnica.',
         })
-      } else {
+      } else if (hasDigitalTerm) {
         comparisons.push({
           name: 'Tipo de Sinal de Transmissão',
-          productValue: productIsDigital ? 'Sinal Digital' : 'Compatível',
+          productValue: digitalSnippetMatch![0],
           exRequirement: 'Sinal Digital',
           status: 'ATENDE',
+        })
+      } else {
+        // Valor não presente nas specs = status "NÃO COMPROVADO" + acionar busca web
+        needsWebSearch = true
+        missingInformation.push('tipo de sinal de transmissão (digital/analógico)')
+        comparisons.push({
+          name: 'Tipo de Sinal de Transmissão',
+          productValue: 'Não mencionado nas especificações',
+          exRequirement: 'Sinal Digital',
+          status: 'NÃO COMPROVADO',
+          reason:
+            'Valor não presente nas especificações do produto. Requer validação complementar.',
         })
       }
     } else if (qualifiers.signalType === 'analog') {
-      if (productIsDigital && !productIsAnalog) {
+      if (hasDigitalTerm && !hasAnalogTerm) {
+        const literalValue = digitalSnippetMatch ? digitalSnippetMatch[0] : 'Digital'
         passed = false
         vetoReason =
-          vetoReason || 'Produto digital não atende à exigência de sinal analógico do Ex-Tarifário.'
+          vetoReason ||
+          `Produto opera com sinal digital ("${literalValue}"), incompatível com a exigência de sinal analógico do Ex-Tarifário.`
         comparisons.push({
           name: 'Tipo de Sinal de Transmissão',
-          productValue: 'Sinal Digital',
+          productValue: literalValue,
           exRequirement: 'Sinal Analógico',
           status: 'NÃO ATENDE',
+          reason: 'Incompatibilidade de sinal (digital nas specs vs analógico exigido)',
         })
-      } else {
+      } else if (hasAnalogTerm && hasDigitalTerm) {
+        needsWebSearch = true
+        missingInformation.push('confirmação de modulação analógica exclusiva')
         comparisons.push({
           name: 'Tipo de Sinal de Transmissão',
-          productValue: 'Sinal Analógico',
+          productValue: `${analogSnippetMatch![0]} / ${digitalSnippetMatch![0]}`,
+          exRequirement: 'Sinal Analógico',
+          status: 'NÃO COMPROVADO',
+          reason: 'Contradição detectada nas especificações. Necessária averiguação técnica.',
+        })
+      } else if (hasAnalogTerm) {
+        comparisons.push({
+          name: 'Tipo de Sinal de Transmissão',
+          productValue: analogSnippetMatch![0],
           exRequirement: 'Sinal Analógico',
           status: 'ATENDE',
+        })
+      } else {
+        needsWebSearch = true
+        missingInformation.push('tipo de sinal analógico')
+        comparisons.push({
+          name: 'Tipo de Sinal de Transmissão',
+          productValue: 'Não mencionado nas especificações',
+          exRequirement: 'Sinal Analógico',
+          status: 'NÃO COMPROVADO',
+          reason: 'Valor não presente nas especificações.',
         })
       }
     }
@@ -1056,17 +1201,17 @@ function evaluateExChecklistAgainstProduct(params: {
   // 3. Condição de Faixa de Frequência
   if (qualifiers.frequencyRanges.length > 0) {
     for (const range of qualifiers.frequencyRanges) {
-      // Extrair limites numéricos da faixa do Ex (ex: 470 a 720MHz)
       const numbers = range.match(/\d+(?:[.,]\d+)?/g)
       if (numbers && numbers.length >= 2) {
         const minEx = parseFloat(numbers[0].replace(',', '.'))
         const maxEx = parseFloat(numbers[1].replace(',', '.'))
 
-        // Procurar números de MHz no texto do produto
-        const productFreqMatches = productLower.match(
-          /(\d{3}(?:[.,]\d+)?)\s*(?:a|-|to)\s*(\d{3}(?:[.,]\d+)?)\s*mhz/i,
+        // Procurar menção literal no texto
+        const productFreqMatches = productText.match(
+          /(\d{2,4}(?:[.,]\d+)?)\s*(?:a|-|to)\s*(\d{2,4}(?:[.,]\d+)?)\s*(?:mhz|ghz|khz)/i,
         )
         if (productFreqMatches) {
+          const literalFreqSnippet = productFreqMatches[0]
           const minProd = parseFloat(productFreqMatches[1].replace(',', '.'))
           const maxProd = parseFloat(productFreqMatches[2].replace(',', '.'))
 
@@ -1074,7 +1219,7 @@ function evaluateExChecklistAgainstProduct(params: {
           if (isContained) {
             comparisons.push({
               name: `Faixa de Frequência (${range})`,
-              productValue: `${minProd}-${maxProd}MHz`,
+              productValue: literalFreqSnippet,
               exRequirement: `Igual ou contida em ${minEx}-${maxEx}MHz`,
               status: 'ATENDE',
             })
@@ -1082,17 +1227,33 @@ function evaluateExChecklistAgainstProduct(params: {
             passed = false
             vetoReason =
               vetoReason ||
-              `Faixa do produto (${minProd}-${maxProd}MHz) fora dos limites exigidos pelo Ex (${minEx}-${maxEx}MHz).`
+              `Faixa do produto (${literalFreqSnippet}) fora dos limites exigidos pelo Ex (${minEx}-${maxEx}MHz).`
             comparisons.push({
               name: `Faixa de Frequência (${range})`,
-              productValue: `${minProd}-${maxProd}MHz`,
+              productValue: literalFreqSnippet,
               exRequirement: `Igual ou contida em ${minEx}-${maxEx}MHz`,
               status: 'NÃO ATENDE',
             })
           }
+        } else {
+          // Frequência não encontrada nas specs
+          needsWebSearch = true
+          missingInformation.push(`faixa de frequência (${range})`)
+          comparisons.push({
+            name: `Faixa de Frequência (${range})`,
+            productValue: 'Não mencionada nas especificações',
+            exRequirement: range,
+            status: 'NÃO COMPROVADO',
+            reason: 'Faixa de frequência não explicitada no texto do produto.',
+          })
         }
       }
     }
+  }
+
+  // Se houver qualquer comparação com status NÃO COMPROVADO, acionar busca na web
+  if (comparisons.some((c) => c.status === 'NÃO COMPROVADO')) {
+    needsWebSearch = true
   }
 
   return {
@@ -1100,7 +1261,7 @@ function evaluateExChecklistAgainstProduct(params: {
     comparisons,
     vetoReason: vetoReason || undefined,
     missingInformation,
-    needsWebSearch: missingInformation.length > 0,
+    needsWebSearch,
   }
 }
 
@@ -1113,9 +1274,10 @@ async function retrieveSectorOrientedCandidates(params: {
   query: string
   queryEmbedding: number[] | null
   fullTechnicalProfile: string
+  detectedComponents?: string[]
   topN: number
 }): Promise<any[]> {
-  const { supabaseAdmin, query, queryEmbedding, topN } = params
+  const { supabaseAdmin, query, queryEmbedding, topN, detectedComponents = [] } = params
 
   const rpcParams: {
     query: string
@@ -1124,8 +1286,8 @@ async function retrieveSectorOrientedCandidates(params: {
     match_threshold: number
   } = {
     query,
-    top_n: Math.max(topN, 20),
-    match_threshold: 0.02,
+    top_n: Math.max(topN * 2, 35),
+    match_threshold: 0.01,
   }
 
   if (queryEmbedding && queryEmbedding.length > 0) {
@@ -1144,8 +1306,57 @@ async function retrieveSectorOrientedCandidates(params: {
 
   let candidates = Array.isArray(rawCandidates) ? [...rawCandidates] : []
 
+  // Se componentes foram detectados verbatim na análise de composição (ex: microfone, receptor, transmissor, console, câmera),
+  // realizar busca direta no banco de posições fiscais que contemplem esses termos textualmente
+  // para garantir que a família correspondente à assinatura/componente do produto entre priorizada
+  if (detectedComponents.length > 0) {
+    try {
+      for (const comp of detectedComponents) {
+        // Ignorar termos genéricos ou muito curtos
+        const cleanComp = comp.replace(/[^\p{L}\p{N}]/gu, '').toLowerCase()
+        if (cleanComp.length < 4) continue
+
+        // Buscar posições oficiais no banco contendo o termo verbatim
+        const { data: compMatches } = await supabaseAdmin
+          .from('imp_sim_tax_rates_effective')
+          .select('*')
+          .ilike('ncm_descricao', `%${cleanComp}%`)
+          .limit(8)
+
+        if (compMatches && compMatches.length > 0) {
+          for (const m of compMatches) {
+            const alreadyExists = candidates.some(
+              (c: any) => normalizeNcm(c.ncm) === m.ncm && (c.ex || '') === (m.ex || ''),
+            )
+            if (!alreadyExists) {
+              candidates.push({
+                tax_rate_id: m.id,
+                ncm: m.ncm,
+                ex: m.ex || '',
+                ncm_descricao: m.ncm_descricao || '',
+                ex_descricao: m.ex_descricao || null,
+                source_text: `NCM ${m.ncm} | ${m.ncm_descricao || ''}${m.ex_descricao ? ` | Ex ${m.ex} ${m.ex_descricao}` : ''}`,
+                ii_rate: Number(m.ii_efetivo ?? m.ii_rate ?? 0),
+                ipi_rate: Number(m.ipi_rate ?? 0),
+                pis_rate: Number(m.pis_rate ?? 2.1),
+                cofins_rate: Number(m.cofins_rate ?? 9.65),
+                has_ex_tarifario: Boolean(m.has_ex_tarifario),
+                vector_score: 0.65,
+                text_score: 0.85,
+                combined_score: 0.75,
+                is_component_sector: true,
+              })
+            }
+          }
+        }
+      }
+    } catch (compErr) {
+      console.warn('Falha na busca direcionada por componente verbatim:', compErr)
+    }
+  }
+
   // Agrupamento semântico por FAMÍLIA DE POSIÇÕES (primeiros 4 dígitos da NCM, ex: 8517, 8518, 8525, 8543)
-  // Garantir que o conjunto de candidatos NUNCA fique restrito a uma única posição ou único setor.
+  // Garantir diversidade semântica: equilibrar candidatos entre a família principal e setores adjacentes
   const families = new Map<string, any[]>()
   for (const c of candidates) {
     const ncmClean = normalizeNcm(c.ncm)
@@ -1156,54 +1367,31 @@ async function retrieveSectorOrientedCandidates(params: {
     families.get(familyKey)!.push(c)
   }
 
-  // Se uma única família dominou todos os resultados (>80%), buscar candidatos das posições adjacentes
-  // sem hardcoding de códigos através de busca textual com a função essencial do perfil
-  if (families.size < 2 && candidates.length > 0) {
-    try {
-      const topCand = candidates[0]
-      const ncmClean = normalizeNcm(topCand.ncm)
-      const primaryChapter = ncmClean.slice(0, 2) // ex: 85 ou 84 ou 90
+  // Ordenar candidatos mantendo diversidade: intercalar candidatos das diferentes famílias encontradas
+  // dando prioridade para posições que possuem score alto e candidatos de componentes
+  const diversifiedCandidates: any[] = []
+  const maxPerFamily = Math.max(3, Math.ceil(topN / Math.max(1, families.size)))
 
-      // Busca complementar ampla por texto na tabela de taxas cobrindo o capítulo
-      const { data: adjacentRates } = await supabaseAdmin
-        .from('imp_sim_tax_rates_effective')
-        .select('*')
-        .like('ncm', `${primaryChapter}%`)
-        .limit(10)
-
-      if (adjacentRates && adjacentRates.length > 0) {
-        for (const adj of adjacentRates) {
-          if (
-            !candidates.some(
-              (c: any) => normalizeNcm(c.ncm) === adj.ncm && (c.ex || '') === (adj.ex || ''),
-            )
-          ) {
-            candidates.push({
-              tax_rate_id: adj.id,
-              ncm: adj.ncm,
-              ex: adj.ex || '',
-              ncm_descricao: adj.ex_descricao || adj.source || '',
-              ex_descricao: adj.ex_descricao || null,
-              source_text: `NCM ${adj.ncm} | ${adj.ex_descricao || ''}`,
-              ii_rate: Number(adj.ii_efetivo ?? adj.ii_rate ?? 0),
-              ipi_rate: Number(adj.ipi_rate ?? 0),
-              pis_rate: Number(adj.pis_rate ?? 2.1),
-              cofins_rate: Number(adj.cofins_rate ?? 9.65),
-              has_ex_tarifario: Boolean(adj.has_ex_tarifario),
-              vector_score: 0.5,
-              text_score: 0.5,
-              combined_score: 0.5,
-              is_adjacent_sector: true,
-            })
-          }
-        }
-      }
-    } catch (adjErr) {
-      console.warn('Falha ao recuperar setores adjacentes:', adjErr)
-    }
+  // Primeiro passar os itens com maior pontuação de cada família
+  for (const [_family, famCandidates] of families.entries()) {
+    famCandidates.sort((a, b) => (b.combined_score ?? 0) - (a.combined_score ?? 0))
+    diversifiedCandidates.push(...famCandidates.slice(0, maxPerFamily))
   }
 
-  return candidates.slice(0, topN)
+  // Preencher com o restante até topN ordenado por score
+  candidates.sort((a, b) => (b.combined_score ?? 0) - (a.combined_score ?? 0))
+  for (const cand of candidates) {
+    if (
+      !diversifiedCandidates.some(
+        (c) => normalizeNcm(c.ncm) === normalizeNcm(cand.ncm) && (c.ex || '') === (cand.ex || ''),
+      )
+    ) {
+      diversifiedCandidates.push(cand)
+    }
+    if (diversifiedCandidates.length >= topN + 5) break
+  }
+
+  return diversifiedCandidates.slice(0, topN)
 }
 
 /**
@@ -1261,7 +1449,11 @@ function evaluateInformationSufficiency(params: {
   brand: string
   model: string
   additionalSpecs: string
-  compositionAnalysis: { isKit: boolean; detectedComponents: string[] }
+  compositionAnalysis: {
+    isKit: boolean
+    detectedComponents: string[]
+    compositionIdentified?: boolean
+  }
 }): { isSufficient: boolean; reason: string } {
   const desc = params.productDescription.trim()
 
@@ -1272,7 +1464,16 @@ function evaluateInformationSufficiency(params: {
     }
   }
 
-  // Se for kit/sistema mas os componentes não estão claramente detalhados nas specs
+  // Regra vinculante (1): Se a descrição interna não permitir identificar a composição com segurança,
+  // acionar a busca na web antes de decidir (gatilho condicional, não opcional).
+  if (params.compositionAnalysis.isKit && !params.compositionAnalysis.compositionIdentified) {
+    return {
+      isSufficient: false,
+      reason:
+        'Produto identificado como conjunto/sistema, mas a descrição interna não permite identificar todos os componentes textualmente. Busca web complementar mandatória.',
+    }
+  }
+
   if (
     params.compositionAnalysis.isKit &&
     params.compositionAnalysis.detectedComponents.length < 2

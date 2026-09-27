@@ -49,6 +49,8 @@ interface ExConditionComparison {
 
 interface ExChecklistResult {
   passed: boolean
+  status?: 'APROVADO' | 'VETADO' | 'NÃO VERIFICADO'
+  requiresExpertReview?: boolean
   comparisons: ExConditionComparison[]
   vetoReason?: string
   missingInformation: string[]
@@ -322,14 +324,20 @@ METODOLOGIA OBRIGATÓRIA UNIVERSAL (PRINCÍPIOS GENÉRICOS):
    - Antes de escolher qualquer NCM, enuncie o que o produto É em sua essência funcional.
    - Posições específicas têm prioridade absoluta sobre posições residuais/genéricas (RGI 3a).
    - Não classifique em posições genéricas de telecomunicação de dados produtos que possuem posição própria correspondente à sua função específica de áudio, imagem ou medição.
-   - Aparelhos de comando/controle, consoles e joysticks eletrônicos pertencem ao Capítulo 85 (8543, 8529, 8537) e JAMAIS a máquinas mecânicas de elevação, pontes rolantes, gruas ou guindastes do Capítulo 84 (8426, 8428).
+   - VETO DE CONTRADIÇÃO DE NATUREZA: É expressamente PROIBIDO classificar o produto em um NCM cuja descrição hierárquica oficial descreva uma natureza ontológica totalmente diferente do produto (por exemplo: classificar um controlador/console periférico como se fosse a câmera que ele controla, ou classificar um cabo/suporte como monitor).
+   - PREFERÊNCIA POR FUNÇÃO GENÉRICA COMPATÍVEL SOBRE FUNÇÃO ESPECÍFICA INCOMPATÍVEL: Entre famílias empatadas na escolha, prefira SEMPRE uma posição de função genérica tecnicamente compatível (ex.: máquinas/aparelhos elétricos com função própria, partes e acessórios reconhecíveis) sobre uma posição de função específica incompatível cuja descrição contradiga o produto.
 
-3. CONDICIONALIDADES RESTRITIVAS DE EX-TARIFÁRIOS:
+3. PROIBIÇÃO ABSOLUTA DE CRITÉRIO TRIBUTÁRIO / ALÍQUOTA:
+   - É ESTRITAMENTE PROIBIDO utilizar alíquota ou vantagem tributária (II 0%, Ex vantajoso, redução de carga tributária) como critério de escolha ou desempate.
+   - O enquadramento aduaneiro funda-se exclusivamente na função essencial, nas notas da TEC e no texto oficial da NCM/NESH.
+   - A alíquota é mera consequência legal do enquadramento técnico, NUNCA motivo ou justificativa.
+
+4. CONDICIONALIDADES RESTRITIVAS DE EX-TARIFÁRIOS:
    - Os Ex-Tarifários são normas de exceção tributária de interpretação estrita (Art. 111 do CTN).
    - Se o texto do Ex exige "sinal DIGITAL" e o produto opera com sinal ANALÓGICO (ou vice-versa), o Ex NÃO PODE ser aplicado.
    - Cada valor técnico do produto confrontado com o Ex deve ser copiado LITERALMENTE das especificações. Valor não comprovado ou contraditório impede a concessão do Ex.
 
-4. UNIVERSO DE CANDIDATOS E FORMATO DE SAÍDA:
+5. UNIVERSO DE CANDIDATOS E FORMATO DE SAÍDA:
 - Escolha o recommended_ncm e recommended_ex EXCLUSIVAMENTE a partir da lista de candidatos fornecida.
 - Na justificativa ("justification"), é OBRIGATÓRIO citar a descrição hierárquica completa oficial (Capítulo | Posição | Subitem do NCM escolhido) para fundamentar com precisão aduaneira o enquadramento.
 - Responda OBRIGATORIAMENTE em JSON válido sem texto externo, no formato exato:
@@ -437,6 +445,8 @@ Avalie todos os candidatos e forneça o JSON estruturado conforme o protocolo ad
     // Se o candidato tiver Ex-Tarifário, executar checklist de validação em código
     let checklistLog: ExChecklistResult = {
       passed: true,
+      status: 'APROVADO',
+      requiresExpertReview: false,
       comparisons: [],
       missingInformation: [],
       needsWebSearch: false,
@@ -492,6 +502,9 @@ Avalie todos os candidatos e forneça o JSON estruturado conforme o protocolo ad
               `• produto: ${c.productValue} → Ex exige: ${c.exRequirement} → ${c.status}${c.reason ? ` (${c.reason})` : ''}`,
           )
           .join('\n')
+      } else if (checklistLog.status === 'NÃO VERIFICADO') {
+        checklistFormattedReport =
+          '• Extração de qualificadores técnicos do Ex resultou vazia: status NÃO VERIFICADO (requer revisão especialista).'
       }
 
       // VETO AUTOMÁTICO EM CÓDIGO se qualquer condição não for atendida
@@ -547,8 +560,14 @@ PROTOCOLO OBRIGATÓRIO DE AUDITORIA (PRINCÍPIOS GENÉRICOS UNIVERSAIS):
    - O auditor DEVE OBRIGATORIAMENTE re-confrontar a descrição oficial da posição/subposição do NCM base com a função essencial do produto (após a análise de composição corrigida).
    - Se a descrição da posição base também NÃO corresponder com exatidão à função essencial da mercadoria (por exemplo, classificar aparelho de transmissão ou captura de som em posições residuais de telecomunicação de dados, ou aparelho eletrônico em máquinas mecânicas), a recomendação DEVE MIGRAR (action: "VETA") para a família de posições correta entre os candidatos disponíveis, com justificativa detalhada registrada.
 3. CONJUNTOS / SISTEMAS: NUNCA homologue Ex-Tarifário singular individual para conjuntos ou sistemas de múltiplos elementos funcionais.
-4. CONDIÇÕES TÉCNICAS E COERÊNCIA: NUNCA homologue Ex cujas exigências sejam incompatíveis com os valores literais das especificações do produto (ex: Ex de sinal digital para transmissão analógica, faixas de frequência incompatíveis).
-5. CLASSIFICAÇÃO SETORIAL CORRETA: Aparelhos e consoles de controle pertencem ao setor eletroeletrônico (Capítulo 85) e nunca a máquinas de movimentação/elevação mecânicas (Capítulo 84).
+4. CONDIÇÕES TÉCNICAS E COERÊNCIA (A CORREÇÃO NÃO É SEGUNDA CHANCE SEM AUDITORIA):
+   - A NCM/Ex corrigido na 2ª passada deve passar pelo MESMO checklist de condições restritivas e confronto com a função essencial aplicados na 1ª passada.
+   - É terminantemente VETADO qualquer candidato cuja descrição hierárquica (ncm_descricao_full) contradiga a natureza ontológica do produto (ex.: candidato descreve "câmera" para um produto que é controlador/remoto/periférico de controle; candidato descreve "monitor" para um produto que é cabo ou transmissor).
+5. PROIBIÇÃO ESTRITA DE VANTAGEM TRIBUTÁRIA / ALÍQUOTA:
+   - É ESTRITAMENTE PROIBIDO usar alíquota ou vantagem fiscal (II 0%, Ex vantajoso, redução forte de tributos) como critério de escolha ou desempate na correção.
+   - Apenas aderência técnica estrita à função essencial e regras da TEC/NESH. A vantagem fiscal é consequência, nunca motivo ou justificativa.
+6. PREFERÊNCIA POR FUNÇÃO GENÉRICA COMPATÍVEL SOBRE FUNÇÃO ESPECÍFICA INCOMPATÍVEL:
+   - Entre famílias empatadas na correção, prefira SEMPRE uma posição de função genérica tecnicamente compatível (ex.: aparelhos com função própria, partes e acessórios reconhecíveis) sobre uma posição de função específica incompatível (cuja descrição afirme que o produto é algo que ele manifestamente não é), registrando a justificativa da hierarquização.
 
 RESPOSTA OBRIGATÓRIA EM JSON:
 {
@@ -570,12 +589,15 @@ RESPOSTA OBRIGATÓRIA EM JSON:
 RECOMENDAÇÃO DA 1ª PASSADA:
 - Função Enunciada: ${initialRecommendation.essential_function}
 - NCM: ${initialRecommendation.recommended_ncm} | Ex: ${initialRecommendation.recommended_ex || 'Nenhum'}
-- Status do Checklist em Código: ${checklistLog.passed ? 'ATENDEU' : 'VETADO PELO CÓDIGO'}
+- Status do Checklist em Código: ${checklistLog.passed ? checklistLog.status || 'ATENDEU' : 'VETADO PELO CÓDIGO'}
 ${checklistFormattedReport ? `\nCHECKLIST DE CONDIÇÕES DO EX:\n${checklistFormattedReport}\n` : ''}
 
 ATENÇÃO AUDITOR:
-1. Se o Ex foi vetado ou se a posição base recomendada (${initialRecommendation.recommended_ncm}) não descreve a função essencial da mercadoria com exatidão e existem posições específicas de família no catálogo abaixo (ex: aparelho funcionalmente de áudio vs posição genérica de telecomunicação, ou controle eletrônico vs máquinas), VETE (action: "VETA") e MIGRE para o NCM mais adequado entre os candidatos disponíveis.
+1. Se o Ex foi vetado ou se a posição base recomendada (${initialRecommendation.recommended_ncm}) não descreve a função essencial da mercadoria com exatidão e existem posições específicas de família no catálogo abaixo, VETE (action: "VETA") e MIGRE para o NCM mais adequado entre os candidatos disponíveis.
 2. VETAR O EX NÃO SIGNIFICA MANTER O NCM RESIDUAL: Você DEVE verificar se a posição base 4/6/8 dígitos faz sentido para o produto. Se não fizer, altere o NCM em "corrected_ncm".
+3. A CORREÇÃO DEVE RESPEITAR A NATUREZA DO PRODUTO: Jamais corrija para um NCM cuja descrição contradiga o que o produto é (ex.: não escolha NCM de câmera para controlador, nem NCM de máquinas para produto eletroeletrônico).
+4. É PROIBIDO escolher por benefício fiscal (alíquota zero/reduzida). O critério é 100% técnico.
+5. Se houver dúvida entre posições específicas que contradizem o produto e posições genéricas compatíveis (máquinas com função própria / partes e acessórios), prefira a genérica compatível.
 
 LISTA DE CANDIDATOS VÁLIDOS:
 ${candidatesCatalogText}`
@@ -608,37 +630,132 @@ ${candidatesCatalogText}`
         }
       }
 
-      // Guarda universal: se o auditor tentar aplicar um Ex vetado pelo checklist determinístico, rejeitar
-      if (auditVerdict.action === 'VETA' && auditVerdict.corrected_ex) {
-        const candidateMatch = candidates.find(
-          (c: any) =>
-            normalizeNcm(c.ncm) === normalizeNcm(auditVerdict.corrected_ncm) &&
-            (c.ex || '').trim() === auditVerdict.corrected_ex,
-        )
-        if (candidateMatch?.ex_descricao) {
-          const auditCheck = evaluateExChecklistAgainstProduct({
-            exDescription: candidateMatch.ex_descricao,
+      // 12.A AUDITORIA RIGOROSA DA 2ª PASSADA (CORREÇÃO DO AUDITOR)
+      // A correção do auditor não é um salvo-conduto: deve passar por auditoria técnica completa.
+      if (auditVerdict.action === 'VETA' && auditVerdict.corrected_ncm) {
+        let correctedDigits = normalizeNcm(auditVerdict.corrected_ncm)
+        let correctedExDigits = (auditVerdict.corrected_ex || '').toString().trim()
+
+        let candidateMatch =
+          candidates.find(
+            (c: any) =>
+              normalizeNcm(c.ncm) === correctedDigits &&
+              (!correctedExDigits || (c.ex || '').trim() === correctedExDigits),
+          ) || candidates.find((c: any) => normalizeNcm(c.ncm) === correctedDigits)
+
+        // Se o candidato corrigido não existir nos candidatos recuperados, manter recomendação inicial
+        if (!candidateMatch) {
+          console.warn(
+            `[Auditoria 2ª Passada] Candidato corrigido ${correctedDigits} não encontrado no catálogo. Mantendo 1ª passada.`,
+          )
+        } else {
+          // (1) VERIFICAÇÃO DE VEDAÇÃO POR CONTRADIÇÃO DE NATUREZA:
+          // A descrição hierárquica do candidato não pode contradizer a natureza essencial do produto
+          const natureContradiction = checkNatureContradiction({
             productText: fullTechnicalProfile,
-            isKit: compositionAnalysis.isKit,
+            candidateDesc:
+              candidateMatch.ncm_descricao_full ||
+              candidateMatch.ncm_descricao ||
+              candidateMatch.source_text ||
+              '',
             detectedComponents: compositionAnalysis.detectedComponents,
           })
-          if (!auditCheck.passed) {
-            console.warn(
-              `[Checklist Ex] Auditor tentou corrigir para Ex ${auditVerdict.corrected_ex} que NÃO atende às condições. Removendo Ex da correção.`,
-            )
-            auditVerdict.corrected_ex = ''
-          }
-        }
-      }
 
-      // Aplicação da decisão do auditor (se legítima)
-      if (auditVerdict.action === 'VETA' && auditVerdict.corrected_ncm) {
-        const correctedDigits = normalizeNcm(auditVerdict.corrected_ncm)
-        const candidateMatch = candidates.find((c: any) => normalizeNcm(c.ncm) === correctedDigits)
-        if (candidateMatch) {
-          llmResponseJson.recommended_ncm = correctedDigits
-          llmResponseJson.recommended_ex = auditVerdict.corrected_ex || ''
-          llmResponseJson.justification = `[Revisão de Auditoria Aduaneira: Veto e Correção Homologados]\n${auditVerdict.correction_reason || auditVerdict.audit_critique}\n\nFundamentação Complementar: ${llmResponseJson.justification}`
+          // (2) VERIFICAÇÃO DE PROIBIÇÃO DE CRITÉRIO FISCAL / ALÍQUOTA:
+          // Se a justificativa do auditor cita explicitamente termos tributários/alíquotas como motivo de escolha
+          const taxCriterionCheck = checkTaxAdvantageCriterion({
+            auditCritique: auditVerdict.audit_critique,
+            correctionReason: auditVerdict.correction_reason,
+            initialCandidate:
+              activeExCandidate ||
+              candidates.find((c: any) => normalizeNcm(c.ncm) === initialRecNcm),
+            correctedCandidate: candidateMatch,
+          })
+
+          // (3) CHECKLIST DE CONDIÇÕES RESTRITIVAS DO EX NA CORREÇÃO (se houver Ex):
+          let correctedChecklistLog: ExChecklistResult = {
+            passed: true,
+            status: 'APROVADO',
+            requiresExpertReview: false,
+            comparisons: [],
+            missingInformation: [],
+            needsWebSearch: false,
+          }
+
+          if (correctedExDigits && candidateMatch.ex_descricao) {
+            correctedChecklistLog = evaluateExChecklistAgainstProduct({
+              exDescription: candidateMatch.ex_descricao,
+              productText: fullTechnicalProfile,
+              isKit: compositionAnalysis.isKit,
+              detectedComponents: compositionAnalysis.detectedComponents,
+            })
+
+            if (!correctedChecklistLog.passed) {
+              console.warn(
+                `[Auditoria 2ª Passada] Ex ${correctedExDigits} proposto pelo auditor NÃO atende às condições. Removendo Ex da correção.`,
+              )
+              correctedExDigits = ''
+              auditVerdict.corrected_ex = ''
+            }
+          }
+
+          // Se a correção do auditor foi VETADA pela verificação de natureza ontológica ou critério fiscal
+          if (natureContradiction.contradicted || taxCriterionCheck.violatesTaxProhibition) {
+            console.warn(
+              `[Auditoria 2ª Passada: VETO DA CORREÇÃO] Correção para ${correctedDigits} foi vetada:`,
+              natureContradiction.reason || taxCriterionCheck.reason,
+            )
+
+            // (4) PREFERÊNCIA POR FUNÇÃO GENÉRICA COMPATÍVEL SOBRE ESPECÍFICA INCOMPATÍVEL:
+            // Tentar selecionar a melhor alternativa tecnicamente compatível
+            const fallbackCandidate = selectBestCompatibleFallback({
+              candidates,
+              rejectedNcms: [initialRecNcm, correctedDigits],
+              productText: fullTechnicalProfile,
+              detectedComponents: compositionAnalysis.detectedComponents,
+            })
+
+            if (fallbackCandidate) {
+              const fallbackNcmClean = normalizeNcm(fallbackCandidate.ncm)
+              const fallbackExClean = (fallbackCandidate.ex || '').toString().trim()
+              console.log(
+                `[Auditoria 2ª Passada: Fallback de Função Genérica Compatível] Selecionado NCM ${fallbackNcmClean} (Ex ${fallbackExClean || 'sem Ex'}).`,
+              )
+
+              auditVerdict.override_applied = true
+              auditVerdict.override_reason = `Correção do auditor para ${correctedDigits} vetada (${natureContradiction.reason || taxCriterionCheck.reason}). Aplicada preferência técnica por função genérica compatível NCM ${fallbackNcmClean}.`
+              auditVerdict.corrected_ncm = fallbackNcmClean
+              auditVerdict.corrected_ex = fallbackExClean
+              auditVerdict.correction_reason = auditVerdict.override_reason
+
+              llmResponseJson.recommended_ncm = fallbackNcmClean
+              llmResponseJson.recommended_ex = fallbackExClean
+              llmResponseJson.justification = `[Revisão de Auditoria Aduaneira: Veto e Enquadramento Técnico Compatível]\n${auditVerdict.override_reason}\n\nFundamentação Complementar: ${llmResponseJson.justification}`
+
+              // Atualizar checklist se o novo candidato tiver Ex
+              if (fallbackExClean && fallbackCandidate.ex_descricao) {
+                checklistLog = evaluateExChecklistAgainstProduct({
+                  exDescription: fallbackCandidate.ex_descricao,
+                  productText: fullTechnicalProfile,
+                  isKit: compositionAnalysis.isKit,
+                  detectedComponents: compositionAnalysis.detectedComponents,
+                })
+              }
+            } else {
+              // Se não encontrou fallback melhor, anular a correção inválida do auditor
+              auditVerdict.action = 'APROVA'
+              auditVerdict.audit_critique += ` [Nota: A correção proposta para ${correctedDigits} foi rejeitada por incompatibilidade técnica com o produto].`
+            }
+          } else {
+            // Correção do auditor é tecnicamente válida e aceita
+            llmResponseJson.recommended_ncm = correctedDigits
+            llmResponseJson.recommended_ex = correctedExDigits
+            llmResponseJson.justification = `[Revisão de Auditoria Aduaneira: Veto e Correção Homologados]\n${auditVerdict.correction_reason || auditVerdict.audit_critique}\n\nFundamentação Complementar: ${llmResponseJson.justification}`
+
+            if (correctedExDigits) {
+              checklistLog = correctedChecklistLog
+            }
+          }
         }
       }
     } catch (auditErr) {
@@ -769,9 +886,14 @@ ${candidatesCatalogText}`
     }
 
     if (checklistFormattedReport) {
-      const reportHeader = exVetoApplied
-        ? `[Checklist de Condições Restritivas do Ex-Tarifário: VETO APLICADO EM CÓDIGO]\n${checklistFormattedReport}\nVeto: ${checklistLog.vetoReason || 'Não atendeu às condições qualificadoras do Ex.'}\n\n`
-        : `[Checklist de Condições Restritivas do Ex-Tarifário: HOMOLOGADO]\n${checklistFormattedReport}\n\n`
+      let reportHeader = ''
+      if (exVetoApplied) {
+        reportHeader = `[Checklist de Condições Restritivas do Ex-Tarifário: VETO APLICADO EM CÓDIGO]\n${checklistFormattedReport}\nVeto: ${checklistLog.vetoReason || 'Não atendeu às condições qualificadoras do Ex.'}\n\n`
+      } else if (checklistLog.status === 'NÃO VERIFICADO') {
+        reportHeader = `[Checklist de Condições Restritivas do Ex-Tarifário: NÃO VERIFICADO - REQUER REVISÃO ESPECIALISTA]\n${checklistFormattedReport}\n\n`
+      } else {
+        reportHeader = `[Checklist de Condições Restritivas do Ex-Tarifário: HOMOLOGADO]\n${checklistFormattedReport}\n\n`
+      }
       finalJustification = `${reportHeader}${finalJustification}`
     }
 
@@ -1254,18 +1376,216 @@ function evaluateExChecklistAgainstProduct(params: {
     }
   }
 
-  // Se houver qualquer comparação com status NÃO COMPROVADO, acionar busca na web
-  if (comparisons.some((c) => c.status === 'NÃO COMPROVADO')) {
+  // Regra Vinculante 3: Checklist com extração vazia de qualificadores do Ex = status "NÃO VERIFICADO"
+  // + badge "requer revisão especialista" no painel — NUNCA passed:true silencioso com zero comparações.
+  let checklistStatus: 'APROVADO' | 'VETADO' | 'NÃO VERIFICADO' = 'APROVADO'
+  let requiresExpertReview = false
+
+  if (comparisons.length === 0) {
+    checklistStatus = 'NÃO VERIFICADO'
+    requiresExpertReview = true
     needsWebSearch = true
+    missingInformation.push(
+      'qualificadores técnicos do Ex-Tarifário não puderam ser extraídos automaticamente',
+    )
+    comparisons.push({
+      name: 'Verificação de Qualificadores do Ex-Tarifário',
+      productValue: 'Especificações técnicas gerais do produto',
+      exRequirement:
+        'Condições do Ex-Tarifário (texto descritivo complexo ou sem qualificadores tabulados)',
+      status: 'NÃO COMPROVADO',
+      reason:
+        'Extração automática vazia de qualificadores do Ex. Requer revisão especialista humana.',
+    })
+  } else if (!passed) {
+    checklistStatus = 'VETADO'
+  } else if (comparisons.some((c) => c.status === 'NÃO COMPROVADO')) {
+    needsWebSearch = true
+    checklistStatus = 'NÃO VERIFICADO'
+    requiresExpertReview = true
   }
 
   return {
     passed,
+    status: checklistStatus,
+    requiresExpertReview,
     comparisons,
     vetoReason: vetoReason || undefined,
     missingInformation,
     needsWebSearch,
   }
+}
+
+/**
+ * Confronta a descrição hierárquica completa do candidato com a natureza do produto.
+ * Princípio genérico: Veta qualquer candidato cuja descrição afirme que o produto é de uma natureza
+ * ontológica que o produto não possui (ex: candidato descreve câmera para um controlador/remoto/periférico;
+ * candidato descreve aparelho de áudio para cabo; candidato descreve monitor para lente).
+ */
+function checkNatureContradiction(params: {
+  productText: string
+  candidateDesc: string
+  detectedComponents: string[]
+}): { contradicted: boolean; reason?: string } {
+  const prodTextLower = params.productText.toLowerCase()
+  const candDescLower = params.candidateDesc.toLowerCase()
+
+  // 1. Caso: Produto é periférico de controle / comando / remoto / joystick
+  const isControllerOrPeripheral =
+    /\b(controlador|controller|controle remoto|remote control|joystick|console de controle|mesa de controle|painel de controle)\b/i.test(
+      prodTextLower,
+    )
+
+  // Substantivo "câmera" ou "câmeras" como natureza autônoma (não apenas de interface)
+  // Ex: 90071000 descreve "Câmeras cinematográficas..." ou "Câmeras de vídeo digital..."
+  const candIsDirectlyCamera =
+    /\b(c[aâ]meras?(?: de v[ií]deo| cinematogr[aá]ficas?| digitais?| fotogr[aá]ficas?))\b/i.test(
+      candDescLower,
+    ) && !/\b(partes|acess[oó]rios|comandos?|control|painel|console)\b/i.test(candDescLower)
+
+  if (isControllerOrPeripheral && candIsDirectlyCamera) {
+    return {
+      contradicted: true,
+      reason: `Contradição de natureza ontológica: o produto é um dispositivo periférico/controlador remoto, mas o candidato NCM descreve diretamente o aparelho de captura ("${params.candidateDesc.slice(0, 100)}..."), violando o princípio da função essencial.`,
+    }
+  }
+
+  // 2. Caso: Produto é transmissor/receptor/microfone de áudio, mas o candidato descreve diretamente câmera/óptica
+  const isAudioDevice =
+    /\b(microfone|microphone|transmissor de [aá]udio|receptor de [aá]udio|headset|lapela|lavalier)\b/i.test(
+      prodTextLower,
+    )
+  if (isAudioDevice && candIsDirectlyCamera) {
+    return {
+      contradicted: true,
+      reason: `Contradição de natureza: o produto é equipamento de áudio/acústico, mas o candidato descreve aparelho de filmagem/câmera.`,
+    }
+  }
+
+  // 3. Caso: Aparelho eletroeletrônico classificado em máquinas mecânicas pesadas de elevação/construção
+  const isElectronicDevice =
+    /\b(eletr[oô]nico|digital|ip|visca|rs-422|rs422|ethernet|hdmi|usb|sem fio|wireless)\b/i.test(
+      prodTextLower,
+    )
+  const candIsHeavyMachinery =
+    /\b(guindastes?|pontes rolantes|gruas|talhas|empilhadeiras?|aparelhos de eleva[cç][aã]o ou de carga)\b/i.test(
+      candDescLower,
+    )
+  if (isElectronicDevice && candIsHeavyMachinery) {
+    return {
+      contradicted: true,
+      reason: `Contradição setorial: aparelho eletroeletrônico/digital classificado em máquinas pesadas de movimentação/elevação do Cap. 84.`,
+    }
+  }
+
+  return { contradicted: false }
+}
+
+/**
+ * Verifica se a justificativa da auditoria fundamentou a escolha em vantagens tributárias (alíquota / II 0%),
+ * o que é expressamente proibido pela regra vinculante.
+ */
+function checkTaxAdvantageCriterion(params: {
+  auditCritique?: string
+  correctionReason?: string
+  initialCandidate?: any
+  correctedCandidate?: any
+}): { violatesTaxProhibition: boolean; reason?: string } {
+  const combinedText =
+    `${params.auditCritique || ''} ${params.correctionReason || ''}`.toLowerCase()
+
+  // Termos explícitos de fundamentação tributária como motivo
+  const taxAdvantageKeywords = [
+    /\b(al[ií]quota (?:zero|menor|mais vantajosa|reduzida|benef[ií]cio))\b/i,
+    /\b(ii\s*(?:de\s*)?0%|ii\s*=\s*0%|imposto de importa[cç][aã]o zero)\b/i,
+    /\b(vantagem (?:fiscal|tribut[aá]ria))\b/i,
+    /\b(redu[cç][aã]o forte de carga)\b/i,
+    /\b(ex-tarif[aá]rio vantajoso|ex vantajoso)\b/i,
+    /\b(menor carga tribut[aá]ria|economia de impostos)\b/i,
+  ]
+
+  const hasTaxMotivator = taxAdvantageKeywords.some((pattern) => pattern.test(combinedText))
+
+  if (hasTaxMotivator) {
+    return {
+      violatesTaxProhibition: true,
+      reason:
+        'A auditoria utilizou alíquota ou vantagem tributária (II 0% / Ex vantajoso) como critério de escolha ou justificativa, o que é expressamente vedado pelas regras de enquadramento técnico.',
+    }
+  }
+
+  return { violatesTaxProhibition: false }
+}
+
+/**
+ * Seleciona a melhor alternativa de fallback entre candidatos, aplicando o princípio de:
+ * "Preferir família de função genérica compatível (máquinas/aparelhos com função própria, partes e acessórios)
+ * sobre a de função específica incompatível."
+ */
+function selectBestCompatibleFallback(params: {
+  candidates: any[]
+  rejectedNcms: string[]
+  productText: string
+  detectedComponents: string[]
+}): any | null {
+  const { candidates, rejectedNcms, productText, detectedComponents } = params
+  const rejectedSet = new Set(rejectedNcms.map((n) => normalizeNcm(n)))
+
+  // Filtrar apenas candidatos que não foram explicitamente rejeitados
+  const eligibleCandidates = candidates.filter((c: any) => !rejectedSet.has(normalizeNcm(c.ncm)))
+
+  if (eligibleCandidates.length === 0) return null
+
+  // Pontuar candidatos por compatibilidade técnica
+  const scored = eligibleCandidates.map((cand: any) => {
+    let score = cand.combined_score ?? 0
+    const ncmClean = normalizeNcm(cand.ncm)
+    const desc = (
+      cand.ncm_descricao_full ||
+      cand.ncm_descricao ||
+      cand.source_text ||
+      ''
+    ).toLowerCase()
+
+    // 1. Elimina contradição de natureza
+    const check = checkNatureContradiction({
+      productText,
+      candidateDesc: desc,
+      detectedComponents,
+    })
+    if (check.contradicted) {
+      score -= 100 // Fortemente penalizado
+    }
+
+    // 2. Bonifica famílias de função genérica compatível para aparelhos de controle/eletroeletrônicos
+    // Família 8543 (máquinas e aparelhos elétricos com função própria)
+    if (ncmClean.startsWith('8543')) {
+      score += 25
+    }
+    // Família 8529 (partes reconhecíveis como exclusiva ou principalmente destinadas aos aparelhos das posições 85.25 a 85.28)
+    if (ncmClean.startsWith('8529')) {
+      score += 20
+    }
+    // Família 8518 (aparelhos de áudio) se for produto de áudio
+    if (ncmClean.startsWith('8518') && /\b(microfone|audio|som)\b/i.test(productText)) {
+      score += 30
+    }
+
+    // Penaliza capítulos sabidamente distantes da natureza eletroeletrônica quando o produto é eletrônico
+    if (ncmClean.startsWith('8426') || ncmClean.startsWith('8428') || ncmClean.startsWith('9007')) {
+      score -= 50
+    }
+
+    return { candidate: cand, score }
+  })
+
+  scored.sort((a, b) => b.score - a.score)
+
+  if (scored[0] && scored[0].score > -50) {
+    return scored[0].candidate
+  }
+
+  return null
 }
 
 /**

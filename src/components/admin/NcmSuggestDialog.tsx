@@ -334,12 +334,16 @@ export function NcmSuggestDialog({
                               {Boolean(
                                 result.recommendation.ex || result.recommendation.has_ex_tarifario,
                               ) &&
-                                Number(result.recommendation.ii) <= 2 && (
+                                (Number(result.recommendation.ii) <= 2 ||
+                                  result.checklist_log?.status === 'NÃO VERIFICADO' ||
+                                  result.checklist_log?.requiresExpertReview) && (
                                   <Badge
                                     variant="destructive"
                                     className="text-[9px] py-0 px-1 font-semibold uppercase tracking-wider bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/40 hover:bg-amber-500/30"
                                   >
-                                    Requer revisão especialista
+                                    {result.checklist_log?.status === 'NÃO VERIFICADO'
+                                      ? 'Não Verificado • Requer revisão especialista'
+                                      : 'Requer revisão especialista'}
                                   </Badge>
                                 )}
                             </div>
@@ -511,12 +515,16 @@ export function NcmSuggestDialog({
                         <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
                         <span>Ex-Tarifário Vinculado: Ex {result.recommendation.ex}</span>
                       </div>
-                      {Number(result.recommendation.ii) <= 2 && (
+                      {(Number(result.recommendation.ii) <= 2 ||
+                        result.checklist_log?.status === 'NÃO VERIFICADO' ||
+                        result.checklist_log?.requiresExpertReview) && (
                         <Badge
                           variant="destructive"
                           className="text-[10px] bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/40"
                         >
-                          Requer revisão especialista (II {result.recommendation.ii}%)
+                          {result.checklist_log?.status === 'NÃO VERIFICADO'
+                            ? 'Não Verificado • Requer revisão especialista'
+                            : `Requer revisão especialista (II ${result.recommendation.ii}%)`}
                         </Badge>
                       )}
                     </div>

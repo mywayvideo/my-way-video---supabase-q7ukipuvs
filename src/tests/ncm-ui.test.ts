@@ -25,4 +25,46 @@ describe('NcmSuggestDialog helpers & formatters', () => {
   it('exports updateDecision in ncmService', () => {
     expect(typeof ncmService.updateDecision).toBe('function')
   })
+
+  it('validates contract types for ClassifyNcmResponse checklist_log and audit_verdict', () => {
+    const mockResponse: import('@/services/ncmService').ClassifyNcmResponse = {
+      success: true,
+      audit_id: 'test-audit-id',
+      recommendation: {
+        ncm: '85437099',
+        ex: '',
+        ii: 0,
+        ipi: 6.5,
+        pis: 2.1,
+        cofins: 9.65,
+        total_tax: 18.25,
+        has_ex_tarifario: false,
+        justification: 'Enquadramento técnico correto.',
+      },
+      alternatives: [],
+      confidence: 'alta',
+      sufficient_info: true,
+      web_sources: [],
+      model_used: 'openai (gpt-4o-mini)',
+      candidates_count: 15,
+      execution_time_ms: 1200,
+      timestamp: new Date().toISOString(),
+      audit_verdict: {
+        action: 'APROVA',
+        essential_function: 'Controlador remoto de câmeras PTZ',
+        audit_critique: 'Aprovado.',
+      },
+      checklist_log: {
+        passed: true,
+        status: 'NÃO VERIFICADO',
+        requiresExpertReview: true,
+        comparisons: [],
+        missingInformation: [],
+        needsWebSearch: true,
+      },
+    }
+
+    expect(mockResponse.checklist_log?.status).toBe('NÃO VERIFICADO')
+    expect(mockResponse.checklist_log?.requiresExpertReview).toBe(true)
+  })
 })

@@ -42,22 +42,24 @@ describe('NCM Product Validation & Recalibration Tests', () => {
     const recommendedNcm = result.recommendation.ncm.replace(/\D/g, '')
 
     // Não deve ser gruas (8428) nem guindastes/robôs de elevação (8426)
+    // JAMAIS 9007.10.00 (+Ex 002) nem 8537.10.20
     expect(recommendedNcm.startsWith('8428')).toBe(false)
     expect(recommendedNcm.startsWith('8426')).toBe(false)
+    expect(recommendedNcm.startsWith('9007')).toBe(false)
+    expect(recommendedNcm).not.toBe('90071000')
+    expect(recommendedNcm).not.toBe('85371020')
 
-    // Deve ser 85437099 ou 85299090 (ou família 8543 / 8529) conforme expectativa do usuário
-    const isPlausible =
-      recommendedNcm === '85437099' ||
-      recommendedNcm === '85299090' ||
-      recommendedNcm.startsWith('8543') ||
-      recommendedNcm.startsWith('8529')
+    // Deve ser 8543.70.99 ou 8529.90.90 (os dois únicos aceitáveis para o RM-IP500)
+    const isAcceptedNcm = recommendedNcm === '85437099' || recommendedNcm === '85299090'
+    expect(isAcceptedNcm).toBe(true)
 
-    expect(isPlausible).toBe(true)
-    // Se o auditor tentou vetar para grua, override_applied deve estar registrado ou o auditor aprovou
+    // Se o auditor tentou vetar para câmera ou grua, a correção deve ter sido vetada
     if (result.audit_verdict) {
       const correctedDigits = (result.audit_verdict.corrected_ncm || '').replace(/\D/g, '')
       expect(correctedDigits.startsWith('8426')).toBe(false)
       expect(correctedDigits.startsWith('8428')).toBe(false)
+      expect(correctedDigits.startsWith('9007')).toBe(false)
+      expect(correctedDigits).not.toBe('85371020')
     }
   }, 60000)
 

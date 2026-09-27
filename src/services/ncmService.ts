@@ -236,6 +236,31 @@ export interface ClassifyNcmResponse {
   model_used: string
   candidates_count: number
   execution_time_ms: number
+  audit_verdict?: {
+    action: 'APROVA' | 'VETA'
+    essential_function: string
+    corrected_ncm?: string
+    corrected_ex?: string
+    correction_reason?: string
+    audit_critique: string
+    override_applied?: boolean
+    override_reason?: string
+  }
+  checklist_log?: {
+    passed: boolean
+    status?: 'APROVADO' | 'VETADO' | 'NÃO VERIFICADO'
+    requiresExpertReview?: boolean
+    comparisons: Array<{
+      name: string
+      productValue: string
+      exRequirement: string
+      status: 'ATENDE' | 'NÃO ATENDE' | 'NÃO COMPROVADO'
+      reason?: string
+    }>
+    vetoReason?: string
+    missingInformation: string[]
+    needsWebSearch: boolean
+  }
   timestamp: string
 }
 

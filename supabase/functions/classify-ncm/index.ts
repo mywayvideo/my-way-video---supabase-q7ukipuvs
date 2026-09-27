@@ -282,6 +282,101 @@ export function isHeadingContainedInPartsRanges(
 }
 
 /**
+ * Extrai os códigos de posição/heading (4 dígitos, ex: "8525") das máquinas-alvo (target_machines)
+ * identificadas na Fase 0 / product_understanding.
+ *
+ * Mapeia tanto códigos numéricos explícitos (ex: "8525", "85.25", "posição 8525") quanto
+ * termos ontológicos de máquinas de destino do Sistema Harmonizado (ex: câmeras PTZ / estúdio -> 8525,
+ * monitores / telas -> 8528, microfones / áudio -> 8518, computadores -> 8471, lentes -> 9002).
+ */
+export function extractTargetMachineHeadings(targetMachines?: any[] | null): string[] {
+  if (!targetMachines || !Array.isArray(targetMachines) || targetMachines.length === 0) {
+    return []
+  }
+
+  const headings = new Set<string>()
+  const headingCodeRegex = /\b(\d{2})\.?(\d{2})\b/g
+
+  for (const rawItem of targetMachines) {
+    if (!rawItem) continue
+    const itemStr = String(rawItem).trim()
+    if (!itemStr) continue
+
+    // 1. Extração direta de códigos de 4 dígitos (ex: "8525", "85.25", "posição 8525")
+    let match: RegExpExecArray | null
+    while ((match = headingCodeRegex.exec(itemStr)) !== null) {
+      const h = `${match[1]}${match[2]}`
+      const capNum = parseInt(match[1], 10)
+      if (capNum >= 1 && capNum <= 97) {
+        headings.add(h)
+      }
+    }
+
+    const lower = itemStr.toLowerCase()
+
+    // 2. Mapeamento ontológico por termos técnicos de destino da NCM / Sistema Harmonizado:
+    // Posição 85.25: Câmeras de televisão, câmeras digitais, câmeras de vídeo, PTZ, estúdio, broadcast
+    if (
+      /\b(c[aâ]meras?|camcorders?|ptz|filmadoras?|est[uú]dio|televis[aã]o|broadcast|produ[cç][aã]o ao vivo)\b/i.test(
+        lower,
+      )
+    ) {
+      headings.add('8525')
+    }
+
+    // Posição 85.28: Monitores e projetores, aparelhos receptores de televisão
+    if (/\b(monitores?|displays?|projetores?|telas?|televisores?|tvs?)\b/i.test(lower)) {
+      headings.add('8528')
+    }
+
+    // Posição 85.17: Aparelhos de transmissão/recepção de voz, imagem ou outros dados, redes, roteadores
+    if (
+      /\b(telecomunica[cç][aã]o|roteadores?|switches?|modems?|intercom|redes?|transmiss[aã]o de dados)\b/i.test(
+        lower,
+      )
+    ) {
+      headings.add('8517')
+    }
+
+    // Posição 85.18: Microfones e suportes, alto-falantes, fones de ouvido, amplificadores de áudio
+    if (/\b(microfones?|mics?|alto-falantes?|fones?|headsets?|[aá]udio)\b/i.test(lower)) {
+      headings.add('8518')
+    }
+
+    // Posição 85.21: Aparelhos de gravação ou reprodução de vídeo (VTR, VCR, decks gravadores)
+    if (/\b(gravadores?|reprodutores?|decks?|vtr|vcr)\b/i.test(lower)) {
+      headings.add('8521')
+    }
+
+    // Posição 84.71: Máquinas automáticas para processamento de dados (computadores, servidores)
+    if (
+      /\b(computadores?|pcs?|servidores?|notebooks?|processamento de dados|workstations?)\b/i.test(
+        lower,
+      )
+    ) {
+      headings.add('8471')
+    }
+
+    // Posição 90.02: Lentes, objetivas, teleobjetivas, filtros ópticos montados
+    if (/\b(lentes?|objetivas?|teleobjetivas?|filtros? [oó]pticos?)\b/i.test(lower)) {
+      headings.add('9002')
+    }
+
+    // Posição 90.06 / 90.07: Câmeras fotográficas ou cinematográficas
+    if (/\b(cinematogr[aá]fic[ao]s?|cinematografia)\b/i.test(lower)) {
+      headings.add('9007')
+    }
+
+    // Posição 96.20: Tripés, monopés, pedestais e artigos semelhantes
+    if (/\b(trip[eé]s?|monop[eé]s?|pedestais?)\b/i.test(lower)) {
+      headings.add('9620')
+    }
+  }
+
+  return Array.from(headings)
+}
+
+/**
  * Avalia se o produto sob análise possui função própria completa e autônoma,
  * ou se é uma peça/acessório dependente sem função independente.
  * Aplica princípios universais (RGI 1, RGI 3b, Nota 2).

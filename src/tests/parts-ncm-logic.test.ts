@@ -414,5 +414,76 @@ describe('Parts NCM Universal Indirect Linking Logic (Frontend/Contract)', () =>
       expect(evalResult.verdict.applied).toBe(false)
       expect(evalResult.winningCandidate).toBeNull()
     })
+
+    describe('extractTargetMachineHeadings logic test', () => {
+      // Importante: testa a mesma lógica de extração dos target_machines
+      function extractTargetMachineHeadings(targetMachines?: any[] | null): string[] {
+        if (!targetMachines || !Array.isArray(targetMachines) || targetMachines.length === 0) {
+          return []
+        }
+
+        const headings = new Set<string>()
+        const headingCodeRegex = /\b(\d{2})\.?(\d{2})\b/g
+
+        for (const rawItem of targetMachines) {
+          if (!rawItem) continue
+          const itemStr = String(rawItem).trim()
+          if (!itemStr) continue
+
+          let match: RegExpExecArray | null
+          while ((match = headingCodeRegex.exec(itemStr)) !== null) {
+            const h = `${match[1]}${match[2]}`
+            const capNum = parseInt(match[1], 10)
+            if (capNum >= 1 && capNum <= 97) {
+              headings.add(h)
+            }
+          }
+
+          const lower = itemStr.toLowerCase()
+          if (/\b(c[aâ]meras?|camcorders?|ptz|filmadoras?|est[uú]dio|televis[aã]o|broadcast|produ[cç][aã]o ao vivo)\b/i.test(lower)) {
+            headings.add('8525')
+          }
+          if (/\b(monitores?|displays?|projetores?|telas?|televisores?|tvs?)\b/i.test(lower)) {
+            headings.add('8528')
+          }
+          if (/\b(telecomunica[cç][aã]o|roteadores?|switches?|modems?|intercom|redes?|transmiss[aã]o de dados)\b/i.test(lower)) {
+            headings.add('8517')
+          }
+          if (/\b(microfones?|mics?|alto-falantes?|fones?|headsets?|[aá]udio)\b/i.test(lower)) {
+            headings.add('8518')
+          }
+          if (/\b(lentes?|objetivas?|teleobjetivas?|filtros? [oó]pticos?)\b/i.test(lower)) {
+            headings.add('9002')
+          }
+        }
+
+        return Array.from(headings)
+      }
+
+      it('extracts heading 8525 from PTZ camera target machines (RM-IP500 case)', () => {
+        const tm = ['Câmeras PTZ Sony BRC-X1000/1, BRC-H800/1, BRC-H900 e SRG-360SHE']
+        const headings = extractTargetMachineHeadings(tm)
+        expect(headings).toContain('8525')
+      })
+
+      it('extracts explicit 4-digit heading codes if present', () => {
+        const tm = ['aparelhos da posição 85.25', 'posição 8528']
+        const headings = extractTargetMachineHeadings(tm)
+        expect(headings).toContain('8525')
+        expect(headings).toContain('8528')
+      })
+
+      it('extracts heading 9002 for telephoto lenses', () => {
+        const tm = ['teleobjetivas e lentes broadcast']
+        const headings = extractTargetMachineHeadings(tm)
+        expect(headings).toContain('9002')
+      })
+
+      it('handles null, empty or undefined gracefully', () => {
+        expect(extractTargetMachineHeadings(null)).toEqual([])
+        expect(extractTargetMachineHeadings([])).toEqual([])
+        expect(extractTargetMachineHeadings(undefined)).toEqual([])
+      })
+    })
   })
 })

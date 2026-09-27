@@ -7,7 +7,7 @@ const supabaseAnonKey = process.env.VITE_SUPABASE_PUBLISHABLE_KEY || ''
 describe('classify-ncm Edge Function live deploy check & validation', () => {
   const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
-  it('checks edge function health endpoint returning version 3.6.0-build.611', async () => {
+  it('checks edge function health endpoint returning version 3.7.0 or higher with new features', async () => {
     const res = await fetch(`${supabaseUrl}/functions/v1/classify-ncm?health=true`, {
       method: 'GET',
     })
@@ -16,7 +16,7 @@ describe('classify-ncm Edge Function live deploy check & validation', () => {
     const data = await res.json()
     expect(data.status).toBe('ok')
     expect(data.function).toBe('classify-ncm')
-    expect(data.version).toBe('3.6.0-build.611')
+    expect(data.version).toMatch(/^3\.[7-9]\.\d+/)
     expect(data.features).toContain('phase0_canonical_composition_derivation')
     expect(data.features).toContain('phase0_tripartite_product_nature')
     expect(data.features).toContain('orphan_ncm_sweep_invariant')
@@ -28,6 +28,9 @@ describe('classify-ncm Edge Function live deploy check & validation', () => {
     expect(data.features).toContain('parts_ncm_indirect_linking')
     expect(data.features).toContain('parts_vs_dependent_accessory_distinction')
     expect(data.features).toContain('parts_precedence_over_residual_standalone')
+    expect(data.features).toContain('parts_precedence_over_8537_and_residual')
+    expect(data.features).toContain('auditor_verdict_reinclusion_no_silent_fallback')
+    expect(data.features).toContain('target_machine_serviced_device_mapping')
     expect(data.features).toContain('expanded_parts_deterministic_retrieval')
   })
 

@@ -8,7 +8,7 @@
     "start": "vite dev",
     "dev": "vite",
     "build": "vite build",
-    "test": "vitest run src/tests/classify-ncm-live-deploy.test.ts",
+    "test": "vitest run src/tests/parts-ncm-logic.test.ts src/tests/classify-ncm-live-deploy.test.ts",
     "build:dev": "vite build --mode development",
     "lint": "oxlint src",
     "lint:fix": "oxlint src --fix",

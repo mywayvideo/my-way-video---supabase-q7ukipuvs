@@ -348,12 +348,24 @@ export function extractTargetMachineHeadings(targetMachines?: any[] | null): str
       headings.add('8521')
     }
 
-    // Posição 84.71: Máquinas automáticas para processamento de dados (computadores, servidores)
+    // Posição 85.25: Aparelhos emissores (transmissores) para radiodifusão ou televisão, câmeras de televisão, digitais e de vídeo, PTZ
     if (
-      /\b(computadores?|pcs?|servidores?|notebooks?|processamento de dados|workstations?)\b/i.test(
+      /\b(c[aâ]meras?|camcorders?|ptz|filmadoras?|est[uú]dio|televis[aã]o|broadcast|produ[cç][aã]o ao vivo|controle de c[aâ]meras?|controlador(?:es)?\s+ptz|remote\s+controllers?|c[aâ]meras?\s+ptz)\b/i.test(
         lower,
       )
     ) {
+      headings.add('8525')
+    }
+
+    // Posição 84.71: Máquinas automáticas para processamento de dados (computadores, servidores, workstations, unidades de processamento de dados)
+    // Mapear para 8471 SOMENTE com evidência estrita de processamento de dados e descartar quando o contexto for controle de câmeras/PTZ
+    const isControlContext =
+      /\b(controle|controlador(?:es)?|remote|ptz|c[aâ]meras?|joysticks?|consoles?)\b/i.test(lower)
+    const isStrictDataProcessing =
+      /\b(computador(?:es)?|servidor(?:es)?|workstations?|unidade\s+de\s+processamento\s+de\s+dados)\b/i.test(
+        lower,
+      )
+    if (isStrictDataProcessing && !isControlContext) {
       headings.add('8471')
     }
 
@@ -587,9 +599,17 @@ export function evaluatePartsPrecedenceOverResidual(params: {
     }
   }
 
-  // Verifica se o NCM atualmente recomendado é um residual de aparelho com função própria
-  const isCurrentResidual = isResidualStandaloneDeviceNcm(params.currentRecDesc)
-  if (!isCurrentResidual) {
+  // Verifica se o NCM atualmente recomendado é passível de sobreposição por partes:
+  // - Posições residuais de aparelhos com função própria (ex.: 8543 / 8543.70.99)
+  // - Ou recomendação atual iniciada por '8537' (quadros/consoles de comando elétrico) ou '8543'
+  // - Ou NCM residual pela assinatura de texto oficial ("não especificados nem compreendidos noutras posições")
+  const currentDigits = normalizeNcm(params.currentRecNcm)
+  const isCurrentOverridableByParts =
+    isResidualStandaloneDeviceNcm(params.currentRecDesc) ||
+    currentDigits.startsWith('8537') ||
+    currentDigits.startsWith('8543')
+
+  if (!isCurrentOverridableByParts) {
     return {
       shouldOverride: false,
       winningCandidate: null,
@@ -600,7 +620,8 @@ export function evaluatePartsPrecedenceOverResidual(params: {
         applied: false,
         winning_parts_ncm: null,
         demoted_residual_ncm: null,
-        reason: 'Recomendação atual não é NCM residual de função própria.',
+        reason:
+          'Recomendação atual não é NCM residual ou posição sobreponível por partes (8537/8543).',
       },
     }
   }
@@ -637,7 +658,7 @@ export function evaluatePartsPrecedenceOverResidual(params: {
             demoted_residual_desc: params.currentRecDesc,
             target_machine_position: heading,
             matched_range: matchedRangeText,
-            reason: `Precedência determinística aplicada (RGI 1, Nota 2(b) do Cap. 85): Para acessório dependente destinado a aparelhos da posição ${heading}, o NCM de partes ${winNcm} (intervalo ${matchedRangeText}) prevalece sobre o residual de função própria ${demNcm} ("não especificados em outras posições").`,
+            reason: `Precedência determinística aplicada (RGI 1, Nota 2(b) do Cap. 85): Para acessório dependente destinado a aparelhos da posição ${heading} (intervalo 85.24 a 85.28), o NCM de partes ${winNcm} (intervalo ${matchedRangeText}) prevalece sobre a posição de função genérica/residual ${demNcm} com base na Nota 2(b) do Capítulo 85.`,
           },
         }
       }
@@ -734,7 +755,7 @@ Deno.serve(async (req: Request) => {
       JSON.stringify({
         status: 'ok',
         function: 'classify-ncm',
-        version: '3.6.0-build.611',
+        version: '3.7.0-build.612',
         knowledge_base_version: '3.1',
         features: [
           'phase0_canonical_composition_derivation',
@@ -750,6 +771,9 @@ Deno.serve(async (req: Request) => {
           'parts_ncm_indirect_linking',
           'parts_vs_dependent_accessory_distinction',
           'parts_precedence_over_residual_standalone',
+          'parts_precedence_over_8537_and_residual',
+          'auditor_verdict_reinclusion_no_silent_fallback',
+          'target_machine_serviced_device_mapping',
           'expanded_parts_deterministic_retrieval',
           'defensive_ai_provider_safeguards',
         ],
@@ -1548,10 +1572,76 @@ ${candidatesCatalogText}`
               (!correctedExDigits || (c.ex || '').trim() === correctedExDigits),
           ) || candidates.find((c: any) => normalizeNcm(c.ncm) === correctedDigits)
 
-        // Se o candidato corrigido não existir nos candidatos recuperados, manter recomendação inicial
+        // Se o candidato corrigido não existir nos candidatos recuperados,
+        // buscar diretamente em imp_sim_tax_rates via supabaseAdmin, reconstruir o objeto
+        // candidato e promover a recommendation sem fallback silencioso
+        if (!candidateMatch) {
+          console.log(
+            `[Auditoria 2ª Passada] Candidato corrigido ${correctedDigits} não estava no array de candidatos. Buscando diretamente em imp_sim_tax_rates...`,
+          )
+
+          let dbCandidateQuery = supabaseAdmin
+            .from('imp_sim_tax_rates')
+            .select(
+              'ncm, ex, ncm_descricao_full, ncm_descricao, ex_descricao, ii_rate, ipi_rate, pis_rate, cofins_rate, has_ex_tarifario',
+            )
+            .eq('ncm', correctedDigits)
+
+          if (correctedExDigits) {
+            dbCandidateQuery = dbCandidateQuery.eq('ex', correctedExDigits)
+          }
+
+          const { data: directDbRows, error: directDbErr } = await dbCandidateQuery.limit(1)
+
+          let directDbRow = directDbRows && directDbRows.length > 0 ? directDbRows[0] : null
+          if (!directDbRow && correctedExDigits) {
+            // Tenta sem o filtro de Ex se não encontrou com Ex exato
+            const { data: fallbackDbRows } = await supabaseAdmin
+              .from('imp_sim_tax_rates')
+              .select(
+                'ncm, ex, ncm_descricao_full, ncm_descricao, ex_descricao, ii_rate, ipi_rate, pis_rate, cofins_rate, has_ex_tarifario',
+              )
+              .eq('ncm', correctedDigits)
+              .limit(1)
+            if (fallbackDbRows && fallbackDbRows.length > 0) {
+              directDbRow = fallbackDbRows[0]
+            }
+          }
+
+          if (directDbRow) {
+            const reincludedCandidate: any = {
+              ncm: directDbRow.ncm,
+              ex: directDbRow.ex || correctedExDigits || '',
+              ncm_descricao_full: directDbRow.ncm_descricao_full || directDbRow.ncm_descricao || '',
+              ncm_descricao: directDbRow.ncm_descricao || '',
+              ex_descricao: directDbRow.ex_descricao || '',
+              ii_rate: directDbRow.ii_rate ?? 0,
+              ipi_rate: directDbRow.ipi_rate ?? 0,
+              pis_rate: directDbRow.pis_rate ?? 2.1,
+              cofins_rate: directDbRow.cofins_rate ?? 9.65,
+              has_ex_tarifario: Boolean(directDbRow.has_ex_tarifario || directDbRow.ex),
+              is_auditor_reincluded: true,
+              score: 0.99,
+            }
+
+            candidates.unshift(reincludedCandidate)
+            candidateMatch = reincludedCandidate
+            console.log(
+              `[Auditoria 2ª Passada] Candidato corrigido ${correctedDigits} reincluído com sucesso a partir de imp_sim_tax_rates.`,
+            )
+          } else {
+            const notFoundMsg = `Candidato corrigido pelo auditor (${correctedDigits}) não existe na tabela oficial imp_sim_tax_rates.`
+            console.warn(
+              `[Auditoria 2ª Passada] ${notFoundMsg} Registrando override_reason.`,
+              directDbErr,
+            )
+            auditVerdict.override_reason = notFoundMsg
+          }
+        }
+
         if (!candidateMatch) {
           console.warn(
-            `[Auditoria 2ª Passada] Candidato corrigido ${correctedDigits} não encontrado no catálogo. Mantendo 1ª passada.`,
+            `[Auditoria 2ª Passada] Candidato corrigido ${correctedDigits} indisponível na base oficial. Mantendo 1ª passada com justificativa registrada no veredito.`,
           )
         } else {
           // (1) VERIFICAÇÃO DE VEDAÇÃO POR CONTRADIÇÃO DE NATUREZA:

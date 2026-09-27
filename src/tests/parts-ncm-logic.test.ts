@@ -241,4 +241,178 @@ describe('Parts NCM Universal Indirect Linking Logic (Frontend/Contract)', () =>
       expect(hasStandalone).toBe(false)
     })
   })
+
+  describe('Precedência Genérica de Partes sobre Residual de Função Própria (RGI 1, Nota 2(b) do Cap. 85)', () => {
+    // Implementações de teste espelhando as funções da edge function
+    function isResidualStandaloneDeviceNcm(description: string): boolean {
+      if (!description || typeof description !== 'string') return false
+      const text = description.toLowerCase()
+      return (
+        /\bn[aã]o\s+especificad[ao]s?\s+nem\s+compreendid[ao]s?\b/i.test(text) ||
+        /\bn[aã]o\s+especificad[ao]s?\s+noutras?\s+posi[çc][oõ]es\b/i.test(text) ||
+        /\bn[aã]o\s+especificad[ao]s?\s+em\s+outras?\s+posi[çc][oõ]es\b/i.test(text)
+      )
+    }
+
+    function evaluatePartsPrecedenceOverResidual(params: {
+      productNature: string
+      currentRecNcm: string
+      currentRecDesc: string
+      candidates: any[]
+      targetHeadings: string[]
+    }) {
+      const isDependentAccessory =
+        params.productNature ===
+        'acessório dependente (sem função autônoma, requer produto principal para operar)'
+
+      if (!isDependentAccessory) {
+        return {
+          shouldOverride: false,
+          winningCandidate: null,
+          demotedCandidate: null,
+          verdict: {
+            applied: false,
+            winning_parts_ncm: null,
+            demoted_residual_ncm: null,
+            reason: 'Precedência de partes não se aplica: produto não é acessório dependente.',
+          },
+        }
+      }
+
+      const isCurrentResidual = isResidualStandaloneDeviceNcm(params.currentRecDesc)
+      if (!isCurrentResidual) {
+        return {
+          shouldOverride: false,
+          winningCandidate: null,
+          demotedCandidate: null,
+          verdict: {
+            applied: false,
+            winning_parts_ncm: null,
+            demoted_residual_ncm: null,
+            reason: 'Recomendação atual não é NCM residual de função própria.',
+          },
+        }
+      }
+
+      for (const cand of params.candidates || []) {
+        const candDesc = cand.ncm_descricao_full || cand.ncm_descricao || ''
+        const partsPattern = isPartsNcmPattern(candDesc)
+        if (!partsPattern.isParts || partsPattern.detectedRanges.length === 0) continue
+
+        for (const heading of params.targetHeadings) {
+          if (isHeadingContainedInPartsRanges(heading, partsPattern.detectedRanges)) {
+            const matchedRangeText = partsPattern.detectedRanges
+              .map((r) => `${r.rawStart} a ${r.rawEnd}`)
+              .join(', ')
+
+            return {
+              shouldOverride: true,
+              winningCandidate: cand,
+              demotedCandidate: {
+                ncm: params.currentRecNcm,
+                description: params.currentRecDesc,
+              },
+              matchedRangeStr: matchedRangeText,
+              matchedHeading: heading,
+              verdict: {
+                applied: true,
+                winning_parts_ncm: cand.ncm,
+                winning_parts_desc: candDesc,
+                demoted_residual_ncm: params.currentRecNcm,
+                demoted_residual_desc: params.currentRecDesc,
+                target_machine_position: heading,
+                matched_range: matchedRangeText,
+                reason: `Precedência determinística aplicada (RGI 1, Nota 2(b) do Cap. 85): Para acessório dependente destinado a aparelhos da posição ${heading}, o NCM de partes ${cand.ncm} prevalece sobre o residual ${params.currentRecNcm}.`,
+              },
+            }
+          }
+        }
+      }
+
+      return {
+        shouldOverride: false,
+        winningCandidate: null,
+        demotedCandidate: null,
+        verdict: {
+          applied: false,
+          winning_parts_ncm: null,
+          demoted_residual_ncm: null,
+          reason: 'Nenhum NCM de partes casando com os target_machines.',
+        },
+      }
+    }
+
+    it('identifies residual device NCM signature in 85437099 ("não especificados nem compreendidos")', () => {
+      const desc =
+        'Máquinas e aparelhos elétricos com função própria, não especificados nem compreendidos noutras posições do presente Capítulo | Outras máquinas e aparelhos | Outros'
+      expect(isResidualStandaloneDeviceNcm(desc)).toBe(true)
+    })
+
+    it('does NOT classify non-residual camera or microphone NCM as residual device', () => {
+      const cameraDesc =
+        'Câmeras de televisão, câmeras fotográficas digitais e câmeras de vídeo | Câmeras de televisão | Com três ou mais captadores de imagem'
+      expect(isResidualStandaloneDeviceNcm(cameraDesc)).toBe(false)
+
+      const micDesc =
+        'Microfones e seus suportes; alto-falantes; fones de ouvido; amplificadores elétricos de áudio | Microfones e seus suportes'
+      expect(isResidualStandaloneDeviceNcm(micDesc)).toBe(false)
+    })
+
+    it('applies parts precedence for dependent accessory when parts NCM matches target machines (RM-IP500 case)', () => {
+      const candidates = [
+        {
+          ncm: '85437099',
+          ncm_descricao_full:
+            'Máquinas e aparelhos elétricos com função própria, não especificados nem compreendidos noutras posições do presente Capítulo | Outras | Outros',
+        },
+        {
+          ncm: '85299090',
+          ncm_descricao_full:
+            'Partes reconhecíveis como destinada, exclusiva ou principalmente, aos aparelhos das posições 85.24 a 85.28 | Outras | Outras',
+        },
+      ]
+
+      const evalResult = evaluatePartsPrecedenceOverResidual({
+        productNature: 'acessório dependente (sem função autônoma, requer produto principal para operar)',
+        currentRecNcm: '85437099',
+        currentRecDesc: candidates[0].ncm_descricao_full,
+        candidates,
+        targetHeadings: ['8525'], // Câmeras PTZ
+      })
+
+      expect(evalResult.shouldOverride).toBe(true)
+      expect(evalResult.winningCandidate?.ncm).toBe('85299090')
+      expect(evalResult.demotedCandidate?.ncm).toBe('85437099')
+      expect(evalResult.verdict.applied).toBe(true)
+      expect(evalResult.verdict.winning_parts_ncm).toBe('85299090')
+      expect(evalResult.verdict.demoted_residual_ncm).toBe('85437099')
+    })
+
+    it('does NOT apply parts precedence for complete apparatus with standalone function (HDC-3200R case)', () => {
+      const candidates = [
+        {
+          ncm: '85258921',
+          ncm_descricao_full:
+            'Câmeras de televisão | Com três ou mais captadores de imagem',
+        },
+        {
+          ncm: '85299090',
+          ncm_descricao_full:
+            'Partes reconhecíveis como destinada, exclusiva ou principalmente, aos aparelhos das posições 85.24 a 85.28',
+        },
+      ]
+
+      const evalResult = evaluatePartsPrecedenceOverResidual({
+        productNature: 'aparelho com função própria completa',
+        currentRecNcm: '85258921',
+        currentRecDesc: candidates[0].ncm_descricao_full,
+        candidates,
+        targetHeadings: ['8525'],
+      })
+
+      expect(evalResult.shouldOverride).toBe(false)
+      expect(evalResult.verdict.applied).toBe(false)
+      expect(evalResult.winningCandidate).toBeNull()
+    })
+  })
 })

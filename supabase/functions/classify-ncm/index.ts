@@ -422,18 +422,165 @@ export function evaluateProductHasStandaloneFunction(params: {
 /**
  * Avalia a telemetria da lógica de partes com vínculo indireto para gravação no log
  */
+/**
+ * Detecta se a descrição hierárquica oficial de um NCM corresponde a um aparelho de função própria residual.
+ * Princípio universal: posições que contenham a assinatura "não especificados nem compreendidos noutras posições"
+ * ou "não especificadas nem compreendidas em outras posições" (ex.: 8543, 8479, etc.).
+ */
+export function isResidualStandaloneDeviceNcm(description: string): boolean {
+  if (!description || typeof description !== 'string') return false
+  const text = description.toLowerCase()
+  return (
+    /\bn[aã]o\s+especificad[ao]s?\s+nem\s+compreendid[ao]s?\b/i.test(text) ||
+    /\bn[aã]o\s+especificad[ao]s?\s+noutras?\s+posi[çc][oõ]es\b/i.test(text) ||
+    /\bn[aã]o\s+especificad[ao]s?\s+em\s+outras?\s+posi[çc][oõ]es\b/i.test(text)
+  )
+}
+
+/**
+ * Interface do veredito de precedência de partes sobre residual de função própria.
+ */
+export interface PartsPrecedenceVerdict {
+  applied: boolean
+  winning_parts_ncm: string | null
+  winning_parts_desc?: string | null
+  demoted_residual_ncm: string | null
+  demoted_residual_desc?: string | null
+  target_machine_position?: string | null
+  matched_range?: string | null
+  reason?: string | null
+}
+
+/**
+ * Avalia se há precedência determinística de partes sobre residual de função própria.
+ * Princípio universal: Quando product_nature = "acessório dependente" e existir NCM de partes cujo
+ * intervalo cubra a posição dos target_machines, o NCM de partes prevalece sobre NCMs residuais
+ * ("não especificados nem compreendidos noutras posições", ex.: 8543), pois por RGI 1 a destinação
+ * específica a aparelhos de determinada posição prevalece sobre o cesto residual.
+ */
+export function evaluatePartsPrecedenceOverResidual(params: {
+  productNature: ProductNatureCategory
+  currentRecNcm: string
+  currentRecDesc: string
+  candidates: any[]
+  targetHeadings: string[]
+}): {
+  shouldOverride: boolean
+  winningCandidate: any | null
+  demotedCandidate: any | null
+  matchedRangeStr: string | null
+  matchedHeading: string | null
+  verdict: PartsPrecedenceVerdict
+} {
+  const isDependentAccessory =
+    params.productNature ===
+    'acessório dependente (sem função autônoma, requer produto principal para operar)'
+
+  if (!isDependentAccessory) {
+    return {
+      shouldOverride: false,
+      winningCandidate: null,
+      demotedCandidate: null,
+      matchedRangeStr: null,
+      matchedHeading: null,
+      verdict: {
+        applied: false,
+        winning_parts_ncm: null,
+        demoted_residual_ncm: null,
+        reason: 'Precedência de partes não se aplica: produto não é acessório dependente.',
+      },
+    }
+  }
+
+  // Verifica se o NCM atualmente recomendado é um residual de aparelho com função própria
+  const isCurrentResidual = isResidualStandaloneDeviceNcm(params.currentRecDesc)
+  if (!isCurrentResidual) {
+    return {
+      shouldOverride: false,
+      winningCandidate: null,
+      demotedCandidate: null,
+      matchedRangeStr: null,
+      matchedHeading: null,
+      verdict: {
+        applied: false,
+        winning_parts_ncm: null,
+        demoted_residual_ncm: null,
+        reason: 'Recomendação atual não é NCM residual de função própria.',
+      },
+    }
+  }
+
+  // Procurar candidato de partes cujo intervalo case com as posições dos target_machines
+  for (const cand of params.candidates || []) {
+    const candDesc = cand.ncm_descricao_full || cand.ncm_descricao || cand.source_text || ''
+    const partsPattern = isPartsNcmPattern(candDesc)
+    if (!partsPattern.isParts || partsPattern.detectedRanges.length === 0) continue
+
+    for (const heading of params.targetHeadings) {
+      if (isHeadingContainedInPartsRanges(heading, partsPattern.detectedRanges)) {
+        const matchedRangeText = partsPattern.detectedRanges
+          .map((r) => `${r.rawStart} a ${r.rawEnd}`)
+          .join(', ')
+
+        const winNcm = normalizeNcm(cand.ncm)
+        const demNcm = normalizeNcm(params.currentRecNcm)
+
+        return {
+          shouldOverride: true,
+          winningCandidate: cand,
+          demotedCandidate: {
+            ncm: params.currentRecNcm,
+            description: params.currentRecDesc,
+          },
+          matchedRangeStr: matchedRangeText,
+          matchedHeading: heading,
+          verdict: {
+            applied: true,
+            winning_parts_ncm: winNcm,
+            winning_parts_desc: candDesc,
+            demoted_residual_ncm: demNcm,
+            demoted_residual_desc: params.currentRecDesc,
+            target_machine_position: heading,
+            matched_range: matchedRangeText,
+            reason: `Precedência determinística aplicada (RGI 1, Nota 2(b) do Cap. 85): Para acessório dependente destinado a aparelhos da posição ${heading}, o NCM de partes ${winNcm} (intervalo ${matchedRangeText}) prevalece sobre o residual de função própria ${demNcm} ("não especificados em outras posições").`,
+          },
+        }
+      }
+    }
+  }
+
+  return {
+    shouldOverride: false,
+    winningCandidate: null,
+    demotedCandidate: null,
+    matchedRangeStr: null,
+    matchedHeading: null,
+    verdict: {
+      applied: false,
+      winning_parts_ncm: null,
+      demoted_residual_ncm: null,
+      reason: 'Nenhum NCM de partes casando com os target_machines encontrado entre os candidatos.',
+    },
+  }
+}
+
+/**
+ * Avalia a telemetria da lógica de partes com vínculo indireto para gravação no log
+ */
 export function evaluatePartsLogicTelemetry(params: {
   recommendedNcm: string
   recommendedDesc: string
   alternatives: any[]
   candidates: any[]
   targetMachines: string[]
+  partsPrecedenceApplied?: PartsPrecedenceVerdict | null
 }): {
   parts_logic_triggered: boolean
   matched_range?: string | null
   parts_candidates_found: string[]
   recommended_is_parts: boolean
   alternative_parts: string[]
+  parts_precedence_applied: PartsPrecedenceVerdict
   notes: string
 } {
   const partsCands = (params.candidates || []).filter((c: any) => {
@@ -456,7 +603,14 @@ export function evaluatePartsLogicTelemetry(params: {
     }
   }
 
-  const triggered = partsCands.length > 0 || recPattern.isParts || altParts.length > 0
+  const precedenceVerdict: PartsPrecedenceVerdict = params.partsPrecedenceApplied || {
+    applied: false,
+    winning_parts_ncm: null,
+    demoted_residual_ncm: null,
+  }
+
+  const triggered =
+    partsCands.length > 0 || recPattern.isParts || altParts.length > 0 || precedenceVerdict.applied
 
   return {
     parts_logic_triggered: triggered,
@@ -464,9 +618,12 @@ export function evaluatePartsLogicTelemetry(params: {
     parts_candidates_found: partsCands.map((c: any) => normalizeNcm(c.ncm)),
     recommended_is_parts: recPattern.isParts,
     alternative_parts: altParts.map((a: any) => normalizeNcm(a.ncm)),
-    notes: triggered
-      ? `Lógica universal de partes com vínculo indireto avaliada (${partsCands.length} candidatos de partes na base).`
-      : 'Nenhum candidato de partes com vínculo indireto envolvido.',
+    parts_precedence_applied: precedenceVerdict,
+    notes: precedenceVerdict.applied
+      ? `Precedência de partes aplicada com sucesso: NCM ${precedenceVerdict.winning_parts_ncm} venceu sobre residual ${precedenceVerdict.demoted_residual_ncm}.`
+      : triggered
+        ? `Lógica universal de partes com vínculo indireto avaliada (${partsCands.length} candidatos de partes na base).`
+        : 'Nenhum candidato de partes com vínculo indireto envolvido.',
   }
 }
 
@@ -482,7 +639,7 @@ Deno.serve(async (req: Request) => {
       JSON.stringify({
         status: 'ok',
         function: 'classify-ncm',
-        version: '3.5.0-build.608',
+        version: '3.6.0-build.609',
         knowledge_base_version: '3.1',
         features: [
           'phase0_canonical_composition_derivation',
@@ -497,6 +654,7 @@ Deno.serve(async (req: Request) => {
           'full_candidate_audit_logging',
           'parts_ncm_indirect_linking',
           'parts_vs_dependent_accessory_distinction',
+          'parts_precedence_over_residual_standalone',
           'expanded_parts_deterministic_retrieval',
           'defensive_ai_provider_safeguards',
         ],
@@ -891,18 +1049,25 @@ METODOLOGIA OBRIGATÓRIA UNIVERSAL:
    - Os Ex-Tarifários são normas de exceção tributária de interpretação estrita (Art. 111 do CTN).
    - Cada valor técnico do produto confrontado com o Ex deve ser copiado LITERALMENTE das especificações. Valor não comprovado ou contraditório impede a concessão do Ex.
 
-6. PRINCÍPIO UNIVERSAL DE VÍNCULO INDIRETO PARA NCMs DE PARTES E ACESSÓRIOS:
+6. PRINCÍPIO UNIVERSAL DE VÍNCULO INDIRETO E PRECEDÊNCIA DE PARTES SOBRE RESIDUAL:
    - Identificação do padrão: Linhas cuja descrição hierárquica possui assinatura de "partes e acessórios reconhecíveis como destinada... aos aparelhos/máquinas das posições X a Y" (ou posições específicas equivalentes, ex: 8529.90.90 cobrindo 85.24 a 85.28, 8431 cobrindo 84.25 a 84.30, 8473 cobrindo 84.70 a 84.72, etc.).
    - "Partes reconhecidas" na NCM abrange tanto PEÇAS DE REPOSIÇÃO quanto ACESSÓRIOS DEPENDENTES que não funcionam sozinhos.
    - Teste de vínculo indireto: As máquinas de destino declaradas na Fase 0 (target_machines) estão compreendidas dentro do intervalo de posições declarado no texto oficial do NCM de partes?
      * Se SIM: O NCM de partes é candidato legítimo (RGI 1 e 2; Nota 2 dos Capítulos 84, 85 e 90).
+   - REGRA DE PRECEDÊNCIA DE PARTES SOBRE RESIDUAL DE FUNÇÃO PRÓPRIA (RGI 1, NOTA 2(b) DO CAP. 85):
+     * Quando product_nature = "acessório dependente (sem função autônoma, requer produto principal para operar)" e existir NCM de partes cujo vínculo indireto casar (intervalo de posições cobre a posição dos target_machines):
+       A ordem de decisão é: NCM de partes casando = RECOMENDADO.
+       NCM de aparelho de função própria residual (texto contém "não especificados nem compreendidos noutras posições", ex.: 8543 / 8543.70.99) NÃO PODE vencer um NCM de partes casando. O residual só é recomendável quando nenhuma parte casar ou quando o produto for aparelho autônomo completo.
+       Justificativa obrigatória citando a Nota 2(b) do Cap. 85 e o intervalo de posições do texto da parte. O residual derrotado deve constar como alternativa residual.
+   - REGRA PARA "aparelho com função própria completa":
+     * Para aparelho completo (product_nature = "aparelho com função própria completa"), a regra de precedência de partes NÃO se aplica — aparelho completo fica na sua NCM de função autônoma (ex.: câmera em 8525.89.21), e NCM de partes não vence aparelho completo.
    - REGRA DA PROIBIÇÃO INVERSA (DELIMITAÇÃO PRECISA):
      * A proibição de vencer vale ESTRITAMENTE para "peça de reposição (substituição de componente)". Uma peça de reposição avulsa nunca pode ser recomendada para equipamento autônomo completo.
      * NUNCA aplique a proibição inversa a "acessório dependente (sem função autônoma, requer produto principal para operar)".
-     * Para acessório dependente, o NCM de partes DEVE poder ser RECOMENDADO quando o vínculo indireto casar (target_machines dentro do intervalo declarado no texto).
+     * Para acessório dependente, o NCM de partes DEVE ser RECOMENDADO quando o vínculo indireto casar (target_machines dentro do intervalo declarado no texto).
      * O conflito com aparelho completo é resolvido por RGI 3b considerando a categoria "product_nature" da Fase 0, e JAMAIS por termos de marketing soltos como "controlador" ou "controle".
    - JUSTIFICATIVA OBRIGATÓRIA DE VÍNCULO INDIRETO:
-     * Quando o recomendado for acessório dependente em NCM de partes, explicitar a natureza: "acessório sem função autônoma, destinado a [target_machines], dentro do intervalo X a Y declarado no texto (RGI 1/2, Nota 2)".
+     * Quando o recomendado for acessório dependente em NCM de partes, explicitar a natureza: "acessório sem função autônoma, destinado a [target_machines], dentro do intervalo X a Y declarado no texto (RGI 1/2, Nota 2(b) do Cap. 85)".
      * Quando for aparelho com função própria autônoma, este prevalece na recomendação, e o NCM de partes DEVE constar como alternativa com justificativa do vínculo indireto.
 
 7. UNIVERSO DE CANDIDATOS E FORMATO DE SAÍDA:
@@ -1219,7 +1384,20 @@ ATENÇÃO AUDITOR:
 4. A CORREÇÃO DEVE RESPEITAR A NATUREZA DO PRODUTO: Jamais corrija para um NCM cuja descrição contradiga o que o produto é (ex.: não escolha NCM de câmera para controlador, nem NCM de máquinas para produto eletroeletrônico).
 5. É TERMINANTEMENTE PROIBIDO escolher por benefício fiscal (alíquota zero/reduzida) ou por ordem de recuperação. O critério é 100% técnico.
 6. Se houver dúvida entre posições específicas que contradizem o produto e posições genéricas compatíveis (máquinas com função própria / partes e acessórios), prefira a genérica compatível.
-7. VÍNCULO INDIRETO DE PARTES E ACESSÓRIOS: Avalie se as target_machines da Fase 0 estão no intervalo do NCM de partes. A proibição inversa vale APENAS para peça de reposição. Para acessório dependente (sem função autônoma), o NCM de partes PODE e DEVE ser recomendado quando o vínculo casar. Se for aparelho autônomo completo, este prevalece e partes fica como alternativa com justificativa do vínculo.
+7. VÍNCULO INDIRETO E PRECEDÊNCIA DE PARTES SOBRE RESIDUAL (RGI 1, NOTA 2(b) DO CAP. 85 / NESH):
+   - Avalie se as target_machines da Fase 0 estão compreendidas no intervalo de posições do texto oficial do NCM de partes (ex.: 8529.90.90 cobrindo 85.24 a 85.28).
+   - REGRA DE PRECEDÊNCIA PARA "acessório dependente (sem função autônoma, requer produto principal para operar)":
+     * Quando product_nature = "acessório dependente" e existir NCM de partes cujo vínculo indireto casar (intervalo de posições cobre a posição dos target_machines, ex.: câmeras da posição 8525):
+       A ordem de decisão é OBRIGATÓRIA: NCM de partes casando = RECOMENDADO.
+       NCM de aparelho de função própria RESIDUAL (cuja descrição oficial contenha "não especificados nem compreendidos noutras posições" ou "não especificadas noutras posições", ex.: posição residual 8543 / 8543.70.99) NÃO PODE vencer um NCM de partes casando.
+       Pela RGI 1 e Nota 2(b) do Cap. 85, a destinação específica a aparelhos de determinada posição prevalece sobre o cesto residual geral.
+       O residual só é recomendável quando NENHUMA parte casar ou quando o produto for aparelho autônomo completo.
+       Se a 1ª passada recomendou o residual (ex.: 8543.70.99) para um acessório dependente com partes casando (ex.: 8529.90.90), você DEVE VETAR (action: "VETA") e CORRIGIR para o NCM de partes ("corrected_ncm"), rebaixando o residual a alternativa.
+       Justificativa OBRIGATÓRIA citando a Nota 2(b) do Cap. 85 e o intervalo de posições do texto da parte.
+   - REGRA PARA "aparelho com função própria completa":
+     * Para aparelho completo (product_nature = "aparelho com função própria completa"), a regra anterior NÃO se aplica. O aparelho completo fica na sua NCM de função autônoma (ex.: câmera em 8525.89.21, switcher/console autônomo), e NCM de partes NÃO vence aparelho completo.
+   - PROIBIÇÃO INVERSA:
+     * A proibição inversa vale APENAS para "peça de reposição (substituição de componente)". Uma peça de reposição avulsa nunca pode ser recomendada para equipamento autônomo completo.
 
 LISTA DE CANDIDATOS VÁLIDOS:
 ${candidatesCatalogText}`
@@ -1435,51 +1613,6 @@ ${candidatesCatalogText}`
       console.warn('Falha na segunda passada de auditoria:', auditErr)
     }
 
-    // 13. Resolução estrita das alíquotas efetivas via public.imp_sim_tax_rates_effective
-    const recommendedNcmClean = normalizeNcm(llmResponseJson.recommended_ncm)
-    // INVARIANTE ABSOLUTA: Se o veto ao Ex foi aplicado (exVetoApplied === true), recommendedExClean DEVE ser vazio ('')
-    const recommendedExClean = exVetoApplied
-      ? ''
-      : (llmResponseJson.recommended_ex || '').toString().trim()
-
-    const resolvedPrimary = await resolveEffectiveTaxRate(
-      supabaseAdmin,
-      recommendedNcmClean,
-      recommendedExClean,
-    )
-
-    const primaryTaxRate =
-      resolvedPrimary ||
-      (await resolveEffectiveTaxRate(supabaseAdmin, recommendedNcmClean, '')) ||
-      candidates.find((c: any) => normalizeNcm(c.ncm) === recommendedNcmClean)
-
-    if (!primaryTaxRate) {
-      return new Response(
-        JSON.stringify({
-          error: `Inconsistência cadastral: NCM ${recommendedNcmClean} não encontrado na tabela de taxas.`,
-        }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-      )
-    }
-
-    const iiRate = Number(primaryTaxRate.ii_efetivo ?? primaryTaxRate.ii_rate ?? 0)
-    const ipiRate = Number(primaryTaxRate.ipi_rate ?? 0)
-    const pisRate = Number(primaryTaxRate.pis_rate ?? 2.1)
-    const cofinsRate = Number(primaryTaxRate.cofins_rate ?? 9.65)
-    const totalTax = Number((iiRate + ipiRate + pisRate + cofinsRate).toFixed(2))
-
-    const hasEx = Boolean(
-      primaryTaxRate.has_ex_tarifario || (primaryTaxRate.ex && primaryTaxRate.ex !== ''),
-    )
-
-    const exDetails = hasEx
-      ? {
-          descricao: primaryTaxRate.ex_descricao || null,
-          resolucao: primaryTaxRate.ex_resolucao || null,
-          data_fim: primaryTaxRate.ex_data_fim || null,
-        }
-      : null
-
     // CALIBRAÇÃO: COMPOSITION_ANALYSIS DERIVADA DIRETAMENTE DA FASE 0 (Auditada pela IA)
     // Descartar extração ruidosa de targetMachines por regex comercial.
     // Derivar targetMachines canônicas de product_understanding.target_machines.
@@ -1530,6 +1663,124 @@ ${candidatesCatalogText}`
         : true,
       targetMachines: canonicalTargetMachines,
     }
+
+    // =========================================================================
+    // 13. PRECEDÊNCIA DETERMINÍSTICA DE PARTES SOBRE RESIDUAL (RGI 1, NOTA 2(b) DO CAP. 85)
+    // =========================================================================
+    // Princípio universal: Quando product_nature = "acessório dependente" e existir NCM de partes cujo
+    // vínculo indireto casar (intervalo de posições cobre os target_machines), o NCM de partes prevalece
+    // OBRIGATORIAMENTE sobre NCM residual de função própria ("não especificados nem compreendidos noutras posições",
+    // ex.: 8543 / 85437099). O residual é rebaixado a alternativa residual com motivo explícito.
+    const resolvedProductNature = normalizeProductNature(
+      finalProductUnderstanding?.product_nature ||
+        initialRecommendation.product_understanding?.product_nature,
+    )
+
+    // Obter posições das target_machines (ex: "8525")
+    const resolvedTargetHeadings = extractTargetMachineHeadings(
+      canonicalTargetMachines.length > 0
+        ? canonicalTargetMachines
+        : finalProductUnderstanding?.target_machines || [],
+    )
+
+    let currentRecNcmForCheck = normalizeNcm(llmResponseJson.recommended_ncm)
+    const currentRecCandidate =
+      candidates.find((c: any) => normalizeNcm(c.ncm) === currentRecNcmForCheck) ||
+      (await resolveEffectiveTaxRate(supabaseAdmin, currentRecNcmForCheck, ''))
+
+    const currentRecDescForCheck =
+      currentRecCandidate?.ncm_descricao_full ||
+      currentRecCandidate?.ncm_descricao ||
+      currentRecCandidate?.source_text ||
+      ''
+
+    const partsPrecedenceEval = evaluatePartsPrecedenceOverResidual({
+      productNature: resolvedProductNature,
+      currentRecNcm: currentRecNcmForCheck,
+      currentRecDesc: currentRecDescForCheck,
+      candidates,
+      targetHeadings: resolvedTargetHeadings,
+    })
+
+    let partsPrecedenceVerdict: PartsPrecedenceVerdict = partsPrecedenceEval.verdict
+
+    if (partsPrecedenceEval.shouldOverride && partsPrecedenceEval.winningCandidate) {
+      const winCand = partsPrecedenceEval.winningCandidate
+      const demCand = partsPrecedenceEval.demotedCandidate
+      const winNcm = normalizeNcm(winCand.ncm)
+      const demNcm = normalizeNcm(demCand.ncm)
+
+      console.log(
+        `[Precedência de Partes]: Aplicada sobreposição determinística. Parte ${winNcm} venceu residual ${demNcm}.`,
+      )
+
+      llmResponseJson.recommended_ncm = winNcm
+      llmResponseJson.recommended_ex = winCand.ex || ''
+
+      const targetStr =
+        canonicalTargetMachines.join(', ') ||
+        finalProductUnderstanding?.target_machines?.join(', ') ||
+        'câmeras / aparelhos de destino'
+
+      const precedenceNote = `[Precedência Determinística de Partes - RGI 1 / Nota 2(b) do Cap. 85 / NESH]: O produto é acessório dependente destinado a ${targetStr} (posição ${partsPrecedenceEval.matchedHeading || 'alvo'}), compreendida no intervalo ${partsPrecedenceEval.matchedRangeStr} declarado no texto oficial da NCM ${winNcm}. Pela Nota 2(b) do Cap. 85, a destinação específica prevalece sobre aparelhos elétricos com função própria residuais ("não especificados nem compreendidos noutras posições", NCM ${demNcm}), o qual foi rebaixado a alternativa residual.`
+
+      llmResponseJson.justification = `${precedenceNote}\n\n${llmResponseJson.justification || ''}`
+
+      // Adicionar o residual derrotado como alternativa prioritária com a fundamentação de precedência
+      if (!Array.isArray(llmResponseJson.alternatives)) {
+        llmResponseJson.alternatives = []
+      }
+      llmResponseJson.alternatives.unshift({
+        ncm: demNcm,
+        ex: demCand.ex || '',
+        reason: `Alternativa residual de aparelho com função própria. Rebaixado perante a NCM de partes ${winNcm} por aplicação da RGI 1 e Nota 2(b) do Cap. 85 (destinação específica a aparelhos da posição ${partsPrecedenceEval.matchedHeading || 'alvo'} prevalece sobre residual "não especificados noutras posições").`,
+      })
+    }
+
+    // 13.B Resolução estrita das alíquotas efetivas via public.imp_sim_tax_rates_effective
+    const recommendedNcmClean = normalizeNcm(llmResponseJson.recommended_ncm)
+    // INVARIANTE ABSOLUTA: Se o veto ao Ex foi aplicado (exVetoApplied === true), recommendedExClean DEVE ser vazio ('')
+    const recommendedExClean = exVetoApplied
+      ? ''
+      : (llmResponseJson.recommended_ex || '').toString().trim()
+
+    const resolvedPrimary = await resolveEffectiveTaxRate(
+      supabaseAdmin,
+      recommendedNcmClean,
+      recommendedExClean,
+    )
+
+    const primaryTaxRate =
+      resolvedPrimary ||
+      (await resolveEffectiveTaxRate(supabaseAdmin, recommendedNcmClean, '')) ||
+      candidates.find((c: any) => normalizeNcm(c.ncm) === recommendedNcmClean)
+
+    if (!primaryTaxRate) {
+      return new Response(
+        JSON.stringify({
+          error: `Inconsistência cadastral: NCM ${recommendedNcmClean} não encontrado na tabela de taxas.`,
+        }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      )
+    }
+
+    const iiRate = Number(primaryTaxRate.ii_efetivo ?? primaryTaxRate.ii_rate ?? 0)
+    const ipiRate = Number(primaryTaxRate.ipi_rate ?? 0)
+    const pisRate = Number(primaryTaxRate.pis_rate ?? 2.1)
+    const cofinsRate = Number(primaryTaxRate.cofins_rate ?? 9.65)
+    const totalTax = Number((iiRate + ipiRate + pisRate + cofinsRate).toFixed(2))
+
+    const hasEx = Boolean(
+      primaryTaxRate.has_ex_tarifario || (primaryTaxRate.ex && primaryTaxRate.ex !== ''),
+    )
+
+    const exDetails = hasEx
+      ? {
+          descricao: primaryTaxRate.ex_descricao || null,
+          resolucao: primaryTaxRate.ex_resolucao || null,
+          data_fim: primaryTaxRate.ex_data_fim || null,
+        }
+      : null
 
     // 14. Resolver alíquotas para alternativas com PROPAGAÇÃO DE VETO (Princípio Genérico):
     // Um NCM vetado pelo auditor ou pelo checklist de código NÃO PODE aparecer na recomendação nem nas alternativas.
@@ -1856,14 +2107,15 @@ ${candidatesCatalogText}`
       }
     }
 
-    // TELEMETRIA E AUDITORIA DA LÓGICA DE PEÇAS (Requisito 5):
-    // Identificar se a lógica de peças com vínculo indireto foi acionada e qual intervalo casou
+    // TELEMETRIA E AUDITORIA DA LÓGICA DE PEÇAS (Requisito 4 e 5):
+    // Identificar se a lógica de peças com vínculo indireto foi acionada e o veredito de precedência sobre residual
     const partsTelemetry = evaluatePartsLogicTelemetry({
       recommendedNcm: recommendedNcmClean,
       recommendedDesc: primaryDescription,
       alternatives: resolvedAlternatives,
       candidates,
       targetMachines: canonicalTargetMachines,
+      partsPrecedenceApplied: partsPrecedenceVerdict,
     })
 
     // SUPRESSÃO DO BLOCO DE EX QUANDO NÃO HÁ EX:
@@ -2092,7 +2344,7 @@ ${candidatesCatalogText}`
       composition_analysis: compositionAnalysis,
       checklist_log: checklistLog,
       parts_indirect_logic: partsTelemetry,
-      version: '3.5.0-build.608',
+      version: '3.6.0-build.609',
       timestamp: new Date().toISOString(),
     }
 
@@ -3272,7 +3524,8 @@ async function retrieveSectorOrientedCandidates(params: {
     console.warn('Falha na expansão de família hierárquica (não fatal):', expErr)
   }
 
-  return selectedCandidates}
+  return selectedCandidates
+}
 
 /**
  * Constrói uma assinatura enxuta do produto: Marca + Modelo + Frase central da função.

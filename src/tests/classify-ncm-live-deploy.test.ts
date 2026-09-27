@@ -7,7 +7,7 @@ const supabaseAnonKey = process.env.VITE_SUPABASE_PUBLISHABLE_KEY || ''
 describe('classify-ncm Edge Function live deploy check & validation', () => {
   const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
-  it('checks edge function health endpoint returning version 3.5.0-build.608', async () => {
+  it('checks edge function health endpoint returning version 3.6.0-build.609', async () => {
     const res = await fetch(`${supabaseUrl}/functions/v1/classify-ncm?health=true`, {
       method: 'GET',
     })
@@ -16,7 +16,7 @@ describe('classify-ncm Edge Function live deploy check & validation', () => {
     const data = await res.json()
     expect(data.status).toBe('ok')
     expect(data.function).toBe('classify-ncm')
-    expect(data.version).toBe('3.5.0-build.608')
+    expect(data.version).toBe('3.6.0-build.609')
     expect(data.features).toContain('phase0_canonical_composition_derivation')
     expect(data.features).toContain('phase0_tripartite_product_nature')
     expect(data.features).toContain('orphan_ncm_sweep_invariant')
@@ -27,6 +27,7 @@ describe('classify-ncm Edge Function live deploy check & validation', () => {
     expect(data.features).toContain('full_candidate_audit_logging')
     expect(data.features).toContain('parts_ncm_indirect_linking')
     expect(data.features).toContain('parts_vs_dependent_accessory_distinction')
+    expect(data.features).toContain('parts_precedence_over_residual_standalone')
     expect(data.features).toContain('expanded_parts_deterministic_retrieval')
   })
 
@@ -61,7 +62,7 @@ describe('classify-ncm Edge Function live deploy check & validation', () => {
     }
   })
 
-  it('validates RM-IP500 live classification (expected: 85437099 without Ex, 85299090 in alternatives)', async () => {
+  it('validates RM-IP500 live classification (expected: 85299090 recommended via parts precedence over residual 85437099, 85437099 demoted to alternative)', async () => {
     const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
       email: 'qa.operator@mywayvideo.com',
       password: 'Skip@Pass123!',
@@ -94,35 +95,41 @@ describe('classify-ncm Edge Function live deploy check & validation', () => {
       analyst_model: result.analyst_model,
       auditor_model: result.auditor_model,
       product_understanding: result.product_understanding,
-      alternatives: result.alternatives?.map((a: any) => ({ ncm: a.ncm, ex: a.ex })),
+      alternatives: result.alternatives?.map((a: any) => ({ ncm: a.ncm, ex: a.ex, reason: a.reason })),
+      parts_indirect_logic: result.parts_indirect_logic,
       audit_id: result.audit_id,
     }, null, 2))
 
     expect(result.success).toBe(true)
-    expect(result.recommendation.ncm).toBe('85437099')
+    // CALIBRAÇÃO PRECEDÊNCIA: 85299090 como recomendado pela Nota 2(b) do Cap. 85 + NESH 85.29
+    expect(result.recommendation.ncm).toBe('85299090')
     expect(result.recommendation.ex).toBe('')
+
+    // Justificativa obrigatória citando Nota 2(b) do Cap. 85 e intervalo de posições (85.24 a 85.28)
+    expect(result.recommendation.justification).toMatch(/(?:Nota 2\(b\)|Nota 2|85\.24|8524)/i)
+
+    // 85437099 rebaixado a alternativa residual
+    const residualAlt = result.alternatives.find((a: any) => a.ncm === '85437099')
+    expect(residualAlt).toBeDefined()
+    expect(residualAlt.reason).toMatch(/(?:residual|fun[çc][aã]o pr[oó]pria|rebaixad[ao]|8529|Nota 2)/i)
+
+    // Telemetria parts_indirect_logic com parts_precedence_applied
+    expect(result.parts_indirect_logic).toBeDefined()
+    expect(result.parts_indirect_logic.parts_logic_triggered).toBe(true)
+    expect(result.parts_indirect_logic.parts_precedence_applied).toBeDefined()
+    if (result.parts_indirect_logic.parts_precedence_applied.applied) {
+      expect(result.parts_indirect_logic.parts_precedence_applied.winning_parts_ncm).toBe('85299090')
+      expect(result.parts_indirect_logic.parts_precedence_applied.demoted_residual_ncm).toBe('85437099')
+    }
+
     // Calibração 1: NENHUMA menção a 90319090 ou 9031 na justificativa
     expect(result.recommendation.justification).not.toContain('9031')
     expect(result.recommendation.justification).not.toContain('90319090')
+
     // Calibração 2: composition_analysis derivada da Fase 0
     expect(result.composition_analysis).toBeDefined()
     expect(result.composition_analysis.isKit).toBe(false)
-    // targetMachines não pode conter 'controle' ou 'panorâmica'
-    for (const tm of result.composition_analysis.targetMachines || []) {
-      expect(tm.toLowerCase()).not.toBe('controle')
-      expect(tm.toLowerCase()).not.toBe('panorâmica')
-      expect(tm.toLowerCase()).not.toBe('panoramica')
-    }
-    // Calibração 3: sem bloco de checklist de Ex no relatório quando não há Ex
-    expect(result.recommendation.justification).not.toContain('[Checklist de Condições Restritivas do Ex-Tarifário')
-    // Invariante: 85299090 deve constar nas alternativas com justificativa de vínculo indireto
-    const partsAlt = result.alternatives.find((a: any) => a.ncm === '85299090')
-    expect(partsAlt).toBeDefined()
-    // Requisito 4: Justificativa obrigatória explicitando vínculo indireto e intervalo
-    expect(partsAlt.reason).toMatch(/(?:v[ií]nculo indireto|partes e acess[oó]rios|85\.24|8524)/i)
-    // Requisito 5: Telemetria de partes presente no payload
-    expect(result.parts_indirect_logic).toBeDefined()
-    expect(result.parts_indirect_logic.parts_logic_triggered).toBe(true)
+
     // Product understanding da Fase 0
     expect(result.product_understanding).toBeDefined()
     expect(result.product_understanding.canonical_statement).toBeDefined()

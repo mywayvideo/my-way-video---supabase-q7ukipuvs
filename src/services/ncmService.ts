@@ -204,6 +204,11 @@ export interface ClassifyNcmResponse {
   auditor_model?: string
   product_understanding?: {
     identity: string
+    product_nature?:
+      | 'aparelho com função própria completa'
+      | 'acessório dependente (sem função autônoma, requer produto principal para operar)'
+      | 'peça de reposição (substituição de componente)'
+      | string
     essential_function: string
     technical_features?: string[]
     target_machines?: string[]

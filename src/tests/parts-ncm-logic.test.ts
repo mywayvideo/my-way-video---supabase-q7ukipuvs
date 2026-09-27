@@ -144,4 +144,101 @@ describe('Parts NCM Universal Indirect Linking Logic (Frontend/Contract)', () =>
     expect(isHeadingContainedInPartsRanges('8518', ranges)).toBe(false)
     expect(isHeadingContainedInPartsRanges('8543', ranges)).toBe(false)
   })
+
+  describe('Product Nature Tripartite Categorization and Inverse Prohibition Rules', () => {
+    // Normalização local espelhando a função da edge function
+    function normalizeProductNature(val?: any) {
+      const raw = String(val || '').toLowerCase().trim()
+      if (
+        raw.includes('peça de reposição') ||
+        raw.includes('peca de reposicao') ||
+        raw.includes('substituição de componente') ||
+        raw.includes('reposição') ||
+        raw.includes('spare part')
+      ) {
+        return 'peça de reposição (substituição de componente)'
+      }
+      if (
+        raw.includes('acessório dependente') ||
+        raw.includes('acessorio dependente') ||
+        raw.includes('sem função autônoma') ||
+        raw.includes('requer produto principal') ||
+        raw.includes('dependent accessory')
+      ) {
+        return 'acessório dependente (sem função autônoma, requer produto principal para operar)'
+      }
+      return 'aparelho com função própria completa'
+    }
+
+    function evaluateProductHasStandaloneFunction(params: {
+      productUnderstanding?: any
+      productText?: string
+      isKit?: boolean
+    }): boolean {
+      const pu = params.productUnderstanding
+      if (pu?.product_nature) {
+        const nature = normalizeProductNature(pu.product_nature)
+        if (nature === 'peça de reposição (substituição de componente)') return false
+        if (nature === 'acessório dependente (sem função autônoma, requer produto principal para operar)') return false
+        if (nature === 'aparelho com função própria completa') return true
+      }
+      return true
+    }
+
+    it('classifies servo zoom handle as dependent accessory without standalone function', () => {
+      const nature = normalizeProductNature(
+        'acessório dependente (sem função autônoma, requer produto principal para operar)',
+      )
+      expect(nature).toBe(
+        'acessório dependente (sem função autônoma, requer produto principal para operar)',
+      )
+
+      const hasStandalone = evaluateProductHasStandaloneFunction({
+        productUnderstanding: {
+          product_nature: nature,
+          identity: 'manopla de controle de servo zoom para teleobjetiva',
+        },
+      })
+      // Não deve ter função standalone, portanto o NCM de partes NÃO é bloqueado pela proibição inversa
+      expect(hasStandalone).toBe(false)
+    })
+
+    it('classifies replacement part as spare part without standalone function (inverse prohibition applies)', () => {
+      const nature = normalizeProductNature('peça de reposição (substituição de componente)')
+      expect(nature).toBe('peça de reposição (substituição de componente)')
+
+      const hasStandalone = evaluateProductHasStandaloneFunction({
+        productUnderstanding: {
+          product_nature: nature,
+          identity: 'engrenagem avulsa de reposição',
+        },
+      })
+      expect(hasStandalone).toBe(false)
+    })
+
+    it('classifies standalone device as complete apparatus (inverse prohibition applies to prevent parts from winning)', () => {
+      const nature = normalizeProductNature('aparelho com função própria completa')
+      expect(nature).toBe('aparelho com função própria completa')
+
+      const hasStandalone = evaluateProductHasStandaloneFunction({
+        productUnderstanding: {
+          product_nature: nature,
+          identity: 'câmera de estúdio profissional',
+        },
+      })
+      expect(hasStandalone).toBe(true)
+    })
+
+    it('does NOT let commercial term "controlador" or "controle" turn a dependent accessory into standalone device', () => {
+      const pu = {
+        product_nature: 'acessório dependente (sem função autônoma, requer produto principal para operar)',
+        identity: 'controlador / manopla de foco para lente teleobjetiva',
+      }
+      const hasStandalone = evaluateProductHasStandaloneFunction({
+        productUnderstanding: pu,
+        productText: 'controlador remoto de servo foco e zoom para objetivas broadcast',
+      })
+      expect(hasStandalone).toBe(false)
+    })
+  })
 })

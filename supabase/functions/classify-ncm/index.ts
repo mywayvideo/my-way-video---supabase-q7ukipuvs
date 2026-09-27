@@ -174,46 +174,102 @@ export function isHeadingContainedInPartsRanges(
  * ou se é uma peça/acessório dependente sem função independente.
  * Aplica princípios universais (RGI 1, RGI 3b, Nota 2).
  */
+export type ProductNatureCategory =
+  | 'aparelho com função própria completa'
+  | 'acessório dependente (sem função autônoma, requer produto principal para operar)'
+  | 'peça de reposição (substituição de componente)'
+
+/**
+ * Normaliza o valor de product_nature declarado na Fase 0 / product_understanding
+ * para uma das três categorias mutuamente exclusivas.
+ */
+export function normalizeProductNature(val?: any): ProductNatureCategory {
+  const raw = String(val || '')
+    .toLowerCase()
+    .trim()
+
+  if (
+    raw.includes('peça de reposição') ||
+    raw.includes('peca de reposicao') ||
+    raw.includes('substituição de componente') ||
+    raw.includes('substituicao de componente') ||
+    raw.includes('reposição') ||
+    raw.includes('reposicao') ||
+    raw.includes('spare part') ||
+    raw.includes('replacement part')
+  ) {
+    return 'peça de reposição (substituição de componente)'
+  }
+
+  if (
+    raw.includes('acessório dependente') ||
+    raw.includes('acessorio dependente') ||
+    raw.includes('sem função autônoma') ||
+    raw.includes('sem funcao autonoma') ||
+    raw.includes('requer produto principal') ||
+    raw.includes('acessório sem função autônoma') ||
+    raw.includes('acessorio sem funcao autonoma') ||
+    raw.includes('dependent accessory')
+  ) {
+    return 'acessório dependente (sem função autônoma, requer produto principal para operar)'
+  }
+
+  return 'aparelho com função própria completa'
+}
+
+/**
+ * Avalia se o produto sob análise é estritamente uma PEÇA DE REPOSIÇÃO (substituição de componente)
+ * sujeita à proibição inversa universal (NCM de partes não pode vencer aparelho autônomo).
+ *
+ * REGRA VINCULANTE: A proibição inversa vale APENAS para PEÇA DE REPOSIÇÃO.
+ * NUNCA para ACESSÓRIO DEPENDENTE que requer produto principal para operar (ex: controle servo zoom de teleobjetiva).
+ * O termo "controlador" / "controle" no texto comercial NÃO é tratado como prova de aparelho autônomo
+ * quando a Fase 0 declara "acessório dependente".
+ */
 export function evaluateProductHasStandaloneFunction(params: {
   productUnderstanding?: any
   productText?: string
   isKit?: boolean
 }): boolean {
   const pu = params.productUnderstanding
-  const text = (params.productText || '').toLowerCase()
 
-  // Se o product_understanding declarou categoricamente a função
+  // 1. Prioridade absoluta para o campo categorizado 'product_nature' da Fase 0
+  if (pu?.product_nature) {
+    const nature = normalizeProductNature(pu.product_nature)
+    if (nature === 'peça de reposição (substituição de componente)') {
+      return false
+    }
+    if (
+      nature === 'acessório dependente (sem função autônoma, requer produto principal para operar)'
+    ) {
+      // É acessório dependente sem função autônoma! Não tem função standalone.
+      return false
+    }
+    if (nature === 'aparelho com função própria completa') {
+      return true
+    }
+  }
+
+  // 2. Se o product_understanding declarou natureza técnica ou função essencial
   const puFunction = (pu?.essential_function || pu?.primary_use || '').toLowerCase()
   const puNature = (pu?.technical_nature || '').toLowerCase()
-
-  // Sinais de equipamento autônomo / aparelho completo com função própria
-  const standaloneIndicators = [
-    'aparelho com função própria',
-    'aparelho completo',
-    'função própria',
-    'standalone',
-    'autônomo',
-    'sistema de microfone',
-    'câmera',
-    'controlador',
-    'painel de controle',
-    'mesa de corte',
-    'switch',
-    'roteador',
-    'processador',
-    'transmissor',
-    'receptor',
-  ]
 
   const partsIndicators = [
     'mera peça',
     'peça de reposição',
+    'peca de reposicao',
+    'substituição de componente',
+    'substituicao de componente',
     'componente passivo',
     'gabinete vazio',
     'chassi sem circuitos',
     'parafuso',
     'engrenagem',
     'conector avulso',
+    'acessório dependente',
+    'acessorio dependente',
+    'sem função autônoma',
+    'sem funcao autonoma',
   ]
 
   for (const partTerm of partsIndicators) {
@@ -224,13 +280,30 @@ export function evaluateProductHasStandaloneFunction(params: {
 
   if (params.isKit) return true
 
+  // Indicadores de aparelho autônomo COMPLETO (sem "controlador" ou "controle" soltos)
+  const standaloneIndicators = [
+    'aparelho com função própria completa',
+    'aparelho com função própria',
+    'aparelho completo',
+    'função própria completa',
+    'standalone',
+    'sistema de microfone',
+    'câmera',
+    'mesa de corte',
+    'switch',
+    'roteador',
+    'processador',
+    'transmissor',
+    'receptor',
+  ]
+
   for (const ind of standaloneIndicators) {
-    if (puNature.includes(ind) || puFunction.includes(ind) || text.includes(ind)) {
+    if (puNature.includes(ind) || puFunction.includes(ind)) {
       return true
     }
   }
 
-  // Por padrão, produtos no catálogo com circuitos eletrônicos, fonte e controles são aparelhos autônomos
+  // Por padrão, se não marcado como peça ou acessório dependente, aparelho autônomo
   return true
 }
 
@@ -297,10 +370,11 @@ Deno.serve(async (req: Request) => {
       JSON.stringify({
         status: 'ok',
         function: 'classify-ncm',
-        version: '3.4.0-build.606',
+        version: '3.5.0-build.607',
         knowledge_base_version: '3.1',
         features: [
           'phase0_canonical_composition_derivation',
+          'phase0_tripartite_product_nature',
           'orphan_ncm_sweep_invariant',
           'ex_checklist_report_suppression_when_no_ex',
           'auditor_role_ai_providers',
@@ -310,6 +384,8 @@ Deno.serve(async (req: Request) => {
           'candidate_catalog_integrity_check',
           'full_candidate_audit_logging',
           'parts_ncm_indirect_linking',
+          'parts_vs_dependent_accessory_distinction',
+          'expanded_parts_deterministic_retrieval',
         ],
         timestamp: new Date().toISOString(),
       }),
@@ -596,10 +672,14 @@ METODOLOGIA OBRIGATÓRIA UNIVERSAL:
 
 0. FASE 0 OBRIGATÓRIA — CONHECIMENTO PLENO DO PRODUTO (PRÉ-REQUISITO DA CLASSIFICAÇÃO):
    Antes de qualquer confronto com posições ou códigos NCM, você DEVE construir o perfil técnico completo do produto:
-   - Identidade ontológica: o que o produto É em sua substância física e técnica (ex.: "controlador remoto", "câmera", "microfone", "conversor").
-   - Função essencial: o que ele faz primariamente, qual sua utilidade e modo de operação (ex.: "controla panorâmica, inclinação e zoom via protocolo IP/serial").
+   - Identidade ontológica: o que o produto É em sua substância física e técnica (ex.: "manopla de controle de servo zoom/foco", "controlador remoto IP", "câmera", "microfone", "conversor").
+   - Natureza do produto (product_nature): CLASSIFICAÇÃO OBRIGATÓRIA em exatamente UMA das três categorias mutuamente exclusivas:
+     * "aparelho com função própria completa": equipamento autônomo completo capaz de operar de forma independente ou como sistema autônomo (ex.: câmeras, sistemas de microfone, switchers, consoles/controladores remotos autônomos com alimentação e processamento próprio).
+     * "acessório dependente (sem função autônoma, requer produto principal para operar)": dispositivo acessório auxiliar que NÃO possui utilidade ou operação autônoma por si mesmo e depende de uma máquina/aparelho principal para realizar sua função (ex.: manopla de foco/zoom que atua sobre o servo da teleobjetiva/câmera, suporte motorizado dependente de lente). O termo comercial "controlador" ou "controle" NÃO transforma um acessório dependente em aparelho autônomo!
+     * "peça de reposição (substituição de componente)": componente individual ou sobressalente destinado a substituir peça danificada/desgastada (ex.: engrenagem avulsa, gaxeta, conector avulso, placa sobressalente).
+   - Função essencial: o que ele faz primariamente, qual sua utilidade e modo de operação (ex.: "controla servomotores de zoom e foco acoplados a teleobjetivas").
    - Características técnicas relevantes citadas literalmente no texto (interfaces, conectividade, sinais, estrutura).
-   - Máquina(s) de destino: se o produto é periférico, parte, acessório ou projetado para operar com uma máquina externa, declare essa máquina. Em construções "X para Y", Y é máquina de destino, JAMAIS componente do produto.
+   - Máquina(s) de destino: se o produto é periférico, parte, acessório ou projetado para operar com uma máquina externa, declare essa máquina (ex.: "teleobjetivas", "câmeras de estúdio"). Em construções "X para Y", Y é máquina de destino, JAMAIS componente do produto.
    - Sentença canônica obrigatória: DEVE constar textualmente no campo canonical_statement a frase no padrão exato:
      "o produto é um [tipo] que [função essencial], destinado a [máquina]" (ou "destinado a operação autônoma" se não houver máquina de destino).
    - A recomendação é INVÁLIDA sem a declaração completa do bloco 'product_understanding'.
@@ -634,13 +714,18 @@ METODOLOGIA OBRIGATÓRIA UNIVERSAL:
    - Cada valor técnico do produto confrontado com o Ex deve ser copiado LITERALMENTE das especificações. Valor não comprovado ou contraditório impede a concessão do Ex.
 
 6. PRINCÍPIO UNIVERSAL DE VÍNCULO INDIRETO PARA NCMs DE PARTES E ACESSÓRIOS:
-   - Identificação do padrão: Linhas cuja descrição hierárquica possui assinatura de "partes/acessórios destinados aos aparelhos/máquinas das posições X a Y" (ou posições específicas equivalentes, ex: 8529.90.90 cobrindo 85.24 a 85.28, 8431 cobrindo 84.25 a 84.30, 8473 cobrindo 84.70 a 84.72, etc.).
-   - O teste de enquadramento NÃO é similaridade vetorial/textual com o texto do NCM (o texto do NCM não descreve produto algum, apenas cita intervalos de posições).
-   - Teste de vínculo indireto: O produto em análise (função essencial e máquinas de destino da Fase 0 / product_understanding) destina-se a operar com aparelhos compreendidos dentro do intervalo ou lista de posições declarado no texto do NCM?
-     * Se SIM: O NCM de partes é candidato válido e legítimo para a mercadoria (RGI 1 e 2; Nota 2 dos Capítulos 84 e 85).
-     * CONCORRÊNCIA COM APARELHO COMPLETO DE FUNÇÃO PRÓPRIA (RGI 3): Se o produto possui função própria completa e autônoma (não sendo mera peça/acessório passivo ou dependente), a posição de aparelho com função própria prevalece na recomendação (RGI 3b/3c), e o NCM de partes DEVE constar como alternativa com justificativa explícita do vínculo indireto. Se o produto for genuinamente parte/acessório sem função própria autônoma, o NCM de partes deve ser recomendado.
-   - PROIBIÇÃO INVERSA ESTREITA: Um NCM de partes/acessórios NUNCA pode ser recomendado quando o produto tem função própria completa e independente (ex.: sistemas completos de microfone/áudio, câmeras de vídeo autônomas, receptores/transmissores completos com função própria). Peças não podem vencer equipamentos completos.
-   - JUSTIFICATIVA OBRIGATÓRIA DE VÍNCULO INDIRETO: Sempre que um NCM de partes for recomendado OU listado nas alternativas, a justificativa/reason DEVE explicitar o vínculo indireto: citar textualmente o intervalo de posições declarado no NCM e as máquinas/funções de destino extraídas da Fase 0 (ex.: "destina-se a câmeras PTZ, posição 8525, dentro do intervalo 85.24 a 85.28 declarado no texto oficial do NCM").
+   - Identificação do padrão: Linhas cuja descrição hierárquica possui assinatura de "partes e acessórios reconhecíveis como destinada... aos aparelhos/máquinas das posições X a Y" (ou posições específicas equivalentes, ex: 8529.90.90 cobrindo 85.24 a 85.28, 8431 cobrindo 84.25 a 84.30, 8473 cobrindo 84.70 a 84.72, etc.).
+   - "Partes reconhecidas" na NCM abrange tanto PEÇAS DE REPOSIÇÃO quanto ACESSÓRIOS DEPENDENTES que não funcionam sozinhos.
+   - Teste de vínculo indireto: As máquinas de destino declaradas na Fase 0 (target_machines) estão compreendidas dentro do intervalo de posições declarado no texto oficial do NCM de partes?
+     * Se SIM: O NCM de partes é candidato legítimo (RGI 1 e 2; Nota 2 dos Capítulos 84, 85 e 90).
+   - REGRA DA PROIBIÇÃO INVERSA (DELIMITAÇÃO PRECISA):
+     * A proibição de vencer vale ESTRITAMENTE para "peça de reposição (substituição de componente)". Uma peça de reposição avulsa nunca pode ser recomendada para equipamento autônomo completo.
+     * NUNCA aplique a proibição inversa a "acessório dependente (sem função autônoma, requer produto principal para operar)".
+     * Para acessório dependente, o NCM de partes DEVE poder ser RECOMENDADO quando o vínculo indireto casar (target_machines dentro do intervalo declarado no texto).
+     * O conflito com aparelho completo é resolvido por RGI 3b considerando a categoria "product_nature" da Fase 0, e JAMAIS por termos de marketing soltos como "controlador" ou "controle".
+   - JUSTIFICATIVA OBRIGATÓRIA DE VÍNCULO INDIRETO:
+     * Quando o recomendado for acessório dependente em NCM de partes, explicitar a natureza: "acessório sem função autônoma, destinado a [target_machines], dentro do intervalo X a Y declarado no texto (RGI 1/2, Nota 2)".
+     * Quando for aparelho com função própria autônoma, este prevalece na recomendação, e o NCM de partes DEVE constar como alternativa com justificativa do vínculo indireto.
 
 7. UNIVERSO DE CANDIDATOS E FORMATO DE SAÍDA:
 - Escolha o recommended_ncm e recommended_ex EXCLUSIVAMENTE a partir da lista de candidatos fornecida.
@@ -651,6 +736,7 @@ METODOLOGIA OBRIGATÓRIA UNIVERSAL:
 {
 "product_understanding": {
   "identity": "O que o produto é em sua substância técnica ontológica",
+  "product_nature": "aparelho com função própria completa" | "acessório dependente (sem função autônoma, requer produto principal para operar)" | "peça de reposição (substituição de componente)",
   "essential_function": "Função técnica essencial que confere utilidade primária",
   "technical_features": ["especificação 1", "especificação 2"],
   "target_machines": ["máquina de destino 1"],
@@ -879,7 +965,9 @@ Construa a FASE 0 obrigatória no campo 'product_understanding' com a sentença 
 PROTOCOLO OBRIGATÓRIO DE AUDITORIA (PRINCÍPIOS GENÉRICOS UNIVERSAIS):
 0. FASE 0 OBRIGATÓRIA — AUDITORIA DE ENTENDIMENTO DO PRODUTO (PRÉ-REQUISITO):
    - Você DEVE conferir se o 'product_understanding' da 1ª passada é perfeitamente coerente com a descrição do produto e suas especificações.
-   - Valide se a identidade ontológica, a função essencial e as máquinas de destino estão declaradas corretamente.
+   - Valide rigorosamente o campo 'product_nature' em exatamente uma das três categorias:
+     "aparelho com função própria completa" / "acessório dependente (sem função autônoma, requer produto principal para operar)" / "peça de reposição (substituição de componente)".
+   - Lembre-se: "controlador" no texto comercial de um acessório dependente (ex: manopla de foco de lente) NÃO o torna aparelho autônomo.
    - Em "X para Y", Y é máquina de destino, JAMAIS componente integrado.
    - Entendimento incoerente INVALIDA a recomendação (action: "VETA").
    - Construa ou homologue o perfil técnico na saída com a sentença canônica canônica obrigatória:
@@ -906,15 +994,18 @@ PROTOCOLO OBRIGATÓRIO DE AUDITORIA (PRINCÍPIOS GENÉRICOS UNIVERSAIS):
 8. VETO A TODAS AS ALTERNATIVAS:
    - O veto por contradição de natureza e coerência técnica vale para TODA a lista de alternativas. Nenhuma alternativa com autocontradição ou incompatibilidade ontológica pode ser mantida.
 9. VÍNCULO INDIRETO PARA NCMs DE PARTES E ACESSÓRIOS:
-   - Para candidatos NCM de partes (assinatura "partes destinadas aos aparelhos das posições X a Y" ou posições equivalentes):
-   - O enquadramento afere-se pelo destino do produto (target_machines da Fase 0) confrontado com as posições dos aparelhos declaradas no texto do NCM. Se as máquinas de destino caírem no intervalo citado no NCM de partes, o NCM de partes é perfeitamente válido.
-   - PROIBIÇÃO INVERSA: NCM de peças não pode ser recomendado quando o produto tem função própria completa e não é parte/acessório (aparelho completo prevalece na recomendação por RGI 3b; o NCM de partes DEVE constar como alternativa com justificativa do vínculo indireto).
-   - JUSTIFICATIVA OBRIGATÓRIA DO VÍNCULO INDIRETO: Ao recomendar ou listar NCM de partes, a justificativa/reason deve citar o intervalo de posições declarado no texto e os destinos da Fase 0 (ex.: "destina-se a câmeras, posição 8525, dentro do intervalo 85.24 a 85.28 declarado no texto").
+   - Para candidatos NCM de partes (assinatura "partes e acessórios reconhecíveis como destinada... aos aparelhos das posições X a Y"):
+   - "Partes reconhecidas" abrange tanto peças de reposição quanto acessórios dependentes sem função autônoma.
+   - A PROIBIÇÃO INVERSA VALE APENAS PARA "peça de reposição (substituição de componente)".
+   - Para "acessório dependente (sem função autônoma)", o NCM de partes DEVE poder ser recomendado quando o vínculo indireto casar com as target_machines no intervalo do NCM.
+   - Conflito com aparelho completo é dirimido por RGI 3b via product_nature da Fase 0, nunca por palavras soltas de marketing.
+   - Quando o recomendado for acessório dependente em NCM de partes, a justificativa deve explicitar: "acessório sem função autônoma, destinado a [target_machines], dentro do intervalo X a Y declarado no texto (RGI 1/2, Nota 2)".
 
 RESPOSTA OBRIGATÓRIA EM JSON:
 {
   "product_understanding": {
     "identity": "Identidade do produto",
+    "product_nature": "aparelho com função própria completa" | "acessório dependente (sem função autônoma, requer produto principal para operar)" | "peça de reposição (substituição de componente)",
     "essential_function": "Função essencial",
     "target_machines": ["máquina de destino"],
     "canonical_statement": "o produto é um [tipo] que [função essencial], destinado a [máquina]",
@@ -950,7 +1041,7 @@ ATENÇÃO AUDITOR:
 4. A CORREÇÃO DEVE RESPEITAR A NATUREZA DO PRODUTO: Jamais corrija para um NCM cuja descrição contradiga o que o produto é (ex.: não escolha NCM de câmera para controlador, nem NCM de máquinas para produto eletroeletrônico).
 5. É TERMINANTEMENTE PROIBIDO escolher por benefício fiscal (alíquota zero/reduzida) ou por ordem de recuperação. O critério é 100% técnico.
 6. Se houver dúvida entre posições específicas que contradizem o produto e posições genéricas compatíveis (máquinas com função própria / partes e acessórios), prefira a genérica compatível.
-7. VÍNCULO INDIRETO DE PEÇAS: Se houver candidatos com padrão "partes destinadas aos aparelhos das posições X a Y", avalie se as target_machines da Fase 0 estão no intervalo. Se o produto tiver função própria autônoma, peças NÃO devem vencer o recomendado, mas DEVEM constar nas alternativas com justificativa explícita do vínculo indireto citando as posições.
+7. VÍNCULO INDIRETO DE PARTES E ACESSÓRIOS: Avalie se as target_machines da Fase 0 estão no intervalo do NCM de partes. A proibição inversa vale APENAS para peça de reposição. Para acessório dependente (sem função autônoma), o NCM de partes PODE e DEVE ser recomendado quando o vínculo casar. Se for aparelho autônomo completo, este prevalece e partes fica como alternativa com justificativa do vínculo.
 
 LISTA DE CANDIDATOS VÁLIDOS:
 ${candidatesCatalogText}`
@@ -1062,29 +1153,37 @@ ${candidatesCatalogText}`
             }
           }
 
-          // (2.B) PROIBIÇÃO INVERSA UNIVERSAL DE PEÇAS:
-          // Se o produto possui função própria completa e autônoma na Fase 0 / product_understanding
-          // e o candidato corrigido do auditor for um NCM de peças com vínculo indireto
-          // (ex.: "partes destinadas aos aparelhos das posições X a Y"):
-          // Peças NUNCA podem ser recomendadas para equipamento completo autônomo (RGI 3b).
+          // (2.B) PROIBIÇÃO INVERSA DE PEÇAS (ESTRITAMENTE PEÇA DE REPOSIÇÃO):
+          // REGRA VINCULANTE: A proibição inversa vale APENAS para PEÇA DE REPOSIÇÃO.
+          // NUNCA para ACESSÓRIO DEPENDENTE (sem função autônoma, requer produto principal para operar).
+          // Se a Fase 0 declarou "acessório dependente", o NCM de partes PODE e DEVE ser recomendado quando o vínculo casar.
           const isCandidateParts = isPartsNcmPattern(
             candidateMatch.ncm_descricao_full ||
               candidateMatch.ncm_descricao ||
               candidateMatch.source_text ||
               '',
           )
+          const effectivePU =
+            auditVerdict.product_understanding || initialRecommendation.product_understanding
+          const effectiveNature = normalizeProductNature(effectivePU?.product_nature)
+
           const productHasStandaloneFunction = evaluateProductHasStandaloneFunction({
-            productUnderstanding:
-              auditVerdict.product_understanding || initialRecommendation.product_understanding,
+            productUnderstanding: effectivePU,
             productText: fullTechnicalProfile,
             isKit: compositionAnalysis.isKit,
           })
 
-          const partsInverseViolation = isCandidateParts.isParts && productHasStandaloneFunction
+          // Violação ocorre APENAS quando o produto é aparelho autônomo completo (ou quando declarado estritamente como mera peça de reposição tentando vencer aparelho completo)
+          // Mas NUNCA quando for acessório dependente
+          const partsInverseViolation =
+            isCandidateParts.isParts &&
+            productHasStandaloneFunction &&
+            effectiveNature !==
+              'acessório dependente (sem função autônoma, requer produto principal para operar)'
 
           if (partsInverseViolation) {
             console.warn(
-              `[Auditoria 2ª Passada: VETO POR PROIBIÇÃO INVERSA DE PEÇAS] Candidato ${correctedDigits} é NCM de peças, mas o produto possui função própria completa autônoma. Peças não podem vencer equipamento completo.`,
+              `[Auditoria 2ª Passada: VETO POR PROIBIÇÃO INVERSA DE PEÇAS] Candidato ${correctedDigits} é NCM de partes/peças, mas o produto é aparelho com função própria autônoma (nature=${effectiveNature}).`,
             )
           }
 
@@ -1095,7 +1194,7 @@ ${candidatesCatalogText}`
             partsInverseViolation
           ) {
             const vetoReasonText = partsInverseViolation
-              ? `Proibição inversa de peças: produto possui função própria completa autônoma (RGI 3b), não podendo ser enquadrado em NCM de partes (${correctedDigits}).`
+              ? `Proibição inversa de peças: produto possui função própria completa autônoma (RGI 3b), não podendo ser enquadrado em NCM de partes de reposição (${correctedDigits}).`
               : natureContradiction.reason || taxCriterionCheck.reason
             console.warn(
               `[Auditoria 2ª Passada: VETO DA CORREÇÃO] Correção para ${correctedDigits} foi vetada:`,
@@ -1554,7 +1653,7 @@ ${candidatesCatalogText}`
       }
     }
 
-    // JUSTIFICATIVA OBRIGATÓRIA DE VÍNCULO INDIRETO QUANDO PEÇAS FOR RECOMENDADO:
+    // JUSTIFICATIVA OBRIGATÓRIA DE VÍNCULO INDIRETO QUANDO PEÇAS/ACESSÓRIOS FOR RECOMENDADO:
     const recPartsCheck = isPartsNcmPattern(primaryDescription)
     if (recPartsCheck.isParts && recPartsCheck.detectedRanges.length > 0) {
       const targetStr =
@@ -1564,7 +1663,16 @@ ${candidatesCatalogText}`
       const rangesStr = recPartsCheck.detectedRanges
         .map((r) => `${r.rawStart} a ${r.rawEnd}`)
         .join(', ')
-      const indirectLinkNote = `[Vínculo Indireto de Peças/Acessórios]: Destina-se a ${targetStr}, enquadrando-se no intervalo de posições ${rangesStr} declarado expressamente no texto oficial da NCM (RGI 1 e 2; Nota 2 do Capítulo).`
+      const resolvedNature = normalizeProductNature(finalProductUnderstanding?.product_nature)
+      const natureText =
+        resolvedNature ===
+        'acessório dependente (sem função autônoma, requer produto principal para operar)'
+          ? 'acessório sem função autônoma'
+          : resolvedNature === 'peça de reposição (substituição de componente)'
+            ? 'peça de reposição'
+            : 'parte/acessório'
+
+      const indirectLinkNote = `[Vínculo Indireto de Partes e Acessórios]: Enquadramento como ${natureText}, destinado a ${targetStr}, dentro do intervalo de posições ${rangesStr} declarado expressamente no texto oficial da NCM (RGI 1/2, Nota 2 do Capítulo).`
       if (!finalJustification.includes('[Vínculo Indireto')) {
         finalJustification = `${indirectLinkNote}\n\n${finalJustification}`
       }
@@ -1806,7 +1914,7 @@ ${candidatesCatalogText}`
       composition_analysis: compositionAnalysis,
       checklist_log: checklistLog,
       parts_indirect_logic: partsTelemetry,
-      version: '3.4.0-build.606',
+      version: '3.5.0-build.607',
       timestamp: new Date().toISOString(),
     }
 
@@ -2804,15 +2912,35 @@ async function retrieveSectorOrientedCandidates(params: {
         }
       }
 
-      // Buscar linhas com assinatura textual genérica de partes destinadas a posições
-      // (ex.: "partes reconhecíveis como destinadas... aos aparelhos das posições X a Y")
+      // RECUPERAÇÃO DETERMINÍSTICA EXPANDIDA DE NCMs DE PARTES E ACESSÓRIOS:
+      // Filtro SQL com a assinatura completa de destinação:
+      // (partes OU peças OU acessórios) E (destinad|utiliz|concebid|exclusiv|principalmente) E (posições|aparelhos|máquinas)
+      // Cobre ~1.233 linhas na base imp_sim_tax_rates (ampliando as 807 do filtro restrito anterior).
       const { data: partsCandidates } = await supabaseAdmin
         .from('imp_sim_tax_rates')
         .select(
           'id, ncm, ex, ncm_descricao, ncm_descricao_full, ex_descricao, ii_rate, ipi_rate, pis_rate, cofins_rate, has_ex_tarifario',
         )
-        .ilike('ncm_descricao_full', '%partes%destinad%posiç%')
-        .limit(60)
+        .or(
+          'ncm_descricao_full.ilike.%parte%destinad%posiç%,' +
+            'ncm_descricao_full.ilike.%parte%destinad%aparelho%,' +
+            'ncm_descricao_full.ilike.%parte%destinad%máquina%,' +
+            'ncm_descricao_full.ilike.%parte%destinad%maquina%,' +
+            'ncm_descricao_full.ilike.%parte%utiliz%posiç%,' +
+            'ncm_descricao_full.ilike.%parte%utiliz%aparelho%,' +
+            'ncm_descricao_full.ilike.%parte%utiliz%máquina%,' +
+            'ncm_descricao_full.ilike.%parte%concebid%posiç%,' +
+            'ncm_descricao_full.ilike.%parte%exclusiv%posiç%,' +
+            'ncm_descricao_full.ilike.%parte%principalmente%posiç%,' +
+            'ncm_descricao_full.ilike.%acessório%destinad%posiç%,' +
+            'ncm_descricao_full.ilike.%acessorio%destinad%posiç%,' +
+            'ncm_descricao_full.ilike.%acessório%destinad%aparelho%,' +
+            'ncm_descricao_full.ilike.%acessorio%destinad%aparelho%,' +
+            'ncm_descricao_full.ilike.%acessório%destinad%máquina%,' +
+            'ncm_descricao_full.ilike.%peça%destinad%posiç%,' +
+            'ncm_descricao_full.ilike.%peca%destinad%posiç%',
+        )
+        .limit(100)
 
       if (partsCandidates && partsCandidates.length > 0) {
         for (const pc of partsCandidates) {

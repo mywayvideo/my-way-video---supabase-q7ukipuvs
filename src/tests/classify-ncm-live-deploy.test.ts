@@ -7,7 +7,7 @@ const supabaseAnonKey = process.env.VITE_SUPABASE_PUBLISHABLE_KEY || ''
 describe('classify-ncm Edge Function live deploy check & validation', () => {
   const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
-  it('checks edge function health endpoint returning version 3.3.0-build.605', async () => {
+  it('checks edge function health endpoint returning version 3.5.0-build.607', async () => {
     const res = await fetch(`${supabaseUrl}/functions/v1/classify-ncm?health=true`, {
       method: 'GET',
     })
@@ -16,8 +16,9 @@ describe('classify-ncm Edge Function live deploy check & validation', () => {
     const data = await res.json()
     expect(data.status).toBe('ok')
     expect(data.function).toBe('classify-ncm')
-    expect(data.version).toBe('3.4.0-build.606')
+    expect(data.version).toBe('3.5.0-build.607')
     expect(data.features).toContain('phase0_canonical_composition_derivation')
+    expect(data.features).toContain('phase0_tripartite_product_nature')
     expect(data.features).toContain('orphan_ncm_sweep_invariant')
     expect(data.features).toContain('ex_checklist_report_suppression_when_no_ex')
     expect(data.features).toContain('family_expansion_6digits')
@@ -25,6 +26,8 @@ describe('classify-ncm Edge Function live deploy check & validation', () => {
     expect(data.features).toContain('candidate_catalog_integrity_check')
     expect(data.features).toContain('full_candidate_audit_logging')
     expect(data.features).toContain('parts_ncm_indirect_linking')
+    expect(data.features).toContain('parts_vs_dependent_accessory_distinction')
+    expect(data.features).toContain('expanded_parts_deterministic_retrieval')
   })
 
   it('verifies in imp_sim_ncm_classification_log that RM-IP500 and UWP-D21 records have new fields', async () => {
@@ -123,6 +126,53 @@ describe('classify-ncm Edge Function live deploy check & validation', () => {
     // Product understanding da Fase 0
     expect(result.product_understanding).toBeDefined()
     expect(result.product_understanding.canonical_statement).toBeDefined()
+  }, 60000)
+
+  it('validates dependent accessory live classification (servo zoom / focus handle for telephoto lenses — 8529.90.90 recommended or valid alternative)', async () => {
+    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+      email: 'qa.operator@mywayvideo.com',
+      password: 'Skip@Pass123!',
+    })
+
+    expect(authError).toBeNull()
+    const jwt = authData!.session!.access_token
+
+    const res = await fetch(`${supabaseUrl}/functions/v1/classify-ncm`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${jwt}`,
+      },
+      body: JSON.stringify({
+        product_description: 'Fujinon ERD-20A-A02 Zoom Demand / Manopla de controle de servo zoom e foco para teleobjetivas e lentes broadcast de estúdio. Dispositivo de comando remoto acoplável a tripé para acionamento de servomotores da objetiva.',
+        brand: 'Fujinon',
+        model: 'ERD-20A-A02',
+        additional_specs: 'Requer conexão com o servo da lente broadcast/teleobjetiva para operar. Sem alimentação ou função autônoma independente.',
+        top_n: 15,
+        save_log: true,
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    const result = await res.json()
+    console.log('[Servo Zoom Handle Result]:', JSON.stringify({
+      ncm: result.recommendation?.ncm,
+      ex: result.recommendation?.ex,
+      justification: result.recommendation?.justification,
+      product_understanding: result.product_understanding,
+      alternatives: result.alternatives?.map((a: any) => ({ ncm: a.ncm, ex: a.ex, reason: a.reason })),
+    }, null, 2))
+
+    expect(result.success).toBe(true)
+    // 85299090 é partes e acessórios reconhecíveis destinados a aparelhos de 8525 a 8528 (câmeras de TV/estúdio)
+    // O NCM de partes DEVE poder ser recomendado ou figurar com destaque nas alternativas com justificativa de vínculo indireto
+    const allNcms = [result.recommendation.ncm, ...(result.alternatives || []).map((a: any) => a.ncm)]
+    expect(allNcms).toContain('85299090')
+
+    // Se 85299090 for o recomendado, a justificativa deve conter a menção ao vínculo indireto e natureza de acessório
+    if (result.recommendation.ncm === '85299090') {
+      expect(result.recommendation.justification).toMatch(/(?:v[ií]nculo indireto|acess[oó]rio|85\.24|8524|8525|85\.25|Nota 2)/i)
+    }
   }, 60000)
 
   it('validates HDC-3200R live classification (expected: 85258921 recommended, 85258913 absent or alternative, no 90181990)', async () => {

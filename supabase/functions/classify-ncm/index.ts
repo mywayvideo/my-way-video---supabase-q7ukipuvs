@@ -1311,15 +1311,21 @@ async function retrieveSectorOrientedCandidates(params: {
   // para garantir que a família correspondente à assinatura/componente do produto entre priorizada
   if (detectedComponents.length > 0) {
     try {
-      for (const comp of detectedComponents) {
-        // Ignorar termos genéricos ou muito curtos
-        const cleanComp = comp.replace(/[^\p{L}\p{N}]/gu, '').toLowerCase()
-        if (cleanComp.length < 4) continue
+      const distinctComps = Array.from(
+        new Set(
+          detectedComponents
+            .map((comp) => comp.replace(/[^\p{L}\p{N}]/gu, '').toLowerCase())
+            .filter((c) => c.length >= 4 && !['sistema', 'conjunto', 'para', 'com'].includes(c)),
+        ),
+      ).slice(0, 3)
 
+      for (const cleanComp of distinctComps) {
         // Buscar posições oficiais no banco contendo o termo verbatim
         const { data: compMatches } = await supabaseAdmin
-          .from('imp_sim_tax_rates_effective')
-          .select('*')
+          .from('imp_sim_tax_rates')
+          .select(
+            'id, ncm, ex, ncm_descricao, ex_descricao, ii_rate, ipi_rate, pis_rate, cofins_rate, has_ex_tarifario',
+          )
           .ilike('ncm_descricao', `%${cleanComp}%`)
           .limit(8)
 

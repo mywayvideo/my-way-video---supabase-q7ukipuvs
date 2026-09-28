@@ -1,4 +1,4 @@
-// Deploy trigger build 614 - classify-ncm v3.8.0-build.614
+// Deploy trigger build 615 - classify-ncm v3.8.0-build.615
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { corsHeaders } from '../_shared/cors.ts'
@@ -701,6 +701,20 @@ function evaluateProductHasStandaloneFunction(params: {
     if (
       nature === 'acessório dependente (sem função autônoma, requer produto principal para operar)'
     ) {
+      // PRÉ-CONDIÇÃO OBRIGATÓRIA DA DEPENDÊNCIA REAL (Princípio Genérico):
+      // Um produto só é legitimamente acessório dependente sem função autônoma se NÃO consegue
+      // exercer sua utilidade primordial sem a máquina servida.
+      // Se possui função primordial autônoma (captação acústica/áudio, reprodução de áudio,
+      // exibição de imagem/vídeo, medição autônoma, processamento autônomo), NÃO é acessório dependente!
+      const textToCheck =
+        `${params.productText || ''} ${pu?.identity || ''} ${pu?.essential_function || ''}`.toLowerCase()
+      const hasAutonomousDelivery =
+        /\b(microfone|microfones|microphone|microphones|fones? de ouvido|headphones?|alto-falante|alto-falantes|loudspeakers?|monitores? de v[ií]deo|displays? aut[oô]nomos?|c[aâ]meras?)\b/i.test(
+          textToCheck,
+        )
+      if (hasAutonomousDelivery) {
+        return true
+      }
       // É acessório dependente sem função autônoma! Não tem função standalone.
       return false
     }
@@ -712,6 +726,31 @@ function evaluateProductHasStandaloneFunction(params: {
   // 2. Se o product_understanding declarou natureza técnica ou função essencial
   const puFunction = (pu?.essential_function || pu?.primary_use || '').toLowerCase()
   const puNature = (pu?.technical_nature || '').toLowerCase()
+  const fullTextContext =
+    `${params.productText || ''} ${pu?.identity || ''} ${puFunction} ${puNature}`.toLowerCase()
+
+  // Se o produto entrega função primordial autônoma (captação/reprodução de áudio, imagem, exibição),
+  // ele é autônomo e não mera parte/acessório dependente.
+  const autonomousDeliveryIndicators = [
+    'sistema de microfone',
+    'microfone',
+    'microphone',
+    'fones de ouvido',
+    'headphones',
+    'alto-falante',
+    'monitor de vídeo',
+    'câmera',
+    'mesa de corte',
+    'switch',
+    'roteador',
+    'processador',
+  ]
+
+  for (const autoInd of autonomousDeliveryIndicators) {
+    if (fullTextContext.includes(autoInd)) {
+      return true
+    }
+  }
 
   const partsIndicators = [
     'mera peça',
@@ -746,12 +785,6 @@ function evaluateProductHasStandaloneFunction(params: {
     'aparelho completo',
     'função própria completa',
     'standalone',
-    'sistema de microfone',
-    'câmera',
-    'mesa de corte',
-    'switch',
-    'roteador',
-    'processador',
     'transmissor',
     'receptor',
   ]
@@ -835,6 +868,30 @@ function evaluatePartsPrecedenceOverResidual(params: {
         winning_parts_ncm: null,
         demoted_residual_ncm: null,
         reason: 'Precedência de partes não se aplica: produto não é acessório dependente.',
+      },
+    }
+  }
+
+  // PRÉ-CONDIÇÃO DETERMINÍSTICA DA DEPENDÊNCIA REAL (Princípio Genérico 1 e 2):
+  // A precedência da Nota 2(b) de partes só pode ser habilitada para acessório dependente se
+  // a recomendação atual NÃO pertencer à família de uma função essencial própria entregue pelo produto
+  // (ex.: posição 85.18 para captação/reprodução de áudio, 85.28 para exibição).
+  // A existência de um elo acessório (como fio, rádio, suporte de câmera) NÃO rebaixa um aparelho de áudio/vídeo
+  // com função própria para posição de radiotransmissão nem para partes de câmera.
+  const currentDigitsForDepCheck = normalizeNcm(params.currentRecNcm)
+  if (currentDigitsForDepCheck.startsWith('8518') || currentDigitsForDepCheck.startsWith('8528')) {
+    return {
+      shouldOverride: false,
+      winningCandidate: null,
+      demotedCandidate: null,
+      matchedRangeStr: null,
+      matchedHeading: null,
+      verdict: {
+        applied: false,
+        winning_parts_ncm: null,
+        demoted_residual_ncm: null,
+        reason:
+          'Precedência de partes não se aplica: a posição atual corresponde à família da função essencial própria entregue pelo produto (áudio/vídeo autônomo).',
       },
     }
   }
@@ -995,7 +1052,7 @@ Deno.serve(async (req: Request) => {
       JSON.stringify({
         status: 'ok',
         function: 'classify-ncm',
-        version: '3.8.0-build.614',
+        version: '3.8.0-build.615',
         knowledge_base_version: '3.1',
         features: [
           'phase0_canonical_composition_derivation',
@@ -1021,6 +1078,9 @@ Deno.serve(async (req: Request) => {
           'intrafamily_qualifier_score_evaluation',
           'pre_decision_intrafamily_tiebreak',
           'functional_incompatibility_penalization',
+          'real_dependency_condition_note2b',
+          'essential_delivery_over_medium_principle',
+          'auditor_nature_correction_before_ncm',
         ],
         timestamp: new Date().toISOString(),
       }),
@@ -1376,8 +1436,12 @@ METODOLOGIA OBRIGATÓRIA UNIVERSAL:
    - Natureza do produto (product_nature): CLASSIFICAÇÃO OBRIGATÓRIA em exatamente UMA das três categorias mutuamente exclusivas:
      * "aparelho com função própria completa": equipamento autônomo completo capaz de operar de forma independente ou como sistema autônomo (ex.: câmeras, sistemas de microfone, switchers, consoles/controladores remotos autônomos com alimentação e processamento próprio).
      * "acessório dependente (sem função autônoma, requer produto principal para operar)": dispositivo acessório auxiliar que NÃO possui utilidade ou operação autônoma por si mesmo e depende de uma máquina/aparelho principal para realizar sua função (ex.: manopla de foco/zoom que atua sobre o servo da teleobjetiva/câmera, suporte motorizado dependente de lente). O termo comercial "controlador" ou "controle" NÃO transforma um acessório dependente em aparelho autônomo!
+       CRITÉRIO OBRIGATÓRIO DE DEPENDÊNCIA REAL: Você só pode classificar como "acessório dependente sem função autônoma" quando o produto NÃO consegue exercer sua função primordial sem a máquina servida. Se o produto funciona de forma autônoma com múltiplos destinos (ex.: gravador, mixer, mesa de som, computador, amplificador, smartphone), ele possui função própria autônoma e NÃO é parte nem acessório dependente.
+       Exemplos: controlador remoto de câmeras e manopla de servo zoom são partes/acessórios dependentes (sem função autônoma fora da câmera/lente); sistema de microfone sem fio, fone de ouvido e monitor de vídeo têm função própria autônoma (captação acústica e reprodução de áudio e imagem) e NÃO são partes.
      * "peça de reposição (substituição de componente)": componente individual ou sobressalente destinado a substituir peça danificada/desgastada (ex.: engrenagem avulsa, gaxeta, conector avulso, placa sobressalente).
-   - Função essencial: o que ele faz primariamente, qual sua utilidade e modo de operação (ex.: "controla servomotores de zoom e foco acoplados a teleobjetivas").
+   - Função essencial: o que o produto primariamente ENTREGA, NÃO o meio que usa:
+     * PRINCÍPIO DA ENTREGA VS. MEIO: A função essencial do produto/conjunto é o serviço final que ele realiza (ex.: captar áudio acústico = microfone na posição 85.18; exibir imagem = monitor na posição 85.28; captar vídeo = câmera na posição 85.25), e JAMAIS o meio físico ou tecnológico de transmissão empregado (elo de rádio UHF, Bluetooth, Wi-Fi, cabo elétrico ou conector).
+     * A existência de transmissão de rádio ou montagem auxiliar (ex.: "camera-mount", sapata de câmera, elo sem fio) NÃO reclassifica um microfone para aparelho de radiotransmissão (85.17) nem para partes de câmera (85.29).
    - Características técnicas relevantes citadas literalmente no texto (interfaces, conectividade, sinais, estrutura).
    - Máquina(s) de destino: se o produto é periférico, parte, acessório ou projetado para operar com uma máquina externa, declare essa máquina (ex.: "teleobjetivas", "câmeras de estúdio"). Em construções "X para Y", Y é máquina de destino, JAMAIS componente do produto.
    - Sentença canônica obrigatória: DEVE constar textualmente no campo canonical_statement a frase no padrão exato:
@@ -1674,7 +1738,13 @@ PROTOCOLO OBRIGATÓRIO DE AUDITORIA (PRINCÍPIOS GENÉRICOS UNIVERSAIS):
    - Você DEVE conferir se o 'product_understanding' da 1ª passada é perfeitamente coerente com a descrição do produto e suas especificações.
    - Valide rigorosamente o campo 'product_nature' em exatamente uma das três categorias:
      "aparelho com função própria completa" / "acessório dependente (sem função autônoma, requer produto principal para operar)" / "peça de reposição (substituição de componente)".
-   - Lembre-se: "controlador" no texto comercial de um acessório dependente (ex: manopla de foco de lente) NÃO o torna aparelho autônomo.
+   - CRITÉRIO DA DEPENDÊNCIA REAL E CORREÇÃO DE NATUREZA:
+     * O auditor só pode manter ou homologar "acessório dependente sem função autônoma" se o produto NÃO consegue exercer sua função primordial sem a máquina servida.
+     * Se o produto entrega utilidade autônoma com outros destinos (ex.: captação de áudio que pode ir para gravador, mixer, computador, etc.), o auditor DEVE CORRIGIR A NATUREZA para "aparelho com função própria completa" ANTES de auditar ou corrigir o NCM!
+     * Lembre-se: "controlador" no texto comercial de um acessório dependente (ex: manopla de foco de lente) NÃO o torna aparelho autônomo, mas equipamentos com função primordial de áudio/imagem/vídeo SÃO aparelhos autônomos completos.
+   - PRINCÍPIO DO QUE O PRODUTO ENTREGA (NÃO O MEIO):
+     * A função essencial é o que o produto ENTREGA (ex.: captar áudio = 85.18), NÃO o meio de transporte do sinal (elo de rádio UHF, cabo, etc.).
+     * O auditor JAMAIS pode vetar o NCM da família da função essencial própria (ex.: 85.18 para microfones) com base em premissa de 'acessório dependente' ou 'radiotransmissão'.
    - Em "X para Y", Y é máquina de destino, JAMAIS componente integrado.
    - Entendimento incoerente INVALIDA a recomendação (action: "VETA").
    - Construa ou homologue o perfil técnico na saída com a sentença canônica canônica obrigatória:
@@ -1759,8 +1829,9 @@ ATENÇÃO AUDITOR:
        O residual só é recomendável quando NENHUMA parte casar ou quando o produto for aparelho autônomo completo.
        Se a 1ª passada recomendou o residual (ex.: 8543.70.99) para um acessório dependente com partes casando (ex.: 8529.90.90), você DEVE VETAR (action: "VETA") e CORRIGIR para o NCM de partes ("corrected_ncm"), rebaixando o residual a alternativa.
        Justificativa OBRIGATÓRIA citando a Nota 2(b) do Cap. 85 e o intervalo de posições do texto da parte.
+     * PREVALÊNCIA DA FUNÇÃO PRÓPRIA AUTÔNOMA: A regra de precedência de partes NUNCA se aplica a produtos com função primordial autônoma (captação/reprodução de áudio como microfones da posição 85.18, monitores de vídeo da posição 85.28). O auditor NUNCA pode vetar o NCM da família da função própria (85.18) alegando que o elo sem fio ou acessório de montagem o transforma em parte ou rádio.
    - REGRA PARA "aparelho com função própria completa":
-     * Para aparelho completo (product_nature = "aparelho com função própria completa"), a regra anterior NÃO se aplica. O aparelho completo fica na sua NCM de função autônoma (ex.: câmera em 8525.89.21, switcher/console autônomo), e NCM de partes NÃO vence aparelho completo.
+     * Para aparelho completo (product_nature = "aparelho com função própria completa"), a regra anterior NÃO se aplica. O aparelho completo fica na sua NCM de função autônoma (ex.: microfone em 8518, câmera em 8525.89.21, switcher/console autônomo), e NCM de partes NÃO vence aparelho completo.
    - PROIBIÇÃO INVERSA:
      * A proibição inversa vale APENAS para "peça de reposição (substituição de componente)". Uma peça de reposição avulsa nunca pode ser recomendada para equipamento autônomo completo.
 
@@ -1940,10 +2011,12 @@ ${candidatesCatalogText}`
             }
           }
 
-          // (2.B) PROIBIÇÃO INVERSA DE PEÇAS (ESTRITAMENTE PEÇA DE REPOSIÇÃO):
-          // REGRA VINCULANTE: A proibição inversa vale APENAS para PEÇA DE REPOSIÇÃO.
-          // NUNCA para ACESSÓRIO DEPENDENTE (sem função autônoma, requer produto principal para operar).
-          // Se a Fase 0 declarou "acessório dependente", o NCM de partes PODE e DEVE ser recomendado quando o vínculo casar.
+          // (2.B) PROIBIÇÃO INVERSA DE PEÇAS E PRESERVAÇÃO DA FUNÇÃO ESSENCIAL PRÓPRIA (Princípio Genérico 1, 2 e 3):
+          // Se o produto possui função própria autônoma (ex.: captação/reprodução de áudio, vídeo, monitor),
+          // ele NÃO pode ser classificado em NCM de partes (ex.: 8529 para câmeras), nem o auditor pode
+          // vetar a família da função própria (85.18 para microfones) alegando acessório dependente ou rádio.
+          // Se a Fase 0 errou a natureza declarando "acessório dependente" para produto com função autônoma
+          // (ex.: microfone sem fio), corrigimos a natureza ANTES de avaliar o NCM.
           const isCandidateParts = isPartsNcmPattern(
             candidateMatch.ncm_descricao_full ||
               candidateMatch.ncm_descricao ||
@@ -1952,7 +2025,6 @@ ${candidatesCatalogText}`
           )
           const effectivePU =
             auditVerdict.product_understanding || initialRecommendation.product_understanding
-          const effectiveNature = normalizeProductNature(effectivePU?.product_nature)
 
           const productHasStandaloneFunction = evaluateProductHasStandaloneFunction({
             productUnderstanding: effectivePU,
@@ -1960,13 +2032,38 @@ ${candidatesCatalogText}`
             isKit: compositionAnalysis.isKit,
           })
 
-          // Violação ocorre APENAS quando o produto é aparelho autônomo completo (ou quando declarado estritamente como mera peça de reposição tentando vencer aparelho completo)
-          // Mas NUNCA quando for acessório dependente
-          const partsInverseViolation =
-            isCandidateParts.isParts &&
+          let effectiveNature = normalizeProductNature(effectivePU?.product_nature)
+
+          // Correção de natureza da Fase 0 quando o produto possui função essencial autônoma
+          if (
             productHasStandaloneFunction &&
-            effectiveNature !==
+            effectiveNature ===
               'acessório dependente (sem função autônoma, requer produto principal para operar)'
+          ) {
+            console.log(
+              '[Auditoria/Pipeline] Corrigindo natureza da Fase 0: produto possui função essencial primordial autônoma, reclassificando para aparelho com função própria completa.',
+            )
+            effectiveNature = 'aparelho com função própria completa'
+            if (auditVerdict.product_understanding) {
+              auditVerdict.product_understanding.product_nature = effectiveNature
+            }
+          }
+
+          // Violação de partes: ocorre quando o candidato corrigido é NCM de partes mas o produto tem função própria autônoma
+          const partsInverseViolation = isCandidateParts.isParts && productHasStandaloneFunction
+
+          // Veto adicional: Se a 1ª passada recomendou corretamente a família da função essencial (ex: 8518 para microfones)
+          // e o auditor tentou vetar para NCM de partes (8529) ou de meio de transmissão (8517)
+          const initialNcmClean = normalizeNcm(initialRecommendation.recommended_ncm)
+          const isEssentialFamilyInitial =
+            (initialNcmClean.startsWith('8518') &&
+              /\b(microfone|microphone|audio|[aá]udio)\b/i.test(fullTechnicalProfile)) ||
+            (initialNcmClean.startsWith('8528') &&
+              /\b(monitor|display|tela)\b/i.test(fullTechnicalProfile))
+
+          const auditorVetoOfEssentialFamilyInvalid =
+            isEssentialFamilyInitial &&
+            (correctedDigits.startsWith('8529') || correctedDigits.startsWith('8517'))
 
           if (partsInverseViolation) {
             console.warn(
@@ -1974,15 +2071,24 @@ ${candidatesCatalogText}`
             )
           }
 
-          // Se a correção do auditor foi VETADA pela verificação de natureza ontológica, critério fiscal ou proibição inversa de peças
+          if (auditorVetoOfEssentialFamilyInvalid) {
+            console.warn(
+              `[Auditoria 2ª Passada: VETO DE TESE DO AUDITOR] Auditor vetou a família da função essencial própria (${initialNcmClean}) para NCM de partes/transmissão (${correctedDigits}) com base no meio e não na entrega.`,
+            )
+          }
+
+          // Se a correção do auditor foi VETADA pela verificação de natureza ontológica, critério fiscal, proibição inversa ou veto inválido de família essencial
           if (
             natureContradiction.contradicted ||
             taxCriterionCheck.violatesTaxProhibition ||
-            partsInverseViolation
+            partsInverseViolation ||
+            auditorVetoOfEssentialFamilyInvalid
           ) {
-            const vetoReasonText = partsInverseViolation
-              ? `Proibição inversa de peças: produto possui função própria completa autônoma (RGI 3b), não podendo ser enquadrado em NCM de partes de reposição (${correctedDigits}).`
-              : natureContradiction.reason || taxCriterionCheck.reason
+            const vetoReasonText = auditorVetoOfEssentialFamilyInvalid
+              ? `A função essencial do produto é o que ele ENTREGA (captação/reprodução), não o meio de transmissão: o NCM da família da função própria (${initialNcmClean}) não pode ser vetado para partes (${correctedDigits}).`
+              : partsInverseViolation
+                ? `Proibição de partes para aparelho autônomo: produto possui função própria completa autônoma (RGI 3b), não podendo ser enquadrado em NCM de partes (${correctedDigits}).`
+                : natureContradiction.reason || taxCriterionCheck.reason
             console.warn(
               `[Auditoria 2ª Passada: VETO DA CORREÇÃO] Correção para ${correctedDigits} foi vetada:`,
               vetoReasonText,
@@ -2849,7 +2955,7 @@ ${candidatesCatalogText}`
       composition_analysis: compositionAnalysis,
       checklist_log: checklistLog,
       parts_indirect_logic: partsTelemetry,
-      version: '3.8.0-build.614',
+      version: '3.8.0-build.615',
       timestamp: new Date().toISOString(),
     }
     return new Response(JSON.stringify(responsePayload), {

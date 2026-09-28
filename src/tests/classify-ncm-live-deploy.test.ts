@@ -22,7 +22,7 @@ describe('classify-ncm Edge Function live deploy check & validation', () => {
         try {
           lastData = JSON.parse(text)
         } catch { /* intentionally ignored */ }
-        if (res.status === 200 && lastData?.version === '3.8.0-build.614') {
+        if (res.status === 200 && lastData?.version === '3.8.0-build.615') {
           break
         }
       } catch (e: any) {
@@ -53,6 +53,9 @@ describe('classify-ncm Edge Function live deploy check & validation', () => {
     expect(data.features).toContain('intrafamily_qualifier_score_evaluation')
     expect(data.features).toContain('pre_decision_intrafamily_tiebreak')
     expect(data.features).toContain('functional_incompatibility_penalization')
+    expect(data.features).toContain('real_dependency_condition_note2b')
+    expect(data.features).toContain('essential_delivery_over_medium_principle')
+    expect(data.features).toContain('auditor_nature_correction_before_ncm')
   })
 
   it('verifies in imp_sim_ncm_classification_log that RM-IP500 and UWP-D21 records have new fields', async () => {

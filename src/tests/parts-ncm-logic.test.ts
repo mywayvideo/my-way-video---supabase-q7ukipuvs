@@ -279,7 +279,22 @@ describe('Parts NCM Universal Indirect Linking Logic (Frontend/Contract)', () =>
         }
       }
 
+      // Pré-condição da dependência real: Não sobrepor famílias de função autônoma (85.18 para áudio, 85.28 para vídeo)
       const cleanRecNcm = params.currentRecNcm.replace(/\D/g, '')
+      if (cleanRecNcm.startsWith('8518') || cleanRecNcm.startsWith('8528')) {
+        return {
+          shouldOverride: false,
+          winningCandidate: null,
+          demotedCandidate: null,
+          verdict: {
+            applied: false,
+            winning_parts_ncm: null,
+            demoted_residual_ncm: null,
+            reason: 'Precedência de partes não se aplica: a posição atual corresponde à família da função essencial própria entregue pelo produto (áudio/vídeo autônomo).',
+          },
+        }
+      }
+
       const isCurrentResidual =
         isResidualStandaloneDeviceNcm(params.currentRecDesc) ||
         cleanRecNcm.startsWith('8543') ||
@@ -453,6 +468,34 @@ describe('Parts NCM Universal Indirect Linking Logic (Frontend/Contract)', () =>
       expect(evalResult.shouldOverride).toBe(false)
       expect(evalResult.verdict.applied).toBe(false)
       expect(evalResult.winningCandidate).toBeNull()
+    })
+
+    it('does NOT apply parts precedence to microphone family 85.18 even if target_machines contains cameras', () => {
+      const candidates = [
+        {
+          ncm: '85181090',
+          ncm_descricao_full:
+            'Microfones e seus suportes; alto-falantes... | Microfones e seus suportes | Outros',
+        },
+        {
+          ncm: '85299090',
+          ncm_descricao_full:
+            'Partes reconhecíveis como destinada, exclusiva ou principalmente, aos aparelhos das posições 85.24 a 85.28',
+        },
+      ]
+
+      const evalResult = evaluatePartsPrecedenceOverResidual({
+        productNature: 'acessório dependente (sem função autônoma, requer produto principal para operar)',
+        currentRecNcm: '85181090',
+        currentRecDesc: candidates[0].ncm_descricao_full,
+        candidates,
+        targetHeadings: ['8525'],
+      })
+
+      expect(evalResult.shouldOverride).toBe(false)
+      expect(evalResult.verdict.applied).toBe(false)
+      expect(evalResult.winningCandidate).toBeNull()
+      expect(evalResult.verdict.reason).toContain('família da função essencial própria')
     })
 
     describe('extractTargetMachineHeadings logic test', () => {

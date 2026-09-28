@@ -2800,9 +2800,10 @@ ${candidatesCatalogText}`
           llmResponseJson.recommended_ncm = principalNcmClean
           llmResponseJson.recommended_ex = ''
 
-          const attention9620 = principalNcmClean.startsWith('9620')
-            ? ' (posição 96.20 mandatória para bastões, tripés e semelhantes — alíquotas a verificar no Siscomex)'
-            : ''
+          const attention9620 =
+            principalNcmClean.startsWith('9620')
+              ? ' (posição 96.20 mandatória para bastões, tripés e semelhantes — alíquotas a verificar no Siscomex)'
+              : ''
 
           const vetoDetail = matchedForbiddenPrefix
             ? `O enquadramento na posição/capítulo ${matchedForbiddenPrefix} (${checkRecNcmSupport}) é expressamente proibido pela regra da família "${activeEntry.familia}": ${activeEntry.alertas || ''}.`

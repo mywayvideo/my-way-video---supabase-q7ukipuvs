@@ -22,7 +22,7 @@ describe('classify-ncm Edge Function live deploy check & validation', () => {
         try {
           lastData = JSON.parse(text)
         } catch { /* intentionally ignored */ }
-        if (res.status === 200 && lastData?.version === '3.7.0-build.613') {
+        if (res.status === 200 && lastData?.version === '3.8.0-build.614') {
           break
         }
       } catch (e: any) {
@@ -50,6 +50,9 @@ describe('classify-ncm Edge Function live deploy check & validation', () => {
     expect(data.features).toContain('expanded_parts_deterministic_retrieval')
     expect(data.features).toContain('candidates_sweep_alternatives_promotion')
     expect(data.features).toContain('alternatives_source_tracking')
+    expect(data.features).toContain('intrafamily_qualifier_score_evaluation')
+    expect(data.features).toContain('pre_decision_intrafamily_tiebreak')
+    expect(data.features).toContain('functional_incompatibility_penalization')
   })
 
   it('verifies in imp_sim_ncm_classification_log that RM-IP500 and UWP-D21 records have new fields', async () => {
@@ -83,6 +86,50 @@ describe('classify-ncm Edge Function live deploy check & validation', () => {
     }
   })
 
+  it('validates ATEM SDI Extreme ISO Switcher (8 entradas SDI) live classification (expected: 85437035 recommended with II 7,2%)', async () => {
+    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+      email: 'qa.operator@mywayvideo.com',
+      password: 'Skip@Pass123!',
+    })
+
+    expect(authError).toBeNull()
+    const jwt = authData!.session!.access_token
+
+    const res = await fetch(`${supabaseUrl}/functions/v1/classify-ncm`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${jwt}`,
+      },
+      body: JSON.stringify({
+        product_description: 'Blackmagic Design ATEM SDI Extreme ISO Switcher - Switcher de produção ao vivo com 8 entradas 3G-SDI, 4 saídas SDI, 2 portas USB para webcam e gravação ISO de todos os 8 canais de entrada mais o programa.',
+        brand: 'Blackmagic Design',
+        model: 'ATEM SDI Extreme ISO',
+        additional_specs: 'Misturador e comutador digital de vídeo em tempo real, 8 entradas SDI com conversão de padrões integrada, mixer de áudio Fairlight com EQ e dinâmica.',
+        top_n: 15,
+        save_log: true,
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    const result = await res.json()
+    console.log('[VAL 1 ATEM SDI Extreme ISO]:', JSON.stringify({
+      recommended: result.recommendation?.ncm,
+      ex: result.recommendation?.ex,
+      ii: result.recommendation?.ii,
+      description: result.recommendation?.description,
+      confidence: result.confidence,
+      sufficient_info: result.sufficient_info,
+      alternatives: result.alternatives?.map((a: any) => ({ ncm: a.ncm, ex: a.ex, reason: a.reason, source: a.alternatives_source })),
+    }, null, 2))
+
+    expect(result.success).toBe(true)
+    // Recomendação esperada: 85437035 ("Misturador digital, em tempo real, com oito ou mais entradas") com II 7,2%
+    expect(result.recommendation.ncm).toBe('85437035')
+    expect(result.recommendation.ex).toBe('')
+    expect(result.recommendation.ii).toBe(7.2)
+  }, 60000)
+
   it('validates RM-IP500 live classification (expected: 85299090 recommended via parts precedence over residual 85437099, 85437099 demoted to alternative)', async () => {
     const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
       email: 'qa.operator@mywayvideo.com',
@@ -110,14 +157,12 @@ describe('classify-ncm Edge Function live deploy check & validation', () => {
 
     expect(res.status).toBe(200)
     const result = await res.json()
-    console.log('[RM-IP500 Result]:', JSON.stringify({
-      ncm: result.recommendation?.ncm,
+    console.log('[VAL 2 RM-IP500]:', JSON.stringify({
+      recommended: result.recommendation?.ncm,
       ex: result.recommendation?.ex,
-      model_used: result.model_used,
-      analyst_model: result.analyst_model,
-      auditor_model: result.auditor_model,
-      product_understanding: result.product_understanding,
-      alternatives: result.alternatives?.map((a: any) => ({ ncm: a.ncm, ex: a.ex, reason: a.reason })),
+      confidence: result.confidence,
+      sufficient_info: result.sufficient_info,
+      alternatives: result.alternatives?.map((a: any) => ({ ncm: a.ncm, ex: a.ex, reason: a.reason, source: a.alternatives_source })),
       parts_indirect_logic: result.parts_indirect_logic,
       audit_id: result.audit_id,
     }, null, 2))
@@ -189,12 +234,12 @@ describe('classify-ncm Edge Function live deploy check & validation', () => {
 
     expect(res.status).toBe(200)
     const result = await res.json()
-    console.log('[Servo Zoom Handle Result]:', JSON.stringify({
-      ncm: result.recommendation?.ncm,
+    console.log('[VAL 5 Manopla Servo Zoom]:', JSON.stringify({
+      recommended: result.recommendation?.ncm,
       ex: result.recommendation?.ex,
-      justification: result.recommendation?.justification,
-      product_understanding: result.product_understanding,
-      alternatives: result.alternatives?.map((a: any) => ({ ncm: a.ncm, ex: a.ex, reason: a.reason })),
+      confidence: result.confidence,
+      sufficient_info: result.sufficient_info,
+      alternatives: result.alternatives?.map((a: any) => ({ ncm: a.ncm, ex: a.ex, reason: a.reason, source: a.alternatives_source })),
     }, null, 2))
 
     expect(result.success).toBe(true)
@@ -235,13 +280,13 @@ describe('classify-ncm Edge Function live deploy check & validation', () => {
 
     expect(res.status).toBe(200)
     const result = await res.json()
-    console.log('[HDC-3200R Result]:', JSON.stringify({
-      ncm: result.recommendation?.ncm,
+    console.log('[VAL 3 HDC-3200R]:', JSON.stringify({
+      recommended: result.recommendation?.ncm,
       ex: result.recommendation?.ex,
+      confidence: result.confidence,
+      sufficient_info: result.sufficient_info,
       description: result.recommendation?.description,
-      model_used: result.model_used,
-      evaluated_candidates_count: result.candidates_count,
-      alternatives: result.alternatives?.map((a: any) => ({ ncm: a.ncm, ex: a.ex, description: a.description })),
+      alternatives: result.alternatives?.map((a: any) => ({ ncm: a.ncm, ex: a.ex, description: a.description, source: a.alternatives_source })),
       audit_id: result.audit_id,
     }, null, 2))
 
@@ -330,14 +375,12 @@ describe('classify-ncm Edge Function live deploy check & validation', () => {
     }
     expect(res.status).toBe(200)
     const result = await res.json()
-    console.log('[UWP-D21 Result]:', JSON.stringify({
-      ncm: result.recommendation?.ncm,
+    console.log('[VAL 4 UWP-D21]:', JSON.stringify({
+      recommended: result.recommendation?.ncm,
       ex: result.recommendation?.ex,
-      model_used: result.model_used,
-      analyst_model: result.analyst_model,
-      auditor_model: result.auditor_model,
-      product_understanding: result.product_understanding,
-      alternatives: result.alternatives?.map((a: any) => ({ ncm: a.ncm, ex: a.ex })),
+      confidence: result.confidence,
+      sufficient_info: result.sufficient_info,
+      alternatives: result.alternatives?.map((a: any) => ({ ncm: a.ncm, ex: a.ex, source: a.alternatives_source })),
       audit_id: result.audit_id,
     }, null, 2))
 

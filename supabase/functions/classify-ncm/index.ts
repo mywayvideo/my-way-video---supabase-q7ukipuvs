@@ -1,4 +1,4 @@
-// Deploy trigger build 616 - classify-ncm live calibration
+// Deploy trigger build 614 - classify-ncm v3.8.0-build.614
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { corsHeaders } from '../_shared/cors.ts'
@@ -174,6 +174,245 @@ function isSupportedAIProvider(provider: {
   return {
     supported: false,
     reason: `Tipo de provedor "${provider.provider_type}" não suportado nativamente na classify-ncm.`,
+  }
+}
+
+// =============================================================================
+// NOVO AUXILIAR DETERMINÍSTICO: AVALIAÇÃO DE QUALIFICADORES QUANTITATIVOS INTRAFAMÍLIA
+// =============================================================================
+
+interface IntrafamilyQualifierEvaluationResult {
+  hasPattern: boolean
+  matchedPattern?: string
+  extractedCategory?: string
+  requiredThreshold?: number
+  comparisonOperator?: 'gte' | 'gt' | 'lte' | 'lt' | 'exact'
+  productValueFound?: number
+  satisfied: boolean
+  scoreAdjustment: number // +80 para satisfeito, penalização (-60) para incompatibilidade patente
+  reason: string
+}
+
+/**
+ * Converte palavras numéricas em português/inglês para números inteiros
+ */
+function parseWordNumber(word: string): number | null {
+  if (!word) return null
+  const w = word.toLowerCase().trim()
+  const num = parseInt(w, 10)
+  if (!isNaN(num)) return num
+
+  const wordMap: Record<string, number> = {
+    um: 1,
+    uma: 1,
+    one: 1,
+    dois: 2,
+    duas: 2,
+    two: 2,
+    tres: 3,
+    três: 3,
+    three: 3,
+    quatro: 4,
+    four: 4,
+    cinco: 5,
+    five: 5,
+    seis: 6,
+    six: 6,
+    sete: 7,
+    seven: 7,
+    oito: 8,
+    eight: 8,
+    nove: 9,
+    nine: 9,
+    dez: 10,
+    ten: 10,
+    doze: 12,
+    twelve: 12,
+    dezesseis: 16,
+    sixteen: 16,
+    vinte: 20,
+    twenty: 20,
+    trinta: 30,
+    thirty: 30,
+  }
+  return wordMap[w] ?? null
+}
+
+/**
+ * Extrai padrões quantitativos da descrição oficial de um NCM ou Ex:
+ * Padrões como:
+ * - "oito ou mais entradas" / "8 ou mais entradas"
+ * - "com três ou mais captadores de imagem"
+ * - "mais de 10 entradas de áudio ou de vídeo"
+ * - "de mais de 20 entradas e mais de 16 saídas"
+ * - "4 canais ou mais" / "acima de 8 canais"
+ *
+ * Confronta com as especificações técnicas declaradas no produto.
+ * Se o produto satisfaz a condição quantitativa: +80 pontos decisivos;
+ * Se for patente incompatibilidade (ex.: produto com 4 entradas contra "oito ou mais"): penalização (-60);
+ * Função GENÉRICA: vale para qualquer capítulo/posição (84, 85, 90), sem hardcode de NCM ou produto.
+ */
+function evaluateIntrafamilyQualifierScore(
+  ncmDescricaoFull: string,
+  exText: string | null | undefined,
+  productSpecs: string,
+): IntrafamilyQualifierEvaluationResult {
+  const combinedDesc = `${ncmDescricaoFull || ''} ${exText || ''}`.toLowerCase()
+  const prodText = (productSpecs || '').toLowerCase()
+
+  if (!combinedDesc.trim()) {
+    return {
+      hasPattern: false,
+      satisfied: false,
+      scoreAdjustment: 0,
+      reason: 'Descrição vazia para avaliação de qualificadores.',
+    }
+  }
+
+  // Regex genérica para qualificadores quantitativos em descrições oficiais NCM/Ex
+  // Suporta numerais ou palavras ("oito", "três", etc.) seguidos de operadores ("ou mais", "a", "+", "acima de", "mais de")
+  // e de categorias técnicas (entradas, canais, captadores, sensores, saídas, portas, inputs, outputs, etc.)
+  // Também suporta o formato inverso: "mais de (\d+|palavra) (entradas|...)"
+  const patterns = [
+    // Padrão 1: "oito ou mais entradas", "3 ou mais captadores", "8+ canais", "4 a 8 portas"
+    /\b(oito|tr[eê]s|duas|dois|quatro|cinco|seis|sete|nove|dez|doze|dezesseis|vinte|\d+)\s*(?:ou\s+mais|\+|acima\s+de|a\s+\d+)\s*(entradas|inputs|canais|channels|captadores|sensores|sa[ií]das|outputs|portas)\b/i,
+    // Padrão 2: "mais de 10 entradas", "acima de 8 canais", "superior a 20 entradas"
+    /\b(?:mais\s+de|superior\s+a|acima\s+de)\s*(oito|tr[eê]s|duas|dois|quatro|cinco|seis|sete|nove|dez|doze|dezesseis|vinte|\d+)\s*(entradas|inputs|canais|channels|captadores|sensores|sa[ií]das|outputs|portas)\b/i,
+    // Padrão 3: "com três ou mais captadores de imagem"
+    /\b(?:com\s+)?(oito|tr[eê]s|duas|dois|quatro|cinco|seis|sete|nove|dez|doze|dezesseis|vinte|\d+)\s*(?:ou\s+mais)\s*(?:de\s+)?(entradas|inputs|canais|channels|captadores|sensores|sa[ií]das|outputs|portas)\b/i,
+  ]
+
+  let matchedRaw = ''
+  let numVal: number | null = null
+  let category = ''
+  let operator: 'gte' | 'gt' | 'exact' = 'gte'
+
+  for (const pat of patterns) {
+    const m = combinedDesc.match(pat)
+    if (m) {
+      matchedRaw = m[0]
+      numVal = parseWordNumber(m[1])
+      category = (m[2] || '').toLowerCase()
+      if (/mais\s+de|superior\s+a/i.test(m[0])) {
+        operator = 'gt'
+      } else {
+        operator = 'gte'
+      }
+      break
+    }
+  }
+
+  if (!numVal || !category) {
+    return {
+      hasPattern: false,
+      satisfied: false,
+      scoreAdjustment: 0,
+      reason: 'Nenhum qualificador quantitativo oficial identificado na descrição da subposição.',
+    }
+  }
+
+  // Mapeamento semântico da categoria para busca no produto
+  // Ex: "entradas" -> regex para "X entradas", "X inputs", "X in", "X-in", etc.
+  const categoryTerms: Record<string, string[]> = {
+    entradas: ['entradas?', 'inputs?', 'in\\b'],
+    inputs: ['entradas?', 'inputs?', 'in\\b'],
+    canais: ['canais', 'canal', 'channels?', 'ch\\b'],
+    channels: ['canais', 'canal', 'channels?', 'ch\\b'],
+    captadores: ['captadores?', 'sensores?', 'sensors?', 'cmos', 'ccd'],
+    sensores: ['sensores?', 'sensors?', 'captadores?', 'cmos', 'ccd'],
+    saídas: ['sa[ií]das?', 'outputs?', 'out\\b'],
+    outputs: ['sa[ií]das?', 'outputs?', 'out\\b'],
+    portas: ['portas?', 'ports?'],
+  }
+
+  const terms = categoryTerms[category] || [category]
+  const termsRegexStr = terms.join('|')
+
+  // Buscar número associado a essa categoria no texto do produto
+  // Formatos comuns no produto: "8 entradas", "8 inputs", "8-channel", "8 channels", "3 CMOS", "3x 2/3", "3 sensores"
+  const productSearchPatterns = [
+    new RegExp(
+      `\\b(oito|tr[eê]s|duas|dois|quatro|cinco|seis|sete|nove|dez|doze|dezesseis|vinte|\\d+)\\s*(?:x|\\*)?\\s*(?:de\\s+)?(?:${termsRegexStr})\\b`,
+      'i',
+    ),
+    new RegExp(
+      `\\b(?:${termsRegexStr})\\s*(?:de|:)?\\s*(oito|tr[eê]s|duas|dois|quatro|cinco|seis|sete|nove|dez|doze|dezesseis|vinte|\\d+)\\b`,
+      'i',
+    ),
+    new RegExp(
+      `\\b(oito|tr[eê]s|duas|dois|quatro|cinco|seis|sete|nove|dez|doze|dezesseis|vinte|\\d+)-(?:${termsRegexStr})\\b`,
+      'i',
+    ),
+    new RegExp(
+      `(\\d+)x\\s*\\d+(?:/\\d+)?["”]?(?:\\s*(?:4k|hd)?)?\\s*(?:cmos|ccd|sensor|captador)`,
+      'i',
+    ), // Ex: "3x 2/3 4K CMOS"
+  ]
+
+  let productNum: number | null = null
+  let matchedProductSnippet = ''
+
+  for (const pPat of productSearchPatterns) {
+    const pMatch = prodText.match(pPat)
+    if (pMatch) {
+      matchedProductSnippet = pMatch[0]
+      productNum = parseWordNumber(pMatch[1])
+      if (productNum !== null) break
+    }
+  }
+
+  // Se não achou na busca estrita de categoria, mas o produto menciona "8 SDI", "8 HDMI", etc.,
+  // e a categoria oficial é entradas/inputs
+  if (productNum === null && (category === 'entradas' || category === 'inputs')) {
+    const sdiMatch = prodText.match(
+      /\b(oito|tr[eê]s|duas|dois|quatro|cinco|seis|sete|nove|dez|doze|dezesseis|vinte|\d+)\s*(?:entradas?\s*)?(?:sdi|hdmi|video|v[ií]deo)\b/i,
+    )
+    if (sdiMatch) {
+      matchedProductSnippet = sdiMatch[0]
+      productNum = parseWordNumber(sdiMatch[1])
+    }
+  }
+
+  // Se achou o número no produto, comparar
+  if (productNum !== null) {
+    const isSatisfied = operator === 'gt' ? productNum > numVal : productNum >= numVal
+
+    if (isSatisfied) {
+      return {
+        hasPattern: true,
+        matchedPattern: matchedRaw,
+        extractedCategory: category,
+        requiredThreshold: numVal,
+        comparisonOperator: operator,
+        productValueFound: productNum,
+        satisfied: true,
+        scoreAdjustment: 80, // +80 pontos decisivos
+        reason: `Qualificador quantitativo oficial satisfeito: produto possui ${productNum} ${category} ("${matchedProductSnippet}"), atendendo à exigência "${matchedRaw}". (+80 pts)`,
+      }
+    } else {
+      return {
+        hasPattern: true,
+        matchedPattern: matchedRaw,
+        extractedCategory: category,
+        requiredThreshold: numVal,
+        comparisonOperator: operator,
+        productValueFound: productNum,
+        satisfied: false,
+        scoreAdjustment: -60, // Penalização por incompatibilidade patente
+        reason: `Incompatibilidade quantitativa patente: produto possui apenas ${productNum} ${category} ("${matchedProductSnippet}"), não atendendo à exigência "${matchedRaw}". (-60 pts)`,
+      }
+    }
+  }
+
+  return {
+    hasPattern: true,
+    matchedPattern: matchedRaw,
+    extractedCategory: category,
+    requiredThreshold: numVal,
+    comparisonOperator: operator,
+    satisfied: false,
+    scoreAdjustment: 0,
+    reason: `Qualificador quantitativo identificado na descrição oficial ("${matchedRaw}"), mas quantidade não comprovada no texto do produto.`,
   }
 }
 
@@ -756,7 +995,7 @@ Deno.serve(async (req: Request) => {
       JSON.stringify({
         status: 'ok',
         function: 'classify-ncm',
-        version: '3.7.0-build.613',
+        version: '3.8.0-build.614',
         knowledge_base_version: '3.1',
         features: [
           'phase0_canonical_composition_derivation',
@@ -779,6 +1018,9 @@ Deno.serve(async (req: Request) => {
           'defensive_ai_provider_safeguards',
           'candidates_sweep_alternatives_promotion',
           'alternatives_source_tracking',
+          'intrafamily_qualifier_score_evaluation',
+          'pre_decision_intrafamily_tiebreak',
+          'functional_incompatibility_penalization',
         ],
         timestamp: new Date().toISOString(),
       }),
@@ -1156,12 +1398,12 @@ METODOLOGIA OBRIGATÓRIA UNIVERSAL:
    - PREFERÊNCIA POR FUNÇÃO GENÉRICA COMPATÍVEL SOBRE FUNÇÃO ESPECÍFICA INCOMPATÍVEL: Entre famílias empatadas na escolha, prefira SEMPRE uma posição de função genérica tecnicamente compatível (ex.: máquinas/aparelhos elétricos com função própria, partes e acessórios reconhecíveis) sobre uma posição de função específica incompatível cuja descrição contradiga o produto.
 
 3. REGRA OBRIGATÓRIA DE DESEMPATE INTRAFAMÍLIA (DISCRIMINAÇÃO TÉCNICA TABULADA):
-   - Quando mais de uma subposição da mesma família (mesmos 4 ou 6 primeiros dígitos) estiver entre as candidatas (por exemplo: ramos irmãos 8525.89.xx, 8471.xx, 8518.xx, 9007.xx):
-     * O DISCRIMINADOR VINCULANTE É O QUALIFICADOR TÉCNICO TABULADO da subposição (número de captadores/sensores de imagem, resolução, tipo de transmissão, dimensões, potência, etc.), situado no SUFIXO FINAL da ncm_descricao_full (após a barra hierárquica "|" ou última vírgula).
+   - Quando mais de uma subposição da mesma família (mesmos 4 ou 6 primeiros dígitos) estiver entre as candidatas (por exemplo: ramos irmãos 8543.70.xx, 8525.89.xx, 8471.xx, 8518.xx, 9007.xx):
+     * O DISCRIMINADOR VINCULANTE É O QUALIFICADOR TÉCNICO TABULADO da subposição (número de entradas, canais, captadores/sensores de imagem, saídas, portas, resolução, tipo de transmissão, dimensões, potência, etc.), situado no SUFIXO FINAL da ncm_descricao_full (após a barra hierárquica "|" ou última vírgula).
+     * REGRA DE PREVALÊNCIA ESPECÍFICA ENTRE IRMÃOS RESIDUAIS DA MESMA SUBPOSIÇÃO: entre irmãos da mesma subposição de 6 dígitos, prevalece OBRIGATORIAMENTE aquele cuja descrição específica contemple a função técnica real do equipamento E cujos qualificadores quantitativos (entradas, canais, captadores, sensores, portas) sejam satisfeitos pelo produto, SOBRE subitens residuais de outras aplicações físicas (ex.: telecomunicações, RF, micro-ondas) ou cestos genéricos "Outros".
      * O qualificador de cada subposição irmã DEVE ser confrontado ponto a ponto com as especificações técnicas reais do produto extraídas na Fase 0.
-     * Prevalece OBRIGATORIAMENTE a subposição mais específica cujo qualificador técnico seja plenamente satisfeito pelas especificações do produto (ex.: havendo 3 sensores/captadores, prevalece a subposição específica "Com três ou mais captadores de imagem" sobre subposições genéricas ou residuais "Outras" / sensores únicos).
+     * Prevalece OBRIGATORIAMENTE a subposição mais específica cujo qualificador técnico seja plenamente satisfeito pelas especificações do produto (ex.: havendo 8 entradas, prevalece "com oito ou mais entradas" sobre "Outros para micro-ondas" ou "Outros"; havendo 3 sensores/captadores, prevalece "Com três ou mais captadores de imagem" sobre "Outras" / sensores únicos).
      * É TERMINANTEMENTE PROIBIDO decidir por menor carga tributária ou por ordem de aparição na lista de candidatos.
-
 4. PROIBIÇÃO ABSOLUTA DE CRITÉRIO TRIBUTÁRIO / ALÍQUOTA:
    - É ESTRITAMENTE PROIBIDO utilizar alíquota ou vantagem tributária (II 0%, Ex vantajoso, redução de carga tributária) como critério de escolha ou desempate.
    - O enquadramento aduaneiro funda-se exclusivamente na função essencial, nas notas da TEC e no texto oficial da NCM/NESH.
@@ -1439,9 +1681,10 @@ PROTOCOLO OBRIGATÓRIO DE AUDITORIA (PRINCÍPIOS GENÉRICOS UNIVERSAIS):
      "o produto é um [tipo] que [função essencial], destinado a [máquina]".
 1. ENUNCIAÇÃO DA FUNÇÃO ESSENCIAL: declare a função essencial que confere caráter essencial ao produto ou conjunto global (RGI 1 e RGI 3b).
 2. DESEMPATE INTRAFAMÍLIA OBRIGATÓRIO (DISCRIMINAÇÃO TÉCNICA TABULADA):
-   - Quando mais de uma subposição da mesma família hierárquica (mesmos 4 ou 6 primeiros dígitos) estiver presente entre as candidatas:
-     * O DISCRIMINADOR VINCULANTE É O QUALIFICADOR TÉCNICO TABULADO da subposição (nº de captadores/sensores de imagem, resolução, tecnologia do sensor, tipo de modulação, dimensões, potência, etc.), situado no sufixo final da ncm_descricao_full.
-     * Esse qualificador DEVE ser confrontado rigorosamente com as especificações do produto extraídas na Fase 0 (ex.: se o produto tem 3 sensores de imagem CMOS/CCD, a subposição específica "Com três ou mais captadores de imagem" DEVE prevalecer sobre qualquer outra subposição residual ou de sensor único da mesma família).
+   - Quando mais de uma subposição da mesma família hierárquica (mesmos 4 ou 6 primeiros dígitos) estiver presente entre as candidatas (ex.: 8543.70.x, 8525.89.x):
+     * O DISCRIMINADOR VINCULANTE É O QUALIFICADOR TÉCNICO TABULADO da subposição (nº de entradas, canais, captadores/sensores de imagem, saídas, portas, resolução, tecnologia do sensor, tipo de modulação, dimensões, potência, etc.), situado no sufixo final da ncm_descricao_full.
+     * REGRA DE PREVALÊNCIA ESPECÍFICA ENTRE IRMÃOS RESIDUAIS DA MESMA SUBPOSIÇÃO: entre irmãos da mesma subposição de 6 dígitos (ex.: 8543.70.x), prevalece OBRIGATORIAMENTE aquele cuja descrição específica contemple a função do equipamento E cujos qualificadores quantitativos (entradas, canais, captadores, sensores, portas) sejam satisfeitos pelo produto, SOBRE subitens de outras aplicações físicas restritas (ex.: micro-ondas, RF, telecomunicação) ou cestos residuais "Outros".
+     * Esse qualificador DEVE ser confrontado rigorosamente com as especificações do produto extraídas na Fase 0 (ex.: para switcher com 8 entradas, subitem com "oito ou mais entradas" DEVE prevalecer sobre subitens de micro-ondas ou "Outros"; para câmera com 3 sensores, prevalece "Com três ou mais captadores de imagem").
      * Prevalece OBRIGATORIAMENTE a subposição mais específica cujo qualificador seja satisfeito pelas especificações do produto.
      * É TERMINANTEMENTE PROIBIDO decidir por menor carga tributária ou por ordem de aparição na lista. Se a 1ª passada escolheu uma subposição menos específica ou com qualificador incorreto, você DEVE VETAR e CORRIGIR ("corrected_ncm").
 3. O VETO AO EX-TARIFÁRIO NÃO ENCERRA A ANÁLISE:
@@ -1500,7 +1743,7 @@ RECOMENDAÇÃO DA 1ª PASSADA:
 ${checklistFormattedReport ? `\nCHECKLIST DE CONDIÇÕES DO EX:\n${checklistFormattedReport}\n` : ''}
 
 ATENÇÃO AUDITOR:
-1. DESEMPATE INTRAFAMÍLIA: Verifique se existem subposições irmãs no mesmo ramo (mesmos 6 primeiros dígitos) no catálogo abaixo. Confrontar o qualificador discriminante no final da ncm_descricao_full com as especificações do produto (ex.: nº de sensores/captadores, resolução, tipo de transmissão). Prevalece SEMPRE a subposição mais específica correspondente às especificações reais. VETE e corrija se a 1ª passada escolheu subposição irmã menos específica ou inadequada.
+1. DESEMPATE INTRAFAMÍLIA: Verifique se existem subposições irmãs no mesmo ramo (mesmos 6 primeiros dígitos) no catálogo abaixo (ex.: 8543.70.x, 8525.89.x). Entre irmãos da mesma subposição de 6 dígitos, prevalece a subposição cuja descrição específica contemple a função do equipamento E cujos qualificadores quantitativos (entradas, canais, captadores, sensores, portas) sejam satisfeitos pelo produto (ex.: 8 entradas -> "oito ou mais entradas"), sobre residuais de outras aplicações físicas (ex.: sinais de micro-ondas) ou "Outros". Confrontar o qualificador discriminante no final da ncm_descricao_full com as especificações do produto. Prevalece SEMPRE a subposição mais específica correspondente às especificações reais. VETE e corrija se a 1ª passada escolheu subposição irmã menos específica, com qualificador incompatível ou aplicação física excludente.
 2. Se o Ex foi vetado ou se a posição base recomendada (${initialRecommendation.recommended_ncm}) não descreve a função essencial da mercadoria com exatidão e existem posições específicas de família no catálogo abaixo, VETE (action: "VETA") e MIGRE para o NCM mais adequado entre os candidatos disponíveis.
 3. VETAR O EX NÃO SIGNIFICA MANTER O NCM RESIDUAL: Você DEVE verificar se a posição base 4/6/8 dígitos faz sentido para o produto. Se não fizer, altere o NCM em "corrected_ncm".
 4. A CORREÇÃO DEVE RESPEITAR A NATUREZA DO PRODUTO: Jamais corrija para um NCM cuja descrição contradiga o que o produto é (ex.: não escolha NCM de câmera para controlador, nem NCM de máquinas para produto eletroeletrônico).
@@ -1850,6 +2093,123 @@ ${candidatesCatalogText}`
         ? compositionAnalysis.detectedComponents.length >= 2
         : true,
       targetMachines: canonicalTargetMachines,
+    }
+
+    // =========================================================================
+    // 12.B DESEMPATE DETERMINÍSTICO INTRAFAMÍLIA PRÉ-DECISÃO (REQUISITOS 1, 2 E 3)
+    // =========================================================================
+    // No seletor final de candidatos, executar o checklist de condições/qualificadores
+    // sobre TODOS os irmãos do mesmo desdobramento de 6 dígitos (ex.: 8543.70.x, 8525.89.x)
+    // ANTES de consolidar a escolha, como critério eliminatório e de desempate.
+    // Se o candidato atualmente selecionado pertencer a um desdobramento de 6 dígitos onde
+    // existe um irmão cuja descrição oficial contempla qualificadores quantitativos satisfeitos
+    // pelo produto (ex.: 85437035 com "oito ou mais entradas"), e o atual não os possui ou é
+    // de aplicação física excludente/residual genérico, substituir pelo irmão qualificado.
+    try {
+      const currentChosenNcm = normalizeNcm(llmResponseJson.recommended_ncm)
+      if (currentChosenNcm.length === 8) {
+        const subpos6 = currentChosenNcm.slice(0, 6)
+        const siblingCandidates = candidates.filter((c: any) =>
+          normalizeNcm(c.ncm).startsWith(subpos6),
+        )
+
+        if (siblingCandidates.length > 1) {
+          // Avaliar cada irmão da subposição de 6 dígitos
+          let bestSibling: any = null
+          let bestSiblingScore = -999
+          let bestSiblingReason = ''
+
+          const currentCand = siblingCandidates.find(
+            (c: any) => normalizeNcm(c.ncm) === currentChosenNcm,
+          )
+          const currentNatureCheck = currentCand
+            ? checkNatureContradiction({
+                productText: fullTechnicalProfile,
+                candidateDesc: currentCand.ncm_descricao_full || currentCand.ncm_descricao || '',
+                detectedComponents: compositionAnalysis.detectedComponents,
+              })
+            : { contradicted: false }
+
+          for (const sib of siblingCandidates) {
+            const sibNcm = normalizeNcm(sib.ncm)
+            const sibDesc = sib.ncm_descricao_full || sib.ncm_descricao || sib.source_text || ''
+
+            // 1. Verificar contradição de natureza / incompatibilidade funcional
+            const natureCheck = checkNatureContradiction({
+              productText: fullTechnicalProfile,
+              candidateDesc: sibDesc,
+              detectedComponents: compositionAnalysis.detectedComponents,
+            })
+
+            let sibScore = sib.combined_score ?? sib.vector_score ?? 0.5
+            if (natureCheck.contradicted) {
+              sibScore -= 200 // Eliminatório
+            }
+
+            // 2. Avaliar qualificadores quantitativos
+            const qualEval = evaluateIntrafamilyQualifierScore(
+              sibDesc,
+              sib.ex_descricao,
+              fullTechnicalProfile,
+            )
+            if (qualEval.hasPattern) {
+              sibScore += qualEval.scoreAdjustment
+            }
+
+            // 3. Penalização de cesto residual não qualificado quando há irmão específico
+            const isGenericOther = /\b(?:outros?|outras?)\b/i.test(sibDesc.split('|').pop() || '')
+            if (isGenericOther) {
+              sibScore -= 10
+            }
+
+            if (sibScore > bestSiblingScore) {
+              bestSiblingScore = sibScore
+              bestSibling = sib
+              bestSiblingReason =
+                qualEval.hasPattern && qualEval.satisfied
+                  ? qualEval.reason
+                  : natureCheck.contradicted
+                    ? `Subitem anterior vetado por incompatibilidade funcional.`
+                    : 'Maior aderência técnica intrafamília.'
+            }
+          }
+
+          // Se o melhor irmão for diferente do atual e tiver pontuação decisivamente superior
+          // (ex.: qualificador quantitativo satisfeito ou atual é contraditório/incompatível)
+          if (
+            bestSibling &&
+            normalizeNcm(bestSibling.ncm) !== currentChosenNcm &&
+            bestSiblingScore > 0 &&
+            (currentNatureCheck.contradicted || bestSiblingScore >= 70)
+          ) {
+            const oldNcm = currentChosenNcm
+            const newNcm = normalizeNcm(bestSibling.ncm)
+            const newEx = (bestSibling.ex || '').toString().trim()
+
+            console.log(
+              `[Desempate Intrafamília Pré-Decisão]: NCM ${newNcm} prevaleceu sobre ${oldNcm} no desdobramento ${subpos6}. Motivo: ${bestSiblingReason}`,
+            )
+
+            llmResponseJson.recommended_ncm = newNcm
+            llmResponseJson.recommended_ex = newEx
+            llmResponseJson.justification = `[Desempate Intrafamília Pré-Decisão - RGI 1 / RGI 6]: No desdobramento hierárquico ${subpos6}, prevalece a subposição específica ${newNcm} (${bestSibling.ncm_descricao_full || bestSibling.ncm_descricao}) sobre o subitem ${oldNcm}. Fundamentação: ${bestSiblingReason}\n\n${llmResponseJson.justification || ''}`
+
+            // Adicionar o NCM anterior nas alternativas se não estiver vetado
+            if (!currentNatureCheck.contradicted) {
+              if (!Array.isArray(llmResponseJson.alternatives)) {
+                llmResponseJson.alternatives = []
+              }
+              llmResponseJson.alternatives.unshift({
+                ncm: oldNcm,
+                ex: currentCand?.ex || '',
+                reason: `Alternativa do mesmo desdobramento hierárquico ${subpos6}, preterida perante a subposição mais específica ${newNcm} cujos qualificadores foram plenamente satisfeitos.`,
+              })
+            }
+          }
+        }
+      }
+    } catch (intraErr) {
+      console.warn('Falha no desempate determinístico intrafamília pré-decisão:', intraErr)
     }
 
     // =========================================================================
@@ -2489,10 +2849,9 @@ ${candidatesCatalogText}`
       composition_analysis: compositionAnalysis,
       checklist_log: checklistLog,
       parts_indirect_logic: partsTelemetry,
-      version: '3.7.0-build.613',
+      version: '3.8.0-build.614',
       timestamp: new Date().toISOString(),
     }
-
     return new Response(JSON.stringify(responsePayload), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -3361,6 +3720,29 @@ function checkNatureContradiction(params: {
     }
   }
 
+  // 4. PENALIZAÇÃO DE INCOMPATIBILIDADE FUNCIONAL ESPECÍFICA (Princípio Genérico):
+  // Subitens cuja função específica descrita no texto oficial é mutuamente excludente da função do produto.
+  // Exemplo universal: Funções de RF/micro-ondas/satélite/telecomunicação para aparelhos de chaveamento/mistura/processamento de sinal em banda base (vídeo/áudio);
+  // ou aparelhos para eletrocussão de insetos, eletrificadores de cerca, etc. para produtos de áudio e vídeo.
+  const isBasebandSignalProcessingOrSwitching =
+    /\b(switcher|misturador|mixer|mesa de corte|comuta[cç][aã]o|processador de v[ií]deo|video processor|grava[cç][aã]o de v[ií]deo|sdi|hdmi)\b/i.test(
+      prodTextLower,
+    )
+  const candIsExclusivelyRfOrMicrowaveOrSpecializedIncompatible =
+    /\b(micro-ondas|sinais de micro-ondas|telecomunica[cç][oõ]es via sat[eé]lite|v[aá]lvula twt|phase combiner|eletrocutar insetos|eletrificadores de cercas?|acoplamento exclusivamente ac[uú]stico)\b/i.test(
+      candDescLower,
+    )
+
+  if (
+    isBasebandSignalProcessingOrSwitching &&
+    candIsExclusivelyRfOrMicrowaveOrSpecializedIncompatible
+  ) {
+    return {
+      contradicted: true,
+      reason: `Incompatibilidade funcional excludente: produto opera chaveamento/processamento/mistura de sinal em banda base ("${params.productText.slice(0, 80)}..."), mutuamente excludente de subitem com aplicação específica em RF/micro-ondas/satélite/outros fins restritos ("${params.candidateDesc.slice(0, 100)}...").`,
+    }
+  }
+
   return { contradicted: false }
 }
 
@@ -3430,7 +3812,7 @@ function selectBestCompatibleFallback(params: {
       ''
     ).toLowerCase()
 
-    // 1. Elimina contradição de natureza
+    // 1. Elimina contradição de natureza e incompatibilidade funcional
     const check = checkNatureContradiction({
       productText,
       candidateDesc: desc,
@@ -3440,8 +3822,13 @@ function selectBestCompatibleFallback(params: {
       score -= 100 // Fortemente penalizado
     }
 
-    // 2. Bonifica famílias de função genérica compatível para aparelhos de controle/eletroeletrônicos
-    // Família 8543 (máquinas e aparelhos elétricos com função própria)
+    // 1.B Avaliação de qualificadores quantitativos intrafamília
+    const qualCheck = evaluateIntrafamilyQualifierScore(desc, cand.ex_descricao, productText)
+    if (qualCheck.hasPattern) {
+      score += qualCheck.scoreAdjustment
+    }
+
+    // 2. Bonifica famílias de função genérica compatível para aparelhos de controle/eletroeletrônicos    // Família 8543 (máquinas e aparelhos elétricos com função própria)
     if (ncmClean.startsWith('8543')) {
       score += 25
     }
@@ -3707,96 +4094,45 @@ async function retrieveSectorOrientedCandidates(params: {
     (c: any) => c.is_target_machine_parts || c.is_parts_indirect_linking,
   )
 
-  // Agrupamento semântico por FAMÍLIA DE POSIÇÕES (primeiros 4 dígitos da NCM, ex: 8517, 8518, 8525, 8543)
-  // Garantir diversidade semântica: equilibrar candidatos entre a família principal e setores adjacentes
-  const families = new Map<string, any[]>()
-  for (const c of candidates) {
-    const ncmClean = normalizeNcm(c.ncm)
-    const familyKey = ncmClean.slice(0, 4)
-    if (!families.has(familyKey)) {
-      families.set(familyKey, [])
-    }
-    families.get(familyKey)!.push(c)
-  }
-
-  // Ordenar candidatos mantendo diversidade: intercalar candidatos das diferentes famílias encontradas
-  // dando prioridade para posições que possuem score alto e candidatos de componentes
-  const diversifiedCandidates: any[] = []
-  const maxPerFamily = Math.max(3, Math.ceil(topN / Math.max(1, families.size)))
-
-  // Primeiro passar os itens com maior pontuação de cada família
-  for (const [_family, famCandidates] of families.entries()) {
-    famCandidates.sort((a, b) => (b.combined_score ?? 0) - (a.combined_score ?? 0))
-    diversifiedCandidates.push(...famCandidates.slice(0, maxPerFamily))
-  }
-
-  // Preencher com o restante até topN ordenado por score
-  candidates.sort((a, b) => (b.combined_score ?? 0) - (a.combined_score ?? 0))
-  for (const cand of candidates) {
-    if (
-      !diversifiedCandidates.some(
-        (c) => normalizeNcm(c.ncm) === normalizeNcm(cand.ncm) && (c.ex || '') === (cand.ex || ''),
-      )
-    ) {
-      diversifiedCandidates.push(cand)
-    }
-    if (diversifiedCandidates.length >= topN + 5) break
-  }
-
-  // Garantir que todos os candidatos de partes com vínculo indireto estejam na lista final selecionada
-  for (const tpc of targetPartsCandidates) {
-    if (
-      !diversifiedCandidates.some(
-        (c) => normalizeNcm(c.ncm) === normalizeNcm(tpc.ncm) && (c.ex || '') === (tpc.ex || ''),
-      )
-    ) {
-      diversifiedCandidates.unshift(tpc)
-    }
-  }
-
-  const selectedCandidates = diversifiedCandidates.slice(
-    0,
-    Math.max(topN, targetPartsCandidates.length + 5),
-  )
-
   // =========================================================================
   // CORREÇÃO (1) — EXPANSÃO DE FAMÍLIA HIERÁRQUICA (PRINCÍPIO GENÉRICO UNIVERSAL)
   // =========================================================================
   // Sempre que um NCM de 8 dígitos entrar como candidato na recuperação,
   // incluir OBRIGATORIAMENTE todas as subposições irmãs do mesmo ramo hierárquico
-  // (mesmos 6 primeiros dígitos) presentes na base imp_sim_tax_rates, mesmo que
-  // fiquem acima do limite de candidatos por similaridade (topN).
-  // Para respeitar limites de tokens por minuto (TPM), priorizamos expansão das famílias
-  // com maior score nos candidatos selecionados (até 4 prefixos de 6 dígitos).
+  // (mesmos 6 primeiros dígitos) presentes na base imp_sim_tax_rates, garantindo que
+  // subposições com ex=NULL e descrições específicas não fiquem de fora pelo limit SQL.
   try {
     const candidatePrefixes6 = new Set<string>()
-    for (const c of selectedCandidates) {
+    for (const c of candidates) {
       const ncm8 = normalizeNcm(c.ncm)
       if (ncm8 && ncm8.length === 8) {
         candidatePrefixes6.add(ncm8.slice(0, 6))
       }
-      if (candidatePrefixes6.size >= 4) break
+      if (candidatePrefixes6.size >= 6) break
     }
 
     if (candidatePrefixes6.size > 0) {
       for (const prefix6 of candidatePrefixes6) {
+        // Buscar com ordenação determinística (ex is not null, ex) para priorizar linhas base (ex=NULL) de cada NCM
         const { data: siblingRows, error: sibError } = await supabaseAdmin
           .from('imp_sim_tax_rates')
           .select(
             'id, ncm, ex, ncm_descricao, ncm_descricao_full, ex_descricao, ii_rate, ipi_rate, pis_rate, cofins_rate, has_ex_tarifario',
           )
           .like('ncm', `${prefix6}%`)
-          .limit(10)
+          .order('ncm', { ascending: true })
+          .order('ex', { ascending: true, nullsFirst: true })
+          .limit(30)
 
         if (!sibError && siblingRows && siblingRows.length > 0) {
           for (const s of siblingRows) {
             const sNcm = normalizeNcm(s.ncm)
             const sEx = (s.ex || '').toString().trim()
-            const exists = selectedCandidates.some(
+            const exists = candidates.some(
               (c: any) => normalizeNcm(c.ncm) === sNcm && (c.ex || '').toString().trim() === sEx,
             )
             if (!exists) {
-              selectedCandidates.push({
+              candidates.push({
                 tax_rate_id: s.id,
                 ncm: s.ncm,
                 ex: s.ex || '',
@@ -3823,6 +4159,75 @@ async function retrieveSectorOrientedCandidates(params: {
   } catch (expErr) {
     console.warn('Falha na expansão de família hierárquica (não fatal):', expErr)
   }
+
+  // Agrupamento semântico por FAMÍLIA DE POSIÇÕES (primeiros 4 dígitos da NCM, ex: 8517, 8518, 8525, 8543)
+  // Garantir diversidade semântica: equilibrar candidatos entre a família principal e setores adjacentes
+  const families = new Map<string, any[]>()
+  for (const c of candidates) {
+    const ncmClean = normalizeNcm(c.ncm)
+    const familyKey = ncmClean.slice(0, 4)
+    if (!families.has(familyKey)) {
+      families.set(familyKey, [])
+    }
+    families.get(familyKey)!.push(c)
+  }
+
+  // Ordenar candidatos mantendo diversidade: intercalar candidatos das diferentes famílias encontradas
+  // dando prioridade para posições que possuem score alto e candidatos de componentes
+  const diversifiedCandidates: any[] = []
+  const maxPerFamily = Math.max(4, Math.ceil(topN / Math.max(1, families.size)))
+
+  // Primeiro passar os itens com maior pontuação de cada família
+  for (const [_family, famCandidates] of families.entries()) {
+    famCandidates.sort((a, b) => (b.combined_score ?? 0) - (a.combined_score ?? 0))
+    diversifiedCandidates.push(...famCandidates.slice(0, maxPerFamily))
+  }
+
+  // Preencher com o restante até topN ordenado por score
+  candidates.sort((a, b) => (b.combined_score ?? 0) - (a.combined_score ?? 0))
+  for (const cand of candidates) {
+    if (
+      !diversifiedCandidates.some(
+        (c) => normalizeNcm(c.ncm) === normalizeNcm(cand.ncm) && (c.ex || '') === (cand.ex || ''),
+      )
+    ) {
+      diversifiedCandidates.push(cand)
+    }
+    if (diversifiedCandidates.length >= topN + 15) break
+  }
+
+  // Garantir que todos os candidatos de partes com vínculo indireto estejam na lista final selecionada
+  for (const tpc of targetPartsCandidates) {
+    if (
+      !diversifiedCandidates.some(
+        (c) => normalizeNcm(c.ncm) === normalizeNcm(tpc.ncm) && (c.ex || '') === (tpc.ex || ''),
+      )
+    ) {
+      diversifiedCandidates.unshift(tpc)
+    }
+  }
+
+  // Preservar também candidatos com qualificadores quantitativos satisfeitos pelo produto
+  const candidatesWithSatisfiedQualifiers = candidates.filter((c: any) => {
+    const desc = c.ncm_descricao_full || c.ncm_descricao || ''
+    const q = evaluateIntrafamilyQualifierScore(desc, c.ex_descricao, params.fullTechnicalProfile)
+    return q.hasPattern && q.satisfied
+  })
+
+  for (const sqc of candidatesWithSatisfiedQualifiers) {
+    if (
+      !diversifiedCandidates.some(
+        (c) => normalizeNcm(c.ncm) === normalizeNcm(sqc.ncm) && (c.ex || '') === (sqc.ex || ''),
+      )
+    ) {
+      diversifiedCandidates.unshift(sqc)
+    }
+  }
+
+  const selectedCandidates = diversifiedCandidates.slice(
+    0,
+    Math.max(topN, targetPartsCandidates.length + candidatesWithSatisfiedQualifiers.length + 8),
+  )
 
   return selectedCandidates
 }

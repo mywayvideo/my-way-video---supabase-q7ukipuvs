@@ -4,10 +4,10 @@ import { createClient } from '@supabase/supabase-js'
 const supabaseUrl = process.env.VITE_SUPABASE_URL || 'https://ymlkyspcznrrmlktudxx.supabase.co'
 const supabaseAnonKey = process.env.VITE_SUPABASE_PUBLISHABLE_KEY || ''
 
-describe('Live 5 Validations for classify-ncm v3.8.0-build.616', () => {
+describe('Live 5 Validations for classify-ncm v3.8.0-build.619', () => {
   const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
-  it('runs the 5 live validations and logs output for the final report', async () => {
+  it('runs the live validations and logs output for the final report', async () => {
     const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
       email: 'qa.operator@mywayvideo.com',
       password: 'Skip@Pass123!',
@@ -21,6 +21,32 @@ describe('Live 5 Validations for classify-ncm v3.8.0-build.616', () => {
     const healthRes = await fetch(`${supabaseUrl}/functions/v1/classify-ncm?health=true`)
     const healthData = await healthRes.json()
     console.log('=== HEALTH CHECK ===', JSON.stringify(healthData, null, 2))
+
+    // 0. Sony FX5 Cinema Camera (Veto 90.07 -> 85258929)
+    console.log('\n>>> VALIDATING 0. Sony FX5 Cinema Camera...')
+    const resFx5 = await fetch(`${supabaseUrl}/functions/v1/classify-ncm`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
+      body: JSON.stringify({
+        product_description: 'Sony FX5 Cinema Camera with XLR Handle Unit - A câmera Sony FX5 Cinema traz os mais recentes avanços da linha Cinema da Sony em um sistema compacto projetado para as produções híbridas de hoje. Com um sensor CMOS full-frame de alta sensibilidade, saídas SDI/HDMI e gravação 4K.',
+        brand: 'Sony',
+        model: 'FX5',
+        top_n: 15,
+        save_log: true,
+      }),
+    })
+    const dFx5 = await resFx5.json()
+    console.log('=== RESULT SONY FX5 ===', JSON.stringify({
+      ncm: dFx5.recommendation?.ncm,
+      ex: dFx5.recommendation?.ex,
+      confidence: dFx5.confidence,
+      sufficient_info: dFx5.sufficient_info,
+      description: dFx5.recommendation?.description,
+      alternatives: dFx5.alternatives?.map((a: any) => ({ ncm: a.ncm, ex: a.ex, reason: a.reason, source: a.alternatives_source })),
+      model_used: dFx5.model_used,
+    }, null, 2))
+    expect(dFx5.recommendation?.ncm).toBe('85258929')
+    expect(dFx5.recommendation?.ncm).not.toBe('90071000')
 
     // 0. UWP-D21 (microfone sem fio)
     console.log('\n>>> VALIDATING 0. UWP-D21 (microfone sem fio)...')

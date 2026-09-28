@@ -22,6 +22,31 @@ describe('Live 5 Validations for classify-ncm v3.8.0-build.615', () => {
     const healthData = await healthRes.json()
     console.log('=== HEALTH CHECK ===', JSON.stringify(healthData, null, 2))
 
+    // 0. UWP-D21 (microfone sem fio)
+    console.log('\n>>> VALIDATING 0. UWP-D21 (microfone sem fio)...')
+    const resUwp = await fetch(`${supabaseUrl}/functions/v1/classify-ncm`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
+      body: JSON.stringify({
+        product_id: '0d6f7946-c95d-4d5e-9219-edc30b31feac',
+        product_description: 'Sony UWP-D21 Camera-Mount Wireless Omni Lavalier Microphone System (UC14: 470 to 542 MHz) - Wireless Transmission: Analog UHF | RF Channels: 2772',
+        brand: 'Sony',
+        model: 'UWP-D21/14',
+        top_n: 15,
+        save_log: true,
+      }),
+    })
+    const dUwp = await resUwp.json()
+    console.log('=== RESULT UWP-D21 ===', JSON.stringify({
+      ncm: dUwp.recommendation?.ncm,
+      ex: dUwp.recommendation?.ex,
+      confidence: dUwp.confidence,
+      sufficient_info: dUwp.sufficient_info,
+      description: dUwp.recommendation?.description,
+      alternatives: dUwp.alternatives?.map((a: any) => ({ ncm: a.ncm, ex: a.ex, reason: a.reason, source: a.alternatives_source })),
+      model_used: dUwp.model_used,
+    }, null, 2))
+
     // 1. ATEM SDI Extreme ISO Switcher (8 entradas SDI)
     console.log('\n>>> VALIDATING 1. ATEM SDI Extreme ISO Switcher (8 entradas SDI)...')
     const res1 = await fetch(`${supabaseUrl}/functions/v1/classify-ncm`, {
@@ -95,31 +120,7 @@ describe('Live 5 Validations for classify-ncm v3.8.0-build.615', () => {
       model_used: d3.model_used,
     }, null, 2))
 
-    // 4. UWP-D21 (microfone sem fio)
-    console.log('\n>>> VALIDATING 4. UWP-D21 (microfone sem fio)...')
-    const res4 = await fetch(`${supabaseUrl}/functions/v1/classify-ncm`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
-      body: JSON.stringify({
-        product_id: '0d6f7946-c95d-4d5e-9219-edc30b31feac',
-        product_description: 'Sony UWP-D21 Camera-Mount Wireless Omni Lavalier Microphone System (UC14: 470 to 542 MHz) - Wireless Transmission: Analog UHF | RF Channels: 2772',
-        brand: 'Sony',
-        model: 'UWP-D21/14',
-        top_n: 15,
-        save_log: true,
-      }),
-    })
-    const d4 = await res4.json()
-    console.log('=== RESULT 4 (UWP-D21) ===', JSON.stringify({
-      ncm: d4.recommendation?.ncm,
-      ex: d4.recommendation?.ex,
-      confidence: d4.confidence,
-      sufficient_info: d4.sufficient_info,
-      alternatives: d4.alternatives?.map((a: any) => ({ ncm: a.ncm, ex: a.ex, reason: a.reason, source: a.alternatives_source })),
-      model_used: d4.model_used,
-    }, null, 2))
-
-    // 5. Manopla de servo zoom para teleobjetiva
+    // 4. Manopla de servo zoom para teleobjetiva
     console.log('\n>>> VALIDATING 5. Manopla de servo zoom para teleobjetiva...')
     const res5 = await fetch(`${supabaseUrl}/functions/v1/classify-ncm`, {
       method: 'POST',

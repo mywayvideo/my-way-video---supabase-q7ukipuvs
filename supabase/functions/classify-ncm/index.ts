@@ -1,4 +1,4 @@
-// Deploy trigger build 618 - classify-ncm v3.8.0-build.618
+// Deploy trigger build 619 - classify-ncm v3.8.0-build.619
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { corsHeaders } from '../_shared/cors.ts'
@@ -191,6 +191,67 @@ interface IntrafamilyQualifierEvaluationResult {
   satisfied: boolean
   scoreAdjustment: number // +80 para satisfeito, penalização (-60) para incompatibilidade patente
   reason: string
+}
+
+/**
+ * Avalia incompatibilidade tecnológica genérica entre o perfil técnico do produto e a NCM candidata.
+ * Princípio universal permanente: A classificação aduaneira baseia-se na tecnologia real declarada
+ * (princípio da verdade material aduaneira) e NUNCA em terminologias comerciais de marketing
+ * ("Cinema", "Cine", "movie" no nome do produto não deslocam enquadramento entre capítulos).
+ *
+ * Posição 90.07: restrita a câmeras e projetores cinematográficos com captação sobre PELÍCULA / FILME FOTOGRÁFICO.
+ * Câmeras com sensor eletrônico/digital (CMOS, CCD, captador eletrônico, resolução digital 4K/6K/8K/12K/HD,
+ * saídas digitais SDI/HDMI, gravação em cartão/SSD) enquadram-se na posição 85.25 (câmeras de televisão,
+ * câmeras digitais e câmeras de vídeo).
+ */
+function checkTechnologyIncompatibility(
+  ncm: string,
+  ncmDesc: string,
+  technicalProfile: string,
+): { incompatible: boolean; reason: string } {
+  const normNcm = normalizeNcm(ncm)
+  const isPos9007 = normNcm.startsWith('9007')
+  const descLower = (ncmDesc || '').toLowerCase()
+  const profileLower = (technicalProfile || '').toLowerCase()
+
+  const officialDemandsFilm =
+    descLower.includes('película') ||
+    descLower.includes('pelicula') ||
+    descLower.includes('filme cinematográfico') ||
+    descLower.includes('filme cinematografico') ||
+    descLower.includes('largura inferior a 16 mm') ||
+    descLower.includes('largura de 16 mm ou mais') ||
+    descLower.includes('largura de 35 mm')
+
+  const isPositionOrDescFilmRestricted =
+    isPos9007 || (officialDemandsFilm && normNcm.startsWith('90'))
+
+  if (!isPositionOrDescFilmRestricted) {
+    return { incompatible: false, reason: '' }
+  }
+
+  // Verifica se o perfil técnico do produto indica captação eletrônica / digital
+  const electronicCapturePatterns = [
+    /\b(?:sensor|sensores|sensors?)\b/i,
+    /\b(?:cmos|ccd|captador(?:es)?(?:\s+de\s+imagem)?)\b/i,
+    /\b(?:digital(?:is)?|digitais)\b/i,
+    /\b(?:\d+k|4k|6k|8k|12k|full\s*hd|ultra\s*hd|uhd)\b/i,
+    /\b(?:sdi|12g-sdi|3g-sdi|hd-sdi|hdmi|usb-c|thunderbolt)\b/i,
+    /\b(?:bravia|cinealta|bionz|exmor|global\s*shutter)\b/i,
+    /\b(?:electronic\s+shutter|obturador\s+eletr[oô]nico)\b/i,
+  ]
+
+  const hasElectronicCapture = electronicCapturePatterns.some((pat) => pat.test(profileLower))
+
+  if (hasElectronicCapture) {
+    return {
+      incompatible: true,
+      reason:
+        'Posição 90.07 restrita a captação sobre película fotográfica; câmeras com sensor eletrônico/saída digital enquadram-se na posição 85.25.',
+    }
+  }
+
+  return { incompatible: false, reason: '' }
 }
 
 /**
@@ -505,8 +566,25 @@ function evaluateIntrafamilyQualifierScore(
     }
   }
 
-  // REQUISITO DETERMINÍSTICO (2) SWITCHERS - ENTRADAS DE VÍDEO:
-  // Para entradas/inputs de vídeo, extrair a contagem técnica de entradas de sinal
+  // REQUISITO DETERMINÍSTICO: INCOMPATIBILIDADE TECNOLÓGICA (POSIÇÃO 90.07 PELÍCULA VS. SENSOR ELETRÔNICO):
+  // Se o NCM/Ex pertencer à posição 90.07 ou exigir película fotográfica, e o produto declarar
+  // tecnologia eletrônica/digital (sensor, cmos, ccd, digital, etc.), penalização eliminatória imediata (-300)
+  const techIncomp = checkTechnologyIncompatibility(
+    combinedDesc.match(/\b\d{4,8}\b/)?.[0] || '',
+    combinedDesc,
+    prodText,
+  )
+  if (techIncomp.incompatible) {
+    return {
+      hasPattern: true,
+      matchedPattern: 'Tecnologia de captação',
+      satisfied: false,
+      scoreAdjustment: -300,
+      reason: techIncomp.reason,
+    }
+  }
+
+  // REQUISITO DETERMINÍSTICO (2) SWITCHERS - ENTRADAS DE VÍDEO:  // Para entradas/inputs de vídeo, extrair a contagem técnica de entradas de sinal
   if (category === 'entradas' || category === 'inputs') {
     const inputCount = extractDeclaredVideoInputCount(prodText)
     if (inputCount !== null) {
@@ -1220,7 +1298,7 @@ Deno.serve(async (req: Request) => {
       JSON.stringify({
         status: 'ok',
         function: 'classify-ncm',
-        version: '3.8.0-build.618',
+        version: '3.8.0-build.619',
         knowledge_base_version: '3.1',
         features: [
           'phase0_canonical_composition_derivation',
@@ -1253,6 +1331,9 @@ Deno.serve(async (req: Request) => {
           'essential_delivery_over_medium_principle',
           'auditor_nature_correction_before_ncm',
           'deterministic_85437099_injection',
+          'film_only_9007_exclusion',
+          'technology_incompatibility_veto',
+          'digital_cinema_camera_8525_normalization',
         ],
         timestamp: new Date().toISOString(),
       }),
@@ -2136,8 +2217,9 @@ ${candidatesCatalogText}`
             `[Auditoria 2ª Passada] Candidato corrigido ${correctedDigits} indisponível na base oficial. Mantendo 1ª passada com justificativa registrada no veredito.`,
           )
         } else {
-          // (1) VERIFICAÇÃO DE VEDAÇÃO POR CONTRADIÇÃO DE NATUREZA:
-          // A descrição hierárquica do candidato não pode contradizer a natureza essencial do produto
+          // (1) VERIFICAÇÃO DE VEDAÇÃO POR CONTRADIÇÃO DE NATUREZA E INCOMPATIBILIDADE TECNOLÓGICA:
+          // A descrição hierárquica do candidato não pode contradizer a natureza essencial do produto,
+          // nem violar vetos tecnológicos universais (ex.: 90.07 película vs. captação digital 85.25)
           const natureContradiction = checkNatureContradiction({
             productText: fullTechnicalProfile,
             candidateDesc:
@@ -2147,6 +2229,18 @@ ${candidatesCatalogText}`
               '',
             detectedComponents: compositionAnalysis.detectedComponents,
           })
+          const techIncompAuditor = checkTechnologyIncompatibility(
+            correctedDigits,
+            candidateMatch.ncm_descricao_full ||
+              candidateMatch.ncm_descricao ||
+              candidateMatch.source_text ||
+              '',
+            fullTechnicalProfile,
+          )
+          if (techIncompAuditor.incompatible) {
+            natureContradiction.contradicted = true
+            natureContradiction.reason = techIncompAuditor.reason
+          }
 
           // (2) VERIFICAÇÃO DE PROIBIÇÃO DE CRITÉRIO FISCAL / ALÍQUOTA:
           // Se a justificativa do auditor cita explicitamente termos tributários/alíquotas como motivo de escolha
@@ -2337,6 +2431,74 @@ ${candidatesCatalogText}`
     // Derivar targetMachines canônicas de product_understanding.target_machines.
     // isKit: true SOMENTE se o produto é comercializado como conjunto de múltiplos itens fisicamente
     // autônomos vendidos juntos (ex: transmissor + receptor), JAMAIS aparelho singular.
+    // 12.A.0 CONJUNTO DE NCMS VETADOS (PROPAGAÇÃO DE VETO UNIVERSAL)
+    const vetoedNcms = new Set<string>()
+
+    // =========================================================================
+    // 12.A.1 VETO TECNOLÓGICO DETERMINÍSTICO DA POSIÇÃO 90.07 (PELÍCULA VS DIGITAL)
+    // =========================================================================
+    // Se a 1ª passada ou o auditor sugeriu NCM da posição 90.07 (ou com exigência de película)
+    // para produto com captação eletrônica/digital (sensor, cmos, ccd, 4k/6k/8k, sdi, etc.):
+    // 1. VETAR terminantemente a posição 90.07;
+    // 2. Redirecionar para a posição 85.25 usando a contagem de captadores JÁ EXISTENTE:
+    //    - 1–2 sensores físicos declarados -> 85258929 ("Outras")
+    //    - 3+ sensores físicos declarados -> 85258921 ("Com três ou mais captadores de imagem")
+    // 3. Adicionar os NCMs de 9007 ao conjunto vetoedNcms para NUNCA constarem em alternativas.
+    try {
+      const preCheckRecNcm = normalizeNcm(llmResponseJson.recommended_ncm)
+      const preCheckRecCand =
+        candidates.find((c: any) => normalizeNcm(c.ncm) === preCheckRecNcm) ||
+        (await resolveEffectiveTaxRate(supabaseAdmin, preCheckRecNcm, ''))
+      const preCheckRecDesc =
+        preCheckRecCand?.ncm_descricao_full || preCheckRecCand?.ncm_descricao || ''
+
+      const techVetoCheck = checkTechnologyIncompatibility(
+        preCheckRecNcm,
+        preCheckRecDesc,
+        fullTechnicalProfile,
+      )
+
+      if (techVetoCheck.incompatible) {
+        console.log(
+          `[Veto Tecnológico Posição 90.07]: NCM ${preCheckRecNcm} vetado para câmera eletrônica/digital. Motivo: ${techVetoCheck.reason}`,
+        )
+        vetoedNcms.add(preCheckRecNcm)
+        // Veta qualquer outro 9007 existente
+        for (const c of candidates) {
+          if (normalizeNcm(c.ncm).startsWith('9007')) {
+            vetoedNcms.add(normalizeNcm(c.ncm))
+          }
+        }
+
+        // Redirecionamento determinístico para posição 85.25 com contagem de captadores existente
+        const sensorCountResult = extractPhysicalSensorCount(fullTechnicalProfile)
+        const target8525Ncm =
+          sensorCountResult !== null && sensorCountResult.count >= 3 ? '85258921' : '85258929'
+
+        const targetCand =
+          candidates.find((c: any) => normalizeNcm(c.ncm) === target8525Ncm) ||
+          (await resolveEffectiveTaxRate(supabaseAdmin, target8525Ncm, ''))
+
+        const targetDesc =
+          targetCand?.ncm_descricao_full ||
+          targetCand?.ncm_descricao ||
+          (target8525Ncm === '85258921'
+            ? 'Com três ou mais captadores de imagem'
+            : 'Outras câmeras de televisão, câmeras digitais e câmeras de vídeo')
+
+        llmResponseJson.recommended_ncm = target8525Ncm
+        llmResponseJson.recommended_ex = ''
+        llmResponseJson.justification = `[Veto Tecnológico - Posição 90.07 Excluída / Enquadramento na Posição 85.25]: ${techVetoCheck.reason} Terminologias de marketing ("Cinema", "Cine", "movie" no nome comercial) não alteram a classificação entre capítulos: a tecnologia declarada é captação eletrônica digital com ${sensorCountResult ? `${sensorCountResult.count} captador(es) ("${sensorCountResult.snippet}")` : 'sensor eletrônico'}. Enquadramento correto na NCM ${target8525Ncm} (${targetDesc}).\n\n${llmResponseJson.justification || ''}`
+
+        auditVerdict.action = 'VETA'
+        auditVerdict.corrected_ncm = target8525Ncm
+        auditVerdict.corrected_ex = ''
+        auditVerdict.correction_reason = techVetoCheck.reason
+      }
+    } catch (techErr) {
+      console.warn('Erro na avaliação de veto tecnológico 90.07:', techErr)
+    }
+
     const finalProductUnderstanding = auditVerdict?.product_understanding ||
       llmResponseJson?.product_understanding || {
         identity: leanSignature,
@@ -2344,7 +2506,6 @@ ${candidatesCatalogText}`
         target_machines: compositionAnalysis.targetMachines,
         canonical_statement: `o produto é um ${leanSignature} que ${initialRecommendation.essential_function}, destinado a ${compositionAnalysis.targetMachines.join(', ') || 'operação autônoma'}`,
       }
-
     const rawTargetMachinesFromPhase0: string[] = Array.isArray(
       finalProductUnderstanding?.target_machines,
     )
@@ -2422,16 +2583,20 @@ ${candidatesCatalogText}`
             const sibNcm = normalizeNcm(sib.ncm)
             const sibDesc = sib.ncm_descricao_full || sib.ncm_descricao || sib.source_text || ''
 
-            // 1. Verificar contradição de natureza / incompatibilidade funcional
+            // 1. Verificar contradição de natureza / incompatibilidade funcional e tecnológica
             const natureCheck = checkNatureContradiction({
               productText: fullTechnicalProfile,
               candidateDesc: sibDesc,
               detectedComponents: compositionAnalysis.detectedComponents,
             })
+            const techCheck = checkTechnologyIncompatibility(sibNcm, sibDesc, fullTechnicalProfile)
 
             let sibScore = sib.combined_score ?? sib.vector_score ?? 0.5
-            if (natureCheck.contradicted) {
-              sibScore -= 200 // Eliminatório
+            if (natureCheck.contradicted || techCheck.incompatible) {
+              sibScore -= 300 // Eliminatório
+              if (techCheck.incompatible) {
+                vetoedNcms.add(sibNcm)
+              }
             }
 
             // 2. Avaliar qualificadores quantitativos
@@ -2672,8 +2837,7 @@ ${candidatesCatalogText}`
     // 14. Resolver alíquotas para alternativas com PROPAGAÇÃO DE VETO (Princípio Genérico):
     // Um NCM vetado pelo auditor ou pelo checklist de código NÃO PODE aparecer na recomendação nem nas alternativas.
     // Montar conjunto de NCMs vetados para exclusão estrita de toda a resposta.
-    const vetoedNcms = new Set<string>()
-
+    // NOTA: vetoedNcms já foi inicializado anteriormente e acumulou vetos da Fase 0 / Veto Tecnológico.
     // Se o auditor vetou a 1ª passada, o NCM inicial foi vetado
     if (auditVerdict.action === 'VETA') {
       vetoedNcms.add(normalizeNcm(initialRecommendation.recommended_ncm))
@@ -2706,11 +2870,25 @@ ${candidatesCatalogText}`
     for (const alt of rawAlternatives) {
       const altNcmClean = normalizeNcm(alt.ncm || '')
       if (!altNcmClean || altNcmClean === recommendedNcmClean) continue
-      // PROPAGAÇÃO DE VETO: se o NCM foi vetado pelo auditor, ignorar
+      // PROPAGAÇÃO DE VETO: se o NCM foi vetado pelo auditor, veto tecnológico ou checklist, ignorar
       if (vetoedNcms.has(altNcmClean)) {
         console.log(
-          `[Propagação de Veto]: NCM alternativo ${altNcmClean} descartado pois foi vetado pelo auditor.`,
+          `[Propagação de Veto]: NCM alternativo ${altNcmClean} descartado pois consta nos NCMs vetados.`,
         )
+        continue
+      }
+
+      // VETO TECNOLÓGICO ESPECÍFICO EM ALTERNATIVAS: posição 90.07 vetada para captação digital
+      const altTechCheck = checkTechnologyIncompatibility(
+        altNcmClean,
+        alt.reason || '',
+        fullTechnicalProfile,
+      )
+      if (altTechCheck.incompatible) {
+        console.log(
+          `[Veto Tecnológico Alternativa]: Alternativa ${altNcmClean} descartada (${altTechCheck.reason}).`,
+        )
+        vetoedNcms.add(altNcmClean)
         continue
       }
 
@@ -2795,6 +2973,13 @@ ${candidatesCatalogText}`
       if (resolvedAlternatives.some((a) => a.ncm === cNcm)) continue
 
       const cFullDesc = cand.ncm_descricao_full || cand.ncm_descricao || cand.source_text || ''
+      // VETO TECNOLÓGICO NA VARREDURA: Posição 90.07 ou exigência de película vetada para captação digital
+      const sweepTechCheck = checkTechnologyIncompatibility(cNcm, cFullDesc, fullTechnicalProfile)
+      if (sweepTechCheck.incompatible) {
+        vetoedNcms.add(cNcm)
+        continue
+      }
+
       const partsPattern = isPartsNcmPattern(cFullDesc)
       const isResidual = isResidualStandaloneDeviceNcm(cFullDesc)
 
@@ -3256,7 +3441,7 @@ ${candidatesCatalogText}`
       composition_analysis: compositionAnalysis,
       checklist_log: checklistLog,
       parts_indirect_logic: partsTelemetry,
-      version: '3.8.0-build.618',
+      version: '3.8.0-build.619',
       timestamp: new Date().toISOString(),
     }
     return new Response(JSON.stringify(responsePayload), {
@@ -4062,6 +4247,19 @@ function checkNatureContradiction(params: {
   const candDescLower = params.candidateDesc.toLowerCase()
 
   // 1. Caso: Produto é periférico de controle / comando / remoto / joystick
+  // 0. VETO TECNOLÓGICO: Captação digital vs película/cinematográfica (90.07)
+  const techCheck = checkTechnologyIncompatibility(
+    candDescLower.match(/\b\d{4,8}\b/)?.[0] || '',
+    candDescLower,
+    prodTextLower,
+  )
+  if (techCheck.incompatible) {
+    return {
+      contradicted: true,
+      reason: techCheck.reason,
+    }
+  }
+
   const isControllerOrPeripheral =
     /\b(controlador|controller|controle remoto|remote control|joystick|console de controle|mesa de controle|painel de controle)\b/i.test(
       prodTextLower,
@@ -4260,6 +4458,12 @@ function selectBestCompatibleFallback(params: {
     // Família 8518 (aparelhos de áudio) se for produto de áudio
     if (ncmClean.startsWith('8518') && /\b(microfone|audio|som)\b/i.test(productText)) {
       score += 30
+    }
+
+    // Veto tecnológico eliminatório em fallback: 90.07 / película incompatível com captação eletrônica
+    const techCheckFallback = checkTechnologyIncompatibility(ncmClean, desc, productText)
+    if (techCheckFallback.incompatible) {
+      score -= 300
     }
 
     // Penaliza capítulos sabidamente distantes da natureza eletroeletrônica quando o produto é eletrônico

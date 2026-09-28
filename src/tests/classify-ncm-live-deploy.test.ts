@@ -22,7 +22,7 @@ describe('classify-ncm Edge Function live deploy check & validation', () => {
         try {
           lastData = JSON.parse(text)
         } catch { /* intentionally ignored */ }
-        if (res.status === 200 && lastData?.version === '3.8.0-build.618') {
+        if (res.status === 200 && lastData?.version === '3.8.0-build.619') {
           break
         }
       } catch (e: any) {
@@ -59,6 +59,9 @@ describe('classify-ncm Edge Function live deploy check & validation', () => {
     expect(data.features).toContain('own_utility_dependency_test')
     expect(data.features).toContain('controller_part_precedence')
     expect(data.features).toContain('deterministic_85437099_injection')
+    expect(data.features).toContain('film_only_9007_exclusion')
+    expect(data.features).toContain('technology_incompatibility_veto')
+    expect(data.features).toContain('digital_cinema_camera_8525_normalization')
   })
 
   it('verifies in imp_sim_ncm_classification_log that RM-IP500 and UWP-D21 records have new fields', async () => {

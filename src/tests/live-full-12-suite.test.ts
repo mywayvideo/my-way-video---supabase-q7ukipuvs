@@ -8,33 +8,67 @@ describe('Full 12-Case Regression Suite (9 Standing + 3 New Tripod Cases)', () =
   const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
   async function getJwt(): Promise<string> {
-    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-      email: 'qa.operator@mywayvideo.com',
-      password: 'Skip@Pass123!',
-    })
-    if (authError || !authData?.session) {
-      throw new Error(`Auth failed: ${authError?.message}`)
+    let lastError: any = null
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+          email: 'qa.operator@mywayvideo.com',
+          password: 'Skip@Pass123!',
+        })
+        if (!authError && authData?.session) {
+          return authData.session.access_token
+        }
+        lastError = authError
+      } catch (e) {
+        lastError = e
+      }
+      await new Promise(r => setTimeout(r, 1000))
     }
-    return authData.session.access_token
+    throw new Error(`Auth failed: ${lastError?.message || lastError}`)
   }
 
   async function classify(jwt: string, payload: any) {
-    const res = await fetch(`${supabaseUrl}/functions/v1/classify-ncm`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
-      body: JSON.stringify({ ...payload, save_log: true, top_n: 15 }),
-    })
-    return await res.json()
+    let lastError: any = null
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const res = await fetch(`${supabaseUrl}/functions/v1/classify-ncm`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
+          body: JSON.stringify({ ...payload, save_log: true, top_n: 15 }),
+        })
+        if (res.ok) {
+          return await res.json()
+        }
+        const errText = await res.text()
+        lastError = new Error(`HTTP ${res.status}: ${errText}`)
+      } catch (e) {
+        lastError = e
+      }
+      await new Promise(r => setTimeout(r, 2000))
+    }
+    throw lastError
   }
 
   it('verifies health check endpoint exposes build 638 and new features', async () => {
-    const res = await fetch(`${supabaseUrl}/functions/v1/classify-ncm?health=true`)
-    const data = await res.json()
-    console.log('HEALTH CHECK DATA:', data)
-    expect(data.version).toBe('3.8.0-build.638')
-    expect(data.features).toContain('ncm_support_derived_fields_retrieval')
-    expect(data.features).toContain('ncm_support_unconditional_audit_links')
-    expect(data.features).toContain('functional_coherence_chapter_veto')
+    let lastData: any = null
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      try {
+        const res = await fetch(`${supabaseUrl}/functions/v1/classify-ncm?health=true&t=${Date.now()}`)
+        if (res.ok) {
+          lastData = await res.json()
+          if (lastData?.version?.includes('build.')) break
+        }
+      } catch (e) {
+        // retry
+      }
+      await new Promise(r => setTimeout(r, 1500))
+    }
+    console.log('HEALTH CHECK DATA:', lastData)
+    expect(lastData).toBeDefined()
+    expect(lastData.version).toBe('3.8.0-build.638')
+    expect(lastData.features).toContain('ncm_support_derived_fields_retrieval')
+    expect(lastData.features).toContain('ncm_support_unconditional_audit_links')
+    expect(lastData.features).toContain('functional_coherence_chapter_veto')
   })
 
   // 1. Sony FX5 -> 85258929
@@ -158,8 +192,8 @@ describe('Full 12-Case Regression Suite (9 Standing + 3 New Tripod Cases)', () =
     expect(result.recommendation?.ncm).toBe('85258929')
   }, 60000)
 
-  // 10. E-Image EI7060 (tripé mecânico com cabeça fluida) -> must NOT land in 90.11
-  it('Tripod Case 10: E-Image EI7060 -> must NOT land in 90.11 (85299090 principal with Siscomex/9620 warning)', async () => {
+  // 10. E-Image EI7060 (tripé mecânico com cabeça fluida) -> esperado 96200000 como recomendado
+  it('Tripod Case 10: E-Image EI7060 tripé mecânico de vídeo -> 96200000 com aviso Siscomex', async () => {
     const jwt = await getJwt()
     const result = await classify(jwt, {
       product_description: 'E-Image EI7060 Tripé mecânico de vídeo profissional com cabeça fluida para câmeras de estúdio e camcorders de broadcast',
@@ -167,19 +201,34 @@ describe('Full 12-Case Regression Suite (9 Standing + 3 New Tripod Cases)', () =
       model: 'EI7060',
       additional_specs: 'Sistema de suporte mecânico composto por pernas de tripé de alumínio de duplo estágio e cabeça fluida com amortecimento para câmeras de vídeo e filmadoras da posição 85.25. Carga útil de até 8kg.',
     })
-    console.log('Case 10 (E-Image EI7060):', result.recommendation?.ncm, result.audit_links)
+    console.log('Case 10 (E-Image EI7060):', JSON.stringify({
+      recommendation: result.recommendation,
+      audit_links: result.audit_links,
+      alternatives: result.alternatives?.map((a: any) => a.ncm),
+    }))
+
     const recNcm = result.recommendation?.ncm || ''
+    // Decisão vinculante: Tripé nada tem a ver com 85299090. Ele está em 9620 (96200000)
+    expect(recNcm).toBe('96200000')
+    // NUNCA pode ser 85299090 como principal
+    expect(recNcm).not.toBe('85299090')
+    // NUNCA cair no capítulo 90 (90.11 / 9011) - veto de coerência funcional
     expect(recNcm.startsWith('9011')).toBe(false)
     expect(recNcm.startsWith('90')).toBe(false)
-    expect(recNcm === '85299090' || recNcm.startsWith('9620')).toBe(true)
 
-    // Unconditional audit link for ncm_support
-    const suppLinks = (result.audit_links || []).filter((l: any) => l.type === 'ncm_support_family')
+    // Deve conter aviso Siscomex sobre alíquotas da base local
+    const fullText = `${result.recommendation?.description || ''} ${result.recommendation?.justification || ''}`
+    expect(fullText.toLowerCase()).toMatch(/(?:siscomex|base local|al[íi]quotas)/i)
+
+    // Unconditional audit link for ncm_support:// family
+    const suppLinks = (result.audit_links || []).filter((l: any) =>
+      l.type === 'ncm_support_family' || (l.url && l.url.startsWith('ncm_support://'))
+    )
     expect(suppLinks.length).toBeGreaterThan(0)
   }, 60000)
 
-  // 11. Cabeça fluida avulsa -> must NOT land in 90.11
-  it('Tripod Case 11: Cabeça fluida avulsa -> must NOT land in 90.11', async () => {
+  // 11. Cabeça fluida avulsa -> esperado 96200000 com aviso Siscomex
+  it('Tripod Case 11: Cabeça fluida avulsa -> 96200000 com aviso Siscomex (não 85299090 nem 90.11)', async () => {
     const jwt = await getJwt()
     const result = await classify(jwt, {
       product_description: 'E-Image GH06 Cabeça Fluida Hidráulica avulsa para suporte e movimentação suave de câmeras de vídeo e broadcast',
@@ -187,14 +236,24 @@ describe('Full 12-Case Regression Suite (9 Standing + 3 New Tripod Cases)', () =
       model: 'GH06',
       additional_specs: 'Cabeça hidráulica profissional para montagem em tripé de 75mm, suporta câmeras de cinema e vídeo broadcast de até 6kg, controle de pan e tilt suave.',
     })
-    console.log('Case 11 (Cabeça Fluida):', result.recommendation?.ncm)
+    console.log('Case 11 (Cabeça Fluida):', JSON.stringify({
+      recommendation: result.recommendation,
+      alternatives: result.alternatives?.map((a: any) => a.ncm),
+    }))
+
     const recNcm = result.recommendation?.ncm || ''
+    // Decisão vinculante: Cabeça fluida manual enquadra-se na posição 9620 (96200000)
+    expect(recNcm).toBe('96200000')
+    expect(recNcm).not.toBe('85299090')
     expect(recNcm.startsWith('9011')).toBe(false)
     expect(recNcm.startsWith('90')).toBe(false)
-    expect(recNcm === '85299090' || recNcm.startsWith('9620')).toBe(true)
+
+    // Deve conter aviso Siscomex sobre alíquotas da base local
+    const fullText = `${result.recommendation?.description || ''} ${result.recommendation?.justification || ''}`
+    expect(fullText.toLowerCase()).toMatch(/(?:siscomex|base local|al[íi]quotas)/i)
   }, 60000)
 
-  // 12. Pedestal motorizado de broadcast -> 85299090 or 85437099
+  // 12. Pedestal motorizado de broadcast -> 85299090 ou 85437099
   it('Tripod Case 12: Pedestal motorizado de broadcast -> 85299090 or 85437099 per electrical function', async () => {
     const jwt = await getJwt()
     const result = await classify(jwt, {

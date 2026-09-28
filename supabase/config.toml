@@ -149,3 +149,9 @@ verify_jwt = false
 
 [functions.ai-search-product-page]
 verify_jwt = false
+
+[functions.classify-ncm]
+verify_jwt = false
+
+[functions.sync-ncm-support-vigencia]
+verify_jwt = false

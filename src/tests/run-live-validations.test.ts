@@ -1,10 +1,10 @@
-import { describe, it } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { createClient } from '@supabase/supabase-js'
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL || 'https://ymlkyspcznrrmlktudxx.supabase.co'
 const supabaseAnonKey = process.env.VITE_SUPABASE_PUBLISHABLE_KEY || ''
 
-describe('Live 5 Validations for classify-ncm v3.8.0-build.615', () => {
+describe('Live 5 Validations for classify-ncm v3.8.0-build.616', () => {
   const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
   it('runs the 5 live validations and logs output for the final report', async () => {
@@ -96,6 +96,11 @@ describe('Live 5 Validations for classify-ncm v3.8.0-build.615', () => {
       alternatives: d2.alternatives?.map((a: any) => ({ ncm: a.ncm, ex: a.ex, reason: a.reason, source: a.alternatives_source })),
       model_used: d2.model_used,
     }, null, 2))
+    expect(d2.recommendation?.ncm).toBe('85299090')
+    const has85437099 = d2.alternatives?.some((a: any) => a.ncm === '85437099')
+    expect(has85437099).toBe(true)
+    const has90319090 = d2.alternatives?.some((a: any) => a.ncm === '90319090')
+    expect(has90319090).toBe(true)
 
     // 3. HDC-3200R (câmera de estúdio)
     console.log('\n>>> VALIDATING 3. HDC-3200R (câmera de estúdio)...')
@@ -119,6 +124,7 @@ describe('Live 5 Validations for classify-ncm v3.8.0-build.615', () => {
       alternatives: d3.alternatives?.map((a: any) => ({ ncm: a.ncm, ex: a.ex, reason: a.reason, source: a.alternatives_source })),
       model_used: d3.model_used,
     }, null, 2))
+    expect(d3.recommendation?.ncm).toBe('85258921')
 
     // 4. Manopla de servo zoom para teleobjetiva
     console.log('\n>>> VALIDATING 5. Manopla de servo zoom para teleobjetiva...')
@@ -143,5 +149,6 @@ describe('Live 5 Validations for classify-ncm v3.8.0-build.615', () => {
       alternatives: d5.alternatives?.map((a: any) => ({ ncm: a.ncm, ex: a.ex, reason: a.reason, source: a.alternatives_source })),
       model_used: d5.model_used,
     }, null, 2))
+    expect(d5.recommendation?.ncm).toBe('85299090')
   }, 180000)
 })

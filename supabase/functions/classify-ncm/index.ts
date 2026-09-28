@@ -1,4 +1,4 @@
-// Deploy trigger build 615 - classify-ncm v3.8.0-build.615
+// Deploy trigger build 616 - classify-ncm v3.8.0-build.616
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { corsHeaders } from '../_shared/cors.ts'
@@ -708,6 +708,18 @@ function evaluateProductHasStandaloneFunction(params: {
       // exibição de imagem/vídeo, medição autônoma, processamento autônomo), NÃO é acessório dependente!
       const textToCheck =
         `${params.productText || ''} ${pu?.identity || ''} ${pu?.essential_function || ''}`.toLowerCase()
+      // Se possui utilidade primordial autônoma entregue a múltiplos destinos independentes
+      // (captação acústica/áudio, reprodução de áudio, exibição autônoma de imagem/vídeo, medição autônoma, processamento autônomo),
+      // tem função autônoma e NÃO é parte/acessório dependente.
+      // Controladores remotos, joysticks, demandas de servo/foco NÃO possuem utilidade fora da máquina servida!
+      const isServicedMachineController =
+        /\b(controlador|controller|controle remoto|remote control|joystick|servo zoom|zoom demand|focus demand)\b/i.test(
+          textToCheck,
+        )
+      if (isServicedMachineController) {
+        return false
+      }
+
       const hasAutonomousDelivery =
         /\b(microfone|microfones|microphone|microphones|fones? de ouvido|headphones?|alto-falante|alto-falantes|loudspeakers?|monitores? de v[ií]deo|displays? aut[oô]nomos?|c[aâ]meras?)\b/i.test(
           textToCheck,
@@ -729,6 +741,16 @@ function evaluateProductHasStandaloneFunction(params: {
   const fullTextContext =
     `${params.productText || ''} ${pu?.identity || ''} ${puFunction} ${puNature}`.toLowerCase()
 
+  // Controladores remotos de máquinas, mesas/consoles dedicados e manoplas de servo operam servindo
+  // a máquina-alvo — NÃO são aparelhos autônomos de telecomunicação ou processamento de dados.
+  const isDedicatedController =
+    /\b(controlador remoto|remote controller|controle de câmeras?|camera remote controller|joystick control|zoom demand|focus demand|manopla de servo)\b/i.test(
+      fullTextContext,
+    )
+  if (isDedicatedController) {
+    return false
+  }
+
   // Se o produto entrega função primordial autônoma (captação/reprodução de áudio, imagem, exibição),
   // ele é autônomo e não mera parte/acessório dependente.
   const autonomousDeliveryIndicators = [
@@ -741,9 +763,10 @@ function evaluateProductHasStandaloneFunction(params: {
     'monitor de vídeo',
     'câmera',
     'mesa de corte',
-    'switch',
+    'switch de rede',
+    'network switch',
     'roteador',
-    'processador',
+    'processador de áudio',
   ]
 
   for (const autoInd of autonomousDeliveryIndicators) {
@@ -899,12 +922,15 @@ function evaluatePartsPrecedenceOverResidual(params: {
   // Verifica se o NCM atualmente recomendado é passível de sobreposição por partes:
   // - Posições residuais de aparelhos com função própria (ex.: 8543 / 8543.70.99)
   // - Ou recomendação atual iniciada por '8537' (quadros/consoles de comando elétrico) ou '8543'
+  // - Ou aparelhos genéricos de meio de transmissão/telecomunicação (8517 / 8517.62) quando a função
+  //   essencial é controlar/operar a máquina servida (o meio IP/cabo/rádio não é telecomunicação)
   // - Ou NCM residual pela assinatura de texto oficial ("não especificados nem compreendidos noutras posições")
   const currentDigits = normalizeNcm(params.currentRecNcm)
   const isCurrentOverridableByParts =
     isResidualStandaloneDeviceNcm(params.currentRecDesc) ||
     currentDigits.startsWith('8537') ||
-    currentDigits.startsWith('8543')
+    currentDigits.startsWith('8543') ||
+    currentDigits.startsWith('8517')
 
   if (!isCurrentOverridableByParts) {
     return {
@@ -918,7 +944,7 @@ function evaluatePartsPrecedenceOverResidual(params: {
         winning_parts_ncm: null,
         demoted_residual_ncm: null,
         reason:
-          'Recomendação atual não é NCM residual ou posição sobreponível por partes (8537/8543).',
+          'Recomendação atual não é NCM residual ou posição sobreponível por partes (8517/8537/8543).',
       },
     }
   }
@@ -1052,7 +1078,7 @@ Deno.serve(async (req: Request) => {
       JSON.stringify({
         status: 'ok',
         function: 'classify-ncm',
-        version: '3.8.0-build.615',
+        version: '3.8.0-build.616',
         knowledge_base_version: '3.1',
         features: [
           'phase0_canonical_composition_derivation',
@@ -1069,6 +1095,9 @@ Deno.serve(async (req: Request) => {
           'parts_vs_dependent_accessory_distinction',
           'parts_precedence_over_residual_standalone',
           'parts_precedence_over_8537_and_residual',
+          'parts_precedence_over_transmission_medium_8517',
+          'own_utility_dependency_test',
+          'controller_part_precedence',
           'auditor_verdict_reinclusion_no_silent_fallback',
           'target_machine_serviced_device_mapping',
           'expanded_parts_deterministic_retrieval',
@@ -1434,13 +1463,14 @@ METODOLOGIA OBRIGATÓRIA UNIVERSAL:
    Antes de qualquer confronto com posições ou códigos NCM, você DEVE construir o perfil técnico completo do produto:
    - Identidade ontológica: o que o produto É em sua substância física e técnica (ex.: "manopla de controle de servo zoom/foco", "controlador remoto IP", "câmera", "microfone", "conversor").
    - Natureza do produto (product_nature): CLASSIFICAÇÃO OBRIGATÓRIA em exatamente UMA das três categorias mutuamente exclusivas:
-     * "aparelho com função própria completa": equipamento autônomo completo capaz de operar de forma independente ou como sistema autônomo (ex.: câmeras, sistemas de microfone, switchers, consoles/controladores remotos autônomos com alimentação e processamento próprio).
-     * "acessório dependente (sem função autônoma, requer produto principal para operar)": dispositivo acessório auxiliar que NÃO possui utilidade ou operação autônoma por si mesmo e depende de uma máquina/aparelho principal para realizar sua função (ex.: manopla de foco/zoom que atua sobre o servo da teleobjetiva/câmera, suporte motorizado dependente de lente). O termo comercial "controlador" ou "controle" NÃO transforma um acessório dependente em aparelho autônomo!
-       CRITÉRIO OBRIGATÓRIO DE DEPENDÊNCIA REAL: Você só pode classificar como "acessório dependente sem função autônoma" quando o produto NÃO consegue exercer sua função primordial sem a máquina servida. Se o produto funciona de forma autônoma com múltiplos destinos (ex.: gravador, mixer, mesa de som, computador, amplificador, smartphone), ele possui função própria autônoma e NÃO é parte nem acessório dependente.
-       Exemplos: controlador remoto de câmeras e manopla de servo zoom são partes/acessórios dependentes (sem função autônoma fora da câmera/lente); sistema de microfone sem fio, fone de ouvido e monitor de vídeo têm função própria autônoma (captação acústica e reprodução de áudio e imagem) e NÃO são partes.
+     * "acessório dependente (sem função autônoma, requer produto principal para operar)": dispositivo acessório auxiliar ou controlador dedicado cuja utilidade primordial SÓ se exerce operando, conectando ou servindo a máquina-alvo — MESMO que tecnicamente inicialize sozinho ou processe comandos digitalmente (ex.: controlador remoto dedicado de câmeras PTZ via IP/serial, manopla de servo zoom de teleobjetiva, console de comando dedicado de máquina).
+       CRITÉRIO OBRIGATÓRIO DE DEPENDÊNCIA REAL (UTILIDADE VS. FUNCIONAMENTO TÉCNICO):
+       O teste de dependência real é sobre UTILIDADE, não sobre capacidade de ligar ou trafegar pacotes elétricos/digitais. Produto é "acessório dependente / parte dedicada" quando sua utilidade primordial SÓ se exerce controlando, operando ou servindo a máquina-alvo. O fato de possuir processador, interface de rede IP ou joystick NÃO o transforma em aparelho autônomo nem em aparelho de telecomunicação!
+     * "aparelho com função própria completa": equipamento autônomo completo que entrega utilidade própria e autônoma a destinos diversos e independentes da máquina servida (ex.: captação acústica de microfones serve a qualquer gravador/mixer/computador, monitores exibem imagem de qualquer fonte, switchers comutam múltiplos sinais).
      * "peça de reposição (substituição de componente)": componente individual ou sobressalente destinado a substituir peça danificada/desgastada (ex.: engrenagem avulsa, gaxeta, conector avulso, placa sobressalente).
    - Função essencial: o que o produto primariamente ENTREGA, NÃO o meio que usa:
-     * PRINCÍPIO DA ENTREGA VS. MEIO: A função essencial do produto/conjunto é o serviço final que ele realiza (ex.: captar áudio acústico = microfone na posição 85.18; exibir imagem = monitor na posição 85.28; captar vídeo = câmera na posição 85.25), e JAMAIS o meio físico ou tecnológico de transmissão empregado (elo de rádio UHF, Bluetooth, Wi-Fi, cabo elétrico ou conector).
+     * PRINCÍPIO DA ENTREGA VS. MEIO: A função essencial do produto/conjunto é o serviço final que ele realiza (ex.: captar áudio acústico = microfone na posição 85.18; exibir imagem = monitor na posição 85.28; captar vídeo = câmera na posição 85.25; controlar/operar remotamente câmeras = parte/acessório na posição 85.29), e JAMAIS o meio físico ou tecnológico de transmissão empregado (elo de rádio UHF, pacotes IP / Ethernet, comandos seriais RS-422, Bluetooth, Wi-Fi, cabo elétrico ou conector).
+     * CONTROLAR REMOTAMENTE UMA MÁQUINA NÃO É TELECOMUNICAÇÃO (85.17) NEM PROCESSAMENTO DE DADOS (84.71): Comandos de controle transmitidos via rede IP ou cabo são mero MEIO de acionamento. Controladores remotos dedicados de câmeras ou outras máquinas NÃO são aparelhos de transmissão/comunicação de dados (85.17). A classificação como parte da máquina servida (ex.: 8529.90.90 para câmeras) tem prioridade absoluta sobre posições de meio de transmissão (85.17) e posições residuais de função própria (8543 / 8543.70.99).
      * A existência de transmissão de rádio ou montagem auxiliar (ex.: "camera-mount", sapata de câmera, elo sem fio) NÃO reclassifica um microfone para aparelho de radiotransmissão (85.17) nem para partes de câmera (85.29).
    - Características técnicas relevantes citadas literalmente no texto (interfaces, conectividade, sinais, estrutura).
    - Máquina(s) de destino: se o produto é periférico, parte, acessório ou projetado para operar com uma máquina externa, declare essa máquina (ex.: "teleobjetivas", "câmeras de estúdio"). Em construções "X para Y", Y é máquina de destino, JAMAIS componente do produto.
@@ -1738,12 +1768,14 @@ PROTOCOLO OBRIGATÓRIO DE AUDITORIA (PRINCÍPIOS GENÉRICOS UNIVERSAIS):
    - Você DEVE conferir se o 'product_understanding' da 1ª passada é perfeitamente coerente com a descrição do produto e suas especificações.
    - Valide rigorosamente o campo 'product_nature' em exatamente uma das três categorias:
      "aparelho com função própria completa" / "acessório dependente (sem função autônoma, requer produto principal para operar)" / "peça de reposição (substituição de componente)".
-   - CRITÉRIO DA DEPENDÊNCIA REAL E CORREÇÃO DE NATUREZA:
-     * O auditor só pode manter ou homologar "acessório dependente sem função autônoma" se o produto NÃO consegue exercer sua função primordial sem a máquina servida.
-     * Se o produto entrega utilidade autônoma com outros destinos (ex.: captação de áudio que pode ir para gravador, mixer, computador, etc.), o auditor DEVE CORRIGIR A NATUREZA para "aparelho com função própria completa" ANTES de auditar ou corrigir o NCM!
-     * Lembre-se: "controlador" no texto comercial de um acessório dependente (ex: manopla de foco de lente) NÃO o torna aparelho autônomo, mas equipamentos com função primordial de áudio/imagem/vídeo SÃO aparelhos autônomos completos.
+   - CRITÉRIO DA DEPENDÊNCIA REAL E CORREÇÃO DE NATUREZA (UTILIDADE VS. FUNCIONAMENTO TÉCNICO):
+     * O teste de dependência é sobre UTILIDADE, não sobre capacidade de ligar ou emitir pacotes IP/elétricos.
+     * Dispositivos cuja utilidade primordial é CONTROLAR ou OPERAR a máquina servida (ex.: controlador remoto dedicado de câmeras PTZ, manopla servo zoom) são ACESSÓRIOS DEPENDENTES (partes dedicadas), mesmo que inicializem sozinhos ou tenham comandos via IP.
+     * Somente produtos que entregam utilidade própria autônoma a destinos diversos (ex.: captação de áudio de microfones) são "aparelho com função própria completa".
    - PRINCÍPIO DO QUE O PRODUTO ENTREGA (NÃO O MEIO):
-     * A função essencial é o que o produto ENTREGA (ex.: captar áudio = 85.18), NÃO o meio de transporte do sinal (elo de rádio UHF, cabo, etc.).
+     * A função essencial é o que o produto ENTREGA (ex.: captar áudio = 85.18; controlar câmeras = parte na 8529.90.90), NÃO o meio de transporte do sinal (elo de rádio UHF, protocolo IP, Ethernet, RS-422, cabo).
+     * CONTROLAR UMA MÁQUINA NÃO É SERVIÇO DE TELECOMUNICAÇÃO: Comandos de controle enviados via IP são o MEIO. É expressamente PROIBIDO classificar controladores de câmeras em posições de telecomunicação (85.17) ou de processamento de dados (84.71).
+     * O NCM de partes casado com a máquina servida (ex.: 8529.90.90 para câmeras) prevalece sobre aparelhos genéricos de meio de transmissão (8517) e residuais (8543).
      * O auditor JAMAIS pode vetar o NCM da família da função essencial própria (ex.: 85.18 para microfones) com base em premissa de 'acessório dependente' ou 'radiotransmissão'.
    - Em "X para Y", Y é máquina de destino, JAMAIS componente integrado.
    - Entendimento incoerente INVALIDA a recomendação (action: "VETA").
@@ -2049,8 +2081,15 @@ ${candidatesCatalogText}`
             }
           }
 
-          // Violação de partes: ocorre quando o candidato corrigido é NCM de partes mas o produto tem função própria autônoma
-          const partsInverseViolation = isCandidateParts.isParts && productHasStandaloneFunction
+          // Violação de partes: ocorre quando o candidato corrigido é NCM de partes mas o produto tem função própria autônoma.
+          // ATENÇÃO: Dispositivos cuja função é controlar/operar máquina externa dedicada (ex.: câmeras)
+          // NÃO sofrem violação de partes — a classificação como parte da máquina servida é legítima e prioritária.
+          const isControllerDevice =
+            /\b(controlador|controller|controle remoto|remote control|joystick|servo zoom|zoom demand|focus demand)\b/i.test(
+              fullTechnicalProfile,
+            )
+          const partsInverseViolation =
+            isCandidateParts.isParts && productHasStandaloneFunction && !isControllerDevice
 
           // Veto adicional: Se a 1ª passada recomendou corretamente a família da função essencial (ex: 8518 para microfones)
           // e o auditor tentou vetar para NCM de partes (8529) ou de meio de transmissão (8517)
@@ -2531,7 +2570,7 @@ ${candidatesCatalogText}`
     // Após o veredito final, varremos os candidatos avaliados e promovemos a
     // alternativas os NCMs de maior aderência não citados, aplicando a hierarquia:
     // 1. Candidatos de partes com vínculo indireto casado com target_machines
-    //    (salvo veto se produto for aparelho com função própria completa);
+    //    (salvo veto se produto for aparelho com função própria autônoma verdadeira, ex.: microfone/monitor);
     // 2. Residuais de função própria do mesmo capítulo da máquina servida / produto
     //    (ex.: 8543 para Cap. 85, 8479 para Cap. 84, 9031 para Cap. 90);
     // 3. Demais candidatos com aderência semântica / setorial por ordem de score;
@@ -2539,8 +2578,13 @@ ${candidatesCatalogText}`
     const resolvedProductNatureForSweep = normalizeProductNature(
       finalProductUnderstanding?.product_nature,
     )
+    const isTrulyAutonomousDeliveryProduct =
+      /\b(microfone|microphone|fones? de ouvido|headphones?|alto-falante|loudspeaker|monitor de v[ií]deo)\b/i.test(
+        fullTechnicalProfile,
+      )
     const isCompleteStandaloneProduct =
-      resolvedProductNatureForSweep === 'aparelho com função própria completa'
+      resolvedProductNatureForSweep === 'aparelho com função própria completa' &&
+      isTrulyAutonomousDeliveryProduct
 
     // Classificação de candidatos não citados por tiers
     const scoredCandidatesToPromote: Array<{
@@ -2576,11 +2620,10 @@ ${candidatesCatalogText}`
       }
 
       // REGRA GENÉRICA 5: NCMs de partes NÃO podem ultrapassar/ser promovidos
-      // se o produto for aparelho com função própria completa (proibição inversa universal)
+      // se o produto for aparelho com função primordial autônoma verdadeira (áudio/vídeo)
       if (partsPattern.isParts && isCompleteStandaloneProduct) {
         continue
       }
-
       const targetStr =
         canonicalTargetMachines.length > 0
           ? canonicalTargetMachines.join(', ')
@@ -2955,7 +2998,7 @@ ${candidatesCatalogText}`
       composition_analysis: compositionAnalysis,
       checklist_log: checklistLog,
       parts_indirect_logic: partsTelemetry,
-      version: '3.8.0-build.615',
+      version: '3.8.0-build.616',
       timestamp: new Date().toISOString(),
     }
     return new Response(JSON.stringify(responsePayload), {
@@ -3788,6 +3831,7 @@ function checkNatureContradiction(params: {
 
   // 1.B Caso: Controlador remoto periférico classificado como quadro/painel/console de distribuição elétrica industrial (8537)
   // ou projetor/câmera cinematográfica (9007) ou instrumentos ópticos de medição (9031)
+  // ou aparelho de transmissão/telecomunicação em rede (8517) pelo mero meio de envio de comandos
   const isElectricalSwitchboardOrCinematographicOrMeasurement =
     /\b(quadros?, pain[eé]is, consoles, cabinas|distribui[cç][aã]o de energia|cinematogr[aá]fic[ao]s|aparelhos e instrumentos de medida|perfil[oó]metros|ópticos de medida)\b/i.test(
       candDescLower,
@@ -3796,6 +3840,19 @@ function checkNatureContradiction(params: {
     return {
       contradicted: true,
       reason: `Contradição de natureza ontológica: o produto é um controlador remoto eletrônico/digital, incompatível com aparelhos de distribuição elétrica pesada (8537), cinematográficos (9007) ou medição óptica (9031).`,
+    }
+  }
+
+  // 1.C Caso: Controlador remoto dedicado de câmeras ou máquinas classificado como telecomunicação (8517)
+  // pelo mero meio de envio de comandos via IP/Ethernet
+  const isTelecomEquipment =
+    /\b(concentradores de linhas de assinantes|terminais de central|comuta[cç][aã]o telef[oô]nica|roteadores digitais de rede|telefonia celular)\b/i.test(
+      candDescLower,
+    )
+  if (isControllerOrPeripheral && isTelecomEquipment) {
+    return {
+      contradicted: true,
+      reason: `Contradição de função essencial: controlar remotamente uma máquina não é serviço de telecomunicação (85.17); comandos transmitidos por IP/cabo são mero meio físico de controle.`,
     }
   }
   // 2. Caso: Produto é transmissor/receptor/microfone de áudio, mas o candidato descreve diretamente câmera/óptica

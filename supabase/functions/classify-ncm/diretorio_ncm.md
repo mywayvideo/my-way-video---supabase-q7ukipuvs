@@ -90,9 +90,19 @@ Este documento constitui a **Fonte Única da Verdade** (Knowledge Layer) para a 
 - **Monitores de Computador / Dados:** Enquadram-se na subposição **85285200** ("Capazes de serem conectados diretamente a uma máquina automática para processamento de dados da posição 84.71"). Códigos da série 8528.51.xx são extintos e inexistentes na TEC vigente.
 - **Iluminação e Luminárias:** Spots e luminárias não-LED profissionais devem ser direcionados para **94054200** (único código presente na base da família 9405.4x), incluindo o aviso padrão: _"confirmar vigência da divisão LED/não-LED no Siscomex"_.
 
-### 2.5. Códigos Granulares Ausentes da Base Local
+### 2.5. Tripés, Monopés e Suportes de Foto/Vídeo (Posição Mandatória 96.20 / 96200000)
 
-- Para produtos enquadráveis em famílias granulares específicas ausentes da tabela local (ex.: tripés/monopés da posição 9620, móveis técnicos da posição 9403, artefatos plásticos do Capítulo 39, projetores 8528.69.00): propor o código vigente mais próximo do mesmo capítulo/posição e incluir obrigatoriamente a advertência: _"confirmar no Siscomex"_.
+- **Tripés mecânicos, monopés, pedestais manuais e cabeças fluidas manuais:** Enquadramento **MANDATÓRIO na posição 96.20 (código 96200000, Capítulo 96)** — "Monopés, bipés, tripés e artigos semelhantes".
+- **Decisão Vinculante:** "Tripé nada tem a ver com 85299090. Ele está em 9620". Tripés mecânicos de foto/vídeo e cabeças fluidas manuais são classificados em 9620 (Capítulo 96), **NUNCA em 85299090 como recomendação principal**.
+- **Aviso Obrigatório de Alíquota Siscomex:** Como a posição 96200000 está ausente da base local `imp_sim_tax_rates`, a resposta deve retornar as alíquotas com aviso explícito: _"Alíquotas indisponíveis na base local — verificar no Siscomex"_.
+- **Veto ao Capítulo 90:** É TERMINANTEMENTE PROIBIDO enquadrar tripés, cabeças fluidas ou suportes mecânicos no Capítulo 90 (como microscópios ou instrumentos ópticos 90.11) ou em posições de imagem/telecomunicações (85.25 / 85.28).
+- **Alternativas:**
+  - **85299090:** Pode constar apenas como alternativa de menor prioridade (parte/acessório reconhecível destinado aos aparelhos de vídeo).
+  - **85437099:** Alternativa para suportes ou pedestais motorizados dotados de função elétrica autônoma.
+
+### 2.6. Códigos Granulares Ausentes da Base Local
+
+- Para produtos enquadráveis em famílias granulares específicas ausentes da tabela local (ex.: móveis técnicos da posição 9403, artefatos plásticos do Capítulo 39, projetores 8528.69.00): propor o código vigente e incluir obrigatoriamente a advertência: _"confirmar no Siscomex"_.
 
 ---
 

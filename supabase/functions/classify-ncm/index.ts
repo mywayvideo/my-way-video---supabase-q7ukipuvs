@@ -144,8 +144,15 @@ Escopo: Catálogo Geral — Capítulos 84, 85, 90 e posições correlatas.
 - Monitores de Computador / Dados: Enquadram-se na subposição 85285200 ("Capazes de serem conectados diretamente a uma máquina automática para processamento de dados da posição 84.71"). Códigos da série 8528.51.xx são extintos e inexistentes na TEC vigente.
 - Iluminação e Luminárias: Spots e luminárias não-LED profissionais devem ser direcionados para 94054200 (único código presente na base da família 9405.4x), incluindo o aviso padrão: "confirmar vigência da divisão LED/não-LED no Siscomex".
 
-### 2.5. Códigos Granulares Ausentes da Base Local
-- Para produtos enquadráveis em famílias granulares específicas ausentes da tabela local (ex.: tripés/monopés da posição 9620, móveis técnicos da posição 9403, artefatos plásticos do Capítulo 39, projetores 8528.69.00): propor o código vigente mais próximo do mesmo capítulo/posição e incluir obrigatoriamente a advertência: "confirmar no Siscomex".`
+### 2.5. Tripés, Monopés e Suportes de Foto/Vídeo (Posição Mandatória 96.20 / 96200000)
+- Tripés mecânicos de foto/vídeo, monopés, pedestais manuais e cabeças fluidas manuais: Enquadramento MANDATÓRIO na posição 96.20 (código 96200000, Capítulo 96) — "Monopés, bipés, tripés e artigos semelhantes".
+- Decisão Vinculante: "Tripé nada tem a ver com 85299090. Ele está em 9620". Tripés mecânicos de foto/vídeo e cabeças fluidas manuais são classificados em 9620 (Capítulo 96), NUNCA em 85299090 como recomendação principal.
+- Alíquotas Siscomex: Código ausente da base local imp_sim_tax_rates — retornar alíquotas nulas com a nota explícita "Alíquotas indisponíveis na base local — verificar no Siscomex".
+- Veto ao Capítulo 90: É ESTRITAMENTE PROIBIDO classificar tripés e suportes mecânicos no Capítulo 90 (microscópios e instrumentos ópticos 90.11) ou em posições de imagem/telecomunicações (85.25/85.28).
+- Alternativas: 85299090 pode constar apenas como alternativa de menor prioridade (parte/acessório de câmeras); 85437099 como alternativa para suportes ou pedestais motorizados dotados de função elétrica autônoma.
+
+### 2.6. Códigos Granulares Ausentes da Base Local
+- Para produtos enquadráveis em famílias granulares específicas ausentes da tabela local (ex.: móveis técnicos da posição 9403, artefatos plásticos do Capítulo 39, projetores 8528.69.00): propor o código vigente e incluir obrigatoriamente a advertência: "confirmar no Siscomex".`
 
 export const DIRETORIO_NCM_KNOWLEDGE =
   loadedDiretorioContent && loadedDiretorioContent.trim().length > 100
@@ -2238,7 +2245,7 @@ PROTOCOLO OBRIGATÓRIO DE AUDITORIA (PRINCÍPIOS GENÉRICOS UNIVERSAIS):
    - COERÊNCIA FUNCIONAL DE CAPÍTULO (PRINCÍPIO GENÉRICO VINCULANTE):
      * A função primária essencial DEFINE o capítulo do Sistema Harmonizado.
      * Quando a função primária for de sustentação estrutural, suporte físico, estabilização ou fixação mecânica (ex.: tripés, monopés, suportes articulados, pedestais mecânicos, cabeças fluidas) e as máquinas servidas (target_machines) forem aparelhos eletroeletrônicos (ex.: câmeras de televisão/vídeo da posição 85.25), o enquadramento em capítulos de instrumentos de precisão/óptica (Capítulo 90, ex.: microscópios 90.11) ou de aparelhos de telecomunicação é ESTRITAMENTE PROIBIDO.
-     * Em tais hipóteses, o auditor DEVE VETAR a recomendação inadequada (action: "VETA") e reenquadrar o produto utilizando a família pertinente da Camada de Conhecimento de Domínio (ncm_support), direcionando prioritariamente para a NCM principal da família (ex.: 8529.90.90 como parte/acessório reconhecível destinado aos aparelhos da posição 85.25, com nota de atenção à posição 96.20 quando aplicável na legislação aduaneira vigente).
+     * Em tais hipóteses, o auditor DEVE VETAR a recomendação inadequada (action: "VETA") e reenquadrar o produto utilizando a família pertinente da Camada de Conhecimento de Domínio (ncm_support), direcionando mandatória e prioritariamente para a NCM 96200000 (posição 96.20 do SH, Cap. 96: bastões, monopés, tripés e artigos semelhantes). Decisão vinculante: Tripé mecânico e cabeça fluida nada têm a ver com 85299090 — classificam-se em 9620 (96200000), NUNCA em 85299090 como recomendação principal.
 1. ENUNCIAÇÃO DA FUNÇÃO ESSENCIAL: declare a função essencial que confere caráter essencial ao produto ou conjunto global (RGI 1 e RGI 3b).
 2. DESEMPATE INTRAFAMÍLIA OBRIGATÓRIO (DISCRIMINAÇÃO TÉCNICA TABULADA):
    - Quando mais de uma subposição da mesma família hierárquica (mesmos 4 ou 6 primeiros dígitos) estiver presente entre as candidatas (ex.: 8543.70.x, 8525.89.x):
@@ -2793,15 +2800,13 @@ ${candidatesCatalogText}`
           llmResponseJson.recommended_ncm = principalNcmClean
           llmResponseJson.recommended_ex = ''
 
-          const attention9620 =
-            principalNcmClean === '85299090' ||
-            (activeEntry.alertas && activeEntry.alertas.includes('9620'))
-              ? ' (com nota de atenção à posição 96.20 para tripés e suportes afins quando exigido pelas diretrizes Siscomex)'
-              : ''
+          const attention9620 = principalNcmClean.startsWith('9620')
+            ? ' (posição 96.20 mandatória para bastões, tripés e semelhantes — alíquotas a verificar no Siscomex)'
+            : ''
 
           const vetoDetail = matchedForbiddenPrefix
             ? `O enquadramento na posição/capítulo ${matchedForbiddenPrefix} (${checkRecNcmSupport}) é expressamente proibido pela regra da família "${activeEntry.familia}": ${activeEntry.alertas || ''}.`
-            : `O código anterior ${checkRecNcmSupport} foi vetado conforme alertas da base oficial (${activeEntry.alertas || 'Código em revisão/extinto'}).`
+            : `O código anterior ${checkRecNcmSupport} foi vetado conforme diretrizes da família "${activeEntry.familia}" (${activeEntry.alertas || 'Código vetado'}).`
 
           llmResponseJson.justification = `[Veto por Camada de Conhecimento ncm_support - Família: ${activeEntry.familia}]: ${vetoDetail} Reenquadrado no NCM principal vigente ${principalNcmClean}${attention9620}. ${activeEntry.regra_desempate || ''}\n\n${llmResponseJson.justification || ''}`
           auditVerdict.action = 'VETA'
@@ -3196,32 +3201,41 @@ ${candidatesCatalogText}`
       (await resolveEffectiveTaxRate(supabaseAdmin, recommendedNcmClean, '')) ||
       candidates.find((c: any) => normalizeNcm(c.ncm) === recommendedNcmClean)
 
-    if (!primaryTaxRate) {
-      return new Response(
-        JSON.stringify({
-          error: `Inconsistência cadastral: NCM ${recommendedNcmClean} não encontrado na tabela de taxas.`,
-        }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+    // Se o código recomendado não existe na base local imp_sim_tax_rates (ex.: 96200000 para tripés e suportes),
+    // NÃO disparar erro 500 "Inconsistência cadastral". Retornar a recomendação com alíquotas nulas/indisponíveis
+    // e aviso explícito para verificar no Siscomex.
+    const isTaxRateMissingInLocalDb = !primaryTaxRate
+
+    let missingTaxNote = ''
+    if (isTaxRateMissingInLocalDb) {
+      missingTaxNote = 'Alíquotas indisponíveis na base local — verificar no Siscomex.'
+      console.warn(
+        `[classify-ncm] NCM recomendado ${recommendedNcmClean} não consta em imp_sim_tax_rates. Retornando alíquotas nulas com nota Siscomex.`,
       )
     }
 
-    const iiRate = Number(primaryTaxRate.ii_efetivo ?? primaryTaxRate.ii_rate ?? 0)
-    const ipiRate = Number(primaryTaxRate.ipi_rate ?? 0)
-    const pisRate = Number(primaryTaxRate.pis_rate ?? 2.1)
-    const cofinsRate = Number(primaryTaxRate.cofins_rate ?? 9.65)
-    const totalTax = Number((iiRate + ipiRate + pisRate + cofinsRate).toFixed(2))
+    const iiRate = isTaxRateMissingInLocalDb
+      ? null
+      : Number(primaryTaxRate.ii_efetivo ?? primaryTaxRate.ii_rate ?? 0)
+    const ipiRate = isTaxRateMissingInLocalDb ? null : Number(primaryTaxRate.ipi_rate ?? 0)
+    const pisRate = isTaxRateMissingInLocalDb ? null : Number(primaryTaxRate.pis_rate ?? 2.1)
+    const cofinsRate = isTaxRateMissingInLocalDb ? null : Number(primaryTaxRate.cofins_rate ?? 9.65)
+    const totalTax = isTaxRateMissingInLocalDb
+      ? null
+      : Number(((iiRate ?? 0) + (ipiRate ?? 0) + (pisRate ?? 0) + (cofinsRate ?? 0)).toFixed(2))
 
-    const hasEx = Boolean(
-      primaryTaxRate.has_ex_tarifario || (primaryTaxRate.ex && primaryTaxRate.ex !== ''),
-    )
+    const hasEx = isTaxRateMissingInLocalDb
+      ? false
+      : Boolean(primaryTaxRate.has_ex_tarifario || (primaryTaxRate.ex && primaryTaxRate.ex !== ''))
 
-    const exDetails = hasEx
-      ? {
-          descricao: primaryTaxRate.ex_descricao || null,
-          resolucao: primaryTaxRate.ex_resolucao || null,
-          data_fim: primaryTaxRate.ex_data_fim || null,
-        }
-      : null
+    const exDetails =
+      hasEx && !isTaxRateMissingInLocalDb
+        ? {
+            descricao: primaryTaxRate.ex_descricao || null,
+            resolucao: primaryTaxRate.ex_resolucao || null,
+            data_fim: primaryTaxRate.ex_data_fim || null,
+          }
+        : null
 
     // 14. Resolver alíquotas para alternativas com PROPAGAÇÃO DE VETO (Princípio Genérico):
     // Um NCM vetado pelo auditor ou pelo checklist de código NÃO PODE aparecer na recomendação nem nas alternativas.
@@ -3552,12 +3566,13 @@ ${candidatesCatalogText}`
 
     const executionTimeMs = Date.now() - startTime
 
-    const primaryDescription =
-      primaryTaxRate.ex_descricao ||
-      primaryTaxRate.ncm_descricao_full ||
-      primaryTaxRate.ncm_descricao ||
-      primaryTaxRate.source_text ||
-      ''
+    const primaryDescription = isTaxRateMissingInLocalDb
+      ? 'Monopés, bipés, tripés e artigos semelhantes (posição 96.20 do SH / Cap. 96)'
+      : primaryTaxRate.ex_descricao ||
+        primaryTaxRate.ncm_descricao_full ||
+        primaryTaxRate.ncm_descricao ||
+        primaryTaxRate.source_text ||
+        ''
 
     // Montar a justificativa final contendo a análise de composição e o checklist comparativo
     let finalJustification = llmResponseJson.justification || ''
@@ -3619,7 +3634,9 @@ ${candidatesCatalogText}`
     }
 
     // Se o veto de Ex foi aplicado, o Ex final NUNCA pode carregar valor de Ex vetado
-    const finalRecommendationEx = exVetoApplied ? '' : primaryTaxRate.ex || recommendedExClean || ''
+    const finalRecommendationEx = exVetoApplied
+      ? ''
+      : primaryTaxRate?.ex || recommendedExClean || ''
     const finalHasEx = exVetoApplied ? false : hasEx && Boolean(finalRecommendationEx)
 
     // REGENERAÇÃO ESTRITA DA FUNDAMENTAÇÃO LEGAL (legal_basis):
@@ -3627,7 +3644,13 @@ ${candidatesCatalogText}`
     // Verificação em código: nenhum código de Ex citado no legal_basis pode diferir do Ex final.
     const finalExCode = finalRecommendationEx.toString().trim()
     let regeneratedLegalBasis = {
-      ...(llmResponseJson.legal_basis || primaryTaxRate.legal_basis || {}),
+      ...(llmResponseJson.legal_basis || primaryTaxRate?.legal_basis || {}),
+    }
+
+    if (isTaxRateMissingInLocalDb && missingTaxNote) {
+      regeneratedLegalBasis.notes = regeneratedLegalBasis.notes
+        ? `${regeneratedLegalBasis.notes} ${missingTaxNote}`
+        : missingTaxNote
     }
 
     const rawNotes = (regeneratedLegalBasis.notes || '').toString()
@@ -3723,6 +3746,7 @@ ${candidatesCatalogText}`
       justification: finalJustification,
       legal_basis: regeneratedLegalBasis,
       ex_details: finalHasEx ? exDetails : null,
+      tax_notice: isTaxRateMissingInLocalDb ? missingTaxNote : null,
     }
 
     // Formatar string combinada com as duas passadas

@@ -1,4 +1,4 @@
-// Deploy trigger build 617 - classify-ncm v3.8.0-build.617
+// Deploy trigger build 618 - classify-ncm v3.8.0-build.618
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { corsHeaders } from '../_shared/cors.ts'
@@ -1220,7 +1220,7 @@ Deno.serve(async (req: Request) => {
       JSON.stringify({
         status: 'ok',
         function: 'classify-ncm',
-        version: '3.8.0-build.617',
+        version: '3.8.0-build.618',
         knowledge_base_version: '3.1',
         features: [
           'phase0_canonical_composition_derivation',
@@ -1252,6 +1252,7 @@ Deno.serve(async (req: Request) => {
           'real_dependency_condition_note2b',
           'essential_delivery_over_medium_principle',
           'auditor_nature_correction_before_ncm',
+          'deterministic_85437099_injection',
         ],
         timestamp: new Date().toISOString(),
       }),
@@ -2911,6 +2912,70 @@ ${candidatesCatalogText}`
       }
     }
 
+    // =========================================================================
+    // INJEÇÃO DETERMINÍSTICA DO NCM RESIDUAL 85437099 (INVARIANTE)
+    // =========================================================================
+    // Regra do usuário: o NCM 85437099 deve SEMPRE constar nas alternativas de
+    // classificação NCM caso não seja o código recomendado e não esteja presente
+    // nas alternativas já resolvidas. Enquadramento residual supletivo de referência.
+    // Posição de inserção: imediatamente APÓS a 1ª alternativa (índice 1 da lista).
+    // Se a lista atingir o teto de 4 alternativas, remove a última para acomodá-lo.
+    if (
+      recommendedNcmClean !== '85437099' &&
+      !resolvedAlternatives.some((a) => a.ncm === '85437099')
+    ) {
+      try {
+        const residualTaxRate = await resolveEffectiveTaxRate(supabaseAdmin, '85437099', '')
+        let residualDesc =
+          residualTaxRate?.ncm_descricao_full || residualTaxRate?.ncm_descricao || ''
+        if (!residualDesc) {
+          const { data: dbExactRow } = await supabaseAdmin
+            .from('imp_sim_tax_rates')
+            .select('ncm_descricao_full, ncm_descricao')
+            .eq('ncm', '85437099')
+            .limit(1)
+            .maybeSingle()
+          residualDesc =
+            dbExactRow?.ncm_descricao_full ||
+            dbExactRow?.ncm_descricao ||
+            'Outras máquinas e aparelhos elétricos com função própria'
+        }
+
+        const resIi = Number(residualTaxRate?.ii_efetivo ?? residualTaxRate?.ii_rate ?? 10.8)
+        const resIpi = Number(residualTaxRate?.ipi_rate ?? 6.5)
+        const resPis = Number(residualTaxRate?.pis_rate ?? 2.1)
+        const resCofins = Number(residualTaxRate?.cofins_rate ?? 9.65)
+        const resTotal = Number((resIi + resIpi + resPis + resCofins).toFixed(2))
+
+        const injected85437099Alt = {
+          ncm: '85437099',
+          ex: '',
+          description: residualDesc,
+          ii: resIi,
+          ipi: resIpi,
+          pis: resPis,
+          cofins: resCofins,
+          total_tax: resTotal,
+          has_ex_tarifario: false,
+          reason:
+            'Posição fiscal residual supletiva (RGI 1 e 6): máquinas e aparelhos elétricos com função própria, não especificados nem compreendidos noutras posições do Capítulo 85 — enquadramento residual de referência para equipamentos de áudio/vídeo profissional.',
+          alternatives_source: 'promovido da varredura de candidatos',
+        }
+
+        // Teto de 4 alternativas: se já tiver 4 ou mais, descartar a última (menos aderente)
+        if (resolvedAlternatives.length >= 4) {
+          resolvedAlternatives.pop()
+        }
+
+        // Inserção imediatamente após a 1ª alternativa (índice 1 da lista)
+        // Se a lista estiver vazia, insere no início (índice 0)
+        const insertIndex = resolvedAlternatives.length > 0 ? 1 : 0
+        resolvedAlternatives.splice(insertIndex, 0, injected85437099Alt)
+      } catch (injErr) {
+        console.warn('Erro ao injetar determinísticamente NCM 85437099 nas alternativas:', injErr)
+      }
+    }
+
     const executionTimeMs = Date.now() - startTime
 
     const primaryDescription =
@@ -3191,7 +3256,7 @@ ${candidatesCatalogText}`
       composition_analysis: compositionAnalysis,
       checklist_log: checklistLog,
       parts_indirect_logic: partsTelemetry,
-      version: '3.8.0-build.617',
+      version: '3.8.0-build.618',
       timestamp: new Date().toISOString(),
     }
     return new Response(JSON.stringify(responsePayload), {

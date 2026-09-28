@@ -33,8 +33,9 @@ const navigation = [
   { name: 'IA & Inteligência Artificial', href: '/admin/ai', icon: Brain },
   { name: 'Testador de Busca', href: '/admin/search-test', icon: Search },
   { name: 'Catálogo & Produtos', href: '/admin/catalog', icon: Package },
+  { name: 'Tabela de Apoio NCM', href: '/admin/ncm-support', icon: BookOpen },
   { name: 'Cache de Produtos', href: '/admin/product-cache', icon: Database },
-  { name: 'Dicionário AVPRO', href: '/admin/avpro-keywords', icon: BookOpen },
+  { name: 'Dicionário AVPRO', href: '/admin/avpro-keywords', icon: Sparkles },
   { name: 'Market Intelligence', href: '/admin/nab-hub', icon: Sparkles },
   { name: 'Preços & Câmbio', href: '/admin/pricing', icon: DollarSign },
   { name: 'Fretes & Shipping', href: '/admin/shipping-config', icon: Truck },
@@ -42,7 +43,6 @@ const navigation = [
   { name: 'Configurar Pagamentos', href: '/admin/payment-config', icon: CreditCard },
   { name: 'Configurações Globais', href: '/admin/settings', icon: Settings },
 ]
-
 export function AdminLayout({
   children,
   breadcrumb,

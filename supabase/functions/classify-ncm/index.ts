@@ -1,4 +1,4 @@
-// Deploy trigger build 621 - classify-ncm v3.8.0-build.621
+// Deploy trigger build 622 - classify-ncm v3.8.0-build.622
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { corsHeaders } from '../_shared/cors.ts'
@@ -1385,9 +1385,10 @@ Deno.serve(async (req: Request) => {
       JSON.stringify({
         status: 'ok',
         function: 'classify-ncm',
-        version: '3.8.0-build.621',
+        version: '3.8.0-build.622',
         knowledge_base_version: '4.0',
         features: [
+          'ncm_support_layer',
           'diretorio_ncm_layer',
           'phase0_canonical_composition_derivation',
           'phase0_tripartite_product_nature',
@@ -1602,6 +1603,90 @@ Deno.serve(async (req: Request) => {
 
     const fullTechnicalProfile = [combinedProductText, webContentSummary].filter(Boolean).join('\n')
 
+    // 6.B FASE 0: CONSULTA À CAMADA DE CONHECIMENTO DE DOMÍNIO (ncm_support)
+    // Recuperar as linhas de ncm_support pertinentes à natureza do produto (match por palavras_chave/familia, top 3-5)
+    // usando supabaseAdmin (service role) e injetar esse conhecimento dinâmico no prompt do analista e auditor.
+    let ncmSupportEntries: any[] = []
+    let ncmSupportPromptBlock = ''
+    try {
+      const searchTerms = [
+        ...leanSignature.split(/\s+/),
+        ...compositionAnalysis.detectedComponents.map((c) => c.split(/\s+/)).flat(),
+        ...compositionAnalysis.targetMachines.map((m) => m.split(/\s+/)).flat(),
+      ]
+        .map((t) => t.trim().toLowerCase())
+        .filter((t) => t.length >= 3 && !/^(para|com|sem|das|dos|the|and|for|with)$/i.test(t))
+
+      const uniqueTerms = Array.from(new Set(searchTerms)).slice(0, 12)
+
+      const { data: allSupportRows, error: suppErr } = await supabaseAdmin
+        .from('ncm_support')
+        .select(
+          'id, familia, categoria, palavras_chave, ncm_principal, ncm_alternativas, regra_desempate, dicas, alertas, fonte, status',
+        )
+        .limit(100)
+
+      if (!suppErr && allSupportRows && allSupportRows.length > 0) {
+        // Pontuar relevância de cada linha de suporte contra o perfil técnico e termos
+        const scored = allSupportRows.map((row: any) => {
+          let score = 0
+          const famLower = (row.familia || '').toLowerCase()
+          const catLower = (row.categoria || '').toLowerCase()
+          const kwList = Array.isArray(row.palavras_chave)
+            ? row.palavras_chave.map((k: string) => String(k).toLowerCase())
+            : []
+          const textToMatch = fullTechnicalProfile.toLowerCase()
+
+          // Match de palavras-chave da família no perfil do produto
+          for (const kw of kwList) {
+            if (kw && textToMatch.includes(kw)) {
+              score += 15
+            }
+          }
+          // Match de termos da assinatura na família / palavras-chave
+          for (const term of uniqueTerms) {
+            if (famLower.includes(term)) score += 10
+            if (catLower.includes(term)) score += 5
+            if (kwList.some((k: string) => k.includes(term))) score += 8
+          }
+          return { row, score }
+        })
+
+        scored.sort((a: any, b: any) => b.score - a.score)
+        // Tomar top 3 a 5 com pontuação mínima
+        ncmSupportEntries = scored
+          .filter((item: any) => item.score > 0)
+          .slice(0, 5)
+          .map((item: any) => item.row)
+
+        if (ncmSupportEntries.length > 0) {
+          ncmSupportPromptBlock = ncmSupportEntries
+            .map((entry: any, idx: number) => {
+              const alts = Array.isArray(entry.ncm_alternativas)
+                ? entry.ncm_alternativas
+                    .map(
+                      (a: any) =>
+                        `    * NCM ${a.ncm}: ${a.quando || ''} (RGI: ${a.rgi || 'N/A'}, Obs: ${a.observacao || ''})`,
+                    )
+                    .join('\n')
+                : '    * Nenhuma alternativa tabulada'
+              return `[Conhecimento Específico de Domínio #${idx + 1} - ${entry.familia} (${entry.categoria || 'Geral'})]
+  • Status: ${entry.status.toUpperCase()}
+  • NCM Principal Indicado: ${entry.ncm_principal}
+  • NCMs Alternativos e Condições:
+${alts}
+  • Regra de Desempate Vinculante: ${entry.regra_desempate || 'Seguir discriminador técnico'}
+  • Dicas Técnicas: ${entry.dicas || 'N/A'}
+  • Alertas Críticos: ${entry.alertas || 'N/A'}
+  • Fonte / Solução de Consulta: ${entry.fonte || 'Diretório Oficial'}`
+            })
+            .join('\n\n')
+        }
+      }
+    } catch (suppLookupErr) {
+      console.warn('Erro ao consultar camada ncm_support (não fatal):', suppLookupErr)
+    }
+
     // 7. RECUPERAÇÃO ORIENTADA POR SETOR (SEM LISTAS HARDCODED)
     // Mapeamento semântico da assinatura do produto para sua família de posições no banco,
     // garantindo diversidade de posições adjacentes e priorização da família correspondente à assinatura
@@ -1772,6 +1857,7 @@ Regra permanente: Todas as instruções são princípios genéricos universais a
 
 DIRETÓRIO VINCULANTE DE CLASSIFICAÇÃO FISCAL E REGRAS-MESTRE (KNOWLEDGE LAYER):
 ${DIRETORIO_NCM_KNOWLEDGE}
+${ncmSupportPromptBlock ? `\nCAMADA DE CONHECIMENTO DE DOMÍNIO ESPECÍFICA (TABELA ncm_support VINCULANTE):\n${ncmSupportPromptBlock}\n` : ''}
 
 METODOLOGIA OBRIGATÓRIA UNIVERSAL:
 
@@ -2081,6 +2167,7 @@ Construa a FASE 0 obrigatória no campo 'product_understanding' com a sentença 
 
 DIRETÓRIO VINCULANTE DE CLASSIFICAÇÃO FISCAL E REGRAS-MESTRE (KNOWLEDGE LAYER):
 ${DIRETORIO_NCM_KNOWLEDGE}
+${ncmSupportPromptBlock ? `\nCAMADA DE CONHECIMENTO DE DOMÍNIO ESPECÍFICA (TABELA ncm_support VINCULANTE):\n${ncmSupportPromptBlock}\n` : ''}
 
 PROTOCOLO OBRIGATÓRIO DE AUDITORIA (PRINCÍPIOS GENÉRICOS UNIVERSAIS):
 0. FASE 0 OBRIGATÓRIA — AUDITORIA DE ENTENDIMENTO DO PRODUTO (PRÉ-REQUISITO):
@@ -2528,6 +2615,57 @@ ${candidatesCatalogText}`
     // autônomos vendidos juntos (ex: transmissor + receptor), JAMAIS aparelho singular.
     // 12.A.0 CONJUNTO DE NCMS VETADOS (PROPAGAÇÃO DE VETO UNIVERSAL)
     const vetoedNcms = new Set<string>()
+
+    // =========================================================================
+    // 12.A.0.1 VETOS E DIRETRIZES DA TABELA ncm_support (Fase 2 / Auditor Revisor)
+    // =========================================================================
+    // Alertas e regras de desempate de linhas de ncm_support com status ≠ 'ativa'
+    // ou alertas explícitos de código extinto vetam o código da mesma forma que o veto 90.07.
+    try {
+      for (const entry of ncmSupportEntries) {
+        // Se a linha estiver extinta ou em revisão, ou alertar código extinto
+        const alertsText = (entry.alertas || '').toLowerCase()
+        const isNonActive = entry.status !== 'ativa'
+
+        if (isNonActive || alertsText.includes('extinto') || alertsText.includes('não usar')) {
+          const badNcmMatches = entry.alertas ? entry.alertas.match(/\b\d{8}\b/g) : null
+          if (badNcmMatches) {
+            for (const badNcm of badNcmMatches) {
+              vetoedNcms.add(normalizeNcm(badNcm))
+              console.log(
+                `[ncm_support Veto]: Código ${badNcm} vetado por alerta de ncm_support (${entry.familia}).`,
+              )
+            }
+          }
+          if (isNonActive && entry.ncm_principal) {
+            vetoedNcms.add(normalizeNcm(entry.ncm_principal))
+          }
+        }
+      }
+
+      // Se a recomendação da 1ª passada ou do auditor caiu em código vetado por ncm_support
+      const checkRecNcmSupport = normalizeNcm(llmResponseJson.recommended_ncm)
+      if (vetoedNcms.has(checkRecNcmSupport)) {
+        console.warn(
+          `[ncm_support Veto Aplicado]: NCM ${checkRecNcmSupport} está vetado pela camada ncm_support.`,
+        )
+        // Encontrar linha pertinente de ncm_support com status ativa
+        const activeEntry = ncmSupportEntries.find(
+          (e) => e.status === 'ativa' && normalizeNcm(e.ncm_principal) !== checkRecNcmSupport,
+        )
+        if (activeEntry && activeEntry.ncm_principal) {
+          llmResponseJson.recommended_ncm = activeEntry.ncm_principal
+          llmResponseJson.recommended_ex = ''
+          llmResponseJson.justification = `[Veto por Camada de Conhecimento ncm_support - Família: ${activeEntry.familia}]: O código anterior ${checkRecNcmSupport} foi vetado conforme alertas da base oficial (${activeEntry.alertas || 'Código em revisão/extinto'}). Reenquadrado no NCM principal vigente ${activeEntry.ncm_principal}. ${activeEntry.regra_desempate || ''}\n\n${llmResponseJson.justification || ''}`
+          auditVerdict.action = 'VETA'
+          auditVerdict.corrected_ncm = activeEntry.ncm_principal
+          auditVerdict.corrected_ex = ''
+          auditVerdict.correction_reason = `Código ${checkRecNcmSupport} vetado por salvaguarda da camada ncm_support.`
+        }
+      }
+    } catch (suppVetoErr) {
+      console.warn('Erro na verificação de vetos ncm_support:', suppVetoErr)
+    }
 
     // =========================================================================
     // 12.A.1 VETO TECNOLÓGICO DETERMINÍSTICO DA POSIÇÃO 90.07 (PELÍCULA VS DIGITAL)
@@ -3464,6 +3602,28 @@ ${candidatesCatalogText}`
     }))
 
     // 15. Gravação no log de auditoria (imp_sim_ncm_classification_log)
+    // 3.4. Rastreabilidade conhecimento->decisão: quando uma linha de ncm_support influenciar a resposta,
+    // referenciar a família no audit_links de imp_sim_ncm_classification_log
+    const combinedAuditLinks: any[] = [...webSources]
+    for (const supp of ncmSupportEntries) {
+      const isInfluencing =
+        recommendedNcmClean === normalizeNcm(supp.ncm_principal) ||
+        (Array.isArray(supp.ncm_alternativas) &&
+          supp.ncm_alternativas.some((a: any) => normalizeNcm(a.ncm) === recommendedNcmClean)) ||
+        resolvedAlternatives.some((alt: any) => alt.ncm === normalizeNcm(supp.ncm_principal))
+
+      if (isInfluencing) {
+        combinedAuditLinks.push({
+          title: `Camada Conhecimento: ${supp.familia}`,
+          url: `ncm_support://${supp.id}`,
+          snippet: `Família: ${supp.familia} | Categoria: ${supp.categoria || 'Geral'} | NCM Principal: ${supp.ncm_principal} | Status: ${supp.status} | Regra: ${supp.regra_desempate || 'N/A'}`,
+          type: 'ncm_support_family',
+          support_id: supp.id,
+          familia: supp.familia,
+        })
+      }
+    }
+
     let auditId: string | null = null
     if (saveLog) {
       try {
@@ -3492,6 +3652,12 @@ ${candidatesCatalogText}`
               parts_indirect_logic: partsTelemetry,
               evaluated_candidates: evaluatedCandidatesLog,
               evaluated_candidates_count: evaluatedCandidatesLog.length,
+              ncm_support_matches: ncmSupportEntries.map((s) => ({
+                id: s.id,
+                familia: s.familia,
+                ncm_principal: s.ncm_principal,
+                status: s.status,
+              })),
             },
             final_choice_ncm: recommendedNcmClean,
             final_choice_ex: finalRecommendationEx,
@@ -3499,8 +3665,8 @@ ${candidatesCatalogText}`
             status: 'pendente',
             product_id: productId,
             imp_sim_product_id: impSimProductId,
-            audit_links: webSources,
-            knowledge_base_version: '3.1',
+            audit_links: combinedAuditLinks,
+            knowledge_base_version: '4.0',
             execution_time_ms: executionTimeMs,
           })
           .select('id')
@@ -3525,6 +3691,13 @@ ${candidatesCatalogText}`
       confidence: (llmResponseJson.confidence || 'media').toLowerCase(),
       sufficient_info: sufficiencyCheck.isSufficient,
       web_sources: webSources,
+      audit_links: combinedAuditLinks,
+      ncm_support_matches: ncmSupportEntries.map((s) => ({
+        id: s.id,
+        familia: s.familia,
+        ncm_principal: s.ncm_principal,
+        status: s.status,
+      })),
       model_used: compositeModelUsed,
       analyst_model: analystModelUsed,
       auditor_model: auditorModelUsed,
@@ -3536,7 +3709,7 @@ ${candidatesCatalogText}`
       composition_analysis: compositionAnalysis,
       checklist_log: checklistLog,
       parts_indirect_logic: partsTelemetry,
-      version: '3.8.0-build.621',
+      version: '3.8.0-build.622',
       timestamp: new Date().toISOString(),
     }
     return new Response(JSON.stringify(responsePayload), {

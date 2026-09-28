@@ -22,7 +22,7 @@ describe('classify-ncm Edge Function live deploy check & validation', () => {
         try {
           lastData = JSON.parse(text)
         } catch { /* intentionally ignored */ }
-        if (res.status === 200 && lastData?.version === '3.8.0-build.619') {
+        if (res.status === 200 && (lastData?.version === '3.8.0-build.621' || lastData?.version === '3.8.0-build.619')) {
           break
         }
       } catch (e: any) {
@@ -33,6 +33,7 @@ describe('classify-ncm Edge Function live deploy check & validation', () => {
 
     console.log('[FINAL HEALTH RESULT]:', JSON.stringify({ status: lastStatus, data: lastData }))
     const data = lastData
+    expect(data.features).toContain('diretorio_ncm_layer')
     expect(data.features).toContain('phase0_canonical_composition_derivation')
     expect(data.features).toContain('phase0_tripartite_product_nature')
     expect(data.features).toContain('orphan_ncm_sweep_invariant')

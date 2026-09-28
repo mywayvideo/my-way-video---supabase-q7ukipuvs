@@ -1,4 +1,4 @@
-// Deploy trigger build 619 - classify-ncm v3.8.0-build.619
+// Deploy trigger build 620 - classify-ncm v3.8.0-build.620
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { corsHeaders } from '../_shared/cors.ts'
@@ -1298,7 +1298,7 @@ Deno.serve(async (req: Request) => {
       JSON.stringify({
         status: 'ok',
         function: 'classify-ncm',
-        version: '3.8.0-build.619',
+        version: '3.8.0-build.620',
         knowledge_base_version: '3.1',
         features: [
           'phase0_canonical_composition_derivation',
@@ -1334,6 +1334,7 @@ Deno.serve(async (req: Request) => {
           'film_only_9007_exclusion',
           'technology_incompatibility_veto',
           'digital_cinema_camera_8525_normalization',
+          'statement_timeout_fix',
         ],
         timestamp: new Date().toISOString(),
       }),
@@ -3441,7 +3442,7 @@ ${candidatesCatalogText}`
       composition_analysis: compositionAnalysis,
       checklist_log: checklistLog,
       parts_indirect_logic: partsTelemetry,
-      version: '3.8.0-build.619',
+      version: '3.8.0-build.620',
       timestamp: new Date().toISOString(),
     }
     return new Response(JSON.stringify(responsePayload), {
@@ -3450,10 +3451,14 @@ ${candidatesCatalogText}`
     })
   } catch (error: any) {
     console.error('Erro não tratado na edge function classify-ncm:', error)
+    const errMessage = error?.message || String(error)
+    const isTimeout = /timeout|statement timeout|canceling statement/i.test(errMessage)
     return new Response(
       JSON.stringify({
-        error: 'Erro interno ao processar classificação fiscal.',
-        details: error?.message || String(error),
+        error: isTimeout
+          ? 'Tempo limite de consulta excedido no banco de dados. Por favor, tente novamente.'
+          : 'Erro interno ao processar classificação fiscal.',
+        details: errMessage,
       }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
     )
@@ -4551,41 +4556,47 @@ async function retrieveSectorOrientedCandidates(params: {
         ),
       ).slice(0, 3)
 
-      for (const cleanComp of distinctComps) {
-        // Buscar posições oficiais no banco contendo o termo verbatim diretamente via índice GIN em ncm_descricao_full
-        const { data: compMatches } = await supabaseAdmin
-          .from('imp_sim_tax_rates')
-          .select(
-            'id, ncm, ex, ncm_descricao, ncm_descricao_full, ex_descricao, ii_rate, ipi_rate, pis_rate, cofins_rate, has_ex_tarifario',
-          )
-          .ilike('ncm_descricao_full', `%${cleanComp}%`)
-          .limit(8)
-
-        if (compMatches && compMatches.length > 0) {
-          for (const m of compMatches) {
-            const alreadyExists = candidates.some(
-              (c: any) => normalizeNcm(c.ncm) === m.ncm && (c.ex || '') === (m.ex || ''),
+      // Paralelizar as buscas de componentes detectados verbatim
+      const compPromises = distinctComps.map(async (cleanComp) => {
+        try {
+          const { data: compMatches } = await supabaseAdmin
+            .from('imp_sim_tax_rates')
+            .select(
+              'id, ncm, ex, ncm_descricao, ncm_descricao_full, ex_descricao, ii_rate, ipi_rate, pis_rate, cofins_rate, has_ex_tarifario',
             )
-            if (!alreadyExists) {
-              candidates.push({
-                tax_rate_id: m.id,
-                ncm: m.ncm,
-                ex: m.ex || '',
-                ncm_descricao: m.ncm_descricao || '',
-                ncm_descricao_full: m.ncm_descricao_full || m.ncm_descricao || '',
-                ex_descricao: m.ex_descricao || null,
-                source_text: `NCM ${m.ncm} | ${m.ncm_descricao_full || m.ncm_descricao || ''}${m.ex_descricao ? ` | Ex ${m.ex} ${m.ex_descricao}` : ''}`,
-                ii_rate: Number(m.ii_efetivo ?? m.ii_rate ?? 0),
-                ipi_rate: Number(m.ipi_rate ?? 0),
-                pis_rate: Number(m.pis_rate ?? 2.1),
-                cofins_rate: Number(m.cofins_rate ?? 9.65),
-                has_ex_tarifario: Boolean(m.has_ex_tarifario),
-                vector_score: 0.65,
-                text_score: 0.85,
-                combined_score: 0.75,
-                is_component_sector: true,
-              })
-            }
+            .ilike('ncm_descricao_full', `%${cleanComp}%`)
+            .limit(8)
+          return compMatches || []
+        } catch (_e) {
+          return []
+        }
+      })
+
+      const compResults = await Promise.all(compPromises)
+      for (const compMatches of compResults) {
+        for (const m of compMatches) {
+          const alreadyExists = candidates.some(
+            (c: any) => normalizeNcm(c.ncm) === m.ncm && (c.ex || '') === (m.ex || ''),
+          )
+          if (!alreadyExists) {
+            candidates.push({
+              tax_rate_id: m.id,
+              ncm: m.ncm,
+              ex: m.ex || '',
+              ncm_descricao: m.ncm_descricao || '',
+              ncm_descricao_full: m.ncm_descricao_full || m.ncm_descricao || '',
+              ex_descricao: m.ex_descricao || null,
+              source_text: `NCM ${m.ncm} | ${m.ncm_descricao_full || m.ncm_descricao || ''}${m.ex_descricao ? ` | Ex ${m.ex} ${m.ex_descricao}` : ''}`,
+              ii_rate: Number(m.ii_efetivo ?? m.ii_rate ?? 0),
+              ipi_rate: Number(m.ipi_rate ?? 0),
+              pis_rate: Number(m.pis_rate ?? 2.1),
+              cofins_rate: Number(m.cofins_rate ?? 9.65),
+              has_ex_tarifario: Boolean(m.has_ex_tarifario),
+              vector_score: 0.65,
+              text_score: 0.85,
+              combined_score: 0.75,
+              is_component_sector: true,
+            })
           }
         }
       }
@@ -4616,52 +4627,44 @@ async function retrieveSectorOrientedCandidates(params: {
         ),
       ).slice(0, 4)
 
-      // Identificar posições da máquina de destino no banco
+      // Identificar posições da máquina de destino no banco de forma paralela e rápida
       const targetHeadings = new Set<string>()
-      for (const targetWord of distinctTargets) {
-        const { data: targetPositions } = await supabaseAdmin
-          .from('imp_sim_tax_rates')
-          .select('ncm')
-          .ilike('ncm_descricao_full', `%${targetWord}%`)
-          .limit(10)
+      const targetPromises = distinctTargets.map(async (targetWord) => {
+        try {
+          const { data: targetPositions } = await supabaseAdmin
+            .from('imp_sim_tax_rates')
+            .select('ncm')
+            .ilike('ncm_descricao_full', `%${targetWord}%`)
+            .limit(8)
 
-        if (targetPositions && targetPositions.length > 0) {
-          for (const tp of targetPositions) {
-            const h = (tp.ncm || '').slice(0, 4)
-            if (h && h.length === 4) targetHeadings.add(h)
+          if (targetPositions && targetPositions.length > 0) {
+            for (const tp of targetPositions) {
+              const h = (tp.ncm || '').slice(0, 4)
+              if (h && h.length === 4) targetHeadings.add(h)
+            }
           }
+        } catch (_err) {
+          // não fatal
         }
-      }
+      })
 
-      // RECUPERAÇÃO DETERMINÍSTICA EXPANDIDA DE NCMs DE PARTES E ACESSÓRIOS:
-      // Filtro SQL com a assinatura completa de destinação:
-      // (partes OU peças OU acessórios) E (destinad|utiliz|concebid|exclusiv|principalmente) E (posições|aparelhos|máquinas)
-      const { data: partsCandidates } = await supabaseAdmin
+      // Query rápida de partes usando termos indexáveis (idx_imp_sim_tax_rates_ncm_desc_full_trgm)
+      const partsCandidatesPromise = supabaseAdmin
         .from('imp_sim_tax_rates')
         .select(
           'id, ncm, ex, ncm_descricao, ncm_descricao_full, ex_descricao, ii_rate, ipi_rate, pis_rate, cofins_rate, has_ex_tarifario',
         )
-        .or(
-          'ncm_descricao_full.ilike.%parte%destinad%posiç%,' +
-            'ncm_descricao_full.ilike.%parte%destinad%aparelho%,' +
-            'ncm_descricao_full.ilike.%parte%destinad%máquina%,' +
-            'ncm_descricao_full.ilike.%parte%destinad%maquina%,' +
-            'ncm_descricao_full.ilike.%parte%utiliz%posiç%,' +
-            'ncm_descricao_full.ilike.%parte%utiliz%aparelho%,' +
-            'ncm_descricao_full.ilike.%parte%utiliz%máquina%,' +
-            'ncm_descricao_full.ilike.%parte%concebid%posiç%,' +
-            'ncm_descricao_full.ilike.%parte%exclusiv%posiç%,' +
-            'ncm_descricao_full.ilike.%parte%principalmente%posiç%,' +
-            'ncm_descricao_full.ilike.%acessório%destinad%posiç%,' +
-            'ncm_descricao_full.ilike.%acessorio%destinad%posiç%,' +
-            'ncm_descricao_full.ilike.%acessório%destinad%aparelho%,' +
-            'ncm_descricao_full.ilike.%acessorio%destinad%aparelho%,' +
-            'ncm_descricao_full.ilike.%acessório%destinad%máquina%,' +
-            'ncm_descricao_full.ilike.%peça%destinad%posiç%,' +
-            'ncm_descricao_full.ilike.%peca%destinad%posiç%',
-        )
-        .limit(40)
-      if (partsCandidates && partsCandidates.length > 0) {
+        .ilike('ncm_descricao_full', '%partes%')
+        .limit(30)
+
+      const [, { data: partsCandidates, error: partsErr }] = await Promise.all([
+        Promise.all(targetPromises),
+        partsCandidatesPromise,
+      ])
+
+      if (partsErr) {
+        console.warn('Falha na busca de candidatos de partes:', partsErr)
+      } else if (partsCandidates && partsCandidates.length > 0) {
         for (const pc of partsCandidates) {
           const desc = pc.ncm_descricao_full || ''
           const partsInfo = isPartsNcmPattern(desc)
@@ -4737,46 +4740,57 @@ async function retrieveSectorOrientedCandidates(params: {
     }
 
     if (candidatePrefixes6.size > 0) {
-      for (const prefix6 of candidatePrefixes6) {
-        // Buscar com ordenação determinística (ex is not null, ex) para priorizar linhas base (ex=NULL) de cada NCM
-        const { data: siblingRows, error: sibError } = await supabaseAdmin
-          .from('imp_sim_tax_rates')
-          .select(
-            'id, ncm, ex, ncm_descricao, ncm_descricao_full, ex_descricao, ii_rate, ipi_rate, pis_rate, cofins_rate, has_ex_tarifario',
-          )
-          .like('ncm', `${prefix6}%`)
-          .order('ncm', { ascending: true })
-          .order('ex', { ascending: true, nullsFirst: true })
-          .limit(30)
-
-        if (!sibError && siblingRows && siblingRows.length > 0) {
-          for (const s of siblingRows) {
-            const sNcm = normalizeNcm(s.ncm)
-            const sEx = (s.ex || '').toString().trim()
-            const exists = candidates.some(
-              (c: any) => normalizeNcm(c.ncm) === sNcm && (c.ex || '').toString().trim() === sEx,
+      // Executar expansões de prefixo em paralelo
+      const expansionPromises = Array.from(candidatePrefixes6).map(async (prefix6) => {
+        try {
+          const { data: siblingRows, error: sibError } = await supabaseAdmin
+            .from('imp_sim_tax_rates')
+            .select(
+              'id, ncm, ex, ncm_descricao, ncm_descricao_full, ex_descricao, ii_rate, ipi_rate, pis_rate, cofins_rate, has_ex_tarifario',
             )
-            if (!exists) {
-              candidates.push({
-                tax_rate_id: s.id,
-                ncm: s.ncm,
-                ex: s.ex || '',
-                ncm_descricao: s.ncm_descricao || '',
-                ncm_descricao_full: s.ncm_descricao_full || s.ncm_descricao || '',
-                ex_descricao: s.ex_descricao || null,
-                source_text: `NCM ${s.ncm} | ${s.ncm_descricao_full || s.ncm_descricao || ''}${s.ex_descricao ? ` | Ex ${s.ex} ${s.ex_descricao}` : ''}`,
-                ii_rate: Number(s.ii_efetivo ?? s.ii_rate ?? 0),
-                ipi_rate: Number(s.ipi_rate ?? 0),
-                pis_rate: Number(s.pis_rate ?? 2.1),
-                cofins_rate: Number(s.cofins_rate ?? 9.65),
-                has_ex_tarifario: Boolean(s.has_ex_tarifario),
-                vector_score: 0.5,
-                text_score: 0.5,
-                combined_score: 0.5,
-                is_family_expansion: true,
-                expansion_parent_6: prefix6,
-              })
-            }
+            .like('ncm', `${prefix6}%`)
+            .order('ncm', { ascending: true })
+            .order('ex', { ascending: true, nullsFirst: true })
+            .limit(20)
+
+          if (!sibError && siblingRows && siblingRows.length > 0) {
+            return { prefix6, siblingRows }
+          }
+        } catch (_err) {
+          // não fatal
+        }
+        return null
+      })
+
+      const expansionResults = await Promise.all(expansionPromises)
+      for (const res of expansionResults) {
+        if (!res) continue
+        for (const s of res.siblingRows) {
+          const sNcm = normalizeNcm(s.ncm)
+          const sEx = (s.ex || '').toString().trim()
+          const exists = candidates.some(
+            (c: any) => normalizeNcm(c.ncm) === sNcm && (c.ex || '').toString().trim() === sEx,
+          )
+          if (!exists) {
+            candidates.push({
+              tax_rate_id: s.id,
+              ncm: s.ncm,
+              ex: s.ex || '',
+              ncm_descricao: s.ncm_descricao || '',
+              ncm_descricao_full: s.ncm_descricao_full || s.ncm_descricao || '',
+              ex_descricao: s.ex_descricao || null,
+              source_text: `NCM ${s.ncm} | ${s.ncm_descricao_full || s.ncm_descricao || ''}${s.ex_descricao ? ` | Ex ${s.ex} ${s.ex_descricao}` : ''}`,
+              ii_rate: Number(s.ii_efetivo ?? s.ii_rate ?? 0),
+              ipi_rate: Number(s.ipi_rate ?? 0),
+              pis_rate: Number(s.pis_rate ?? 2.1),
+              cofins_rate: Number(s.cofins_rate ?? 9.65),
+              has_ex_tarifario: Boolean(s.has_ex_tarifario),
+              vector_score: 0.5,
+              text_score: 0.5,
+              combined_score: 0.5,
+              is_family_expansion: true,
+              expansion_parent_6: res.prefix6,
+            })
           }
         }
       }

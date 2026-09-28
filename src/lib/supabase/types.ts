@@ -2155,6 +2155,7 @@ export type Database = {
           payment_status: string
           payment_term_days: number | null
           payment_terms_notes: string | null
+          print_language: string
           public_token: string | null
           source_supplier_quote_id: string | null
           status: string
@@ -2192,6 +2193,7 @@ export type Database = {
           payment_status?: string
           payment_term_days?: number | null
           payment_terms_notes?: string | null
+          print_language?: string
           public_token?: string | null
           source_supplier_quote_id?: string | null
           status?: string
@@ -2229,6 +2231,7 @@ export type Database = {
           payment_status?: string
           payment_term_days?: number | null
           payment_terms_notes?: string | null
+          print_language?: string
           public_token?: string | null
           source_supplier_quote_id?: string | null
           status?: string
@@ -2676,6 +2679,7 @@ export type Database = {
           payment_method: string
           payment_status: string
           payment_terms_notes: string | null
+          print_language: string
           public_token: string | null
           source_quote_code: string | null
           source_quote_id: string | null
@@ -2726,6 +2730,7 @@ export type Database = {
           payment_method?: string
           payment_status?: string
           payment_terms_notes?: string | null
+          print_language?: string
           public_token?: string | null
           source_quote_code?: string | null
           source_quote_id?: string | null
@@ -2776,6 +2781,7 @@ export type Database = {
           payment_method?: string
           payment_status?: string
           payment_terms_notes?: string | null
+          print_language?: string
           public_token?: string | null
           source_quote_code?: string | null
           source_quote_id?: string | null

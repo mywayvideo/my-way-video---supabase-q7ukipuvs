@@ -1385,10 +1385,13 @@ Deno.serve(async (req: Request) => {
       JSON.stringify({
         status: 'ok',
         function: 'classify-ncm',
-        version: '3.8.0-build.622',
+        version: '3.8.0-build.638',
         knowledge_base_version: '4.0',
         features: [
           'ncm_support_layer',
+          'ncm_support_derived_fields_retrieval',
+          'ncm_support_unconditional_audit_links',
+          'functional_coherence_chapter_veto',
           'diretorio_ncm_layer',
           'phase0_canonical_composition_derivation',
           'phase0_tripartite_product_nature',
@@ -1609,15 +1612,32 @@ Deno.serve(async (req: Request) => {
     let ncmSupportEntries: any[] = []
     let ncmSupportPromptBlock = ''
     try {
+      // Derivação da natureza/função primária preliminar a partir do texto técnico e composição
+      const combinedTextLower = fullTechnicalProfile.toLowerCase()
+      const isSupportMechanicalNature =
+        /\b(sustent|suport|estabiliz|fixa|trip[eé]|monop[eé]|pedestal|cabe[cç]a\s+fluida|fluid\s+head|dolly|rig\b|gimbal|suporte)\b/i.test(
+          combinedTextLower,
+        )
+      const supportRadicals = ['sustent', 'suport', 'estabiliz', 'fixa']
+
+      // Extração de posições de 4 dígitos das targetMachines (ex: "8525", "85.25")
+      const targetMachineHeadings = extractTargetMachineHeadings(compositionAnalysis.targetMachines)
+
+      // Sentença preliminar de entendimento canônico do produto (Fase 0 inicial)
+      const canonicalFase0Preliminary = `o produto é um ${leanSignature} destinado a ${compositionAnalysis.targetMachines.join(', ') || 'operação autônoma'}`
+
       const searchTerms = [
-        ...leanSignature.split(/\s+/),
-        ...compositionAnalysis.detectedComponents.map((c) => c.split(/\s+/)).flat(),
-        ...compositionAnalysis.targetMachines.map((m) => m.split(/\s+/)).flat(),
+        ...leanSignature.split(/[\s,+/()_-]+/),
+        ...compositionAnalysis.detectedComponents.map((c) => c.split(/[\s,+/()_-]+/)).flat(),
+        ...compositionAnalysis.targetMachines.map((m) => m.split(/[\s,+/()_-]+/)).flat(),
+        ...targetMachineHeadings,
+        ...canonicalFase0Preliminary.split(/[\s,+/()_-]+/),
+        ...(isSupportMechanicalNature ? supportRadicals : []),
       ]
         .map((t) => t.trim().toLowerCase())
         .filter((t) => t.length >= 3 && !/^(para|com|sem|das|dos|the|and|for|with)$/i.test(t))
 
-      const uniqueTerms = Array.from(new Set(searchTerms)).slice(0, 12)
+      const uniqueTerms = Array.from(new Set(searchTerms)).slice(0, 24)
 
       const { data: allSupportRows, error: suppErr } = await supabaseAdmin
         .from('ncm_support')
@@ -1627,7 +1647,7 @@ Deno.serve(async (req: Request) => {
         .limit(100)
 
       if (!suppErr && allSupportRows && allSupportRows.length > 0) {
-        // Pontuar relevância de cada linha de suporte contra o perfil técnico e termos
+        // Pontuar relevância de cada linha de suporte contra o perfil técnico, termos e natureza derivada
         const scored = allSupportRows.map((row: any) => {
           let score = 0
           const famLower = (row.familia || '').toLowerCase()
@@ -1636,6 +1656,7 @@ Deno.serve(async (req: Request) => {
             ? row.palavras_chave.map((k: string) => String(k).toLowerCase())
             : []
           const textToMatch = fullTechnicalProfile.toLowerCase()
+          const rowMainNcm = normalizeNcm(row.ncm_principal || '')
 
           // Match de palavras-chave da família no perfil do produto
           for (const kw of kwList) {
@@ -1643,12 +1664,39 @@ Deno.serve(async (req: Request) => {
               score += 15
             }
           }
-          // Match de termos da assinatura na família / palavras-chave
+          // Match de termos da assinatura/Fase 0 na família / palavras-chave
           for (const term of uniqueTerms) {
             if (famLower.includes(term)) score += 10
             if (catLower.includes(term)) score += 5
             if (kwList.some((k: string) => k.includes(term))) score += 8
           }
+
+          // Bonus quando palavras_chave ou família coincidem com a natureza derivada de sustentação/suporte mecânico
+          if (isSupportMechanicalNature) {
+            const rowIsSupportRelated =
+              supportRadicals.some((rad) => famLower.includes(rad) || catLower.includes(rad)) ||
+              kwList.some((kw) => supportRadicals.some((rad) => kw.includes(rad)))
+            if (rowIsSupportRelated) {
+              score += 35
+            }
+          }
+
+          // Bonus quando a posição principal ou alternativas da família cobrem a posição das targetMachines
+          if (targetMachineHeadings.length > 0) {
+            const coversTarget = targetMachineHeadings.some((th) => {
+              if (rowMainNcm.startsWith(th)) return true
+              // Se a família tiver regra para partes/acessórios cobrindo a máquina alvo
+              // (ex.: 85299090 cobre máquinas da posição 8525)
+              if (rowMainNcm === '85299090' && ['8525', '8526', '8527', '8528'].includes(th))
+                return true
+              if (rowMainNcm === '84314910' && th.startsWith('84')) return true
+              return false
+            })
+            if (coversTarget) {
+              score += 25
+            }
+          }
+
           return { row, score }
         })
 
@@ -2187,6 +2235,10 @@ PROTOCOLO OBRIGATÓRIO DE AUDITORIA (PRINCÍPIOS GENÉRICOS UNIVERSAIS):
    - Entendimento incoerente INVALIDA a recomendação (action: "VETA").
    - Construa ou homologue o perfil técnico na saída com a sentença canônica canônica obrigatória:
      "o produto é um [tipo] que [função essencial], destinado a [máquina]".
+   - COERÊNCIA FUNCIONAL DE CAPÍTULO (PRINCÍPIO GENÉRICO VINCULANTE):
+     * A função primária essencial DEFINE o capítulo do Sistema Harmonizado.
+     * Quando a função primária for de sustentação estrutural, suporte físico, estabilização ou fixação mecânica (ex.: tripés, monopés, suportes articulados, pedestais mecânicos, cabeças fluidas) e as máquinas servidas (target_machines) forem aparelhos eletroeletrônicos (ex.: câmeras de televisão/vídeo da posição 85.25), o enquadramento em capítulos de instrumentos de precisão/óptica (Capítulo 90, ex.: microscópios 90.11) ou de aparelhos de telecomunicação é ESTRITAMENTE PROIBIDO.
+     * Em tais hipóteses, o auditor DEVE VETAR a recomendação inadequada (action: "VETA") e reenquadrar o produto utilizando a família pertinente da Camada de Conhecimento de Domínio (ncm_support), direcionando prioritariamente para a NCM principal da família (ex.: 8529.90.90 como parte/acessório reconhecível destinado aos aparelhos da posição 85.25, com nota de atenção à posição 96.20 quando aplicável na legislação aduaneira vigente).
 1. ENUNCIAÇÃO DA FUNÇÃO ESSENCIAL: declare a função essencial que confere caráter essencial ao produto ou conjunto global (RGI 1 e RGI 3b).
 2. DESEMPATE INTRAFAMÍLIA OBRIGATÓRIO (DISCRIMINAÇÃO TÉCNICA TABULADA):
    - Quando mais de uma subposição da mesma família hierárquica (mesmos 4 ou 6 primeiros dígitos) estiver presente entre as candidatas (ex.: 8543.70.x, 8525.89.x):
@@ -2619,11 +2671,20 @@ ${candidatesCatalogText}`
     // =========================================================================
     // 12.A.0.1 VETOS E DIRETRIZES DA TABELA ncm_support (Fase 2 / Auditor Revisor)
     // =========================================================================
-    // Alertas e regras de desempate de linhas de ncm_support com status ≠ 'ativa'
-    // ou alertas explícitos de código extinto vetam o código da mesma forma que o veto 90.07.
+    // Alertas e regras de desempate de linhas de ncm_support:
+    // (a) Linhas com status ≠ 'ativa' ou alertas explícitos de código extinto ("não usar", "extinto");
+    // (b) Linhas ATIVAS cujos alertas contenham proibições explícitas de capítulos/posições de 2 a 4 dígitos
+    //     (ex.: "PROIBIDO ... 90.11", "VEDADO ... 90", "NÃO CLASSIFICAR EM 9011").
+    // O parser extrai tais proibições e aplica o veto determinístico com reenquadramento na ncm_principal da família.
     try {
+      // Mapa de posições/capítulos proibidos por família ativa
+      const explicitProhibitionsByFamily: Array<{
+        entry: any
+        forbiddenPrefixes: string[]
+        rawAlertText: string
+      }> = []
+
       for (const entry of ncmSupportEntries) {
-        // Se a linha estiver extinta ou em revisão, ou alertar código extinto
         const alertsText = (entry.alertas || '').toLowerCase()
         const isNonActive = entry.status !== 'ativa'
 
@@ -2641,26 +2702,121 @@ ${candidatesCatalogText}`
             vetoedNcms.add(normalizeNcm(entry.ncm_principal))
           }
         }
+
+        // Para linhas ATIVAS: extrair proibições explícitas de 2 a 4 dígitos citadas nos alertas
+        if (!isNonActive && entry.alertas) {
+          const alertLines = entry.alertas.split(/[\n;]+/)
+          const forbiddenPrefixes: string[] = []
+
+          for (const line of alertLines) {
+            const lineLower = line.toLowerCase()
+            const hasProhibitionWord =
+              /\b(proibido|vedado|n[aã]o\s+usar|n[aã]o\s+classificar|jamais|nunca|err[oô]neo|incorreto)\b/i.test(
+                lineLower,
+              )
+            if (hasProhibitionWord) {
+              // Extrair códigos de 2 a 4 dígitos (ex: 90.11, 9011, 90) e NCMs de 8 dígitos
+              const matchedCodes =
+                line.match(/\b\d{2}(?:\.\d{2})?(?:\.\d{2})?(?:\.\d{2})?\b/g) || []
+              for (const code of matchedCodes) {
+                const cleanDigits = code.replace(/\D/g, '')
+                // Se for capítulo ou posição proibida (2 ou 4 dígitos) ou NCM de 8 dígitos
+                if (
+                  cleanDigits.length === 2 ||
+                  cleanDigits.length === 4 ||
+                  cleanDigits.length === 8
+                ) {
+                  // Ignorar se o código citado for o próprio ncm_principal ou alternativo permitido da família
+                  const isOwnPrincipal =
+                    cleanDigits.length === 8 && normalizeNcm(entry.ncm_principal) === cleanDigits
+                  if (!isOwnPrincipal) {
+                    forbiddenPrefixes.push(cleanDigits)
+                  }
+                }
+              }
+            }
+          }
+
+          if (forbiddenPrefixes.length > 0) {
+            explicitProhibitionsByFamily.push({
+              entry,
+              forbiddenPrefixes: Array.from(new Set(forbiddenPrefixes)),
+              rawAlertText: entry.alertas,
+            })
+          }
+        }
       }
 
-      // Se a recomendação da 1ª passada ou do auditor caiu em código vetado por ncm_support
-      const checkRecNcmSupport = normalizeNcm(llmResponseJson.recommended_ncm)
-      if (vetoedNcms.has(checkRecNcmSupport)) {
+      // Se a recomendação da 1ª passada ou do auditor caiu em código vetado por ncm_support (8 dígitos exatos)
+      let checkRecNcmSupport = normalizeNcm(llmResponseJson.recommended_ncm)
+      let supportVetoMatch = vetoedNcms.has(checkRecNcmSupport)
+      let matchedFamilyForVeto: any = null
+      let matchedForbiddenPrefix = ''
+
+      // Verificar também proibições explícitas de capítulo/posição de linhas ativas
+      if (!supportVetoMatch) {
+        for (const prob of explicitProhibitionsByFamily) {
+          for (const prefix of prob.forbiddenPrefixes) {
+            if (checkRecNcmSupport.startsWith(prefix)) {
+              supportVetoMatch = true
+              matchedFamilyForVeto = prob.entry
+              matchedForbiddenPrefix = prefix
+              vetoedNcms.add(checkRecNcmSupport)
+              console.log(
+                `[ncm_support Veto Ativo]: NCM ${checkRecNcmSupport} inicia com prefixo proibido ${prefix} conforme alerta da família ${prob.entry.familia}.`,
+              )
+              break
+            }
+          }
+          if (supportVetoMatch) break
+        }
+      }
+
+      if (supportVetoMatch) {
         console.warn(
           `[ncm_support Veto Aplicado]: NCM ${checkRecNcmSupport} está vetado pela camada ncm_support.`,
         )
         // Encontrar linha pertinente de ncm_support com status ativa
-        const activeEntry = ncmSupportEntries.find(
-          (e) => e.status === 'ativa' && normalizeNcm(e.ncm_principal) !== checkRecNcmSupport,
-        )
+        const activeEntry =
+          matchedFamilyForVeto ||
+          ncmSupportEntries.find(
+            (e) => e.status === 'ativa' && normalizeNcm(e.ncm_principal) !== checkRecNcmSupport,
+          )
+
         if (activeEntry && activeEntry.ncm_principal) {
-          llmResponseJson.recommended_ncm = activeEntry.ncm_principal
+          const principalNcmClean = normalizeNcm(activeEntry.ncm_principal)
+          // Se o NCM principal não constava nos candidatos, buscar alíquota oficial
+          const principalCandidate =
+            candidates.find((c: any) => normalizeNcm(c.ncm) === principalNcmClean) ||
+            (await resolveEffectiveTaxRate(supabaseAdmin, principalNcmClean, ''))
+
+          llmResponseJson.recommended_ncm = principalNcmClean
           llmResponseJson.recommended_ex = ''
-          llmResponseJson.justification = `[Veto por Camada de Conhecimento ncm_support - Família: ${activeEntry.familia}]: O código anterior ${checkRecNcmSupport} foi vetado conforme alertas da base oficial (${activeEntry.alertas || 'Código em revisão/extinto'}). Reenquadrado no NCM principal vigente ${activeEntry.ncm_principal}. ${activeEntry.regra_desempate || ''}\n\n${llmResponseJson.justification || ''}`
+
+          const attention9620 =
+            principalNcmClean === '85299090' ||
+            (activeEntry.alertas && activeEntry.alertas.includes('9620'))
+              ? ' (com nota de atenção à posição 96.20 para tripés e suportes afins quando exigido pelas diretrizes Siscomex)'
+              : ''
+
+          const vetoDetail = matchedForbiddenPrefix
+            ? `O enquadramento na posição/capítulo ${matchedForbiddenPrefix} (${checkRecNcmSupport}) é expressamente proibido pela regra da família "${activeEntry.familia}": ${activeEntry.alertas || ''}.`
+            : `O código anterior ${checkRecNcmSupport} foi vetado conforme alertas da base oficial (${activeEntry.alertas || 'Código em revisão/extinto'}).`
+
+          llmResponseJson.justification = `[Veto por Camada de Conhecimento ncm_support - Família: ${activeEntry.familia}]: ${vetoDetail} Reenquadrado no NCM principal vigente ${principalNcmClean}${attention9620}. ${activeEntry.regra_desempate || ''}\n\n${llmResponseJson.justification || ''}`
           auditVerdict.action = 'VETA'
-          auditVerdict.corrected_ncm = activeEntry.ncm_principal
+          auditVerdict.corrected_ncm = principalNcmClean
           auditVerdict.corrected_ex = ''
-          auditVerdict.correction_reason = `Código ${checkRecNcmSupport} vetado por salvaguarda da camada ncm_support.`
+          auditVerdict.correction_reason = `Código ${checkRecNcmSupport} vetado por salvaguarda da camada ncm_support (${activeEntry.familia}). Reenquadrado na NCM principal ${principalNcmClean}.`
+
+          // Também vetar de alternativas qualquer candidato que comece com o prefixo proibido
+          if (matchedForbiddenPrefix) {
+            for (const cand of candidates) {
+              if (normalizeNcm(cand.ncm).startsWith(matchedForbiddenPrefix)) {
+                vetoedNcms.add(normalizeNcm(cand.ncm))
+              }
+            }
+          }
         }
       }
     } catch (suppVetoErr) {
@@ -3602,8 +3758,8 @@ ${candidatesCatalogText}`
     }))
 
     // 15. Gravação no log de auditoria (imp_sim_ncm_classification_log)
-    // 3.4. Rastreabilidade conhecimento->decisão: quando uma linha de ncm_support influenciar a resposta,
-    // referenciar a família no audit_links de imp_sim_ncm_classification_log
+    // 3.4. Rastreabilidade conhecimento->decisão: vinculação incondicional de ncm_support no audit_links
+    // decorando com [Influenciou Decisão] ou [Injetada para Contexto]
     const combinedAuditLinks: any[] = [...webSources]
     for (const supp of ncmSupportEntries) {
       const isInfluencing =
@@ -3612,16 +3768,17 @@ ${candidatesCatalogText}`
           supp.ncm_alternativas.some((a: any) => normalizeNcm(a.ncm) === recommendedNcmClean)) ||
         resolvedAlternatives.some((alt: any) => alt.ncm === normalizeNcm(supp.ncm_principal))
 
-      if (isInfluencing) {
-        combinedAuditLinks.push({
-          title: `Camada Conhecimento: ${supp.familia}`,
-          url: `ncm_support://${supp.id}`,
-          snippet: `Família: ${supp.familia} | Categoria: ${supp.categoria || 'Geral'} | NCM Principal: ${supp.ncm_principal} | Status: ${supp.status} | Regra: ${supp.regra_desempate || 'N/A'}`,
-          type: 'ncm_support_family',
-          support_id: supp.id,
-          familia: supp.familia,
-        })
-      }
+      const statusSuffix = isInfluencing ? ' [Influenciou Decisão]' : ' [Injetada para Contexto]'
+
+      combinedAuditLinks.push({
+        title: `Camada Conhecimento: ${supp.familia}`,
+        url: `ncm_support://${supp.id}`,
+        snippet: `Família: ${supp.familia} | Categoria: ${supp.categoria || 'Geral'} | NCM Principal: ${supp.ncm_principal} | Status: ${supp.status} | Regra: ${supp.regra_desempate || 'N/A'}${statusSuffix}`,
+        type: 'ncm_support_family',
+        support_id: supp.id,
+        familia: supp.familia,
+        influencing: Boolean(isInfluencing),
+      })
     }
 
     let auditId: string | null = null
@@ -3709,7 +3866,7 @@ ${candidatesCatalogText}`
       composition_analysis: compositionAnalysis,
       checklist_log: checklistLog,
       parts_indirect_logic: partsTelemetry,
-      version: '3.8.0-build.622',
+      version: '3.8.0-build.638',
       timestamp: new Date().toISOString(),
     }
     return new Response(JSON.stringify(responsePayload), {

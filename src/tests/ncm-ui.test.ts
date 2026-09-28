@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { formatNcmDisplay, cleanNcmDigits } from '@/components/admin/NcmSuggestDialog'
+import { formatNcmCode, formatTaxPercent } from '@/components/NcmSelectionExample'
+import { MOCK_RM_IP500_RESPONSE } from '@/pages/NcmDemoPage'
 import { ncmService } from '@/services/ncmService'
 
 describe('NcmSuggestDialog helpers & formatters', () => {
@@ -66,5 +68,35 @@ describe('NcmSuggestDialog helpers & formatters', () => {
 
     expect(mockResponse.checklist_log?.status).toBe('NÃO VERIFICADO')
     expect(mockResponse.checklist_log?.requiresExpertReview).toBe(true)
+  })
+
+  it('formats NCM code and tax percentages correctly in NcmSelectionExample', () => {
+    expect(formatNcmCode('85299090')).toBe('8529.90.90')
+    expect(formatNcmCode('85437099')).toBe('8543.70.99')
+    expect(formatNcmCode('90319090')).toBe('9031.90.90')
+    expect(formatNcmCode(null)).toBe('—')
+
+    expect(formatTaxPercent(6.5)).toBe('6,5%')
+    expect(formatTaxPercent(16)).toBe('16,0%')
+    expect(formatTaxPercent(2.1)).toBe('2,1%')
+    expect(formatTaxPercent(9.65)).toBe('9,65%')
+    expect(formatTaxPercent(34.25)).toBe('34,25%')
+    expect(formatTaxPercent(null)).toBe('0,0%')
+  })
+
+  it('validates mock RM-IP500 data structure conforms to NcmSelectionData specification', () => {
+    expect(MOCK_RM_IP500_RESPONSE.recommendation.ncm).toBe('85299090')
+    expect(MOCK_RM_IP500_RESPONSE.recommendation.ii).toBe(16.0)
+    expect(MOCK_RM_IP500_RESPONSE.recommendation.ipi).toBe(6.5)
+    expect(MOCK_RM_IP500_RESPONSE.confidence).toBe('alta')
+    expect(MOCK_RM_IP500_RESPONSE.sufficient_info).toBe(true)
+    expect(MOCK_RM_IP500_RESPONSE.version).toBe('3.7.0-build.613')
+    expect(MOCK_RM_IP500_RESPONSE.analyst_model).toBe('gpt-4o-mini')
+    expect(MOCK_RM_IP500_RESPONSE.auditor_model).toBe('deepseek-chat')
+    expect(MOCK_RM_IP500_RESPONSE.alternatives?.length).toBe(2)
+    expect(MOCK_RM_IP500_RESPONSE.alternatives?.[0].ncm).toBe('85437099')
+    expect(MOCK_RM_IP500_RESPONSE.alternatives?.[0].alternatives_source).toBe('promovido da varredura de candidatos')
+    expect(MOCK_RM_IP500_RESPONSE.alternatives?.[1].ncm).toBe('90319090')
+    expect(MOCK_RM_IP500_RESPONSE.alternatives?.[1].alternatives_source).toBe('citado pela IA')
   })
 })

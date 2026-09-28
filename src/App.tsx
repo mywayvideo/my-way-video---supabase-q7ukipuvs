@@ -39,6 +39,7 @@ import Cart from './pages/Cart'
 import Checkout from './pages/Checkout'
 import CheckoutSuccess from './pages/CheckoutSuccess'
 import MigrationSetup from './pages/MigrationSetup'
+import NcmDemoPage from './pages/NcmDemoPage'
 import ForgotPassword from './pages/ForgotPassword'
 import PrivacyPolicy from './pages/PrivacyPolicy'
 import TermsOfService from './pages/TermsOfService'
@@ -302,6 +303,7 @@ const App = () => {
                     <Route path="/forgot-password" element={<ForgotPassword />} />
                     <Route path="/reset-password" element={<ResetPassword />} />
                     <Route path="/migration-setup" element={<MigrationSetup />} />
+                    <Route path="/ncm-demo" element={<NcmDemoPage />} />
                     <Route path="/favorites" element={<Favorites />} />
                     <Route path="/cart" element={<Cart />} />
                     <Route path="/checkout" element={<Checkout />} />

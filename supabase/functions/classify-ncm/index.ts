@@ -1,4 +1,4 @@
-// Deploy trigger build 616 - classify-ncm v3.8.0-build.616
+// Deploy trigger build 617 - classify-ncm v3.8.0-build.617
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { corsHeaders } from '../_shared/cors.ts'
@@ -252,6 +252,126 @@ function parseWordNumber(word: string): number | null {
  * Se for patente incompatibilidade (ex.: produto com 4 entradas contra "oito ou mais"): penalização (-60);
  * Função GENÉRICA: vale para qualquer capítulo/posição (84, 85, 90), sem hardcode de NCM ou produto.
  */
+/**
+ * Extrai a contagem técnica de entradas físicas de vídeo declaradas nas especificações do produto,
+ * confrontando com termos como "SDI", "HDMI", "entradas de vídeo", "video inputs", etc.
+ * Retorna { count, snippet } ou null se nenhuma contagem for localizada.
+ */
+function extractDeclaredVideoInputCount(
+  productSpecs: string,
+): { count: number; snippet: string } | null {
+  if (!productSpecs || typeof productSpecs !== 'string') return null
+  const text = productSpecs.toLowerCase()
+
+  // 1. Padrões explícitos como:
+  // "10 entradas SDI", "20 video inputs", "8 entradas de vídeo", "4 HDMI inputs", "20 x 12G-SDI inputs",
+  // "entradas de vídeo: 8", "video inputs: 10", "8 inputs (1080p)", "8x SDI", "8 canais de entrada"
+  const patterns: RegExp[] = [
+    /\b(oito|tr[eê]s|duas|dois|quatro|cinco|seis|sete|nove|dez|doze|dezesseis|vinte|\d+)\s*(?:x\s*)?(?:entradas?\s*(?:de\s*)?(?:v[ií]deo|video)?|(?:video\s*)?inputs?)\s*(?:sdi|hdmi|12g|3g|4k|bnc)?\b/i,
+    /\b(?:entradas?\s*(?:de\s*)?(?:v[ií]deo|video)?|(?:video\s*)?inputs?)\s*(?::|de)?\s*(oito|tr[eê]s|duas|dois|quatro|cinco|seis|sete|nove|dez|doze|dezesseis|vinte|\d+)\b/i,
+    /\b(oito|tr[eê]s|duas|dois|quatro|cinco|seis|sete|nove|dez|doze|dezesseis|vinte|\d+)\s*(?:x\s*)?(?:12g-sdi|6g-sdi|3g-sdi|hd-sdi|sdi|hdmi)\s*(?:entradas?|inputs?)\b/i,
+    /\b(oito|tr[eê]s|duas|dois|quatro|cinco|seis|sete|nove|dez|doze|dezesseis|vinte|\d+)\s*(?:canais|channels)\s*(?:de\s*)?(?:entrada|input)\b/i,
+    /\b(\d+)\s*(?:x|[-])\s*(?:in|inputs?|entradas?)\b/i,
+  ]
+
+  for (const pat of patterns) {
+    const m = text.match(pat)
+    if (m) {
+      const num = parseWordNumber(m[1])
+      if (num !== null && num > 0) {
+        return { count: num, snippet: m[0] }
+      }
+    }
+  }
+
+  // 2. Tentar somar entradas declaradas quando houver especificação segregada (ex: "4 SDI e 4 HDMI inputs")
+  const dualMatch = text.match(
+    /\b(\d+)\s*(?:x\s*)?(?:sdi|12g-sdi|3g-sdi|hdmi)\s*(?:inputs?|entradas?)?\s*(?:e|\+|and)\s*(\d+)\s*(?:x\s*)?(?:sdi|12g-sdi|3g-sdi|hdmi)\s*(?:inputs?|entradas?)\b/i,
+  )
+  if (dualMatch) {
+    const n1 = parseInt(dualMatch[1], 10)
+    const n2 = parseInt(dualMatch[2], 10)
+    if (!isNaN(n1) && !isNaN(n2)) {
+      return { count: n1 + n2, snippet: dualMatch[0] }
+    }
+  }
+
+  return null
+}
+
+/**
+ * Extrai a contagem física real de sensores/captadores de imagem declarados nas especificações do produto.
+ * REQUISITO DETERMINÍSTICO (3): Exige 3+ captadores/sensores físicos declarados (cmos/ccd/captador/sensor).
+ * Filtra expressamente linguagem de marketing ("3 câmeras em 1", "multi-câmera", "3 cameras in 1",
+ * "3-in-1", "all-in-one", "3 presets") — só contam menções técnicas diretas a sensores/captadores de imagem.
+ */
+function extractPhysicalSensorCount(
+  productSpecs: string,
+): { count: number; snippet: string } | null {
+  if (!productSpecs || typeof productSpecs !== 'string') return null
+  const text = productSpecs.toLowerCase()
+
+  // 1. Filtrar falso-positivos de marketing antes da contagem
+  // Ex: "3 câmeras em 1", "3-in-1 camera", "multi-câmera" não contam como 3 sensores
+  const isMarketingClaim =
+    /\b(?:3\s*(?:c[aâ]meras?|cameras?)\s*(?:em|in)\s*1|3-in-1|all-in-one|multi-c[aâ]mera|multicamera)\b/i.test(
+      text,
+    )
+
+  // 2. Padrões técnicos diretos para múltiplos sensores/captadores:
+  // "3 CMOS", "3x 2/3", "3 sensores de imagem", "3 captadores", "three 2/3-inch sensors",
+  // "três sensores", "3 ccd", "sistema de 3 sensores", "3-sensor", "3-chip", "3 chips"
+  const multiSensorPatterns: RegExp[] = [
+    /\b(oito|tr[eê]s|duas|dois|quatro|cinco|seis|sete|\d+)\s*(?:x|\*|-)?\s*(?:\d+(?:\/\d+)?["”]?(?:\s*(?:4k|hd|type))?)?\s*(?:cmos|ccd|captadores?(?:\s+de\s+imagem)?|sensores?(?:\s+de\s+imagem)?|chips?|image\s+sensors?)\b/i,
+    /\b(?:sistema\s+de\s+|sistema\s+com\s+)(oito|tr[eê]s|duas|dois|quatro|cinco|seis|sete|\d+)\s*(?:sensores?|captadores?|cmos|ccd)\b/i,
+    /\b(3-chip|3\s+chips|3-sensor|3\s+sensors|tri-sensor)\b/i,
+    /\b(?:three|tr[eê]s)\s+(?:\d+(?:\/\d+)?["”]?(?:\s*(?:4k|hd|type))?)?\s*(?:cmos|ccd|sensors?|captadores?)\b/i,
+  ]
+
+  for (const pat of multiSensorPatterns) {
+    const m = text.match(pat)
+    if (m) {
+      if (
+        m[0].includes('3-chip') ||
+        m[0].includes('3 chips') ||
+        m[0].includes('3-sensor') ||
+        m[0].includes('3 sensors') ||
+        m[0].includes('tri-sensor')
+      ) {
+        return { count: 3, snippet: m[0] }
+      }
+      const num = parseWordNumber(m[1])
+      if (num !== null && num > 0) {
+        return { count: num, snippet: m[0] }
+      }
+    }
+  }
+
+  // 3. Padrões de sensor único (1 sensor):
+  // "1 sensor", "single sensor", "single chip", "single-chip", "1-chip", "sensor único", "1x sensor",
+  // "sensor super 35", "sensor 6k", "sensor full frame", "large format sensor", "sensor cmos de ..."
+  const singleSensorPatterns: RegExp[] = [
+    /\b(?:sensor\s+[uú]nico|single\s+sensor|single-chip|1-chip|1\s+sensor|um\s+sensor|1x\s+sensor)\b/i,
+    /\b(?:sensor\s+(?:6k|4k|8k|12k|super\s*35|s35|full\s*frame|full-frame|aps-c|micro\s*four\s*thirds|mft))\b/i,
+    /\b(?:sensor\s+cmos\s+(?:super\s*35|6k|4k|full\s*frame))\b/i,
+    /\b(?:super\s*35mm|super\s*35)\s+(?:hdr\s+)?(?:image\s+)?sensor\b/i,
+  ]
+
+  for (const pat of singleSensorPatterns) {
+    const m = text.match(pat)
+    if (m) {
+      return { count: 1, snippet: m[0] }
+    }
+  }
+
+  // Se o texto fala apenas em marketing de "3 câmeras em 1", registrar como não-qualificante de múltiplos sensores físicos
+  if (isMarketingClaim) {
+    return { count: 1, snippet: 'claim de marketing comercial (não são 3 sensores físicos)' }
+  }
+
+  return null
+}
+
 function evaluateIntrafamilyQualifierScore(
   ncmDescricaoFull: string,
   exText: string | null | undefined,
@@ -370,6 +490,28 @@ function evaluateIntrafamilyQualifierScore(
     if (sdiMatch) {
       matchedProductSnippet = sdiMatch[0]
       productNum = parseWordNumber(sdiMatch[1])
+    }
+  }
+
+  // REQUISITO DETERMINÍSTICO (3) CÂMERAS - FILTRAGEM DE MARKETING E CAPTADORES FÍSICOS:
+  // Para captadores/sensores (ex.: "com três ou mais captadores de imagem"), exige menção técnica
+  // real a sensores físicos (cmos, ccd, captador, sensor). Filtrar slogans comerciais e marketing
+  // tipo "3 câmeras em 1", "multi-câmera", "3 cameras in 1" que não indicam múltiplos sensores físicos.
+  if (category === 'captadores' || category === 'sensores') {
+    const sensorCount = extractPhysicalSensorCount(prodText)
+    if (sensorCount !== null) {
+      productNum = sensorCount.count
+      matchedProductSnippet = sensorCount.snippet
+    }
+  }
+
+  // REQUISITO DETERMINÍSTICO (2) SWITCHERS - ENTRADAS DE VÍDEO:
+  // Para entradas/inputs de vídeo, extrair a contagem técnica de entradas de sinal
+  if (category === 'entradas' || category === 'inputs') {
+    const inputCount = extractDeclaredVideoInputCount(prodText)
+    if (inputCount !== null) {
+      productNum = inputCount.count
+      matchedProductSnippet = inputCount.snippet
     }
   }
 
@@ -1078,7 +1220,7 @@ Deno.serve(async (req: Request) => {
       JSON.stringify({
         status: 'ok',
         function: 'classify-ncm',
-        version: '3.8.0-build.616',
+        version: '3.8.0-build.617',
         knowledge_base_version: '3.1',
         features: [
           'phase0_canonical_composition_derivation',
@@ -2319,6 +2461,57 @@ ${candidatesCatalogText}`
             }
           }
 
+          // REGRAS DETERMINÍSTICAS (2) SWITCHERS E (3) CÂMERAS - VETO / PREVALÊNCIA DIRETA:
+          // (2) Switchers: 85437035 exige 8+ entradas de vídeo declaradas. Menos de 8 -> INELEGÍVEL (veto).
+          // Se o produto tiver 8+ entradas, 85437035 é preferido. Se tiver menos de 8, 85437035 é vetado, promovendo 85437099.
+          const declaredInputs = extractDeclaredVideoInputCount(fullTechnicalProfile)
+          if (subpos6 === '854370') {
+            if (currentChosenNcm === '85437035') {
+              if (declaredInputs !== null && declaredInputs.count < 8) {
+                console.log(
+                  `[Regra Determinística Switcher]: 85437035 inelegível (possui apenas ${declaredInputs.count} entradas de vídeo, exige 8+). Promovendo residual 85437099.`,
+                )
+                currentNatureCheck.contradicted = true
+                vetoedNcms.add('85437035')
+              }
+            } else if (declaredInputs !== null && declaredInputs.count >= 8) {
+              const sib35 = siblingCandidates.find((c: any) => normalizeNcm(c.ncm) === '85437035')
+              if (sib35) {
+                bestSibling = sib35
+                bestSiblingScore = 150
+                bestSiblingReason = `Produto possui ${declaredInputs.count} entradas de vídeo declaradas ("${declaredInputs.snippet}"), atendendo ao requisito oficial da NCM 85437035 (oito ou mais entradas).`
+              }
+            }
+          }
+
+          // (3) Câmeras: 85258921 ("com três ou mais captadores de imagem") exige 3+ captadores/sensores físicos declarados.
+          // Câmera com 1 ou 2 sensores físicos -> 85258921 INELEGÍVEL (veto), enquadramento vai para 85258929 ("Outras", II 20%).
+          const declaredSensors = extractPhysicalSensorCount(fullTechnicalProfile)
+          if (subpos6 === '852589') {
+            if (currentChosenNcm === '85258921') {
+              if (declaredSensors !== null && declaredSensors.count < 3) {
+                console.log(
+                  `[Regra Determinística Câmeras]: 85258921 inelegível (possui ${declaredSensors.count} captador(es) físico(s), exige 3+). Redirecionando para 85258929 ("Outras").`,
+                )
+                currentNatureCheck.contradicted = true
+                vetoedNcms.add('85258921')
+                const sib29 = siblingCandidates.find((c: any) => normalizeNcm(c.ncm) === '85258929')
+                if (sib29) {
+                  bestSibling = sib29
+                  bestSiblingScore = 150
+                  bestSiblingReason = `Produto possui ${declaredSensors.count} captador(es) físico(s) de imagem ("${declaredSensors.snippet}"). A NCM 85258921 exige 3 ou mais captadores físicos; não atingindo o requisito, enquadra-se como 85258929 (Outras).`
+                }
+              }
+            } else if (declaredSensors !== null && declaredSensors.count >= 3) {
+              const sib21 = siblingCandidates.find((c: any) => normalizeNcm(c.ncm) === '85258921')
+              if (sib21) {
+                bestSibling = sib21
+                bestSiblingScore = 150
+                bestSiblingReason = `Produto possui ${declaredSensors.count} captadores físicos de imagem declarados ("${declaredSensors.snippet}"), satisfazendo plenamente a NCM 85258921 (três ou mais captadores).`
+              }
+            }
+          }
+
           // Se o melhor irmão for diferente do atual e tiver pontuação decisivamente superior
           // (ex.: qualificador quantitativo satisfeito ou atual é contraditório/incompatível)
           if (
@@ -2340,14 +2533,14 @@ ${candidatesCatalogText}`
             llmResponseJson.justification = `[Desempate Intrafamília Pré-Decisão - RGI 1 / RGI 6]: No desdobramento hierárquico ${subpos6}, prevalece a subposição específica ${newNcm} (${bestSibling.ncm_descricao_full || bestSibling.ncm_descricao}) sobre o subitem ${oldNcm}. Fundamentação: ${bestSiblingReason}\n\n${llmResponseJson.justification || ''}`
 
             // Adicionar o NCM anterior nas alternativas se não estiver vetado
-            if (!currentNatureCheck.contradicted) {
+            if (!currentNatureCheck.contradicted && !vetoedNcms.has(oldNcm)) {
               if (!Array.isArray(llmResponseJson.alternatives)) {
                 llmResponseJson.alternatives = []
               }
               llmResponseJson.alternatives.unshift({
                 ncm: oldNcm,
                 ex: currentCand?.ex || '',
-                reason: `Alternativa do mesmo desdobramento hierárquico ${subpos6}, preterida perante a subposição mais específica ${newNcm} cujos qualificadores foram plenamente satisfeitos.`,
+                reason: `Classificação da subposição ${subpos6} aplicável quando os qualificadores específicos de outras subposições não forem atendidos.`,
               })
             }
           }
@@ -2998,7 +3191,7 @@ ${candidatesCatalogText}`
       composition_analysis: compositionAnalysis,
       checklist_log: checklistLog,
       parts_indirect_logic: partsTelemetry,
-      version: '3.8.0-build.616',
+      version: '3.8.0-build.617',
       timestamp: new Date().toISOString(),
     }
     return new Response(JSON.stringify(responsePayload), {

@@ -5,4 +5,3 @@ import './main.css'
 
 // @skip-protected: Do not remove. Required for React rendering.
 createRoot(document.getElementById('root')!).render(<App />)
-const invalid_syntax: ;

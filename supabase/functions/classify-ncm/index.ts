@@ -1,4 +1,4 @@
-// Deploy trigger build 622 - classify-ncm v3.8.0-build.622
+// Deploy trigger build 650 - classify-ncm v3.8.0-build.650
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
 import { createClient } from 'npm:@supabase/supabase-js@2'
 
@@ -275,6 +275,95 @@ function isSupportedAIProvider(provider: {
     supported: false,
     reason: `Tipo de provedor "${provider.provider_type}" não suportado nativamente na classify-ncm.`,
   }
+}
+
+// =============================================================================
+// RECONHECIMENTO DETERMINÍSTICO DA CAMADA DE CONHECIMENTO (DIRETÓRIO / NCM SUPPORT)
+// =============================================================================
+
+interface KnowledgeRecognitionResult {
+  recognized: boolean
+  source: 'diretorio_ncm' | 'ncm_support' | 'none'
+  description: string
+  tax_rate_warning?: string
+}
+
+/**
+ * Avalia de forma genérica e universal se um código NCM sugerido pelo LLM
+ * (mesmo que ausente da base local imp_sim_tax_rates) é um código formalmente válido
+ * e expressamente previsto na Camada de Conhecimento do sistema:
+ * 1. Diretório NCM (ex.: 96200000 para tripés e monopés do Cap. 96);
+ * 2. Camada ncm_support (tabela de apoio com status='active');
+ * 3. Validação estrutural de 8 dígitos numéricos válidos da NCM.
+ */
+function isKnowledgeLayerRecognizedNcm(
+  ncmCode: string,
+  ncmSupportEntries: any[],
+  _technicalProfile?: string,
+): KnowledgeRecognitionResult {
+  const normNcm = normalizeNcm(ncmCode)
+  if (!normNcm || normNcm.length !== 8) {
+    return { recognized: false, source: 'none', description: '' }
+  }
+
+  // 1. Verificação na Camada ncm_support ativa
+  if (Array.isArray(ncmSupportEntries) && ncmSupportEntries.length > 0) {
+    for (const entry of ncmSupportEntries) {
+      if (entry.status && entry.status !== 'active') continue
+
+      const mainNcm = normalizeNcm(entry.ncm_principal || '')
+      if (mainNcm === normNcm) {
+        return {
+          recognized: true,
+          source: 'ncm_support',
+          description:
+            entry.dicas ||
+            entry.familia ||
+            `NCM ${normNcm} (previsto na camada de apoio ncm_support)`,
+          tax_rate_warning: 'Alíquotas indisponíveis na base local — verificar no Siscomex',
+        }
+      }
+
+      // Alternativas da regra ncm_support
+      if (Array.isArray(entry.ncm_alternativas)) {
+        for (const alt of entry.ncm_alternativas) {
+          const altNcm = typeof alt === 'string' ? normalizeNcm(alt) : normalizeNcm(alt?.ncm || '')
+          if (altNcm === normNcm) {
+            return {
+              recognized: true,
+              source: 'ncm_support',
+              description:
+                alt?.motivo ||
+                entry.dicas ||
+                entry.familia ||
+                `NCM ${normNcm} (alternativa ncm_support)`,
+              tax_rate_warning: 'Alíquotas indisponíveis na base local — verificar no Siscomex',
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // 2. Verificação no Diretório NCM (KNOWLEDGE LAYER)
+  // O Diretório prescreve expressamente posições e códigos como 96200000, 94054200, 85219000 etc.
+  const diretorioText = (DIRETORIO_NCM_KNOWLEDGE || '').replace(/\./g, '')
+  if (diretorioText.includes(normNcm)) {
+    let desc = `NCM ${normNcm} reconhecido pelo Diretório NCM oficial`
+    if (normNcm === '96200000') {
+      desc = 'Monopés, bipés, tripés e artigos semelhantes (Capítulo 96)'
+    } else if (normNcm === '94054200') {
+      desc = 'Luminárias e aparelhos de iluminação (Capítulo 94)'
+    }
+    return {
+      recognized: true,
+      source: 'diretorio_ncm',
+      description: desc,
+      tax_rate_warning: 'Alíquotas indisponíveis na base local — verificar no Siscomex',
+    }
+  }
+
+  return { recognized: false, source: 'none', description: '' }
 }
 
 // =============================================================================
@@ -1398,10 +1487,12 @@ Deno.serve(async (req: Request) => {
       JSON.stringify({
         status: 'ok',
         function: 'classify-ncm',
-        version: '3.8.0-build.638',
+        version: '3.8.0-build.650',
         knowledge_base_version: '4.0',
         features: [
           'ncm_support_layer',
+          'knowledge_layer_direct_acceptance',
+          'detailed_provider_error_propagation',
           'ncm_support_derived_fields_retrieval',
           'ncm_support_unconditional_audit_links',
           'functional_coherence_chapter_veto',
@@ -2050,11 +2141,16 @@ Construa a FASE 0 obrigatória no campo 'product_understanding' com a sentença 
     let llmResponseJson: any = null
     let analystModelUsed = ''
     let auditorModelUsed = ''
-    let lastLlmError = ''
+    const providerErrors: string[] = []
 
     for (const provider of primaryAnalystProviders) {
       const apiKey = Deno.env.get(provider.api_key_secret_name) || ''
-      if (!apiKey) continue
+      if (!apiKey) {
+        const missingKeyMsg = `${provider.provider_name}: chave ${provider.api_key_secret_name} ausente no ambiente`
+        providerErrors.push(missingKeyMsg)
+        console.warn(missingKeyMsg)
+        continue
+      }
 
       try {
         const rawContent = await invokeLLMWithTimeout(
@@ -2074,24 +2170,71 @@ Construa a FASE 0 obrigatória no campo 'product_understanding' com a sentença 
             llmResponseJson = parsed
             analystModelUsed = `${provider.provider_name} (${provider.model_id})`
             break
-          } else {
-            console.warn(
-              `LLM sugeriu NCM ${parsed.recommended_ncm} fora da lista de candidatos. Tentando fallback.`,
-            )
           }
+
+          // CORREÇÃO CIRÚRGICA DE FALLBACK:
+          // Se o NCM sugerido pelo LLM não está no array de candidatos da base local,
+          // mas é um código formalmente válido e previsto na Camada de Conhecimento
+          // (Diretório NCM, camada ncm_support, regras determinísticas, ex.: 96200000 para tripés e suportes),
+          // aceitar a sugestão DIRETAMENTE sem descartar nem disparar fallback inútil para 2ª passada.
+          const isKnowledgeRecognized = isKnowledgeLayerRecognizedNcm(
+            normRecNcm,
+            ncmSupportEntries,
+            fullTechnicalProfile,
+          )
+
+          if (isKnowledgeRecognized.recognized) {
+            console.log(
+              `[classify-ncm] NCM sugerido ${normRecNcm} não consta nos candidatos da base local, mas é válido e reconhecido pela camada de conhecimento (${isKnowledgeRecognized.source}: ${isKnowledgeRecognized.description}). Aceitando sugestão diretamente sem fallback.`,
+            )
+
+            // Criar candidato virtual para a camada de conhecimento e anexar ao início da lista
+            const knowledgeCandidate: any = {
+              ncm: normRecNcm,
+              ex: (parsed.recommended_ex || '').toString().trim(),
+              ncm_descricao_full: isKnowledgeRecognized.description,
+              ncm_descricao: isKnowledgeRecognized.description,
+              ex_descricao: '',
+              ii_rate: null,
+              ipi_rate: null,
+              pis_rate: null,
+              cofins_rate: null,
+              has_ex_tarifario: false,
+              is_knowledge_recognized: true,
+              knowledge_source: isKnowledgeRecognized.source,
+              score: 0.99,
+            }
+
+            candidates.unshift(knowledgeCandidate)
+            llmResponseJson = parsed
+            analystModelUsed = `${provider.provider_name} (${provider.model_id})`
+            break
+          } else {
+            const outOfListMsg = `${provider.provider_name}: sugeriu NCM ${parsed.recommended_ncm} fora da lista de candidatos e não reconhecido na camada de conhecimento.`
+            console.warn(outOfListMsg)
+            providerErrors.push(outOfListMsg)
+          }
+        } else {
+          const invalidJsonMsg = `${provider.provider_name}: resposta JSON inválida ou sem recommended_ncm.`
+          console.warn(invalidJsonMsg)
+          providerErrors.push(invalidJsonMsg)
         }
       } catch (err: any) {
-        lastLlmError = err?.message || String(err)
-        console.warn(`Falha no provedor ${provider.provider_name}:`, lastLlmError)
+        const errMsg = err?.message || String(err)
+        const formattedErr = `${provider.provider_name}: ${errMsg}`
+        providerErrors.push(formattedErr)
+        console.warn(`Falha no provedor ${provider.provider_name}:`, errMsg)
       }
     }
 
     if (!llmResponseJson) {
-      console.error('Todos os provedores LLM falharam ao classificar NCM:', lastLlmError)
+      const detailedErrors =
+        providerErrors.join(' | ') || 'Nenhum erro detalhado retornado pelos provedores.'
+      console.error('Todos os provedores LLM falharam ao classificar NCM:', detailedErrors)
       return new Response(
         JSON.stringify({
           error: 'Falha na inferência dos provedores de IA ativos.',
-          details: lastLlmError,
+          details: detailedErrors,
         }),
         { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
       )
@@ -2393,9 +2536,36 @@ ${candidatesCatalogText}`
           ) || candidates.find((c: any) => normalizeNcm(c.ncm) === correctedDigits)
 
         // Se o candidato corrigido não existir nos candidatos recuperados,
-        // buscar diretamente em imp_sim_tax_rates via supabaseAdmin, reconstruir o objeto
-        // candidato e promover a recommendation sem fallback silencioso
-        if (!candidateMatch) {
+        // primeiro verificar se é um código formalmente válido previsto na camada de conhecimento
+        // (Diretório NCM, camada ncm_support, ex.: 96200000 para tripés)
+        const knowledgeMatchAuditor = !candidateMatch
+          ? isKnowledgeLayerRecognizedNcm(correctedDigits, ncmSupportEntries, fullTechnicalProfile)
+          : null
+
+        if (knowledgeMatchAuditor && knowledgeMatchAuditor.recognized) {
+          console.log(
+            `[Auditoria 2ª Passada] Candidato corrigido ${correctedDigits} reconhecido pela camada de conhecimento (${knowledgeMatchAuditor.source}: ${knowledgeMatchAuditor.description}). Aceitando sem fallback de banco.`,
+          )
+
+          const knowledgeCandidate: any = {
+            ncm: correctedDigits,
+            ex: correctedExDigits || '',
+            ncm_descricao_full: knowledgeMatchAuditor.description,
+            ncm_descricao: knowledgeMatchAuditor.description,
+            ex_descricao: '',
+            ii_rate: null,
+            ipi_rate: null,
+            pis_rate: null,
+            cofins_rate: null,
+            has_ex_tarifario: false,
+            is_knowledge_recognized: true,
+            knowledge_source: knowledgeMatchAuditor.source,
+            score: 0.99,
+          }
+
+          candidates.unshift(knowledgeCandidate)
+          candidateMatch = knowledgeCandidate
+        } else if (!candidateMatch) {
           console.log(
             `[Auditoria 2ª Passada] Candidato corrigido ${correctedDigits} não estava no array de candidatos. Buscando diretamente em imp_sim_tax_rates...`,
           )
@@ -3573,7 +3743,11 @@ ${candidatesCatalogText}`
     const executionTimeMs = Date.now() - startTime
 
     const primaryDescription = isTaxRateMissingInLocalDb
-      ? 'Monopés, bipés, tripés e artigos semelhantes (posição 96.20 do SH / Cap. 96)'
+      ? primaryTaxRate?.ncm_descricao_full ||
+        primaryTaxRate?.ncm_descricao ||
+        (recommendedNcmClean === '96200000'
+          ? 'Monopés, bipés, tripés e artigos semelhantes (posição 96.20 do SH / Cap. 96)'
+          : `NCM ${recommendedNcmClean} (código reconhecido na camada de conhecimento / Siscomex)`)
       : primaryTaxRate.ex_descricao ||
         primaryTaxRate.ncm_descricao_full ||
         primaryTaxRate.ncm_descricao ||
@@ -3896,7 +4070,7 @@ ${candidatesCatalogText}`
       composition_analysis: compositionAnalysis,
       checklist_log: checklistLog,
       parts_indirect_logic: partsTelemetry,
-      version: '3.8.0-build.638',
+      version: '3.8.0-build.650',
       timestamp: new Date().toISOString(),
     }
     return new Response(JSON.stringify(responsePayload), {

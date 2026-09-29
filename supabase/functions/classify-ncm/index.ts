@@ -1,2 +1,2 @@
-// classify-ncm placeholder test
-export {};
+// classify-ncm
+export {}

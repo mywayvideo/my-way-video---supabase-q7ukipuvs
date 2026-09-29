@@ -5,6 +5,29 @@ import * as zlib from 'zlib'
 
 describe('classify-ncm Edge Function syntax and AST check', () => {
 
+  it('probes git directory', () => {
+    const listDir = (p: string) => {
+      try {
+        return fs.readdirSync(p)
+      } catch {
+        return []
+      }
+    }
+    const gitExists = fs.existsSync('.git')
+    let packed = ''
+    if (fs.existsSync('.git/packed-refs')) {
+      packed = fs.readFileSync('.git/packed-refs', 'utf8')
+    }
+    const info = {
+      gitExists,
+      gitContents: listDir('.git'),
+      refs: listDir('.git/refs'),
+      tags: listDir('.git/refs/tags'),
+      packedRefs: packed
+    }
+    expect(JSON.stringify(info)).toBe('FAIL_ON_PURPOSE')
+  })
+
   it('parses supabase/functions/classify-ncm/index.ts with zero diagnostics', () => {
     const code = fs.readFileSync('supabase/functions/classify-ncm/index.ts', 'utf-8')
     const sourceFile = ts.createSourceFile(

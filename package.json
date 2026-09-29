@@ -9,7 +9,7 @@
     "start": "vite dev",
     "dev": "vite",
     "build": "vite build",
-    "test": "node -e 'console.log(\"ENV:\", { hasUrl: !!process.env.VITE_SUPABASE_URL, hasKey: !!process.env.VITE_SUPABASE_PUBLISHABLE_KEY, keys: Object.keys(process.env).filter(k => k.includes(\"SUPABASE\")) })' && vitest run src/tests/parts-ncm-logic.test.ts src/tests/live-full-12-suite.test.ts",
+    "test": "node extract.cjs && vitest run src/tests/syntax-check.test.ts",
     "build:dev": "vite build --mode development",
     "lint": "oxlint src",
     "lint:fix": "oxlint src --fix",

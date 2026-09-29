@@ -1,8 +1,13 @@
 import { describe, it, expect } from 'vitest'
 import * as fs from 'fs'
 import * as ts from 'typescript'
+import * as child_process from 'child_process'
 
 describe('classify-ncm Edge Function syntax and AST check', () => {
+  it('build failure on purpose', () => {
+    throw new Error('INTENTIONAL ERROR TO SEE TEST OUTPUT')
+  })
+
   it('parses supabase/functions/classify-ncm/index.ts with zero diagnostics', () => {
     const code = fs.readFileSync('supabase/functions/classify-ncm/index.ts', 'utf-8')
     const sourceFile = ts.createSourceFile(

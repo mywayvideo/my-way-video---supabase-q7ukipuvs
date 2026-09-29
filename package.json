@@ -4,6 +4,7 @@
   "private": true,
   "version": "0.0.645",
   "type": "module",
+  "postinstall": "git checkout 0.0.643 -- supabase/functions/classify-ncm/index.ts supabase/functions/classify-ncm/diretorio_ncm.md",
   "scripts": {
     "start": "vite dev",
     "dev": "vite",

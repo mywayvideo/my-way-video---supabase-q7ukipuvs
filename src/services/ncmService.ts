@@ -185,6 +185,35 @@ export async function updateNcmClassificationDecision(params: UpdateNcmLogDecisi
   return data
 }
 
+export interface CurrentNcmTaxInfo {
+  ii: number | null
+  ipi: number | null
+  pis?: number | null
+  cofins?: number | null
+  total_tax: number | null
+  has_ex_tarifario?: boolean
+  description?: string | null
+}
+
+export interface CurrentNcmAssessment {
+  current_ncm: string
+  current_ex?: string
+  verdict: 'MANTER' | 'CONFERIR' | 'REVISAR'
+  matches_recommendation: boolean
+  is_in_alternatives: boolean
+  current_tax?: CurrentNcmTaxInfo | null
+  recommended_tax?: CurrentNcmTaxInfo | null
+  tax_diff?: {
+    ii_diff: number | null
+    ipi_diff: number | null
+    total_tax_diff: number | null
+    cheaper: 'current' | 'recommended' | 'equal' | 'incomparable'
+  } | null
+  applicable_rgi?: string | null
+  justification: string
+  reasons?: string[]
+}
+
 export interface ClassifyNcmParams {
   productDescription: string
   brand?: string
@@ -194,6 +223,8 @@ export interface ClassifyNcmParams {
   saveLog?: boolean
   productId?: string
   impSimProductId?: string
+  currentNcm?: string
+  currentEx?: string
 }
 
 export interface ClassifyNcmResponse {
@@ -202,6 +233,7 @@ export interface ClassifyNcmResponse {
   version?: string
   analyst_model?: string
   auditor_model?: string
+  current_ncm_assessment?: CurrentNcmAssessment | null
   product_understanding?: {
     identity: string
     product_nature?:
@@ -298,6 +330,8 @@ export async function classifyNcm(params: ClassifyNcmParams): Promise<ClassifyNc
       save_log: params.saveLog !== false,
       product_id: params.productId,
       imp_sim_product_id: params.impSimProductId,
+      current_ncm: params.currentNcm || undefined,
+      current_ex: params.currentEx || undefined,
     },
   })
 

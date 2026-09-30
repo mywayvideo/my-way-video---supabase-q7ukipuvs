@@ -18,6 +18,37 @@ interface ClassifyRequestBody {
   save_log?: boolean
   product_id?: string
   imp_sim_product_id?: string
+  current_ncm?: string
+  current_ex?: string
+}
+
+interface CurrentNcmTaxInfo {
+  ii: number | null
+  ipi: number | null
+  pis?: number | null
+  cofins?: number | null
+  total_tax: number | null
+  has_ex_tarifario?: boolean
+  description?: string | null
+}
+
+interface CurrentNcmAssessment {
+  current_ncm: string
+  current_ex?: string
+  verdict: 'MANTER' | 'CONFERIR' | 'REVISAR'
+  matches_recommendation: boolean
+  is_in_alternatives: boolean
+  current_tax?: CurrentNcmTaxInfo | null
+  recommended_tax?: CurrentNcmTaxInfo | null
+  tax_diff?: {
+    ii_diff: number | null
+    ipi_diff: number | null
+    total_tax_diff: number | null
+    cheaper: 'current' | 'recommended' | 'equal' | 'incomparable'
+  } | null
+  applicable_rgi?: string | null
+  justification: string
+  reasons?: string[]
 }
 
 interface WebSource {
@@ -1487,9 +1518,10 @@ Deno.serve(async (req: Request) => {
       JSON.stringify({
         status: 'ok',
         function: 'classify-ncm',
-        version: '3.8.0-build.652',
+        version: '3.8.0-build.653',
         knowledge_base_version: '4.0',
         features: [
+          'current_ncm_assessment',
           'ncm_support_layer',
           'knowledge_layer_direct_acceptance',
           'detailed_provider_error_propagation',
@@ -1635,6 +1667,9 @@ Deno.serve(async (req: Request) => {
   const saveLog = body.save_log !== false
   const productId = body.product_id || null
   const impSimProductId = body.imp_sim_product_id || null
+  const rawCurrentNcm = (body.current_ncm || '').toString().trim()
+  const rawCurrentEx = (body.current_ex || '').toString().trim()
+  const cleanCurrentNcmDigits = normalizeNcm(rawCurrentNcm)
 
   try {
     // 4. Construir Assinatura Enxuta do Produto
@@ -2350,6 +2385,7 @@ Construa a FASE 0 obrigatória no campo 'product_understanding' com a sentença 
       override_applied?: boolean
       override_reason?: string
       product_understanding?: any
+      current_ncm_audit_comment?: string
     } = {
       action: 'APROVA',
       essential_function: initialRecommendation.essential_function,
@@ -2440,7 +2476,8 @@ RESPOSTA OBRIGATÓRIA EM JSON:
   "audit_critique": "Análise crítica do confronto entre a descrição do NCM, o product_understanding e a função essencial",
   "corrected_ncm": "8 dígitos se VETA",
   "corrected_ex": "Ex corrigido ou ''",
-  "correction_reason": "Fundamentação legal da migração de posição ou do veto"
+  "correction_reason": "Fundamentação legal da migração de posição ou do veto",
+  "current_ncm_audit_comment": "Se solicitado NCM atual no prompt: parecer conclusivo justificando tecnicamente por que o NCM atual informado deve ser mantido ou revisto/trocado, citando RGI 1/3a/3b aplicável e confronto com o recomendado"
 }`
 
       const auditorUserPrompt = `PRODUTO ANALISADO:
@@ -2450,6 +2487,7 @@ RESPOSTA OBRIGATÓRIA EM JSON:
 - É Conjunto/Sistema: ${compositionAnalysis.isKit ? 'SIM' : 'NÃO'} (Componentes verbatim fora de conectivos: ${compositionAnalysis.detectedComponents.join(', ') || 'Nenhum identificado textualmente'})
 - Máquina(s) de destino identificadas: ${compositionAnalysis.targetMachines.join(', ') || 'Nenhuma (operação autônoma)'}
 - Especificações: ${additionalSpecs || 'N/A'}
+${cleanCurrentNcmDigits ? `- NCM ATUALMENTE REGISTRADO NO CADASTRO DO PRODUTO: ${cleanCurrentNcmDigits}${rawCurrentEx ? ` (Ex ${rawCurrentEx})` : ''}` : ''}
 
 RECOMENDAÇÃO DA 1ª PASSADA:
 - Entendimento do Produto (Fase 0): ${JSON.stringify(initialRecommendation.product_understanding || {})}
@@ -2457,6 +2495,17 @@ RECOMENDAÇÃO DA 1ª PASSADA:
 - NCM: ${initialRecommendation.recommended_ncm} | Ex: ${initialRecommendation.recommended_ex || 'Nenhum'}
 - Status do Checklist em Código: ${checklistLog.passed ? checklistLog.status || 'ATENDEU' : 'VETADO PELO CÓDIGO'}
 ${checklistFormattedReport ? `\nCHECKLIST DE CONDIÇÕES DO EX:\n${checklistFormattedReport}\n` : ''}
+${
+  cleanCurrentNcmDigits
+    ? `
+PARECER DO NCM ATUAL REGISTRADO (${cleanCurrentNcmDigits}):
+- Você DEVE produzir no campo "current_ncm_audit_comment" um parecer conclusivo comparando o NCM atualmente registrado com o enquadramento recomendado final.
+- Aplique os princípios universais da NCM: RGI 1 (texto da posição/notas), RGI 3a (específica sobre genérica) e RGI 3b (caráter essencial).
+- Justifique tecnicamente por que o NCM atual registrado deve ser mantido ou revisto/trocado em relação ao recomendado, explicitando as razões aduaneiras e legais do enquadramento.
+- Este parecer decorre da mesma análise aduaneira já efetuada (não se contradiga recomendando X e aprovando Y).
+`
+    : ''
+}
 
 ATENÇÃO AUDITOR:
 1. DESEMPATE INTRAFAMÍLIA: Verifique se existem subposições irmãs no mesmo ramo (mesmos 6 primeiros dígitos) no catálogo abaixo (ex.: 8543.70.x, 8525.89.x). Entre irmãos da mesma subposição de 6 dígitos, prevalece a subposição cuja descrição específica contemple a função do equipamento E cujos qualificadores quantitativos (entradas, canais, captadores, sensores, portas) sejam satisfeitos pelo produto (ex.: 8 entradas -> "oito ou mais entradas"), sobre residuais de outras aplicações físicas (ex.: sinais de micro-ondas) ou "Outros". Confrontar o qualificador discriminante no final da ncm_descricao_full com as especificações do produto. Prevalece SEMPRE a subposição mais específica correspondente às especificações reais. VETE e corrija se a 1ª passada escolheu subposição irmã menos específica, com qualificador incompatível ou aplicação física excludente.
@@ -2511,6 +2560,9 @@ ${candidatesCatalogText}`
               audit_critique: parsedAudit.audit_critique || '',
               product_understanding:
                 parsedAudit.product_understanding || initialRecommendation.product_understanding,
+              current_ncm_audit_comment: parsedAudit.current_ncm_audit_comment
+                ? String(parsedAudit.current_ncm_audit_comment).trim()
+                : undefined,
             }
             break
           }
@@ -4045,6 +4097,44 @@ ${candidatesCatalogText}`
       matched_parts_ranges: c.matched_parts_ranges || null,
     }))
 
+    // =========================================================================
+    // PARECER TÉCNICO SOBRE O NCM ATUAL DO PRODUTO (CAMADA DETERMINÍSTICA + LLM)
+    // =========================================================================
+    let currentNcmAssessment: CurrentNcmAssessment | null = null
+
+    if (cleanCurrentNcmDigits) {
+      try {
+        currentNcmAssessment = await buildCurrentNcmAssessment({
+          supabaseAdmin,
+          rawCurrentNcm,
+          cleanCurrentNcmDigits,
+          rawCurrentEx,
+          recommendedNcm: recommendedNcmClean,
+          recommendedEx: finalRecommendationEx,
+          recommendationObject,
+          resolvedAlternatives,
+          ncmSupportEntries,
+          auditVerdict,
+          initialRecommendation,
+          fullTechnicalProfile,
+          candidates,
+        })
+      } catch (assessErr) {
+        console.warn('Erro não-fatal ao gerar parecer do NCM atual:', assessErr)
+        currentNcmAssessment = {
+          current_ncm: cleanCurrentNcmDigits,
+          current_ex: rawCurrentEx || undefined,
+          verdict: 'CONFERIR',
+          matches_recommendation: cleanCurrentNcmDigits === recommendedNcmClean,
+          is_in_alternatives: resolvedAlternatives.some(
+            (a: any) => normalizeNcm(a.ncm) === cleanCurrentNcmDigits,
+          ),
+          applicable_rgi: 'RGI 1',
+          justification: `NCM atual ${cleanCurrentNcmDigits} recebido. Recomenda-se conferência técnica com o código ${recommendedNcmClean} sugerido pelo sistema.`,
+        }
+      }
+    }
+
     // 15. Gravação no log de auditoria (imp_sim_ncm_classification_log)
     // 3.4. Rastreabilidade conhecimento->decisão: vinculação incondicional de ncm_support no audit_links
     // decorando com [Influenciou Decisão] ou [Injetada para Contexto]
@@ -4079,6 +4169,7 @@ ${candidatesCatalogText}`
             agent_suggestion: {
               recommendation: recommendationObject,
               alternatives: resolvedAlternatives,
+              current_ncm_assessment: currentNcmAssessment,
               confidence: llmResponseJson.confidence || 'media',
               sufficient_info: sufficiencyCheck.isSufficient,
               model_used: compositeModelUsed,
@@ -4127,7 +4218,7 @@ ${candidatesCatalogText}`
       }
     }
 
-    const responsePayload = {
+    const responsePayload: Record<string, any> = {
       success: true,
       audit_id: auditId,
       recommendation: recommendationObject,
@@ -4154,8 +4245,12 @@ ${candidatesCatalogText}`
       composition_analysis: compositionAnalysis,
       checklist_log: checklistLog,
       parts_indirect_logic: partsTelemetry,
-      version: '3.8.0-build.652',
+      version: '3.8.0-build.653',
       timestamp: new Date().toISOString(),
+    }
+
+    if (currentNcmAssessment) {
+      responsePayload.current_ncm_assessment = currentNcmAssessment
     }
     return new Response(JSON.stringify(responsePayload), {
       status: 200,
@@ -6008,4 +6103,352 @@ async function generateEmbedding(text: string, apiKey: string): Promise<number[]
 
   const json = await res.json()
   return json.data[0].embedding
+}
+
+// =============================================================================
+// PARECER TÉCNICO DO NCM ATUAL REGISTRADO (CAMADAS DETERMINÍSTICAS + AUDITORIA)
+// =============================================================================
+
+/**
+ * Constrói o parecer conclusivo sobre o NCM atualmente registrado no produto.
+ * Arquitetura em camadas:
+ * 1. MANTER (determinístico): NCM atual idêntico ao recomendado final.
+ * 2. CONFERIR (determinístico): NCM atual consta na lista de alternativas validadas.
+ * 3. REVISAR (determinístico): NCM atual é código formalmente extinto ou ausente da base e do diretório.
+ * 4. Divergência real: confronto baseado no parecer emitido pelo auditor (2ª passada) ou RGI 1/3a/3b.
+ */
+async function buildCurrentNcmAssessment(params: {
+  supabaseAdmin: any
+  rawCurrentNcm: string
+  cleanCurrentNcmDigits: string
+  rawCurrentEx: string
+  recommendedNcm: string
+  recommendedEx: string
+  recommendationObject: any
+  resolvedAlternatives: any[]
+  ncmSupportEntries: any[]
+  auditVerdict: any
+  initialRecommendation: any
+  fullTechnicalProfile: string
+  candidates: any[]
+}): Promise<CurrentNcmAssessment> {
+  const {
+    supabaseAdmin,
+    cleanCurrentNcmDigits,
+    rawCurrentEx,
+    recommendedNcm,
+    recommendedEx,
+    recommendationObject,
+    resolvedAlternatives,
+    ncmSupportEntries,
+    auditVerdict,
+    initialRecommendation,
+    fullTechnicalProfile,
+    candidates,
+  } = params
+
+  const normCurrent = normalizeNcm(cleanCurrentNcmDigits)
+  const normRecommended = normalizeNcm(recommendedNcm)
+  const normCurrentEx = (rawCurrentEx || '').trim()
+  const normRecommendedEx = (recommendedEx || '').trim()
+
+  // Buscar informações tributárias do NCM atual na base
+  let currentTaxRow: any = null
+  if (normCurrentEx) {
+    currentTaxRow = await resolveEffectiveTaxRate(supabaseAdmin, normCurrent, normCurrentEx)
+  }
+  if (!currentTaxRow) {
+    currentTaxRow = await resolveEffectiveTaxRate(supabaseAdmin, normCurrent, '')
+  }
+  if (!currentTaxRow) {
+    currentTaxRow = candidates.find((c: any) => normalizeNcm(c.ncm) === normCurrent)
+  }
+  if (!currentTaxRow) {
+    const { data: dbRows } = await supabaseAdmin
+      .from('imp_sim_tax_rates')
+      .select(
+        'ncm, ex, ncm_descricao_full, ncm_descricao, ex_descricao, ii_rate, ipi_rate, pis_rate, cofins_rate, has_ex_tarifario',
+      )
+      .eq('ncm', normCurrent)
+      .limit(1)
+    if (dbRows && dbRows.length > 0) {
+      currentTaxRow = dbRows[0]
+    }
+  }
+
+  // Verificar se é reconhecido pela camada de conhecimento / diretório
+  const knowledgeMatch = isKnowledgeLayerRecognizedNcm(
+    normCurrent,
+    ncmSupportEntries,
+    fullTechnicalProfile,
+  )
+
+  // Montar objeto de taxas do NCM atual
+  let currentTaxInfo: CurrentNcmTaxInfo | null = null
+  if (currentTaxRow) {
+    const iiVal =
+      currentTaxRow.ii_efetivo !== undefined && currentTaxRow.ii_efetivo !== null
+        ? Number(currentTaxRow.ii_efetivo)
+        : currentTaxRow.ii_rate !== undefined && currentTaxRow.ii_rate !== null
+          ? Number(currentTaxRow.ii_rate)
+          : null
+    const ipiVal =
+      currentTaxRow.ipi_rate !== undefined && currentTaxRow.ipi_rate !== null
+        ? Number(currentTaxRow.ipi_rate)
+        : null
+    const pisVal =
+      currentTaxRow.pis_rate !== undefined && currentTaxRow.pis_rate !== null
+        ? Number(currentTaxRow.pis_rate)
+        : null
+    const cofinsVal =
+      currentTaxRow.cofins_rate !== undefined && currentTaxRow.cofins_rate !== null
+        ? Number(currentTaxRow.cofins_rate)
+        : null
+    const totalVal =
+      iiVal !== null && ipiVal !== null
+        ? Number(((iiVal || 0) + (ipiVal || 0) + (pisVal || 2.1) + (cofinsVal || 9.65)).toFixed(2))
+        : null
+
+    currentTaxInfo = {
+      ii: iiVal,
+      ipi: ipiVal,
+      pis: pisVal,
+      cofins: cofinsVal,
+      total_tax: totalVal,
+      has_ex_tarifario: Boolean(currentTaxRow.has_ex_tarifario || currentTaxRow.ex),
+      description: currentTaxRow.ncm_descricao_full || currentTaxRow.ncm_descricao || null,
+    }
+  } else if (knowledgeMatch && knowledgeMatch.recognized) {
+    currentTaxInfo = {
+      ii: null,
+      ipi: null,
+      pis: null,
+      cofins: null,
+      total_tax: null,
+      has_ex_tarifario: false,
+      description:
+        knowledgeMatch.description || 'Código reconhecido na camada de diretório aduaneiro.',
+    }
+  }
+
+  // Taxas do NCM recomendado para comparação
+  const recommendedTaxInfo: CurrentNcmTaxInfo = {
+    ii: typeof recommendationObject.ii === 'number' ? recommendationObject.ii : null,
+    ipi: typeof recommendationObject.ipi === 'number' ? recommendationObject.ipi : null,
+    pis: typeof recommendationObject.pis === 'number' ? recommendationObject.pis : null,
+    cofins: typeof recommendationObject.cofins === 'number' ? recommendationObject.cofins : null,
+    total_tax:
+      typeof recommendationObject.total_tax === 'number' ? recommendationObject.total_tax : null,
+    has_ex_tarifario: Boolean(recommendationObject.has_ex_tarifario || recommendationObject.ex),
+    description: recommendationObject.description || null,
+  }
+
+  // Diferença tributária
+  let taxDiff: CurrentNcmAssessment['tax_diff'] = null
+  if (
+    currentTaxInfo &&
+    currentTaxInfo.total_tax !== null &&
+    recommendedTaxInfo.total_tax !== null
+  ) {
+    const iiDiff =
+      currentTaxInfo.ii !== null && recommendedTaxInfo.ii !== null
+        ? Number((currentTaxInfo.ii - recommendedTaxInfo.ii).toFixed(2))
+        : null
+    const ipiDiff =
+      currentTaxInfo.ipi !== null && recommendedTaxInfo.ipi !== null
+        ? Number((currentTaxInfo.ipi - recommendedTaxInfo.ipi).toFixed(2))
+        : null
+    const totalTaxDiff = Number(
+      (currentTaxInfo.total_tax - recommendedTaxInfo.total_tax).toFixed(2),
+    )
+
+    let cheaper: 'current' | 'recommended' | 'equal' | 'incomparable' = 'equal'
+    if (totalTaxDiff > 0.05) {
+      cheaper = 'recommended'
+    } else if (totalTaxDiff < -0.05) {
+      cheaper = 'current'
+    }
+
+    taxDiff = {
+      ii_diff: iiDiff,
+      ipi_diff: ipiDiff,
+      total_tax_diff: totalTaxDiff,
+      cheaper,
+    }
+  }
+
+  // Checar se o código atual é explicitamente extinto no Brasil
+  const isExtinctCode =
+    normCurrent === '85258090' ||
+    (normCurrent.length === 8 && /^(8525801[1-9]|8525802[1-9]|8525809\d)$/.test(normCurrent))
+
+  // Checar se o código está nas alternativas
+  const matchedAlternative = resolvedAlternatives.find(
+    (alt: any) => normalizeNcm(alt.ncm) === normCurrent,
+  )
+  const isAlternative = Boolean(matchedAlternative)
+
+  // Checar se coincide com o recomendado
+  const matchesRec = normCurrent === normRecommended
+
+  // =========================================================================
+  // CAMADA 1: MANTER (determinístico) — NCM atual idêntico ao recomendado
+  // =========================================================================
+  if (matchesRec) {
+    const exMatch = !normCurrentEx || normCurrentEx === normRecommendedEx
+    const exObs = !exMatch
+      ? ` Note que o formulário registrava Ex "${normCurrentEx}", enquanto o enquadramento final adota Ex "${normRecommendedEx || 'sem Ex'}".`
+      : ''
+
+    return {
+      current_ncm: normCurrent,
+      current_ex: normCurrentEx || undefined,
+      verdict: 'MANTER',
+      matches_recommendation: true,
+      is_in_alternatives: false,
+      current_tax: currentTaxInfo,
+      recommended_tax: recommendedTaxInfo,
+      tax_diff: taxDiff,
+      applicable_rgi: 'RGI 1',
+      justification: `O NCM atual (${normCurrent}) coincide exatamente com a classificação aduaneira recomendada pelo agente.${exObs} O enquadramento atende plenamente à RGI 1 e à função essencial comprovada do produto. Recomenda-se MANTER o código cadastrado.`,
+      reasons: [
+        'Classificação coincide com a recomendação técnica homologada.',
+        'Enquadramento respaldado na RGI 1 pela descrição essencial da mercadoria.',
+      ],
+    }
+  }
+
+  // =========================================================================
+  // CAMADA 2: REVISAR por código EXTINTO (determinístico)
+  // =========================================================================
+  if (isExtinctCode) {
+    let extinctReason = `O código NCM ${normCurrent} é um código EXTINTO na Nomenclatura Comum do Mercosul.`
+    if (normCurrent === '85258090') {
+      extinctReason = `O código NCM 8525.80.90 foi extinto e desdobrado pela Resolução GECEX em subposições específicas da posição 8525.89 (como 8525.89.21, 8525.89.29 etc.). O uso do código 8525.80.90 é PROIBIDO na importação e emissão de NF-e, sujeitando a autuações aduaneiras e bloqueios de desembaraço.`
+    }
+
+    return {
+      current_ncm: normCurrent,
+      current_ex: normCurrentEx || undefined,
+      verdict: 'REVISAR',
+      matches_recommendation: false,
+      is_in_alternatives: isAlternative,
+      current_tax: currentTaxInfo,
+      recommended_tax: recommendedTaxInfo,
+      tax_diff: taxDiff,
+      applicable_rgi: 'RGI 1 (Resolução GECEX de desdobramento)',
+      justification: `${extinctReason} Recomenda-se REVISAR imediatamente e atualizar o cadastro para a classificação recomendada (${normRecommended}), que corresponde ao enquadramento vigente e regular perante a Receita Federal.`,
+      reasons: [
+        'Código NCM revogado e extinto na tabela oficial da NCM/SH.',
+        `Substituição mandatória pelo código recomendado vigente ${normRecommended}.`,
+      ],
+    }
+  }
+
+  // =========================================================================
+  // CAMADA 3: CONFERIR (determinístico) — NCM atual consta nas alternativas
+  // =========================================================================
+  if (isAlternative && matchedAlternative) {
+    let taxComparisonText = ''
+    if (taxDiff) {
+      if (taxDiff.cheaper === 'recommended') {
+        taxComparisonText = ` Carga tributária: a classificação recomendada (${normRecommended}) possui alíquota total menor (${recommendedTaxInfo.total_tax}%) em relação ao NCM atual (${currentTaxInfo?.total_tax}%, diferença de ${taxDiff.total_tax_diff}% a favor da recomendação).`
+      } else if (taxDiff.cheaper === 'current') {
+        taxComparisonText = ` Carga tributária: o NCM atual apresenta alíquota total de ${currentTaxInfo?.total_tax}%, enquanto a recomendada soma ${recommendedTaxInfo.total_tax}%. A recomendação prevalece por maior exatidão técnica, mas o código atual é viável como alternativa sob justificativa aduaneira compatível.`
+      } else {
+        taxComparisonText = ` Carga tributária: ambas as classificações apresentam alíquotas totais equivalentes (${recommendedTaxInfo.total_tax}%).`
+      }
+    }
+
+    const altReason = matchedAlternative.reason
+      ? ` Motivo da alternativa: ${matchedAlternative.reason}`
+      : ''
+
+    return {
+      current_ncm: normCurrent,
+      current_ex: normCurrentEx || undefined,
+      verdict: 'CONFERIR',
+      matches_recommendation: false,
+      is_in_alternatives: true,
+      current_tax: currentTaxInfo,
+      recommended_tax: recommendedTaxInfo,
+      tax_diff: taxDiff,
+      applicable_rgi: 'RGI 1 / RGI 3a',
+      justification: `O NCM atual (${normCurrent}) é tecnicamente plausível e consta na lista de alternativas homologadas pelo sistema, porém o NCM ${normRecommended} foi considerado prioritário por maior especificidade descritiva em relação às especificações do produto (RGI 3a).${taxComparisonText}${altReason} Recomenda-se CONFERIR o enquadramento aduaneiro antes de alterar.`,
+      reasons: [
+        'NCM atual figura entre as alternativas fiscais aceitáveis.',
+        `Recomendação ${normRecommended} possui maior aderência técnica ou especificidade RGI 3a.`,
+      ],
+    }
+  }
+
+  // =========================================================================
+  // CAMADA 4: REVISAR por ausência em base local / código inexistente
+  // =========================================================================
+  if (!currentTaxRow && (!knowledgeMatch || !knowledgeMatch.recognized)) {
+    return {
+      current_ncm: normCurrent,
+      current_ex: normCurrentEx || undefined,
+      verdict: 'REVISAR',
+      matches_recommendation: false,
+      is_in_alternatives: false,
+      current_tax: currentTaxInfo,
+      recommended_tax: recommendedTaxInfo,
+      tax_diff: taxDiff,
+      applicable_rgi: 'RGI 1',
+      justification: `O NCM atual (${normCurrent}) não foi localizado na tabela oficial de alíquotas aduaneiras (imp_sim_tax_rates) nem na base de conhecimento vigente. Pode tratar-se de código obsoleto, incorreto ou inexistente na NCM atual. Recomenda-se REVISAR o cadastro e adotar o código ${normRecommended} homologado com fundamentação aduaneira.`,
+      reasons: [
+        'Código NCM não localizado na base aduaneira de alíquotas vigentes.',
+        `Recomendação homologada pelo sistema: ${normRecommended}.`,
+      ],
+    }
+  }
+
+  // =========================================================================
+  // CAMADA 5: DIVERGÊNCIA REAL — Parecer do Auditor (2ª passada) + RGI 1 / 3a / 3b
+  // =========================================================================
+  // NCM atual existe na base, mas difere do recomendado e não figura nas alternativas válidas.
+  const auditComment = (auditVerdict?.current_ncm_audit_comment || '').trim()
+
+  // Determinar RGI de referência com base no tipo de divergência
+  let applicableRgi = 'RGI 1'
+  if (normCurrent.slice(0, 4) === normRecommended.slice(0, 4)) {
+    // Mesma posição de 4 dígitos: desempate por subposição mais específica
+    applicableRgi = 'RGI 1 e RGI 6 (especificidade na subposição)'
+  } else {
+    // Posições distintas: princípio da especificidade RGI 3a ou caráter essencial RGI 3b
+    applicableRgi = 'RGI 1 e RGI 3a (especificidade da posição sobre residual/genérica)'
+  }
+
+  let taxNote = ''
+  if (taxDiff && currentTaxInfo?.total_tax !== null && recommendedTaxInfo.total_tax !== null) {
+    taxNote = ` Confronto tributário: NCM atual ${normCurrent} (II ${currentTaxInfo.ii ?? 0}%, IPI ${currentTaxInfo.ipi ?? 0}%, total ~${currentTaxInfo.total_tax}%) vs Recomendado ${normRecommended} (II ${recommendedTaxInfo.ii ?? 0}%, IPI ${recommendedTaxInfo.ipi ?? 0}%, total ~${recommendedTaxInfo.total_tax}%).`
+  }
+
+  let finalJustification = ''
+  if (auditComment && auditComment.length > 20) {
+    finalJustification = `Parecer do auditor aduaneiro: ${auditComment}${taxNote}`
+  } else {
+    const currentDesc = currentTaxInfo?.description
+      ? ` ("${currentTaxInfo.description.slice(0, 100)}")`
+      : ''
+    finalJustification = `O NCM atual (${normCurrent})${currentDesc} diverge da classificação aduaneira recomendada (${normRecommended}) e não atende aos critérios para constar como alternativa válida. A mercadoria tem como função essencial ${initialRecommendation?.essential_function || 'aparelho especializado'}, cujo enquadramento correto dá-se na NCM ${normRecommended} por aplicação da ${applicableRgi}.${taxNote} Recomenda-se REVISAR o cadastro.`
+  }
+
+  return {
+    current_ncm: normCurrent,
+    current_ex: normCurrentEx || undefined,
+    verdict: 'REVISAR',
+    matches_recommendation: false,
+    is_in_alternatives: false,
+    current_tax: currentTaxInfo,
+    recommended_tax: recommendedTaxInfo,
+    tax_diff: taxDiff,
+    applicable_rgi: applicableRgi,
+    justification: finalJustification,
+    reasons: [
+      `Divergência de enquadramento aduaneiro (${applicableRgi}).`,
+      `Classificação recomendada com maior aderência técnica: ${normRecommended}.`,
+    ],
+  }
 }

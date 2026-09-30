@@ -41,6 +41,7 @@ interface NcmSuggestDialogProps {
   modelName?: string
   additionalSpecs?: string
   currentNcm?: string
+  currentEx?: string
   productId?: string
   onApplyNcm: (cleanNcm: string, ex?: string) => void
 }
@@ -70,6 +71,7 @@ export function NcmSuggestDialog({
   modelName,
   additionalSpecs,
   currentNcm,
+  currentEx,
   productId,
   onApplyNcm,
 }: NcmSuggestDialogProps) {
@@ -102,6 +104,8 @@ export function NcmSuggestDialog({
         model: modelName,
         additionalSpecs,
         productId,
+        currentNcm: currentNcm ? cleanNcmDigits(currentNcm) : undefined,
+        currentEx: currentEx || undefined,
         saveLog: true,
       })
 
@@ -292,6 +296,95 @@ export function NcmSuggestDialog({
 
           {result && !isLoading && (
             <div className="space-y-6">
+              {/* Bloco Destacado: Parecer Técnico do NCM Atual no Form */}
+              {result.current_ncm_assessment && (
+                <div
+                  className={`p-4 rounded-xl border transition-all ${
+                    result.current_ncm_assessment.verdict === 'MANTER'
+                      ? 'bg-emerald-500/10 border-emerald-500/30'
+                      : result.current_ncm_assessment.verdict === 'CONFERIR'
+                        ? 'bg-amber-500/10 border-amber-500/30'
+                        : 'bg-rose-500/10 border-rose-500/30'
+                  }`}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-border/40">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                        NCM Atual no Cadastro:
+                      </span>
+                      <span className="font-mono font-bold text-sm text-foreground">
+                        {formatNcmDisplay(result.current_ncm_assessment.current_ncm)}
+                        {result.current_ncm_assessment.current_ex
+                          ? ` (Ex ${result.current_ncm_assessment.current_ex})`
+                          : ''}
+                      </span>
+                      <span className="text-muted-foreground text-xs font-medium">→</span>
+                      {result.current_ncm_assessment.verdict === 'MANTER' && (
+                        <Badge className="bg-emerald-600 hover:bg-emerald-600 text-white font-bold text-xs uppercase px-2.5 py-0.5 shadow-sm">
+                          MANTER
+                        </Badge>
+                      )}
+                      {result.current_ncm_assessment.verdict === 'CONFERIR' && (
+                        <Badge className="bg-amber-600 hover:bg-amber-600 text-white font-bold text-xs uppercase px-2.5 py-0.5 shadow-sm">
+                          CONFERIR
+                        </Badge>
+                      )}
+                      {result.current_ncm_assessment.verdict === 'REVISAR' && (
+                        <Badge className="bg-rose-600 hover:bg-rose-600 text-white font-bold text-xs uppercase px-2.5 py-0.5 shadow-sm">
+                          REVISAR
+                        </Badge>
+                      )}
+                    </div>
+
+                    {result.current_ncm_assessment.applicable_rgi && (
+                      <span className="text-[11px] font-medium text-muted-foreground bg-background/60 px-2 py-0.5 rounded border">
+                        {result.current_ncm_assessment.applicable_rgi}
+                      </span>
+                    )}
+                  </div>
+
+                  <p className="text-xs text-foreground/90 leading-relaxed mt-2.5 break-words [overflow-wrap:anywhere]">
+                    {result.current_ncm_assessment.justification}
+                  </p>
+
+                  {/* Detalhe de carga comparada se houver */}
+                  {result.current_ncm_assessment.tax_diff &&
+                    result.current_ncm_assessment.current_tax?.total_tax !== null &&
+                    result.current_ncm_assessment.recommended_tax?.total_tax !== null && (
+                      <div className="mt-2.5 pt-2 border-t border-border/30 flex flex-wrap items-center gap-4 text-[11px] text-muted-foreground">
+                        <span>
+                          Carga NCM Atual:{' '}
+                          <strong className="text-foreground font-mono">
+                            {result.current_ncm_assessment.current_tax?.total_tax}%
+                          </strong>{' '}
+                          (II: {result.current_ncm_assessment.current_tax?.ii ?? 0}%, IPI:{' '}
+                          {result.current_ncm_assessment.current_tax?.ipi ?? 0}%)
+                        </span>
+                        <span>
+                          Carga Recomendado ({formatNcmDisplay(result.recommendation.ncm)}):{' '}
+                          <strong className="text-foreground font-mono">
+                            {result.current_ncm_assessment.recommended_tax?.total_tax}%
+                          </strong>{' '}
+                          (II: {result.current_ncm_assessment.recommended_tax?.ii ?? 0}%, IPI:{' '}
+                          {result.current_ncm_assessment.recommended_tax?.ipi ?? 0}%)
+                        </span>
+                        {result.current_ncm_assessment.tax_diff.cheaper === 'recommended' && (
+                          <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
+                            Recomendado economiza{' '}
+                            {Math.abs(result.current_ncm_assessment.tax_diff.total_tax_diff || 0)}%
+                            em tributos
+                          </span>
+                        )}
+                        {result.current_ncm_assessment.tax_diff.cheaper === 'current' && (
+                          <span className="text-amber-600 dark:text-amber-400 font-medium">
+                            NCM atual possui alíquota total menor
+                          </span>
+                        )}
+                      </div>
+                    )}
+                </div>
+              )}
+
               {/* Relatório Comparativo: Tabela Recomendado vs Alternativos */}
               <div>
                 <div className="flex items-center justify-between mb-2">
@@ -406,10 +499,29 @@ export function NcmSuggestDialog({
                         {result.alternatives && result.alternatives.length > 0 ? (
                           result.alternatives.map((alt, idx) => {
                             const isApplied = appliedNcm === cleanNcmDigits(alt.ncm)
+                            const isCurrentNcmRow =
+                              cleanCurrent && cleanNcmDigits(alt.ncm) === cleanCurrent
                             return (
-                              <tr key={idx} className="hover:bg-muted/40 transition-colors">
+                              <tr
+                                key={idx}
+                                className={`transition-colors ${
+                                  isCurrentNcmRow
+                                    ? 'bg-amber-500/15 font-medium border-l-4 border-amber-500 hover:bg-amber-500/20'
+                                    : 'hover:bg-muted/40'
+                                }`}
+                              >
                                 <td className="py-2.5 px-3 text-muted-foreground">
-                                  Alternativa #{idx + 1}
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span>Alternativa #{idx + 1}</span>
+                                    {isCurrentNcmRow && (
+                                      <Badge
+                                        variant="outline"
+                                        className="text-[10px] py-0 px-1 border-amber-500 text-amber-600 dark:text-amber-400 font-semibold bg-amber-500/10"
+                                      >
+                                        NCM Atual
+                                      </Badge>
+                                    )}
+                                  </div>
                                 </td>
                                 <td className="py-2.5 px-3 font-mono font-semibold">
                                   {formatNcmDisplay(alt.ncm)}

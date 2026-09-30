@@ -51,7 +51,7 @@ describe('classify-ncm 4-Calibration Regression Suite (Live POST)', () => {
     const res = await fetch(`${supabaseUrl}/functions/v1/classify-ncm?health=true&t=${Date.now()}`)
     expect(res.ok).toBe(true)
     const data = await res.json()
-    expect(data.version).toMatch(/3\.8\.0-build\.65[12]/)
+    expect(data.version).toMatch(/3\.8\.0-build\.65[123]/)
     expect(data.features).toContain('conditional_85437099_injection')
     expect(data.features).not.toContain('deterministic_85437099_injection')
   }, 30000)

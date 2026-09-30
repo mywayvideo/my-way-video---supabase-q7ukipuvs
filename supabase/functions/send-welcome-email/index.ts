@@ -22,6 +22,7 @@ Deno.serve(async (req: Request) => {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
   } catch (err: any) {
+    console.error('Error in send-welcome-email:', err)
     return new Response(JSON.stringify({ error: 'Erro ao enviar email' }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

@@ -1,4 +1,4 @@
-// Deploy trigger build 652 - classify-ncm v3.8.0-build.652
+// Deploy trigger build 652 - classify-ncm v3.8.0-build.652 - TDZ fixed
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
 import { createClient } from 'npm:@supabase/supabase-js@2'
 

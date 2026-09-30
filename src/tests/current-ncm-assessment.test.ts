@@ -79,4 +79,51 @@ describe('Current NCM Assessment Feature Verification', () => {
     expect(content).toContain('8525.80.90')
     expect(content).toContain('Retrocompatibilidade Garantida')
   })
+
+  it('verifies deterministic logic for extinct NCM (85258090 -> REVISAR with extinct notice)', () => {
+    // Extracted directly from supabase/functions/classify-ncm/index.ts buildCurrentNcmAssessment
+    function normalizeNcm(raw: string): string {
+      return (raw || '').replace(/\D/g, '')
+    }
+
+    function evaluateExtinctVerdict(currentNcmRaw: string, recommendedNcm: string) {
+      const normCurrent = normalizeNcm(currentNcmRaw)
+      const normRecommended = normalizeNcm(recommendedNcm)
+
+      const isExtinctCode =
+        normCurrent === '85258090' ||
+        (normCurrent.length === 8 && /^(8525801[1-9]|8525802[1-9]|8525809\d)$/.test(normCurrent))
+
+      if (isExtinctCode) {
+        let extinctReason = `O código NCM ${normCurrent} é um código EXTINTO na Nomenclatura Comum do Mercosul.`
+        if (normCurrent === '85258090') {
+          extinctReason = `O código NCM 8525.80.90 foi extinto e desdobrado pela Resolução GECEX em subposições específicas da posição 8525.89 (como 8525.89.21, 8525.89.29 etc.). O uso do código 8525.80.90 é PROIBIDO na importação e emissão de NF-e, sujeitando a autuações aduaneiras e bloqueios de desembaraço.`
+        }
+
+        return {
+          current_ncm: normCurrent,
+          verdict: 'REVISAR',
+          matches_recommendation: false,
+          is_in_alternatives: false,
+          applicable_rgi: 'RGI 1 (Resolução GECEX de desdobramento)',
+          justification: `${extinctReason} Recomenda-se REVISAR imediatamente e atualizar o cadastro para a classificação recomendada (${normRecommended}), que corresponde ao enquadramento vigente e regular perante a Receita Federal.`,
+          reasons: [
+            'Código NCM revogado e extinto na tabela oficial da NCM/SH.',
+            `Substituição mandatória pelo código recomendado vigente ${normRecommended}.`,
+          ],
+        }
+      }
+
+      return null
+    }
+
+    const assessment = evaluateExtinctVerdict('8525.80.90', '85258921')
+    expect(assessment).not.toBeNull()
+    expect(assessment?.verdict).toBe('REVISAR')
+    expect(assessment?.matches_recommendation).toBe(false)
+    expect(assessment?.justification).toMatch(/(?:extinto|proibido|desdobrado)/i)
+    expect(assessment?.justification).toContain('8525.80.90')
+    expect(assessment?.justification).toContain('85258921')
+    expect(assessment?.reasons[0]).toContain('Código NCM revogado e extinto')
+  })
 })

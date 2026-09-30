@@ -219,4 +219,69 @@ describe('classify-ncm 4-Calibration Regression Suite (Live POST)', () => {
     // Validado cumulativamente nos testes 1 a 6 acima
     expect(true).toBe(true)
   })
+
+  // Caso 10: Regressão de NCM atual extinto (85258090 -> REVISAR com motivo mencionando código extinto)
+  it('Caso 10: Regressão NCM atual extinto (85258090) -> veredicto REVISAR com motivo de código extinto', async () => {
+    const jwt = await getJwt()
+    const result = await classify(jwt, {
+      product_description:
+        'Sony HDC-3200R 2/3-inch 3-CMOS 4K Broadcast Camera System. 4K HDR live production camera with 3x 2/3" 4K CMOS image sensors, global shutter, B4 lens mount.',
+      brand: 'Sony',
+      model: 'HDC-3200R',
+      current_ncm: '85258090',
+    })
+
+    console.log('[Caso 10 NCM Extinto 85258090]:', JSON.stringify({
+      recommendation: result.recommendation?.ncm,
+      current_ncm_assessment: result.current_ncm_assessment,
+    }))
+
+    // 1. Recomendação homologada permanece correta
+    expect(result.recommendation?.ncm).toBe('85258921')
+
+    // 2. Campo current_ncm_assessment presente quando current_ncm é informado
+    expect(result.current_ncm_assessment).toBeDefined()
+    const assessment = result.current_ncm_assessment
+    expect(assessment.current_ncm).toBe('85258090')
+    expect(assessment.verdict).toBe('REVISAR')
+    expect(assessment.matches_recommendation).toBe(false)
+
+    // 3. Justificativa menciona que o código é extinto / revogado / proibido
+    expect(assessment.justification.toLowerCase()).toMatch(/(?:extinto|proibido|desdobrado|revogado)/i)
+    expect(assessment.justification).toContain('8525.80.90')
+    expect(assessment.reasons.some((r: string) => /extinto|revogado/i.test(r))).toBe(true)
+  }, 75000)
+
+  // Caso 11: Retrocompatibilidade estrita: SEM current_ncm, current_ncm_assessment NÃO deve constar na resposta
+  it('Caso 11: Retrocompatibilidade SEM current_ncm -> resposta idêntica sem current_ncm_assessment', async () => {
+    const jwt = await getJwt()
+    const result = await classify(jwt, {
+      product_description:
+        'Sony RM-IP500 PTZ Camera Remote Controller. Control of up to 100 cameras over IP.',
+      brand: 'Sony',
+      model: 'RM-IP500',
+    })
+
+    // Campo current_ncm_assessment omitido quando current_ncm não é enviado
+    expect(result.current_ncm_assessment).toBeUndefined()
+    expect(result.recommendation?.ncm).toBe('85299090')
+  }, 75000)
+
+  // Caso 12: Sony UWP-D22 (handheld wireless microphone system) -> 85181090
+  it('Caso 12: Sony UWP-D22 Handheld Wireless Microphone System -> 85181090', async () => {
+    const jwt = await getJwt()
+    const result = await classify(jwt, {
+      product_description:
+        'Sony UWP-D22 Wireless Handheld Microphone Package. Includes UTX-M40 handheld transmitter microphone and URX-P40 portable tuner receiver for broadcast audio.',
+      brand: 'Sony',
+      model: 'UWP-D22',
+      additional_specs:
+        'Sistema sem fio UHF digital composto por microfone de mão dinâmico unidirecional com transmissor integrado e receptor portátil com sapata digital.',
+    })
+
+    console.log('[Caso 12 UWP-D22]:', result.recommendation?.ncm, 'Alts:', result.alternatives?.map((a: any) => a.ncm))
+    expect(result.recommendation?.ncm).toBe('85181090')
+    const altNcms = (result.alternatives || []).map((a: any) => a.ncm)
+    expect(altNcms).not.toContain('85437099')
+  }, 75000)
 })

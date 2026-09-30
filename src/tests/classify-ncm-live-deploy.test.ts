@@ -60,7 +60,7 @@ describe('classify-ncm Edge Function live deploy check & validation', () => {
     expect(data.features).toContain('auditor_nature_correction_before_ncm')
     expect(data.features).toContain('own_utility_dependency_test')
     expect(data.features).toContain('controller_part_precedence')
-    expect(data.features).toContain('deterministic_85437099_injection')
+    expect(data.features).toContain('conditional_85437099_injection')
     expect(data.features).toContain('film_only_9007_exclusion')
     expect(data.features).toContain('technology_incompatibility_veto')
     expect(data.features).toContain('digital_cinema_camera_8525_normalization')

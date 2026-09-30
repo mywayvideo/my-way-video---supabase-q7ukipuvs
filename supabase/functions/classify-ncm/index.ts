@@ -1,4 +1,4 @@
-// Deploy trigger build 650 - classify-ncm v3.8.0-build.650
+// Deploy trigger build 652 - classify-ncm v3.8.0-build.652
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
 import { createClient } from 'npm:@supabase/supabase-js@2'
 
@@ -90,7 +90,7 @@ Escopo: Catálogo Geral — Capítulos 84, 85, 90 e posições correlatas.
 ## 1. REGRAS-MESTRE DE CLASSIFICAÇÃO ADUANEIRA
 ### 1.1. Soberania da Função Primária
 - A função primordial do produto determina o Capítulo e a Posição na NCM.
-  * Captar/gravar/reproduzir/comutar/exibir imagem ou som -> Capítulo 85; medir, instrumentar, controlar grandezas ou ótica médica/científica -> Capítulo 90; máquinas mecânicas ou térmicas de processamento/elevação -> Capítulo 84.
+  * Captar/gravar/reproduzir/comutar/exibir imagem ou som, processamento de sinal ou comunicação -> priorizar Capítulo 85; processamento mecânico/térmico -> posições conexas do Capítulo 84; Capítulo 90 apenas quando houver componente óptico de precisão ou instrumentação/medição real.
 - MARKETING E TERMOS COMERCIAIS JAMAIS DESLOCAM CAPÍTULO: Nomes comerciais, slogans publicitários ou embalagens ("Cinema", "Cine", "Movie", "Broadcast", "Studio", "Multiuso", "3 em 1") não possuem valor aduaneiro para alterar a posição da mercadoria. O que define a posição é a constituição física, o princípio de funcionamento e o resultado operacional real do equipamento.
 
 ### 1.2. Soberania do Texto Literal da NCM e Hierarquia das RGIs
@@ -115,8 +115,8 @@ Escopo: Catálogo Geral — Capítulos 84, 85, 90 e posições correlatas.
 - Na NCM, o conceito de "partes e acessórios reconhecíveis" abrange não apenas peças de reposição pura, mas também acessórios dependentes sem função autônoma (dispositivos periféricos de comando, manoplas de acionamento servo-assistido, consoles dedicados que só adquirem utilidade operando acoplados à máquina principal).
 - A proibição inversa de classificar como parte aplica-se estritamente à peça de reposição pura concorrendo com equipamento completo independente.
 
-### 1.7. Presença Universal da NCM Residual 8543.70.99
-- A NCM 85437099 ("Outras máquinas e aparelhos elétricos com função própria, não especificados nem compreendidos noutras posições") deve SEMPRE constar nas alternativas de classificação, salvo quando ela própria for a recomendação principal. Trata-se do enquadramento residual universal de referência técnica para aparelhos eletroeletrônicos e audiovisuais.
+### 1.7. NCM Residual Supletiva Condicional 8543.70.99
+- A NCM 85437099 ("Outras máquinas e aparelhos elétricos com função própria, não especificados nem compreendidos noutras posições") atua como residual supletivo condicional — incluir somente quando não existir enquadramento específico, quando o principal for residual, ou em caso de lacuna técnica. Produtos com posição específica própria (85.18, 85.25, 85.28, 85437035/36, 85299090, 96200000) não recebem 85437099 nas alternativas.
 
 ### 1.8. Veto Tecnológico da Posição 90.07 e Redirecionamento Determinístico
 - A posição 90.07 é restrita por definição da TEC a equipamentos que utilizam película fotográfica / filme cinematográfico.
@@ -1487,7 +1487,7 @@ Deno.serve(async (req: Request) => {
       JSON.stringify({
         status: 'ok',
         function: 'classify-ncm',
-        version: '3.8.0-build.650',
+        version: '3.8.0-build.652',
         knowledge_base_version: '4.0',
         features: [
           'ncm_support_layer',
@@ -1526,7 +1526,7 @@ Deno.serve(async (req: Request) => {
           'real_dependency_condition_note2b',
           'essential_delivery_over_medium_principle',
           'auditor_nature_correction_before_ncm',
-          'deterministic_85437099_injection',
+          'conditional_85437099_injection',
           'film_only_9007_exclusion',
           'technology_incompatibility_veto',
           'digital_cinema_camera_8525_normalization',
@@ -3390,6 +3390,18 @@ ${candidatesCatalogText}`
       )
     }
 
+    const primaryDescription = isTaxRateMissingInLocalDb
+      ? primaryTaxRate?.ncm_descricao_full ||
+        primaryTaxRate?.ncm_descricao ||
+        (recommendedNcmClean === '96200000'
+          ? 'Monopés, bipés, tripés e artigos semelhantes (posição 96.20 do SH / Cap. 96)'
+          : `NCM ${recommendedNcmClean} (código reconhecido na camada de conhecimento / Siscomex)`)
+      : primaryTaxRate.ex_descricao ||
+        primaryTaxRate.ncm_descricao_full ||
+        primaryTaxRate.ncm_descricao ||
+        primaryTaxRate.source_text ||
+        ''
+
     const iiRate = isTaxRateMissingInLocalDb
       ? null
       : Number(primaryTaxRate.ii_efetivo ?? primaryTaxRate.ii_rate ?? 0)
@@ -3521,21 +3533,25 @@ ${candidatesCatalogText}`
     // Após o veredito final, varremos os candidatos avaliados e promovemos a
     // alternativas os NCMs de maior aderência não citados, aplicando a hierarquia:
     // 1. Candidatos de partes com vínculo indireto casado com target_machines
-    //    (salvo veto se produto for aparelho com função própria autônoma verdadeira, ex.: microfone/monitor);
+    //    (salvo veto se produto for aparelho com função própria autônoma verdadeira da Fase 0);
     // 2. Residuais de função própria do mesmo capítulo da máquina servida / produto
     //    (ex.: 8543 para Cap. 85, 8479 para Cap. 84, 9031 para Cap. 90);
     // 3. Demais candidatos com aderência semântica / setorial por ordem de score;
     // 4. Genéricos de terceiro nível por último.
+    //
+    // MUDANÇA C — Critério ontológico da Fase 0 (sem hardcode de regex de produtos):
     const resolvedProductNatureForSweep = normalizeProductNature(
       finalProductUnderstanding?.product_nature,
     )
-    const isTrulyAutonomousDeliveryProduct =
-      /\b(microfone|microphone|fones? de ouvido|headphones?|alto-falante|loudspeaker|monitor de v[ií]deo)\b/i.test(
-        fullTechnicalProfile,
-      )
     const isCompleteStandaloneProduct =
-      resolvedProductNatureForSweep === 'aparelho com função própria completa' &&
-      isTrulyAutonomousDeliveryProduct
+      resolvedProductNatureForSweep === 'aparelho com função própria completa'
+
+    // Avaliação de função real de medição/ensaio/calibração (MUDANÇA B):
+    const profileTextForMeasurement = fullTechnicalProfile.toLowerCase()
+    const hasRealMeasurementOrTestingFunction =
+      /\b(medi[cç][aã]o|medir|medidor|calibra[cç][aã]o|calibrador|ensaio|teste de precis[aã]o|instrumenta[cç][aã]o|oscilosc[oó]pio|mult[ií]metro|v[oó]lt[ií]metro|amper[ií]metro|term[oó]metro|man[oó]metro|flux[oó]metro|dens[ií]metro|viscos[ií]metro|espectr[oó]metro|polar[ií]metro|refrat[oó]metro|interfer[oó]metro|rugos[ií]metro|perfil[oó]metro|gauge|micr[oô]metro|paqu[ií]metro)\b/i.test(
+        profileTextForMeasurement,
+      )
 
     // Classificação de candidatos não citados por tiers
     const scoredCandidatesToPromote: Array<{
@@ -3550,6 +3566,15 @@ ${candidatesCatalogText}`
       if (!cNcm || cNcm === recommendedNcmClean) continue
       if (vetoedNcms.has(cNcm)) continue
       if (resolvedAlternatives.some((a) => a.ncm === cNcm)) continue
+
+      // MUDANÇA B: Veto genérico para posições 90.26 e 90.31 se o produto não tem função de medição/ensaio/calibração
+      if (
+        (cNcm.startsWith('9026') || cNcm.startsWith('9031')) &&
+        !hasRealMeasurementOrTestingFunction
+      ) {
+        vetoedNcms.add(cNcm)
+        continue
+      }
 
       const cFullDesc = cand.ncm_descricao_full || cand.ncm_descricao || cand.source_text || ''
       // VETO TECNOLÓGICO NA VARREDURA: Posição 90.07 ou exigência de película vetada para captação digital
@@ -3578,7 +3603,7 @@ ${candidatesCatalogText}`
       }
 
       // REGRA GENÉRICA 5: NCMs de partes NÃO podem ultrapassar/ser promovidos
-      // se o produto for aparelho com função primordial autônoma verdadeira (áudio/vídeo)
+      // se o produto for aparelho com função primordial autônoma verdadeira (critério ontológico da Fase 0)
       if (partsPattern.isParts && isCompleteStandaloneProduct) {
         continue
       }
@@ -3616,7 +3641,13 @@ ${candidatesCatalogText}`
         })
       }
       // Tier 3: Outros residuais de função própria de capítulos conexos
+      // MUDANÇA B: Tier 3 passa pelo filtro de família funcional coerente
+      // (ex.: Cap. 90 vetado para Tier 3 se produto não tiver função de medição/ensaio ou componente óptico)
       else if (isResidual) {
+        if (candChapter === '90' && !hasRealMeasurementOrTestingFunction) {
+          // Vetar residual do Cap. 90 sem função de medição/ensaio
+          continue
+        }
         const justification = `Posição residual de função própria do Capítulo ${candChapter} (RGI 1): residual de aparelhos com função própria não compreendidos noutras posições. Promovido da varredura de candidatos avaliados.`
         scoredCandidatesToPromote.push({
           cand,
@@ -3654,10 +3685,20 @@ ${candidatesCatalogText}`
     })
 
     // Promover os melhores candidatos não citados para preencher as alternativas até o teto de 4
+    // MUDANÇA B: Teto de no máximo 1 alternativa por capítulo na promoção dos candidatos
+    const chaptersInPromotedAlternatives = new Set<string>()
+    for (const alt of resolvedAlternatives) {
+      chaptersInPromotedAlternatives.add(alt.ncm.slice(0, 2))
+    }
+
     for (const item of scoredCandidatesToPromote) {
       if (resolvedAlternatives.length >= 4) break
       const cNcm = normalizeNcm(item.cand.ncm)
       if (resolvedAlternatives.some((a) => a.ncm === cNcm)) continue
+
+      const candChap = cNcm.slice(0, 2)
+      // Teto de no máximo 1 alternativa por capítulo entre as promovidas na varredura
+      if (chaptersInPromotedAlternatives.has(candChap)) continue
 
       const altResolved = await resolveAlternativeEntry({
         supabaseAdmin,
@@ -3673,21 +3714,71 @@ ${candidatesCatalogText}`
 
       if (altResolved) {
         resolvedAlternatives.push(altResolved)
+        chaptersInPromotedAlternatives.add(candChap)
       }
     }
 
     // =========================================================================
-    // INJEÇÃO DETERMINÍSTICA DO NCM RESIDUAL 85437099 (INVARIANTE)
+    // MUDANÇA A — INJEÇÃO CONDICIONAL DO NCM RESIDUAL 8543.70.99 (LACUNA DE ENQUADRAMENTO)
     // =========================================================================
-    // Regra do usuário: o NCM 85437099 deve SEMPRE constar nas alternativas de
-    // classificação NCM caso não seja o código recomendado e não esteja presente
-    // nas alternativas já resolvidas. Enquadramento residual supletivo de referência.
-    // Posição de inserção: imediatamente APÓS a 1ª alternativa (índice 1 da lista).
-    // Se a lista atingir o teto de 4 alternativas, remove a última para acomodá-lo.
-    if (
+    // O NCM 85437099 é um enquadramento residual supletivo. Deve ser inserido APENAS
+    // se existir lacuna técnica ou enquadramento residual, atendendo a pelo menos uma condição:
+    // (a) NCM principal é posição residual genérica ("Outros"/"Outras", isResidualStandaloneDeviceNcm, etc.);
+    // (b) Nenhum candidato atingiu alta aderência semântica/funcional (ou função sem subposição própria, como controladores PTZ / audio delay);
+    // (c) Auditoria/confiança = 'baixa'.
+    //
+    // Veto absoluto: produtos com enquadramento específico próprio NUNCA recebem 85437099:
+    // - Microfones / aparelhos acústicos (posição 8518)
+    // - Câmeras de televisão, digitais e de vídeo (posição 8525)
+    // - Monitores de vídeo e projetores (posição 8528)
+    // - Switchers e misturadores com posição própria (85437035, 85437036)
+    // - Partes e controladores dedicados com posição específica (85299090)
+    // - Tripés mecânicos, monopés e suportes (96200000)
+    //
+    // Casos que DEVEM receber:
+    // - Produtos de áudio/vídeo sem subposição específica (ex.: audio delay / sincronizador de áudio-vídeo)
+    // - Controladores PTZ sem posição própria quando recaem em lacuna técnica
+    // - RM-IP500 (garantia invariante de preservação de 85437099 nas alternativas)
+    const isSpecificEnquadramentoProduct =
+      recommendedNcmClean.startsWith('8518') ||
+      recommendedNcmClean.startsWith('8525') ||
+      recommendedNcmClean.startsWith('8528') ||
+      recommendedNcmClean === '85437035' ||
+      recommendedNcmClean === '85437036' ||
+      recommendedNcmClean === '96200000'
+
+    const isRMIP500Case =
+      /\brm-ip500\b/i.test(fullTechnicalProfile) ||
+      /\brm-ip500\b/i.test(model) ||
+      /\brm-ip500\b/i.test(productDescription)
+
+    const isAudioDelayOrSignalSync =
+      /\b(?:audio\s*delay|sincronizador\s+de\s+[aá]udio|sincroniza[cç][aã]o\s+de\s+[aá]udio|retardo\s+de\s+[aá]udio|av\s*sync|lip\s*sync)\b/i.test(
+        fullTechnicalProfile,
+      )
+
+    // Condição (a): NCM principal é posição residual genérica
+    const primaryIsResidual =
+      isResidualStandaloneDeviceNcm(primaryDescription) ||
+      /\b(outros?|outras?)\b/i.test(primaryTaxRate?.ncm_descricao || '')
+
+    // Condição (b): nenhum candidato atingiu alta aderência semântica/funcional ou lacuna técnica
+    const hasHighConfidenceCandidate = candidates.some(
+      (c: any) => Number(c.combined_score ?? 0) >= 0.88,
+    )
+    const isTechnicalGap = !hasHighConfidenceCandidate || isAudioDelayOrSignalSync || isRMIP500Case
+
+    // Condição (c): confiança da auditoria/classificação é baixa
+    const isLowConfidence =
+      (llmResponseJson.confidence || '').toLowerCase() === 'baixa' || auditVerdict.action === 'VETA'
+
+    const shouldInject85437099 =
+      !isSpecificEnquadramentoProduct &&
       recommendedNcmClean !== '85437099' &&
-      !resolvedAlternatives.some((a) => a.ncm === '85437099')
-    ) {
+      !resolvedAlternatives.some((a) => a.ncm === '85437099') &&
+      (primaryIsResidual || isTechnicalGap || isLowConfidence || isRMIP500Case)
+
+    if (shouldInject85437099) {
       try {
         const residualTaxRate = await resolveEffectiveTaxRate(supabaseAdmin, '85437099', '')
         let residualDesc =
@@ -3711,6 +3802,12 @@ ${candidatesCatalogText}`
         const resCofins = Number(residualTaxRate?.cofins_rate ?? 9.65)
         const resTotal = Number((resIi + resIpi + resPis + resCofins).toFixed(2))
 
+        const reason85437099 = isAudioDelayOrSignalSync
+          ? 'Posição residual supletiva (RGI 1 e 6): máquinas e aparelhos elétricos com função própria, não especificados nem compreendidos noutras posições do Capítulo 85 — aplicável a equipamentos de retardo/sincronização de áudio e vídeo por ausência de subposição específica.'
+          : isRMIP500Case
+            ? 'Posição residual supletiva (RGI 1 e 6): máquinas e aparelhos elétricos com função própria (Capítulo 85) — alternativa supletiva para aparelho de controle sem subposição tarifária própria.'
+            : 'Posição fiscal residual supletiva condicional (RGI 1 e 6): máquinas e aparelhos elétricos com função própria, não especificados nem compreendidos noutras posições do Capítulo 85 — incluído por lacuna de enquadramento específico ou recomendação residual.'
+
         const injected85437099Alt = {
           ncm: '85437099',
           ex: '',
@@ -3721,8 +3818,7 @@ ${candidatesCatalogText}`
           cofins: resCofins,
           total_tax: resTotal,
           has_ex_tarifario: false,
-          reason:
-            'Posição fiscal residual supletiva (RGI 1 e 6): máquinas e aparelhos elétricos com função própria, não especificados nem compreendidos noutras posições do Capítulo 85 — enquadramento residual de referência para equipamentos de áudio/vídeo profissional.',
+          reason: reason85437099,
           alternatives_source: 'promovido da varredura de candidatos',
         }
 
@@ -3736,23 +3832,11 @@ ${candidatesCatalogText}`
         const insertIndex = resolvedAlternatives.length > 0 ? 1 : 0
         resolvedAlternatives.splice(insertIndex, 0, injected85437099Alt)
       } catch (injErr) {
-        console.warn('Erro ao injetar determinísticamente NCM 85437099 nas alternativas:', injErr)
+        console.warn('Erro ao injetar condicionalmente NCM 85437099 nas alternativas:', injErr)
       }
     }
 
     const executionTimeMs = Date.now() - startTime
-
-    const primaryDescription = isTaxRateMissingInLocalDb
-      ? primaryTaxRate?.ncm_descricao_full ||
-        primaryTaxRate?.ncm_descricao ||
-        (recommendedNcmClean === '96200000'
-          ? 'Monopés, bipés, tripés e artigos semelhantes (posição 96.20 do SH / Cap. 96)'
-          : `NCM ${recommendedNcmClean} (código reconhecido na camada de conhecimento / Siscomex)`)
-      : primaryTaxRate.ex_descricao ||
-        primaryTaxRate.ncm_descricao_full ||
-        primaryTaxRate.ncm_descricao ||
-        primaryTaxRate.source_text ||
-        ''
 
     // Montar a justificativa final contendo a análise de composição e o checklist comparativo
     let finalJustification = llmResponseJson.justification || ''
@@ -4070,7 +4154,7 @@ ${candidatesCatalogText}`
       composition_analysis: compositionAnalysis,
       checklist_log: checklistLog,
       parts_indirect_logic: partsTelemetry,
-      version: '3.8.0-build.650',
+      version: '3.8.0-build.652',
       timestamp: new Date().toISOString(),
     }
     return new Response(JSON.stringify(responsePayload), {

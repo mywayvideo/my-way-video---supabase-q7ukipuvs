@@ -12,7 +12,7 @@ Este documento constitui a **Fonte Única da Verdade** (Knowledge Layer) para a 
 ### 1.1. Soberania da Função Primária
 
 - A **função primordial** do produto determina o Capítulo e a Posição na Nomenclatura Comum do Mercosul (NCM).
-  - Exemplo de princípio: captar/gravar/reproduzir/comutar/exibir imagem ou som → Capítulo 85; medir, instrumentar, controlar grandezas ou ótica médica/científica → Capítulo 90; máquinas mecânicas ou térmicas de processamento/elevação → Capítulo 84.
+  - Exemplo de princípio: captar/gravar/reproduzir/comutar/exibir imagem ou som, processamento de sinal ou comunicação → priorizar Capítulo 85; processamento mecânico/térmico → posições conexas do Capítulo 84; Capítulo 90 apenas quando houver componente óptico de precisão ou instrumentação/medição real.
 - **Marketing e termos comerciais JAMAIS deslocam capítulo:** Nomes comerciais, slogans publicitários ou embalagens ("Cinema", "Cine", "Movie", "Broadcast", "Studio", "Multiuso", "3 em 1") não possuem valor aduaneiro para alterar a posição da mercadoria. O que define a posição é a constituição física, o princípio de funcionamento e o resultado operacional real do equipamento.
 
 ### 1.2. Soberania do Texto Literal da NCM e Hierarquia das RGIs
@@ -46,9 +46,9 @@ Este documento constitui a **Fonte Única da Verdade** (Knowledge Layer) para a 
 - Na NCM, o conceito de "partes e acessórios reconhecíveis" abrange não apenas peças de reposição/sobressalentes (componentes de reposição pura), mas também **acessórios dependentes sem função autônoma** (dispositivos periféricos de comando, manoplas de acionamento servo-assistido, consoles dedicados que só adquirem utilidade operando acoplados à máquina principal).
 - A proibição inversa de classificar como parte aplica-se estritamente à **peça de reposição pura** concorrendo com equipamento completo independente.
 
-### 1.7. Presença Universal da NCM Residual 8543.70.99
+### 1.7. NCM Residual Supletiva Condicional 8543.70.99
 
-- A NCM **85437099** ("Outras máquinas e aparelhos elétricos com função própria, não especificados nem compreendidos noutras posições") deve **SEMPRE constar nas alternativas** de classificação, salvo quando ela própria for a recomendação principal. Trata-se do enquadramento residual universal de referência técnica para aparelhos eletroeletrônicos e audiovisuais.
+- A NCM **85437099** ("Outras máquinas e aparelhos elétricos com função própria, não especificados nem compreendidos noutras posições") atua como **residual supletivo condicional** — incluir somente quando não existir enquadramento específico, quando o principal for residual, ou em caso de lacuna técnica. Produtos com enquadramento específico próprio (85.18, 85.25, 85.28, 85437035/36, 85299090, 96200000) não recebem 85437099 nas alternativas.
 
 ### 1.8. Veto Tecnológico da Posição 90.07 e Redirecionamento Determinístico
 
@@ -98,7 +98,7 @@ Este documento constitui a **Fonte Única da Verdade** (Knowledge Layer) para a 
 - **Veto ao Capítulo 90:** É TERMINANTEMENTE PROIBIDO enquadrar tripés, cabeças fluidas ou suportes mecânicos no Capítulo 90 (como microscópios ou instrumentos ópticos 90.11) ou em posições de imagem/telecomunicações (85.25 / 85.28).
 - **Alternativas:**
   - **85299090:** Pode constar apenas como alternativa de menor prioridade (parte/acessório reconhecível destinado aos aparelhos de vídeo).
-  - **85437099:** Alternativa para suportes ou pedestais motorizados dotados de função elétrica autônoma.
+  - **85437099:** Alternativa apenas para suportes ou pedestais motorizados dotados de função elétrica autônoma comprovada (não se aplica a tripés puramente mecânicos).
 
 ### 2.6. Códigos Granulares Ausentes da Base Local
 

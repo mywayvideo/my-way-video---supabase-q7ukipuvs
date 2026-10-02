@@ -211,6 +211,19 @@ export const productService = {
     return data
   },
 
+  async markProductAsReviewed(id: string) {
+    const nowIso = new Date().toISOString()
+    const { data, error } = await supabase
+      .from('products')
+      .update({ last_reviewed_at: nowIso } as any)
+      .eq('id', id)
+      .select('id, created_at, updated_at, last_reviewed_at')
+      .single()
+
+    if (error) throw error
+    return data
+  },
+
   async updateProduct(id: string, productData: any) {
     let finalImageUrl = productData.image_url !== undefined ? productData.image_url : undefined
     if (finalImageUrl) {

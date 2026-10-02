@@ -22,6 +22,8 @@ export type Product = {
   is_special: boolean
   is_discontinued: boolean
   created_at?: string
+  updated_at?: string
+  last_reviewed_at?: string
   manufacturer?: Manufacturer
 }
 

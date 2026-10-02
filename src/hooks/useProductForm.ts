@@ -75,6 +75,12 @@ export function useProductForm(props?: UseProductFormProps) {
   const [isLoadingProduct, setIsLoadingProduct] = useState(!!id)
   const [ncmSuggestions, setNcmSuggestions] = useState<any[]>([])
   const [isSuggestingNcm, setIsSuggestingNcm] = useState(false)
+  const [productDates, setProductDates] = useState<{
+    created_at?: string | null
+    updated_at?: string | null
+    last_reviewed_at?: string | null
+  } | null>(null)
+  const [isMarkingReviewed, setIsMarkingReviewed] = useState(false)
 
   const form = useForm<any>({
     resolver: zodResolver(productSchema),
@@ -138,6 +144,11 @@ export function useProductForm(props?: UseProductFormProps) {
 
   useEffect(() => {
     if (props?.initialData && Object.keys(props.initialData).length > 0) {
+      setProductDates({
+        created_at: props.initialData.created_at || null,
+        updated_at: props.initialData.updated_at || null,
+        last_reviewed_at: props.initialData.last_reviewed_at || null,
+      })
       form.reset({
         name: props.initialData.name || '',
         sku: props.initialData.sku || '',
@@ -177,6 +188,11 @@ export function useProductForm(props?: UseProductFormProps) {
             .single()
           if (error) throw error
           if (data) {
+            setProductDates({
+              created_at: (data as any).created_at || null,
+              updated_at: (data as any).updated_at || null,
+              last_reviewed_at: (data as any).last_reviewed_at || null,
+            })
             form.reset({
               name: data.name || '',
               sku: data.sku || '',
@@ -369,6 +385,33 @@ export function useProductForm(props?: UseProductFormProps) {
     }
   }
 
+  const handleMarkAsReviewed = async () => {
+    if (!id) return
+    setIsMarkingReviewed(true)
+    try {
+      const updated = await productService.markProductAsReviewed(id)
+      if (updated) {
+        setProductDates((prev) => ({
+          ...prev,
+          last_reviewed_at: (updated as any).last_reviewed_at,
+          updated_at: (updated as any).updated_at ?? prev?.updated_at,
+        }))
+        toast({
+          title: 'Produto revisado',
+          description: 'Data de conferência atualizada com sucesso!',
+        })
+      }
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao marcar como revisado',
+        description: err?.message || 'Falha ao atualizar data de revisão.',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsMarkingReviewed(false)
+    }
+  }
+
   const onSubmit = async (data: any) => {
     setIsSaving(true)
     try {
@@ -426,5 +469,8 @@ export function useProductForm(props?: UseProductFormProps) {
     isEditMode,
     handleAddCategory,
     handleAddManufacturer,
+    productDates,
+    handleMarkAsReviewed,
+    isMarkingReviewed,
   }
 }

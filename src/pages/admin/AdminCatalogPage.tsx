@@ -65,6 +65,14 @@ import { fetchProductImageMetrics } from '@/services/imageMetricsService'
 import { ProductImageMetricsBanner } from '@/components/admin/ProductImageMetricsBanner'
 import { isStorageImageUrl } from '@/lib/image-proxy'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { formatOrderDate, formatOrderDateTime } from '@/utils/formatters'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 
 const PAGE_SIZE = 50
 
@@ -103,6 +111,7 @@ export default function AdminCatalogPage() {
   const [search, setSearch] = useState('')
   const debouncedSearch = useDebounce(search, 300)
   const [filterNoImage, setFilterNoImage] = useState(false)
+  const [filterUnreviewedMonths, setFilterUnreviewedMonths] = useState<string>('all')
 
   const [isProcessingCSV, setIsProcessingCSV] = useState(false)
   const [csvProgress, setCsvProgress] = useState({ current: 0, total: 0, currentName: '' })
@@ -446,6 +455,15 @@ export default function AdminCatalogPage() {
       pQuery = pQuery.or('image_url.is.null,image_url.eq.')
     }
 
+    if (filterUnreviewedMonths !== 'all') {
+      const months = parseInt(filterUnreviewedMonths, 10)
+      if (!isNaN(months) && months > 0) {
+        const thresholdDate = new Date()
+        thresholdDate.setMonth(thresholdDate.getMonth() - months)
+        pQuery = pQuery.lte('last_reviewed_at', thresholdDate.toISOString())
+      }
+    }
+
     if (sortColumn !== 'brand') {
       pQuery = pQuery.order(sortColumn, { ascending: sortDirection === 'asc' })
     } else {
@@ -493,11 +511,19 @@ export default function AdminCatalogPage() {
 
   useEffect(() => {
     setPage(1)
-  }, [sortColumn, sortDirection, debouncedSearch, filterNoImage])
+  }, [sortColumn, sortDirection, debouncedSearch, filterNoImage, filterUnreviewedMonths])
 
   useEffect(() => {
     if (user) fetchProductsData(debouncedSearch)
-  }, [user, sortColumn, sortDirection, debouncedSearch, filterNoImage, page])
+  }, [
+    user,
+    sortColumn,
+    sortDirection,
+    debouncedSearch,
+    filterNoImage,
+    filterUnreviewedMonths,
+    page,
+  ])
 
   useEffect(() => {
     const pos = sessionStorage.getItem('admin-products-scroll-position')
@@ -895,6 +921,19 @@ export default function AdminCatalogPage() {
                 Inventário ({filteredProducts.length} itens)
               </h2>
               <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
+                <div className="flex items-center gap-2">
+                  <Select value={filterUnreviewedMonths} onValueChange={setFilterUnreviewedMonths}>
+                    <SelectTrigger className="h-9 w-[190px] text-xs bg-background/50 border-border/50">
+                      <SelectValue placeholder="Gestão de revisão" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todas as revisões</SelectItem>
+                      <SelectItem value="3">Sem revisão há 3+ meses</SelectItem>
+                      <SelectItem value="6">Sem revisão há 6+ meses</SelectItem>
+                      <SelectItem value="12">Sem revisão há 12+ meses</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
                 <Button
                   variant={filterNoImage ? 'secondary' : 'outline'}
                   size="sm"
@@ -1085,7 +1124,15 @@ export default function AdminCatalogPage() {
                         FOB Miami {renderSortIndicator('price_usd')}
                       </div>
                     </TableHead>
-                    <TableHead className="text-right">Ações</TableHead>
+                    <TableHead
+                      className={cn('w-44', sortableHeaderClasses('last_reviewed_at'))}
+                      onClick={() => handleSort('last_reviewed_at')}
+                    >
+                      <div className="flex items-center">
+                        Última Revisão {renderSortIndicator('last_reviewed_at')}
+                      </div>
+                    </TableHead>
+                    <TableHead className="text-right">Ações</TableHead>{' '}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -1192,7 +1239,73 @@ export default function AdminCatalogPage() {
                           maximumFractionDigits: 2,
                         })}
                       </TableCell>
+                      <TableCell className="whitespace-nowrap">
+                        {(() => {
+                          const updatedTime = p.updated_at ? new Date(p.updated_at).getTime() : 0
+                          const reviewedTime = p.last_reviewed_at
+                            ? new Date(p.last_reviewed_at).getTime()
+                            : 0
+                          const isReviewedAfterUpdate = reviewedTime > updatedTime
+
+                          return (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <div className="inline-flex items-center gap-1.5 cursor-help">
+                                  <span
+                                    className={cn(
+                                      'inline-block h-2.5 w-2.5 rounded-full shrink-0',
+                                      isReviewedAfterUpdate
+                                        ? 'bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.5)]'
+                                        : 'bg-sky-500 shadow-[0_0_6px_rgba(14,165,233,0.5)]',
+                                    )}
+                                    aria-hidden="true"
+                                  />
+                                  <span className="font-mono text-xs text-foreground font-medium">
+                                    {p.last_reviewed_at
+                                      ? formatOrderDate(p.last_reviewed_at)
+                                      : '--'}
+                                  </span>
+                                  <span className="text-[11px] text-muted-foreground">
+                                    {isReviewedAfterUpdate ? '🟢' : '🔵'}
+                                  </span>
+                                </div>
+                              </TooltipTrigger>
+                              <TooltipContent
+                                side="left"
+                                className="text-xs max-w-xs space-y-1.5 p-3 shadow-lg bg-popover text-popover-foreground border-border/80"
+                              >
+                                <p className="font-semibold text-xs border-b border-border/50 pb-1 flex items-center gap-1">
+                                  {isReviewedAfterUpdate ? (
+                                    <span className="text-emerald-500 font-medium">
+                                      🟢 Revisado após a última alteração
+                                    </span>
+                                  ) : (
+                                    <span className="text-sky-500 font-medium">
+                                      🔵 Alterado — pendente de conferência
+                                    </span>
+                                  )}
+                                </p>
+                                <div className="space-y-0.5 font-mono text-[11px]">
+                                  <p>
+                                    <span className="text-muted-foreground">Criado:</span>{' '}
+                                    {formatOrderDateTime(p.created_at)}
+                                  </p>
+                                  <p>
+                                    <span className="text-muted-foreground">Alterado:</span>{' '}
+                                    {formatOrderDateTime(p.updated_at || p.created_at)}
+                                  </p>
+                                  <p>
+                                    <span className="text-muted-foreground">Revisado:</span>{' '}
+                                    {formatOrderDateTime(p.last_reviewed_at || p.created_at)}
+                                  </p>
+                                </div>
+                              </TooltipContent>
+                            </Tooltip>
+                          )
+                        })()}
+                      </TableCell>
                       <TableCell className="text-right whitespace-nowrap">
+                        {' '}
                         <Link to={`/product/${p.id}`} target="_blank" title="Visualizar Página">
                           <Button
                             variant="ghost"
@@ -1231,11 +1344,11 @@ export default function AdminCatalogPage() {
                   ))}
                   {filteredProducts.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
+                      <TableCell colSpan={10} className="h-24 text-center text-muted-foreground">
                         Nenhum equipamento encontrado.
                       </TableCell>
                     </TableRow>
-                  )}
+                  )}{' '}
                 </TableBody>
               </Table>
             </div>

@@ -30,7 +30,12 @@ import {
   X,
   UploadCloud,
   Image as ImageIcon,
+  CheckCircle2,
+  Clock,
+  Calendar,
 } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
+import { formatOrderDateTime } from '@/utils/formatters'
 import { useRef } from 'react'
 import { uploadProductImage } from '@/services/productService'
 import {
@@ -87,6 +92,9 @@ export default function NewProductPage() {
     isEditMode,
     handleAddCategory,
     handleAddManufacturer,
+    productDates,
+    handleMarkAsReviewed,
+    isMarkingReviewed,
   } = useProductForm()
 
   const isBusy = isExtracting || isSaving
@@ -359,6 +367,102 @@ export default function NewProductPage() {
         <CardContent>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
+              {/* BLOCO DE DATAS EM DESTAQUE NO INÍCIO */}
+              <div className="p-5 border-2 border-primary/30 rounded-xl bg-gradient-to-r from-primary/5 via-primary/[0.02] to-transparent shadow-sm space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-border/60">
+                  <div className="flex items-center gap-2">
+                    <Calendar className="w-5 h-5 text-primary" />
+                    <h3 className="text-base font-bold text-foreground">Datas do Produto</h3>
+                    {isEditMode && productDates ? (
+                      (() => {
+                        const updatedTime = productDates.updated_at
+                          ? new Date(productDates.updated_at).getTime()
+                          : 0
+                        const reviewedTime = productDates.last_reviewed_at
+                          ? new Date(productDates.last_reviewed_at).getTime()
+                          : 0
+                        const isReviewedAfterUpdate = reviewedTime > updatedTime
+
+                        return isReviewedAfterUpdate ? (
+                          <Badge
+                            variant="outline"
+                            className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/40 text-xs font-semibold gap-1.5 py-0.5"
+                          >
+                            <span className="h-2 w-2 rounded-full bg-emerald-500 inline-block animate-pulse" />
+                            🟢 Revisado após a última alteração
+                          </Badge>
+                        ) : (
+                          <Badge
+                            variant="outline"
+                            className="bg-sky-500/15 text-sky-600 dark:text-sky-400 border-sky-500/40 text-xs font-semibold gap-1.5 py-0.5"
+                          >
+                            <span className="h-2 w-2 rounded-full bg-sky-500 inline-block" />🔵
+                            Alterado — pendente de conferência
+                          </Badge>
+                        )
+                      })()
+                    ) : (
+                      <Badge variant="outline" className="text-xs text-muted-foreground">
+                        Novo cadastro (as 3 datas nascerão iguais)
+                      </Badge>
+                    )}
+                  </div>
+
+                  {isEditMode && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleMarkAsReviewed}
+                      disabled={isBusy || isMarkingReviewed}
+                      className="bg-background hover:bg-emerald-500/10 hover:text-emerald-600 hover:border-emerald-500/40 border-primary/30 font-medium whitespace-nowrap shadow-sm"
+                    >
+                      {isMarkingReviewed ? (
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      ) : (
+                        <CheckCircle2 className="w-4 h-4 mr-2 text-emerald-500" />
+                      )}
+                      Marcar como revisado
+                    </Button>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
+                  <div className="bg-background/70 border border-border/60 rounded-lg p-3 space-y-1">
+                    <span className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5 text-muted-foreground" /> Criado em
+                    </span>
+                    <p className="font-semibold text-foreground text-sm font-mono">
+                      {isEditMode && productDates?.created_at
+                        ? formatOrderDateTime(productDates.created_at)
+                        : 'Será definido ao salvar'}
+                    </p>
+                  </div>
+
+                  <div className="bg-background/70 border border-border/60 rounded-lg p-3 space-y-1">
+                    <span className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5 text-muted-foreground" /> Última alteração em
+                    </span>
+                    <p className="font-semibold text-foreground text-sm font-mono">
+                      {isEditMode && productDates?.updated_at
+                        ? formatOrderDateTime(productDates.updated_at)
+                        : 'Será definido ao salvar'}
+                    </p>
+                  </div>
+
+                  <div className="bg-background/70 border border-border/60 rounded-lg p-3 space-y-1">
+                    <span className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5 text-muted-foreground" /> Última revisão em
+                    </span>
+                    <p className="font-semibold text-foreground text-sm font-mono">
+                      {isEditMode && productDates?.last_reviewed_at
+                        ? formatOrderDateTime(productDates.last_reviewed_at)
+                        : 'Será definido ao salvar'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
               {/* SECTION 1 - BASIC INFORMATION */}
               <div className="space-y-4 p-5 border rounded-lg bg-muted/5">
                 <h3 className="text-lg font-bold">Informações Básicas</h3>

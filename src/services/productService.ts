@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase/client'
 import { ProductFormData } from '@/types/product'
 import { isStorageImageUrl } from '@/lib/image-proxy'
+import { sanitizeSku } from '@/utils/sku-sanitizer'
 
 export async function persistExternalProductImage(
   imageUrl: string | null | undefined,
@@ -134,6 +135,9 @@ export const productService = {
     })
     if (error) throw error
     if (data?.error) throw new Error(data.error)
+    if (data && typeof data.sku === 'string') {
+      data.sku = sanitizeSku(data.sku)
+    }
     return data
   },
 

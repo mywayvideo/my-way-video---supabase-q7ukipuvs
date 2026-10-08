@@ -133,6 +133,12 @@ Deno.serve(async (req: Request) => {
 
     let name = extractedData.name || ''
     let sku = extractedData.sku || ''
+    if (typeof sku === 'string') {
+      sku = sku
+        .trim()
+        .replace(/^mfr\s*#\s*/i, '')
+        .trim()
+    }
 
     let price_usa = ''
     if (extractedData.price_usa) {

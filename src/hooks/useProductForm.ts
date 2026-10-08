@@ -7,6 +7,7 @@ import { useToast } from '@/hooks/use-toast'
 import { useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase/client'
 import { calculateTotalUSDFromValues } from '@/utils/pricing-engine'
+import { sanitizeSku } from '@/utils/sku-sanitizer'
 
 const productSchema = z.object({
   name: z.string().min(1, 'Nome é obrigatório'),
@@ -295,7 +296,7 @@ export function useProductForm(props?: UseProductFormProps) {
         throw new Error(data.error)
       }
       if (data.name) form.setValue('name', data.name, { shouldDirty: true })
-      if (data.sku) form.setValue('sku', data.sku, { shouldDirty: true })
+      if (data.sku) form.setValue('sku', sanitizeSku(data.sku), { shouldDirty: true })
       if (data.description) {
         const descStr =
           typeof data.description === 'string'

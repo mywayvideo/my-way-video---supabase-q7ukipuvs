@@ -33,6 +33,7 @@ import { formatPrice } from '@/utils/priceFormatter'
 import { SEO } from '@/components/SEO'
 import { AIConsultantModal } from '@/components/AIConsultantModal'
 import { ImageWithFallback } from '@/components/ImageWithFallback'
+import { BhPriceChecker } from '@/components/BhPriceChecker'
 import { ProductPrice } from '@/components/ProductPrice'
 import { useProductDiscount } from '@/hooks/useProductDiscount'
 import { type PriceSettingsData, type ExchangeRateData } from '@/utils/pricing-engine'
@@ -759,6 +760,26 @@ export default function Product() {
                   )}
                 </div>
               </div>
+
+              {/* Bloco de Verificação de Preço B&H (visível para Admin) */}
+              {isAdmin && (
+                <BhPriceChecker
+                  productId={product.id}
+                  currentPriceUsd={product.price_usd}
+                  websiteUrl={product.website_url}
+                  sku={product.sku}
+                  onPriceUpdated={async () => {
+                    const { data } = await supabase
+                      .from('products')
+                      .select('*, manufacturer:manufacturers(*)')
+                      .eq('id', product.id)
+                      .single()
+                    if (data) {
+                      setProduct(data as any)
+                    }
+                  }}
+                />
+              )}
             </div>
 
             <div className="order-3 lg:order-none w-full mb-10 lg:mb-0 flex gap-4">

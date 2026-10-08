@@ -141,6 +141,7 @@ export function BulkReviewModal({
           description: p.description || '',
           technical_info: p.technical_info || '',
           image_url: p.image_url || '',
+          website_url: p._url || p.website_url || p.source_url || null,
           is_discontinued: p.is_discontinued === 'true' || p.is_discontinued === true,
           is_special: p.is_special === 'true' || p.is_special === true,
         }

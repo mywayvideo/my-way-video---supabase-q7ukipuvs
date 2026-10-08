@@ -314,6 +314,7 @@ RULES:
     }
 
     const result = {
+      source_url: url || '',
       name: name || '',
       sku: sku || '',
       price_cost: '',

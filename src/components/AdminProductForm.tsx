@@ -211,6 +211,24 @@ export function AdminProductForm({ initialData, onSuccess, onAddManufacturer }: 
 
           <FormField
             control={form.control}
+            name="website_url"
+            render={({ field }) => (
+              <FormItem className="col-span-2 md:col-span-4">
+                <FormLabel>URL de Origem / Fornecedor (B&amp;H)</FormLabel>
+                <FormControl>
+                  <Input
+                    {...field}
+                    placeholder="https://www.bhphotovideo.com/c/product/..."
+                    className="bg-background/50 font-mono text-xs"
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
             name="category"
             render={({ field }) => (
               <FormItem className="col-span-2 md:col-span-2">

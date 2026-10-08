@@ -138,6 +138,10 @@ export const productService = {
     if (data && typeof data.sku === 'string') {
       data.sku = sanitizeSku(data.sku)
     }
+    // Garante que source_url esteja sempre preenchido com a URL enviada caso não retornado
+    if (data && !data.source_url) {
+      data.source_url = url
+    }
     return data
   },
 
@@ -207,6 +211,7 @@ export const productService = {
       price_cost_rebate:
         productData.price_cost_rebate === '' ? null : (productData.price_cost_rebate ?? null),
       date_rebate: productData.date_rebate === '' ? null : (productData.date_rebate ?? null),
+      website_url: productData.website_url ? String(productData.website_url).trim() : null,
     }
 
     const { data, error } = await supabase.from('products').insert(payload).select().single()
@@ -266,6 +271,9 @@ export const productService = {
       price_cost_rebate:
         productData.price_cost_rebate === '' ? null : (productData.price_cost_rebate ?? null),
       date_rebate: productData.date_rebate === '' ? null : (productData.date_rebate ?? null),
+      ...(productData.website_url !== undefined
+        ? { website_url: productData.website_url ? String(productData.website_url).trim() : null }
+        : {}),
     }
 
     const { error } = await supabase.from('products').update(payload).eq('id', id)

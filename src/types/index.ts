@@ -24,6 +24,7 @@ export type Product = {
   created_at?: string
   updated_at?: string
   last_reviewed_at?: string
+  website_url?: string | null
   manufacturer?: Manufacturer
 }
 

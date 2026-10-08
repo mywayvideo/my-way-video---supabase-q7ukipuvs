@@ -26,6 +26,7 @@ export const productSchema = z.object({
   price_usa_rebate: z.coerce.number().optional().nullable(),
   price_cost_rebate: z.coerce.number().optional().nullable(),
   date_rebate: z.string().optional().nullable(),
+  website_url: z.string().url('URL inválida').optional().nullable().or(z.literal('')),
 })
 
 export type ProductFormData = z.infer<typeof productSchema>

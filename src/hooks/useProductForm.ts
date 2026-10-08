@@ -51,6 +51,7 @@ const productSchema = z.object({
     z.coerce.number().nullable().optional(),
   ),
   date_rebate: z.string().nullable().optional(),
+  website_url: z.string().catch('').default(''),
 })
 
 export interface UseProductFormProps {
@@ -111,6 +112,7 @@ export function useProductForm(props?: UseProductFormProps) {
       price_usa_rebate: null,
       price_cost_rebate: null,
       date_rebate: '',
+      website_url: '',
     },
   })
 
@@ -176,6 +178,7 @@ export function useProductForm(props?: UseProductFormProps) {
         price_usa_rebate: props.initialData.price_usa_rebate ?? null,
         price_cost_rebate: props.initialData.price_cost_rebate ?? null,
         date_rebate: props.initialData.date_rebate || '',
+        website_url: props.initialData.website_url || '',
       })
       setIsLoadingProduct(false)
     } else if (routeId) {
@@ -220,6 +223,7 @@ export function useProductForm(props?: UseProductFormProps) {
               price_usa_rebate: data.price_usa_rebate ?? null,
               price_cost_rebate: data.price_cost_rebate ?? null,
               date_rebate: data.date_rebate || '',
+              website_url: (data as any).website_url || '',
             })
           }
         } catch (e) {
@@ -295,6 +299,37 @@ export function useProductForm(props?: UseProductFormProps) {
       if (data.error) {
         throw new Error(data.error)
       }
+      const extractedSourceUrl = data.source_url || url
+
+      // Regra de website_url:
+      // Ao CRIAR um produto novo: salvar automaticamente em website_url
+      // Ao EDITAR um produto existente com nova URL: NÃO sobrescrever silenciosamente.
+      // Se já tem website_url diferente da nova extração, pedir confirmação ao usuário.
+      if (!isEditMode) {
+        form.setValue('website_url', extractedSourceUrl, { shouldDirty: true })
+      } else {
+        const currentWebsiteUrl = (form.getValues('website_url') || '').trim()
+        if (!currentWebsiteUrl) {
+          form.setValue('website_url', extractedSourceUrl, { shouldDirty: true })
+        } else if (currentWebsiteUrl !== extractedSourceUrl) {
+          const confirmOverwrite = window.confirm(
+            `O produto já possui uma URL de origem associada:\n\nAtual: ${currentWebsiteUrl}\n\nNova: ${extractedSourceUrl}\n\nDeseja substituir a URL de origem existente pela nova URL?`,
+          )
+          if (confirmOverwrite) {
+            form.setValue('website_url', extractedSourceUrl, { shouldDirty: true })
+            toast({
+              title: 'URL de origem atualizada',
+              description: 'A URL do produto foi atualizada com o link da nova extração.',
+            })
+          } else {
+            toast({
+              title: 'URL preservada',
+              description: 'A URL original foi mantida sem alterações.',
+            })
+          }
+        }
+      }
+
       if (data.name) form.setValue('name', data.name, { shouldDirty: true })
       if (data.sku) form.setValue('sku', sanitizeSku(data.sku), { shouldDirty: true })
       if (data.description) {
@@ -424,6 +459,7 @@ export function useProductForm(props?: UseProductFormProps) {
         price_usa_rebate: data.price_usa_rebate === '' ? null : (data.price_usa_rebate ?? null),
         price_cost_rebate: data.price_cost_rebate === '' ? null : (data.price_cost_rebate ?? null),
         date_rebate: data.date_rebate === '' ? null : (data.date_rebate ?? null),
+        website_url: data.website_url ? String(data.website_url).trim() : null,
       }
 
       if (!isEditMode) {

@@ -115,6 +115,7 @@ export default function NewProductPage() {
   const imageUrl = form.watch('image_url')
   const [debouncedImageUrl, setDebouncedImageUrl] = useState(imageUrl || '')
   const [imageStatus, setImageStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
+  const websiteUrl = form.watch('website_url')
 
   // Se o formulário mudar para uma URL remota, descarta o localPreviewUrl se for diferente
   useEffect(() => {
@@ -357,6 +358,21 @@ export default function NewProductPage() {
               Dados
             </Button>
           </div>
+          {websiteUrl && (
+            <div className="mt-3 pt-3 border-t border-border/40 text-xs text-muted-foreground flex items-center justify-between gap-2">
+              <span className="truncate">
+                <strong>URL de origem:</strong>{' '}
+                <a
+                  href={websiteUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-primary hover:underline"
+                >
+                  {websiteUrl}
+                </a>
+              </span>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -567,6 +583,24 @@ export default function NewProductPage() {
                             ))}
                           </SelectContent>
                         </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="website_url"
+                    render={({ field }) => (
+                      <FormItem className="md:col-span-2">
+                        <FormLabel>URL de Origem / Fornecedor (B&amp;H)</FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            placeholder="https://www.bhphotovideo.com/c/product/..."
+                            disabled={isBusy}
+                            className="font-mono text-xs"
+                          />
+                        </FormControl>
                         <FormMessage />
                       </FormItem>
                     )}

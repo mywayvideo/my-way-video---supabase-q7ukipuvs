@@ -38,6 +38,7 @@ import { Badge } from '@/components/ui/badge'
 import { formatOrderDateTime } from '@/utils/formatters'
 import { useRef } from 'react'
 import { uploadProductImage } from '@/services/productService'
+import { BhPriceChecker } from '@/components/BhPriceChecker'
 import {
   NcmSuggestDialog,
   formatNcmDisplay,
@@ -605,6 +606,31 @@ export default function NewProductPage() {
                       </FormItem>
                     )}
                   />
+
+                  {/* Verificação de Preço B&H (somente no modo de edição com ID salvo) */}
+                  {isEditMode && id && (
+                    <div className="md:col-span-2">
+                      <BhPriceChecker
+                        productId={id}
+                        currentPriceUsd={form.watch('price_usa')}
+                        websiteUrl={form.watch('website_url')}
+                        sku={form.watch('sku')}
+                        onPriceApplied={(newPrice) => {
+                          form.setValue('price_usa', newPrice, {
+                            shouldDirty: true,
+                            shouldValidate: true,
+                          })
+                        }}
+                        onUrlDiscovered={(newUrl) => {
+                          form.setValue('website_url', newUrl, {
+                            shouldDirty: true,
+                            shouldValidate: true,
+                          })
+                        }}
+                      />
+                    </div>
+                  )}
+
                   <FormField
                     control={form.control}
                     name="description"

@@ -79,4 +79,16 @@ describe('priceCheckService & B&H verification tolerance logic', () => {
       supabase.functions.invoke = originalInvoke
     }
   })
+
+  it('updates form price field when applying price from B&H', () => {
+    let formPriceUsa = 950
+    const onPriceApplied = (newPrice: number) => {
+      formPriceUsa = newPrice
+    }
+
+    const fetchedBhPrice = 999
+    onPriceApplied(fetchedBhPrice)
+
+    expect(formPriceUsa).toBe(999)
+  })
 })

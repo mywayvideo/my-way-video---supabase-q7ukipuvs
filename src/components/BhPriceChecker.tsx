@@ -27,6 +27,8 @@ interface BhPriceCheckerProps {
   websiteUrl: string | null | undefined
   sku: string | null | undefined
   onPriceUpdated?: () => void
+  onPriceApplied?: (appliedPrice: number) => void
+  onUrlDiscovered?: (newUrl: string) => void
 }
 
 export const BhPriceChecker: React.FC<BhPriceCheckerProps> = ({
@@ -35,6 +37,8 @@ export const BhPriceChecker: React.FC<BhPriceCheckerProps> = ({
   websiteUrl,
   sku,
   onPriceUpdated,
+  onPriceApplied,
+  onUrlDiscovered,
 }) => {
   const [isChecking, setIsChecking] = useState(false)
   const [isApplying, setIsApplying] = useState(false)
@@ -109,9 +113,14 @@ export const BhPriceChecker: React.FC<BhPriceCheckerProps> = ({
         })
       }
 
-      if (res.url_discovered && onPriceUpdated) {
-        // Se uma nova URL foi descoberta e gravada no banco, atualiza os dados do produto
-        onPriceUpdated()
+      if (res.url_discovered) {
+        if (res.url_used && onUrlDiscovered) {
+          onUrlDiscovered(res.url_used)
+        }
+        if (onPriceUpdated) {
+          // Se uma nova URL foi descoberta e gravada no banco, atualiza os dados do produto
+          onPriceUpdated()
+        }
       }
     } catch (err: any) {
       toast({
@@ -155,6 +164,10 @@ export const BhPriceChecker: React.FC<BhPriceCheckerProps> = ({
           diff_usd: 0,
           diff_pct: 0,
         })
+      }
+
+      if (onPriceApplied) {
+        onPriceApplied(targetPrice)
       }
 
       if (onPriceUpdated) {

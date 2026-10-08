@@ -1,11 +1,17 @@
 // AVOID UPDATING THIS FILE DIRECTLY. It is automatically generated.
-export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[]
+export type Json =
+  | string
+  | number
+  | boolean
+  | null
+  | { [key: string]: Json | undefined }
+  | Json[]
 
 export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: '14.5'
+    PostgrestVersion: "14.5"
   }
   public: {
     Tables: {
@@ -300,11 +306,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'cart_items_product_id_fkey'
-            columns: ['product_id']
+            foreignKeyName: "cart_items_product_id_fkey"
+            columns: ["product_id"]
             isOneToOne: false
-            referencedRelation: 'products'
-            referencedColumns: ['id']
+            referencedRelation: "products"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -512,11 +518,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'customer_favorites_product_id_fkey'
-            columns: ['product_id']
+            foreignKeyName: "customer_favorites_product_id_fkey"
+            columns: ["product_id"]
             isOneToOne: false
-            referencedRelation: 'products'
-            referencedColumns: ['id']
+            referencedRelation: "products"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -787,11 +793,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'discount_rule_customers_discount_rule_id_fkey'
-            columns: ['discount_rule_id']
+            foreignKeyName: "discount_rule_customers_discount_rule_id_fkey"
+            columns: ["discount_rule_id"]
             isOneToOne: false
-            referencedRelation: 'discount_rules'
-            referencedColumns: ['id']
+            referencedRelation: "discount_rules"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -990,6 +996,7 @@ export type Database = {
       exchange_rate: {
         Row: {
           created_at: string
+          eur_to_brl: number | null
           id: string
           last_updated: string
           spread_percentage: number
@@ -999,6 +1006,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          eur_to_brl?: number | null
           id?: string
           last_updated?: string
           spread_percentage?: number
@@ -1008,6 +1016,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          eur_to_brl?: number | null
           id?: string
           last_updated?: string
           spread_percentage?: number
@@ -1038,11 +1047,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'favorites_product_id_fkey'
-            columns: ['product_id']
+            foreignKeyName: "favorites_product_id_fkey"
+            columns: ["product_id"]
             isOneToOne: false
-            referencedRelation: 'products'
-            referencedColumns: ['id']
+            referencedRelation: "products"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -1076,11 +1085,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'image_migration_failures_product_id_fkey'
-            columns: ['product_id']
+            foreignKeyName: "image_migration_failures_product_id_fkey"
+            columns: ["product_id"]
             isOneToOne: false
-            referencedRelation: 'products'
-            referencedColumns: ['id']
+            referencedRelation: "products"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -1179,6 +1188,7 @@ export type Database = {
       }
       imp_sim_client_quote_items: {
         Row: {
+          cost_currency: string | null
           description: string | null
           direct_sale_price: number | null
           icms_credit_rate: number | null
@@ -1193,6 +1203,7 @@ export type Database = {
           product_id: string | null
           quantity: number
           quote_id: string
+          raw_unit_cost: number | null
           reference_opposite_mode: string | null
           sku: string | null
           sort_order: number
@@ -1230,6 +1241,7 @@ export type Database = {
           weight_kg: number | null
         }
         Insert: {
+          cost_currency?: string | null
           description?: string | null
           direct_sale_price?: number | null
           icms_credit_rate?: number | null
@@ -1244,6 +1256,7 @@ export type Database = {
           product_id?: string | null
           quantity?: number
           quote_id: string
+          raw_unit_cost?: number | null
           reference_opposite_mode?: string | null
           sku?: string | null
           sort_order?: number
@@ -1281,6 +1294,7 @@ export type Database = {
           weight_kg?: number | null
         }
         Update: {
+          cost_currency?: string | null
           description?: string | null
           direct_sale_price?: number | null
           icms_credit_rate?: number | null
@@ -1295,6 +1309,7 @@ export type Database = {
           product_id?: string | null
           quantity?: number
           quote_id?: string
+          raw_unit_cost?: number | null
           reference_opposite_mode?: string | null
           sku?: string | null
           sort_order?: number
@@ -1333,18 +1348,18 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'imp_sim_client_quote_items_product_id_fkey'
-            columns: ['product_id']
+            foreignKeyName: "imp_sim_client_quote_items_product_id_fkey"
+            columns: ["product_id"]
             isOneToOne: false
-            referencedRelation: 'imp_sim_products'
-            referencedColumns: ['id']
+            referencedRelation: "imp_sim_products"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'imp_sim_client_quote_items_quote_id_fkey'
-            columns: ['quote_id']
+            foreignKeyName: "imp_sim_client_quote_items_quote_id_fkey"
+            columns: ["quote_id"]
             isOneToOne: false
-            referencedRelation: 'imp_sim_client_quotes'
-            referencedColumns: ['id']
+            referencedRelation: "imp_sim_client_quotes"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -1377,6 +1392,7 @@ export type Database = {
           priority_exchange_rate: number | null
           proposal_currency: string
           public_token: string | null
+          quote_rounding_decimals: number
           quote_type: string
           sales_tax_include_freight: boolean | null
           sales_tax_pct: number | null
@@ -1426,6 +1442,7 @@ export type Database = {
           priority_exchange_rate?: number | null
           proposal_currency?: string
           public_token?: string | null
+          quote_rounding_decimals?: number
           quote_type?: string
           sales_tax_include_freight?: boolean | null
           sales_tax_pct?: number | null
@@ -1475,6 +1492,7 @@ export type Database = {
           priority_exchange_rate?: number | null
           proposal_currency?: string
           public_token?: string | null
+          quote_rounding_decimals?: number
           quote_type?: string
           sales_tax_include_freight?: boolean | null
           sales_tax_pct?: number | null
@@ -1498,18 +1516,18 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'imp_sim_client_quotes_customer_id_fkey'
-            columns: ['customer_id']
+            foreignKeyName: "imp_sim_client_quotes_customer_id_fkey"
+            columns: ["customer_id"]
             isOneToOne: false
-            referencedRelation: 'imp_sim_customers'
-            referencedColumns: ['id']
+            referencedRelation: "imp_sim_customers"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'imp_sim_client_quotes_simulation_id_fkey'
-            columns: ['simulation_id']
+            foreignKeyName: "imp_sim_client_quotes_simulation_id_fkey"
+            columns: ["simulation_id"]
             isOneToOne: false
-            referencedRelation: 'simulations'
-            referencedColumns: ['id']
+            referencedRelation: "simulations"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -1582,32 +1600,91 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'imp_sim_customer_credit_allocations_customer_id_fkey'
-            columns: ['customer_id']
+            foreignKeyName: "imp_sim_customer_credit_allocations_customer_id_fkey"
+            columns: ["customer_id"]
             isOneToOne: false
-            referencedRelation: 'imp_sim_customers'
-            referencedColumns: ['id']
+            referencedRelation: "imp_sim_customers"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'imp_sim_customer_credit_allocations_deposit_payment_id_fkey'
-            columns: ['deposit_payment_id']
+            foreignKeyName: "imp_sim_customer_credit_allocations_deposit_payment_id_fkey"
+            columns: ["deposit_payment_id"]
             isOneToOne: false
-            referencedRelation: 'imp_sim_sales_order_payments'
-            referencedColumns: ['id']
+            referencedRelation: "imp_sim_sales_order_payments"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'imp_sim_customer_credit_allocations_installment_id_fkey'
-            columns: ['installment_id']
+            foreignKeyName: "imp_sim_customer_credit_allocations_installment_id_fkey"
+            columns: ["installment_id"]
             isOneToOne: false
-            referencedRelation: 'imp_sim_sales_order_installments'
-            referencedColumns: ['id']
+            referencedRelation: "imp_sim_sales_order_installments"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'imp_sim_customer_credit_allocations_order_id_fkey'
-            columns: ['order_id']
+            foreignKeyName: "imp_sim_customer_credit_allocations_order_id_fkey"
+            columns: ["order_id"]
             isOneToOne: false
-            referencedRelation: 'imp_sim_sales_orders'
-            referencedColumns: ['id']
+            referencedRelation: "imp_sim_sales_orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      imp_sim_customer_initial_balance_history: {
+        Row: {
+          created_at: string
+          currency: string
+          customer_id: string
+          exchange_rate: number | null
+          id: string
+          new_balance_brl: number
+          notes: string | null
+          original_amount: number | null
+          previous_balance_brl: number
+          previous_currency: string | null
+          previous_exchange_rate: number | null
+          previous_original_amount: number | null
+          reference_date: string | null
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          currency?: string
+          customer_id: string
+          exchange_rate?: number | null
+          id?: string
+          new_balance_brl?: number
+          notes?: string | null
+          original_amount?: number | null
+          previous_balance_brl?: number
+          previous_currency?: string | null
+          previous_exchange_rate?: number | null
+          previous_original_amount?: number | null
+          reference_date?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          currency?: string
+          customer_id?: string
+          exchange_rate?: number | null
+          id?: string
+          new_balance_brl?: number
+          notes?: string | null
+          original_amount?: number | null
+          previous_balance_brl?: number
+          previous_currency?: string | null
+          previous_exchange_rate?: number | null
+          previous_original_amount?: number | null
+          reference_date?: string | null
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "imp_sim_customer_initial_balance_history_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "imp_sim_customers"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -1620,8 +1697,15 @@ export type Database = {
           email: string | null
           has_checking_account: boolean
           id: string
+          initial_balance_brl: number
+          initial_balance_currency: string
+          initial_balance_date: string | null
+          initial_balance_exchange_rate: number | null
+          initial_balance_notes: string | null
+          initial_balance_original: number | null
           name: string
           phone: string | null
+          public_token: string
           source_site_customer_id: string | null
           updated_at: string
         }
@@ -1633,8 +1717,15 @@ export type Database = {
           email?: string | null
           has_checking_account?: boolean
           id?: string
+          initial_balance_brl?: number
+          initial_balance_currency?: string
+          initial_balance_date?: string | null
+          initial_balance_exchange_rate?: number | null
+          initial_balance_notes?: string | null
+          initial_balance_original?: number | null
           name: string
           phone?: string | null
+          public_token?: string
           source_site_customer_id?: string | null
           updated_at?: string
         }
@@ -1646,8 +1737,15 @@ export type Database = {
           email?: string | null
           has_checking_account?: boolean
           id?: string
+          initial_balance_brl?: number
+          initial_balance_currency?: string
+          initial_balance_date?: string | null
+          initial_balance_exchange_rate?: number | null
+          initial_balance_notes?: string | null
+          initial_balance_original?: number | null
           name?: string
           phone?: string | null
+          public_token?: string
           source_site_customer_id?: string | null
           updated_at?: string
         }
@@ -1682,6 +1780,134 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      imp_sim_icms_st_rates: {
+        Row: {
+          aliquota_interestadual: number | null
+          aliquota_interna: number
+          base_legal: string
+          cest: string | null
+          created_at: string
+          fonte: string
+          id: string
+          legal_reviewed_at: string | null
+          legal_reviewed_by: string | null
+          mva_ajustada: number | null
+          mva_original: number | null
+          ncm_excecoes: Json
+          ncm_familia: string
+          regime: string
+          sujeito_st: boolean
+          uf: string
+          updated_at: string
+          vigencia_fim: string | null
+          vigencia_inicio: string
+        }
+        Insert: {
+          aliquota_interestadual?: number | null
+          aliquota_interna?: number
+          base_legal: string
+          cest?: string | null
+          created_at?: string
+          fonte: string
+          id?: string
+          legal_reviewed_at?: string | null
+          legal_reviewed_by?: string | null
+          mva_ajustada?: number | null
+          mva_original?: number | null
+          ncm_excecoes?: Json
+          ncm_familia: string
+          regime?: string
+          sujeito_st?: boolean
+          uf?: string
+          updated_at?: string
+          vigencia_fim?: string | null
+          vigencia_inicio?: string
+        }
+        Update: {
+          aliquota_interestadual?: number | null
+          aliquota_interna?: number
+          base_legal?: string
+          cest?: string | null
+          created_at?: string
+          fonte?: string
+          id?: string
+          legal_reviewed_at?: string | null
+          legal_reviewed_by?: string | null
+          mva_ajustada?: number | null
+          mva_original?: number | null
+          ncm_excecoes?: Json
+          ncm_familia?: string
+          regime?: string
+          sujeito_st?: boolean
+          uf?: string
+          updated_at?: string
+          vigencia_fim?: string | null
+          vigencia_inicio?: string
+        }
+        Relationships: []
+      }
+      imp_sim_icms_st_review_log: {
+        Row: {
+          aliquota_interna: number
+          base_legal: string | null
+          created_at: string
+          id: string
+          mva_ajustada: number | null
+          mva_original: number | null
+          ncm_familia: string
+          notas: string | null
+          payload_snapshot: Json | null
+          rate_id: string | null
+          reviewed_at: string
+          reviewed_by: string
+          sujeito_st: boolean
+          uf: string
+          user_id: string | null
+        }
+        Insert: {
+          aliquota_interna: number
+          base_legal?: string | null
+          created_at?: string
+          id?: string
+          mva_ajustada?: number | null
+          mva_original?: number | null
+          ncm_familia: string
+          notas?: string | null
+          payload_snapshot?: Json | null
+          rate_id?: string | null
+          reviewed_at?: string
+          reviewed_by?: string
+          sujeito_st?: boolean
+          uf?: string
+          user_id?: string | null
+        }
+        Update: {
+          aliquota_interna?: number
+          base_legal?: string | null
+          created_at?: string
+          id?: string
+          mva_ajustada?: number | null
+          mva_original?: number | null
+          ncm_familia?: string
+          notas?: string | null
+          payload_snapshot?: Json | null
+          rate_id?: string | null
+          reviewed_at?: string
+          reviewed_by?: string
+          sujeito_st?: boolean
+          uf?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "imp_sim_icms_st_review_log_rate_id_fkey"
+            columns: ["rate_id"]
+            isOneToOne: false
+            referencedRelation: "imp_sim_icms_st_rates"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       imp_sim_licitacao_acoes: {
         Row: {
@@ -1734,11 +1960,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'imp_sim_licitacao_acoes_licitacao_id_fkey'
-            columns: ['licitacao_id']
+            foreignKeyName: "imp_sim_licitacao_acoes_licitacao_id_fkey"
+            columns: ["licitacao_id"]
             isOneToOne: false
-            referencedRelation: 'imp_sim_licitacoes'
-            referencedColumns: ['id']
+            referencedRelation: "imp_sim_licitacoes"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -1784,18 +2010,18 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'imp_sim_licitacao_auditoria_ia_item_id_fkey'
-            columns: ['item_id']
+            foreignKeyName: "imp_sim_licitacao_auditoria_ia_item_id_fkey"
+            columns: ["item_id"]
             isOneToOne: false
-            referencedRelation: 'imp_sim_licitacao_itens'
-            referencedColumns: ['id']
+            referencedRelation: "imp_sim_licitacao_itens"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'imp_sim_licitacao_auditoria_ia_licitacao_id_fkey'
-            columns: ['licitacao_id']
+            foreignKeyName: "imp_sim_licitacao_auditoria_ia_licitacao_id_fkey"
+            columns: ["licitacao_id"]
             isOneToOne: false
-            referencedRelation: 'imp_sim_licitacoes'
-            referencedColumns: ['id']
+            referencedRelation: "imp_sim_licitacoes"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -1838,11 +2064,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'imp_sim_licitacao_cronograma_licitacao_id_fkey'
-            columns: ['licitacao_id']
+            foreignKeyName: "imp_sim_licitacao_cronograma_licitacao_id_fkey"
+            columns: ["licitacao_id"]
             isOneToOne: false
-            referencedRelation: 'imp_sim_licitacoes'
-            referencedColumns: ['id']
+            referencedRelation: "imp_sim_licitacoes"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -1882,11 +2108,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'imp_sim_licitacao_documentos_licitacao_id_fkey'
-            columns: ['licitacao_id']
+            foreignKeyName: "imp_sim_licitacao_documentos_licitacao_id_fkey"
+            columns: ["licitacao_id"]
             isOneToOne: false
-            referencedRelation: 'imp_sim_licitacoes'
-            referencedColumns: ['id']
+            referencedRelation: "imp_sim_licitacoes"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -1932,11 +2158,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'imp_sim_licitacao_exigencias_licitacao_id_fkey'
-            columns: ['licitacao_id']
+            foreignKeyName: "imp_sim_licitacao_exigencias_licitacao_id_fkey"
+            columns: ["licitacao_id"]
             isOneToOne: false
-            referencedRelation: 'imp_sim_licitacoes'
-            referencedColumns: ['id']
+            referencedRelation: "imp_sim_licitacoes"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -2051,18 +2277,18 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'imp_sim_licitacao_itens_licitacao_id_fkey'
-            columns: ['licitacao_id']
+            foreignKeyName: "imp_sim_licitacao_itens_licitacao_id_fkey"
+            columns: ["licitacao_id"]
             isOneToOne: false
-            referencedRelation: 'imp_sim_licitacoes'
-            referencedColumns: ['id']
+            referencedRelation: "imp_sim_licitacoes"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'imp_sim_licitacao_itens_ncm_audit_id_fkey'
-            columns: ['ncm_audit_id']
+            foreignKeyName: "imp_sim_licitacao_itens_ncm_audit_id_fkey"
+            columns: ["ncm_audit_id"]
             isOneToOne: false
-            referencedRelation: 'imp_sim_ncm_classification_log'
-            referencedColumns: ['id']
+            referencedRelation: "imp_sim_ncm_classification_log"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -2114,11 +2340,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'imp_sim_licitacao_propostas_licitacao_id_fkey'
-            columns: ['licitacao_id']
+            foreignKeyName: "imp_sim_licitacao_propostas_licitacao_id_fkey"
+            columns: ["licitacao_id"]
             isOneToOne: false
-            referencedRelation: 'imp_sim_licitacoes'
-            referencedColumns: ['id']
+            referencedRelation: "imp_sim_licitacoes"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -2164,11 +2390,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'imp_sim_licitacao_resultados_licitacao_id_fkey'
-            columns: ['licitacao_id']
+            foreignKeyName: "imp_sim_licitacao_resultados_licitacao_id_fkey"
+            columns: ["licitacao_id"]
             isOneToOne: false
-            referencedRelation: 'imp_sim_licitacoes'
-            referencedColumns: ['id']
+            referencedRelation: "imp_sim_licitacoes"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -2202,11 +2428,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'imp_sim_licitacao_transicoes_licitacao_id_fkey'
-            columns: ['licitacao_id']
+            foreignKeyName: "imp_sim_licitacao_transicoes_licitacao_id_fkey"
+            columns: ["licitacao_id"]
             isOneToOne: false
-            referencedRelation: 'imp_sim_licitacoes'
-            referencedColumns: ['id']
+            referencedRelation: "imp_sim_licitacoes"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -2459,18 +2685,18 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'imp_sim_ncm_classification_log_imp_sim_product_id_fkey'
-            columns: ['imp_sim_product_id']
+            foreignKeyName: "imp_sim_ncm_classification_log_imp_sim_product_id_fkey"
+            columns: ["imp_sim_product_id"]
             isOneToOne: false
-            referencedRelation: 'imp_sim_products'
-            referencedColumns: ['id']
+            referencedRelation: "imp_sim_products"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'imp_sim_ncm_classification_log_product_id_fkey'
-            columns: ['product_id']
+            foreignKeyName: "imp_sim_ncm_classification_log_product_id_fkey"
+            columns: ["product_id"]
             isOneToOne: false
-            referencedRelation: 'products'
-            referencedColumns: ['id']
+            referencedRelation: "products"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -2513,18 +2739,18 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'imp_sim_ncm_embeddings_tax_rate_id_fkey'
-            columns: ['tax_rate_id']
+            foreignKeyName: "imp_sim_ncm_embeddings_tax_rate_id_fkey"
+            columns: ["tax_rate_id"]
             isOneToOne: false
-            referencedRelation: 'imp_sim_tax_rates'
-            referencedColumns: ['id']
+            referencedRelation: "imp_sim_tax_rates"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'imp_sim_ncm_embeddings_tax_rate_id_fkey'
-            columns: ['tax_rate_id']
+            foreignKeyName: "imp_sim_ncm_embeddings_tax_rate_id_fkey"
+            columns: ["tax_rate_id"]
             isOneToOne: false
-            referencedRelation: 'imp_sim_tax_rates_effective'
-            referencedColumns: ['id']
+            referencedRelation: "imp_sim_tax_rates_effective"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -2594,18 +2820,18 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'imp_sim_product_prices_product_id_fkey'
-            columns: ['product_id']
+            foreignKeyName: "imp_sim_product_prices_product_id_fkey"
+            columns: ["product_id"]
             isOneToOne: false
-            referencedRelation: 'imp_sim_products'
-            referencedColumns: ['id']
+            referencedRelation: "imp_sim_products"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'imp_sim_product_prices_supplier_id_fkey'
-            columns: ['supplier_id']
+            foreignKeyName: "imp_sim_product_prices_supplier_id_fkey"
+            columns: ["supplier_id"]
             isOneToOne: false
-            referencedRelation: 'imp_sim_suppliers'
-            referencedColumns: ['id']
+            referencedRelation: "imp_sim_suppliers"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -2622,6 +2848,7 @@ export type Database = {
           price_nationalized_cost: number | null
           price_nationalized_currency: string | null
           sku: string | null
+          sku_canonical: string | null
           source_site_product_id: string | null
           updated_at: string
           value: number | null
@@ -2640,6 +2867,7 @@ export type Database = {
           price_nationalized_cost?: number | null
           price_nationalized_currency?: string | null
           sku?: string | null
+          sku_canonical?: string | null
           source_site_product_id?: string | null
           updated_at?: string
           value?: number | null
@@ -2658,6 +2886,7 @@ export type Database = {
           price_nationalized_cost?: number | null
           price_nationalized_currency?: string | null
           sku?: string | null
+          sku_canonical?: string | null
           source_site_product_id?: string | null
           updated_at?: string
           value?: number | null
@@ -2666,18 +2895,71 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'imp_sim_products_manufacturer_id_fkey'
-            columns: ['manufacturer_id']
+            foreignKeyName: "imp_sim_products_manufacturer_id_fkey"
+            columns: ["manufacturer_id"]
             isOneToOne: false
-            referencedRelation: 'imp_sim_manufacturers'
-            referencedColumns: ['id']
+            referencedRelation: "imp_sim_manufacturers"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'imp_sim_products_ncm_audit_id_fkey'
-            columns: ['ncm_audit_id']
+            foreignKeyName: "imp_sim_products_ncm_audit_id_fkey"
+            columns: ["ncm_audit_id"]
             isOneToOne: false
-            referencedRelation: 'imp_sim_ncm_classification_log'
-            referencedColumns: ['id']
+            referencedRelation: "imp_sim_ncm_classification_log"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      imp_sim_purchase_order_fiscal_docs: {
+        Row: {
+          arquivo_tipo: string
+          created_at: string
+          data_emissao: string | null
+          hash_sha256: string | null
+          id: string
+          nome_original: string
+          numero_nf: string
+          purchase_order_id: string
+          serie: string | null
+          storage_path: string
+          updated_at: string
+          versao: number
+        }
+        Insert: {
+          arquivo_tipo: string
+          created_at?: string
+          data_emissao?: string | null
+          hash_sha256?: string | null
+          id?: string
+          nome_original: string
+          numero_nf: string
+          purchase_order_id: string
+          serie?: string | null
+          storage_path: string
+          updated_at?: string
+          versao?: number
+        }
+        Update: {
+          arquivo_tipo?: string
+          created_at?: string
+          data_emissao?: string | null
+          hash_sha256?: string | null
+          id?: string
+          nome_original?: string
+          numero_nf?: string
+          purchase_order_id?: string
+          serie?: string | null
+          storage_path?: string
+          updated_at?: string
+          versao?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "imp_sim_purchase_order_fiscal_docs_purchase_order_id_fkey"
+            columns: ["purchase_order_id"]
+            isOneToOne: false
+            referencedRelation: "imp_sim_purchase_orders"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -2723,11 +3005,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'imp_sim_purchase_order_installments_order_id_fkey'
-            columns: ['order_id']
+            foreignKeyName: "imp_sim_purchase_order_installments_order_id_fkey"
+            columns: ["order_id"]
             isOneToOne: false
-            referencedRelation: 'imp_sim_purchase_orders'
-            referencedColumns: ['id']
+            referencedRelation: "imp_sim_purchase_orders"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -2782,18 +3064,18 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'imp_sim_purchase_order_items_order_id_fkey'
-            columns: ['order_id']
+            foreignKeyName: "imp_sim_purchase_order_items_order_id_fkey"
+            columns: ["order_id"]
             isOneToOne: false
-            referencedRelation: 'imp_sim_purchase_orders'
-            referencedColumns: ['id']
+            referencedRelation: "imp_sim_purchase_orders"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'imp_sim_purchase_order_items_product_id_fkey'
-            columns: ['product_id']
+            foreignKeyName: "imp_sim_purchase_order_items_product_id_fkey"
+            columns: ["product_id"]
             isOneToOne: false
-            referencedRelation: 'imp_sim_products'
-            referencedColumns: ['id']
+            referencedRelation: "imp_sim_products"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -2857,25 +3139,25 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'imp_sim_purchase_order_payments_installment_id_fkey'
-            columns: ['installment_id']
+            foreignKeyName: "imp_sim_purchase_order_payments_installment_id_fkey"
+            columns: ["installment_id"]
             isOneToOne: false
-            referencedRelation: 'imp_sim_purchase_order_installments'
-            referencedColumns: ['id']
+            referencedRelation: "imp_sim_purchase_order_installments"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'imp_sim_purchase_order_payments_order_id_fkey'
-            columns: ['order_id']
+            foreignKeyName: "imp_sim_purchase_order_payments_order_id_fkey"
+            columns: ["order_id"]
             isOneToOne: false
-            referencedRelation: 'imp_sim_purchase_orders'
-            referencedColumns: ['id']
+            referencedRelation: "imp_sim_purchase_orders"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'imp_sim_purchase_order_payments_supplier_id_fkey'
-            columns: ['supplier_id']
+            foreignKeyName: "imp_sim_purchase_order_payments_supplier_id_fkey"
+            columns: ["supplier_id"]
             isOneToOne: false
-            referencedRelation: 'imp_sim_suppliers'
-            referencedColumns: ['id']
+            referencedRelation: "imp_sim_suppliers"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -2914,6 +3196,8 @@ export type Database = {
           subtotal_products: number
           supplier_contact: string | null
           supplier_id: string | null
+          supplier_invoice_issued_at: string | null
+          supplier_invoice_number: string | null
           supplier_name: string
           total_order: number
           total_order_brl: number
@@ -2954,6 +3238,8 @@ export type Database = {
           subtotal_products?: number
           supplier_contact?: string | null
           supplier_id?: string | null
+          supplier_invoice_issued_at?: string | null
+          supplier_invoice_number?: string | null
           supplier_name: string
           total_order?: number
           total_order_brl?: number
@@ -2994,6 +3280,8 @@ export type Database = {
           subtotal_products?: number
           supplier_contact?: string | null
           supplier_id?: string | null
+          supplier_invoice_issued_at?: string | null
+          supplier_invoice_number?: string | null
           supplier_name?: string
           total_order?: number
           total_order_brl?: number
@@ -3002,25 +3290,25 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'imp_sim_purchase_orders_licitacao_id_fkey'
-            columns: ['licitacao_id']
+            foreignKeyName: "imp_sim_purchase_orders_licitacao_id_fkey"
+            columns: ["licitacao_id"]
             isOneToOne: false
-            referencedRelation: 'imp_sim_licitacoes'
-            referencedColumns: ['id']
+            referencedRelation: "imp_sim_licitacoes"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'imp_sim_purchase_orders_source_supplier_quote_id_fkey'
-            columns: ['source_supplier_quote_id']
+            foreignKeyName: "imp_sim_purchase_orders_source_supplier_quote_id_fkey"
+            columns: ["source_supplier_quote_id"]
             isOneToOne: false
-            referencedRelation: 'imp_sim_supplier_quotes'
-            referencedColumns: ['id']
+            referencedRelation: "imp_sim_supplier_quotes"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'imp_sim_purchase_orders_supplier_id_fkey'
-            columns: ['supplier_id']
+            foreignKeyName: "imp_sim_purchase_orders_supplier_id_fkey"
+            columns: ["supplier_id"]
             isOneToOne: false
-            referencedRelation: 'imp_sim_suppliers'
-            referencedColumns: ['id']
+            referencedRelation: "imp_sim_suppliers"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -3126,11 +3414,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'imp_sim_quote_items_quote_id_fkey'
-            columns: ['quote_id']
+            foreignKeyName: "imp_sim_quote_items_quote_id_fkey"
+            columns: ["quote_id"]
             isOneToOne: false
-            referencedRelation: 'imp_sim_quotes'
-            referencedColumns: ['id']
+            referencedRelation: "imp_sim_quotes"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -3206,11 +3494,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'imp_sim_quotes_customer_id_fkey'
-            columns: ['customer_id']
+            foreignKeyName: "imp_sim_quotes_customer_id_fkey"
+            columns: ["customer_id"]
             isOneToOne: false
-            referencedRelation: 'imp_sim_customers'
-            referencedColumns: ['id']
+            referencedRelation: "imp_sim_customers"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -3259,11 +3547,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'imp_sim_sales_order_fiscal_docs_sales_order_id_fkey'
-            columns: ['sales_order_id']
+            foreignKeyName: "imp_sim_sales_order_fiscal_docs_sales_order_id_fkey"
+            columns: ["sales_order_id"]
             isOneToOne: false
-            referencedRelation: 'imp_sim_sales_orders'
-            referencedColumns: ['id']
+            referencedRelation: "imp_sim_sales_orders"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -3315,11 +3603,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'imp_sim_sales_order_installments_order_id_fkey'
-            columns: ['order_id']
+            foreignKeyName: "imp_sim_sales_order_installments_order_id_fkey"
+            columns: ["order_id"]
             isOneToOne: false
-            referencedRelation: 'imp_sim_sales_orders'
-            referencedColumns: ['id']
+            referencedRelation: "imp_sim_sales_orders"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -3371,18 +3659,18 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'imp_sim_sales_order_items_order_id_fkey'
-            columns: ['order_id']
+            foreignKeyName: "imp_sim_sales_order_items_order_id_fkey"
+            columns: ["order_id"]
             isOneToOne: false
-            referencedRelation: 'imp_sim_sales_orders'
-            referencedColumns: ['id']
+            referencedRelation: "imp_sim_sales_orders"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'imp_sim_sales_order_items_product_id_fkey'
-            columns: ['product_id']
+            foreignKeyName: "imp_sim_sales_order_items_product_id_fkey"
+            columns: ["product_id"]
             isOneToOne: false
-            referencedRelation: 'imp_sim_products'
-            referencedColumns: ['id']
+            referencedRelation: "imp_sim_products"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -3443,25 +3731,25 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'imp_sim_sales_order_payments_customer_id_fkey'
-            columns: ['customer_id']
+            foreignKeyName: "imp_sim_sales_order_payments_customer_id_fkey"
+            columns: ["customer_id"]
             isOneToOne: false
-            referencedRelation: 'imp_sim_customers'
-            referencedColumns: ['id']
+            referencedRelation: "imp_sim_customers"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'imp_sim_sales_order_payments_installment_id_fkey'
-            columns: ['installment_id']
+            foreignKeyName: "imp_sim_sales_order_payments_installment_id_fkey"
+            columns: ["installment_id"]
             isOneToOne: false
-            referencedRelation: 'imp_sim_sales_order_installments'
-            referencedColumns: ['id']
+            referencedRelation: "imp_sim_sales_order_installments"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'imp_sim_sales_order_payments_order_id_fkey'
-            columns: ['order_id']
+            foreignKeyName: "imp_sim_sales_order_payments_order_id_fkey"
+            columns: ["order_id"]
             isOneToOne: false
-            referencedRelation: 'imp_sim_sales_orders'
-            referencedColumns: ['id']
+            referencedRelation: "imp_sim_sales_orders"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -3633,25 +3921,25 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'imp_sim_sales_orders_customer_id_fkey'
-            columns: ['customer_id']
+            foreignKeyName: "imp_sim_sales_orders_customer_id_fkey"
+            columns: ["customer_id"]
             isOneToOne: false
-            referencedRelation: 'imp_sim_customers'
-            referencedColumns: ['id']
+            referencedRelation: "imp_sim_customers"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'imp_sim_sales_orders_licitacao_id_fkey'
-            columns: ['licitacao_id']
+            foreignKeyName: "imp_sim_sales_orders_licitacao_id_fkey"
+            columns: ["licitacao_id"]
             isOneToOne: false
-            referencedRelation: 'imp_sim_licitacoes'
-            referencedColumns: ['id']
+            referencedRelation: "imp_sim_licitacoes"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'imp_sim_sales_orders_source_quote_id_fkey'
-            columns: ['source_quote_id']
+            foreignKeyName: "imp_sim_sales_orders_source_quote_id_fkey"
+            columns: ["source_quote_id"]
             isOneToOne: false
-            referencedRelation: 'imp_sim_client_quotes'
-            referencedColumns: ['id']
+            referencedRelation: "imp_sim_client_quotes"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -3691,11 +3979,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'imp_sim_simulation_item_products_product_id_fkey'
-            columns: ['product_id']
+            foreignKeyName: "imp_sim_simulation_item_products_product_id_fkey"
+            columns: ["product_id"]
             isOneToOne: false
-            referencedRelation: 'imp_sim_products'
-            referencedColumns: ['id']
+            referencedRelation: "imp_sim_products"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -3804,18 +4092,18 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'imp_sim_supplier_quote_items_product_id_fkey'
-            columns: ['product_id']
+            foreignKeyName: "imp_sim_supplier_quote_items_product_id_fkey"
+            columns: ["product_id"]
             isOneToOne: false
-            referencedRelation: 'imp_sim_products'
-            referencedColumns: ['id']
+            referencedRelation: "imp_sim_products"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'imp_sim_supplier_quote_items_quote_id_fkey'
-            columns: ['quote_id']
+            foreignKeyName: "imp_sim_supplier_quote_items_quote_id_fkey"
+            columns: ["quote_id"]
             isOneToOne: false
-            referencedRelation: 'imp_sim_supplier_quotes'
-            referencedColumns: ['id']
+            referencedRelation: "imp_sim_supplier_quotes"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -3830,6 +4118,7 @@ export type Database = {
           origin_location: string | null
           quote_date: string
           supplier_id: string
+          supply_sphere: Database["public"]["Enums"]["imp_sim_supply_sphere"]
           updated_at: string
         }
         Insert: {
@@ -3842,6 +4131,7 @@ export type Database = {
           origin_location?: string | null
           quote_date?: string
           supplier_id: string
+          supply_sphere?: Database["public"]["Enums"]["imp_sim_supply_sphere"]
           updated_at?: string
         }
         Update: {
@@ -3854,15 +4144,16 @@ export type Database = {
           origin_location?: string | null
           quote_date?: string
           supplier_id?: string
+          supply_sphere?: Database["public"]["Enums"]["imp_sim_supply_sphere"]
           updated_at?: string
         }
         Relationships: [
           {
-            foreignKeyName: 'imp_sim_supplier_quotes_supplier_id_fkey'
-            columns: ['supplier_id']
+            foreignKeyName: "imp_sim_supplier_quotes_supplier_id_fkey"
+            columns: ["supplier_id"]
             isOneToOne: false
-            referencedRelation: 'imp_sim_suppliers'
-            referencedColumns: ['id']
+            referencedRelation: "imp_sim_suppliers"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -4187,18 +4478,18 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'order_items_order_id_fkey'
-            columns: ['order_id']
+            foreignKeyName: "order_items_order_id_fkey"
+            columns: ["order_id"]
             isOneToOne: false
-            referencedRelation: 'orders'
-            referencedColumns: ['id']
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'order_items_product_id_fkey'
-            columns: ['product_id']
+            foreignKeyName: "order_items_product_id_fkey"
+            columns: ["product_id"]
             isOneToOne: false
-            referencedRelation: 'products'
-            referencedColumns: ['id']
+            referencedRelation: "products"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -4364,25 +4655,25 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'orders_billing_address_id_fkey'
-            columns: ['billing_address_id']
+            foreignKeyName: "orders_billing_address_id_fkey"
+            columns: ["billing_address_id"]
             isOneToOne: false
-            referencedRelation: 'customer_addresses'
-            referencedColumns: ['id']
+            referencedRelation: "customer_addresses"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'orders_customer_id_fkey'
-            columns: ['customer_id']
+            foreignKeyName: "orders_customer_id_fkey"
+            columns: ["customer_id"]
             isOneToOne: false
-            referencedRelation: 'customers'
-            referencedColumns: ['id']
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'orders_shipping_address_id_fkey'
-            columns: ['shipping_address_id']
+            foreignKeyName: "orders_shipping_address_id_fkey"
+            columns: ["shipping_address_id"]
             isOneToOne: false
-            referencedRelation: 'customer_addresses'
-            referencedColumns: ['id']
+            referencedRelation: "customer_addresses"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -4604,6 +4895,7 @@ export type Database = {
           image_url: string | null
           is_discontinued: boolean
           is_special: boolean
+          last_reviewed_at: string
           manual_related_ids: string[] | null
           manufacturer_id: string | null
           name: string
@@ -4623,6 +4915,7 @@ export type Database = {
           sku: string | null
           stock: number | null
           technical_info: string | null
+          updated_at: string
           website_url: string | null
           weight: number | null
         }
@@ -4639,6 +4932,7 @@ export type Database = {
           image_url?: string | null
           is_discontinued: boolean
           is_special: boolean
+          last_reviewed_at?: string
           manual_related_ids?: string[] | null
           manufacturer_id?: string | null
           name: string
@@ -4658,6 +4952,7 @@ export type Database = {
           sku?: string | null
           stock?: number | null
           technical_info?: string | null
+          updated_at?: string
           website_url?: string | null
           weight?: number | null
         }
@@ -4674,6 +4969,7 @@ export type Database = {
           image_url?: string | null
           is_discontinued?: boolean
           is_special?: boolean
+          last_reviewed_at?: string
           manual_related_ids?: string[] | null
           manufacturer_id?: string | null
           name?: string
@@ -4693,23 +4989,24 @@ export type Database = {
           sku?: string | null
           stock?: number | null
           technical_info?: string | null
+          updated_at?: string
           website_url?: string | null
           weight?: number | null
         }
         Relationships: [
           {
-            foreignKeyName: 'fk_products_manufacturer'
-            columns: ['manufacturer_id']
+            foreignKeyName: "fk_products_manufacturer"
+            columns: ["manufacturer_id"]
             isOneToOne: false
-            referencedRelation: 'manufacturers'
-            referencedColumns: ['id']
+            referencedRelation: "manufacturers"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'products_ncm_audit_id_fkey'
-            columns: ['ncm_audit_id']
+            foreignKeyName: "products_ncm_audit_id_fkey"
+            columns: ["ncm_audit_id"]
             isOneToOne: false
-            referencedRelation: 'imp_sim_ncm_classification_log'
-            referencedColumns: ['id']
+            referencedRelation: "imp_sim_ncm_classification_log"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -4851,6 +5148,7 @@ export type Database = {
           is_locked: boolean | null
           is_preset: boolean | null
           items: Json
+          licitacao_id: string | null
           name: string
           parameters: Json
           priority_items: Json
@@ -4865,6 +5163,7 @@ export type Database = {
           is_locked?: boolean | null
           is_preset?: boolean | null
           items?: Json
+          licitacao_id?: string | null
           name: string
           parameters?: Json
           priority_items?: Json
@@ -4879,13 +5178,22 @@ export type Database = {
           is_locked?: boolean | null
           is_preset?: boolean | null
           items?: Json
+          licitacao_id?: string | null
           name?: string
           parameters?: Json
           priority_items?: Json
           updated_at?: string
           user_id?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "simulations_licitacao_id_fkey"
+            columns: ["licitacao_id"]
+            isOneToOne: false
+            referencedRelation: "imp_sim_licitacoes"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       user_sessions: {
         Row: {
@@ -5046,6 +5354,10 @@ export type Database = {
       check_tmp_indexing_log: { Args: never; Returns: string }
       cleanup_spam_customers: { Args: never; Returns: Json }
       execute_ai_search_v3: { Args: { search_term: string }; Returns: Json }
+      fn_anon_can_access_public_file: {
+        Args: { p_bucket: string; p_path: string }
+        Returns: boolean
+      }
       generate_next_purchase_order_number: {
         Args: { p_year?: number }
         Returns: {
@@ -5079,6 +5391,14 @@ export type Database = {
           is_admin: boolean
           role: string
         }[]
+      }
+      get_public_customer_statement_by_token: {
+        Args: { p_token: string }
+        Returns: Json
+      }
+      get_public_national_quote_by_token: {
+        Args: { p_token: string }
+        Returns: Json
       }
       get_public_purchase_order_by_token: {
         Args: { p_token: string }
@@ -5118,6 +5438,15 @@ export type Database = {
             Returns: string
           }
       is_admin: { Args: never; Returns: boolean }
+      record_icms_st_legal_review: {
+        Args: {
+          p_familias: string[]
+          p_notas?: string
+          p_reviewed_by?: string
+          p_uf?: string
+        }
+        Returns: Json
+      }
       search_market_intelligence: {
         Args: { keywords: string[] }
         Returns: Json
@@ -5162,6 +5491,7 @@ export type Database = {
           image_url: string | null
           is_discontinued: boolean
           is_special: boolean
+          last_reviewed_at: string
           manual_related_ids: string[] | null
           manufacturer_id: string | null
           name: string
@@ -5181,18 +5511,19 @@ export type Database = {
           sku: string | null
           stock: number | null
           technical_info: string | null
+          updated_at: string
           website_url: string | null
           weight: number | null
         }[]
         SetofOptions: {
-          from: '*'
-          to: 'products'
+          from: "*"
+          to: "products"
           isOneToOne: false
           isSetofReturn: true
         }
       }
       show_limit: { Args: never; Returns: number }
-      show_trgm: { Args: { '': string }; Returns: string[] }
+      show_trgm: { Args: { "": string }; Returns: string[] }
       sync_current_user_profile: { Args: never; Returns: string }
       sync_imp_sim_ncm_embedding_records: {
         Args: never
@@ -5224,6 +5555,7 @@ export type Database = {
       }
       trigger_retry_image_migration: { Args: never; Returns: undefined }
       trigger_sync_ncm_support_vigencia: { Args: never; Returns: undefined }
+      update_icms_st_from_payload: { Args: { p_payload: Json }; Returns: Json }
       update_tax_rates_from_payload: {
         Args: { p_chapters: string[]; p_records: Json }
         Returns: Json
@@ -5234,7 +5566,7 @@ export type Database = {
       }
     }
     Enums: {
-      [_ in never]: never
+      imp_sim_supply_sphere: "exterior" | "nacional"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -5242,31 +5574,33 @@ export type Database = {
   }
 }
 
-type DatabaseWithoutInternals = Omit<Database, '__InternalSupabase'>
+type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">
 
-type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, 'public'>]
+type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">]
 
 export type Tables<
   DefaultSchemaTableNameOrOptions extends
-    | keyof (DefaultSchema['Tables'] & DefaultSchema['Views'])
+    | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
-    ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Tables'] &
-        DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Views'])
-    : never = never,
+    ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+        DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
-  ? (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Tables'] &
-      DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Views'])[TableName] extends {
+  ? (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+      DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])[TableName] extends {
       Row: infer R
     }
     ? R
     : never
-  : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema['Tables'] & DefaultSchema['Views'])
-    ? (DefaultSchema['Tables'] & DefaultSchema['Views'])[DefaultSchemaTableNameOrOptions] extends {
+  : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])
+    ? (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
         Row: infer R
       }
       ? R
@@ -5275,23 +5609,23 @@ export type Tables<
 
 export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
-    | keyof DefaultSchema['Tables']
+    | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
-    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Tables']
-    : never = never,
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
-  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Tables'][TableName] extends {
+  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
       Insert: infer I
     }
     ? I
     : never
-  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema['Tables']
-    ? DefaultSchema['Tables'][DefaultSchemaTableNameOrOptions] extends {
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
         Insert: infer I
       }
       ? I
@@ -5300,23 +5634,23 @@ export type TablesInsert<
 
 export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
-    | keyof DefaultSchema['Tables']
+    | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
-    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Tables']
-    : never = never,
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
-  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Tables'][TableName] extends {
+  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
       Update: infer U
     }
     ? U
     : never
-  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema['Tables']
-    ? DefaultSchema['Tables'][DefaultSchemaTableNameOrOptions] extends {
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
         Update: infer U
       }
       ? U
@@ -5325,40 +5659,43 @@ export type TablesUpdate<
 
 export type Enums<
   DefaultSchemaEnumNameOrOptions extends
-    | keyof DefaultSchema['Enums']
+    | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
-    ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions['schema']]['Enums']
-    : never = never,
+    ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
-  ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions['schema']]['Enums'][EnumName]
-  : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema['Enums']
-    ? DefaultSchema['Enums'][DefaultSchemaEnumNameOrOptions]
+  ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
+  : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"]
+    ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
     : never
 
 export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
-    | keyof DefaultSchema['CompositeTypes']
+    | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
-    ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions['schema']]['CompositeTypes']
-    : never = never,
+    ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
-  ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions['schema']]['CompositeTypes'][CompositeTypeName]
-  : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema['CompositeTypes']
-    ? DefaultSchema['CompositeTypes'][PublicCompositeTypeNameOrOptions]
+  ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
+  : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
+    ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
     : never
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      imp_sim_supply_sphere: ["exterior", "nacional"],
+    },
   },
 } as const
+

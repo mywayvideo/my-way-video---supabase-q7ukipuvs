@@ -350,6 +350,7 @@ Deno.serve(async (req: Request) => {
       consorcio: licitacao.consorcio ?? false,
       cooperativa: licitacao.cooperativa ?? false,
       exigencias: [],
+      cronograma_eventos: [],
     }
 
     let auditoriaUsada = 'extração_heuristica'
@@ -358,8 +359,27 @@ Deno.serve(async (req: Request) => {
     if (openaiApiKey && rawText.length > 30) {
       try {
         const openai = new OpenAI({ apiKey: openaiApiKey })
-        const prompt = `Você é um analista especialista em licitações públicas federais (Lei 14.133/2021 e 8.666/1993).
-Analise o trecho do edital/TR abaixo e extraia com RIGOR JURÍDICO as regras e exigências.
+        // Divide o texto integral em blocos de até ~60.000 caracteres
+        // gpt-4o-mini suporta 128k contexto; fatiar em blocos de 60k permite extração profunda
+        const CHUNK_SIZE = 60000
+        const textChunks: string[] = []
+        for (let offset = 0; offset < rawText.length; offset += CHUNK_SIZE) {
+          textChunks.push(rawText.slice(offset, offset + CHUNK_SIZE))
+        }
+
+        const todasExigencias: JuridicoExigencia[] = []
+        const todosEventos: Array<{
+          tipo_evento: string
+          data_evento?: string
+          base_legal?: string
+          citacao?: string
+        }> = []
+
+        for (let chunkIdx = 0; chunkIdx < textChunks.length; chunkIdx++) {
+          const chunk = textChunks[chunkIdx]
+          const isFirstChunk = chunkIdx === 0
+          const prompt = `Você é um analista especialista em licitações públicas federais (Lei 14.133/2021 e 8.666/1993).
+Analise o trecho ${chunkIdx + 1}/${textChunks.length} do edital/TR abaixo e extraia com RIGOR JURÍDICO as regras e exigências.
 
 REGRA MANDATÓRIA: Toda exigência DEVE conter a "citacao_textual" EXATA do trecho do edital que a fundamenta. Se não houver citação no texto, NÃO invente.
 
@@ -401,21 +421,101 @@ Responda EXCLUSIVAMENTE em formato JSON puro, seguindo este schema:
   ]
 }
 
-TEXTO DO EDITAL:
+TEXTO DO EDITAL (TRECHO ${chunkIdx + 1}/${textChunks.length}):
 """
-${rawText.slice(0, 15000)}
+${chunk}
 """`
 
-        const completion = await openai.chat.completions.create({
-          model: 'gpt-4o-mini',
-          messages: [{ role: 'user', content: prompt }],
-          temperature: 0.1,
-          response_format: { type: 'json_object' },
-        })
+          const completion = await openai.chat.completions.create({
+            model: 'gpt-4o-mini',
+            messages: [{ role: 'user', content: prompt }],
+            temperature: 0.1,
+            response_format: { type: 'json_object' },
+          })
 
-        const content = completion.choices[0]?.message?.content || '{}'
-        const parsed = JSON.parse(content)
-        juridicoExtracted = { ...juridicoExtracted, ...parsed }
+          const content = completion.choices[0]?.message?.content || '{}'
+          const parsed = JSON.parse(content)
+
+          // Se for o primeiro bloco, atualiza metadados gerais ou mescla com dados existentes
+          if (isFirstChunk) {
+            juridicoExtracted = {
+              ...juridicoExtracted,
+              ...parsed,
+              exigencias: [],
+              cronograma_eventos: [],
+            }
+          } else {
+            // Blocos seguintes: atualiza campos caso o primeiro estivesse em branco/falso
+            if (parsed.modalidade && !juridicoExtracted.modalidade)
+              juridicoExtracted.modalidade = parsed.modalidade
+            if (parsed.criterio_julgamento && !juridicoExtracted.criterio_julgamento)
+              juridicoExtracted.criterio_julgamento = parsed.criterio_julgamento
+            if (parsed.srp) juridicoExtracted.srp = true
+            if (parsed.adesao_ata) juridicoExtracted.adesao_ata = true
+            if (parsed.me_epp_exclusiva) juridicoExtracted.me_epp_exclusiva = true
+            if (parsed.garantia_exigida) {
+              juridicoExtracted.garantia_exigida = true
+              if (parsed.garantia_tipo) juridicoExtracted.garantia_tipo = parsed.garantia_tipo
+              if (parsed.garantia_valor) juridicoExtracted.garantia_valor = parsed.garantia_valor
+            }
+            if (parsed.vistoria) juridicoExtracted.vistoria = true
+            if (parsed.amostra_prova_conceito) juridicoExtracted.amostra_prova_conceito = true
+            if (parsed.subcontratacao) juridicoExtracted.subcontratacao = true
+            if (parsed.consorcio) juridicoExtracted.consorcio = true
+            if (parsed.cooperativa) juridicoExtracted.cooperativa = true
+            if (parsed.prazo_entrega && !juridicoExtracted.prazo_entrega)
+              juridicoExtracted.prazo_entrega = parsed.prazo_entrega
+            if (parsed.vigencia_contrato && !juridicoExtracted.vigencia_contrato)
+              juridicoExtracted.vigencia_contrato = parsed.vigencia_contrato
+            if (parsed.prazo_pagamento && !juridicoExtracted.prazo_pagamento)
+              juridicoExtracted.prazo_pagamento = parsed.prazo_pagamento
+            if (parsed.validade_proposta && !juridicoExtracted.validade_proposta)
+              juridicoExtracted.validade_proposta = parsed.validade_proposta
+          }
+
+          // Concatena exigências evitando duplicatas (por documento + clausula_ref ou citacao_textual)
+          if (Array.isArray(parsed.exigencias)) {
+            for (const ex of parsed.exigencias) {
+              const docNorm = normalize(ex.documento || '')
+              const clausulaNorm = normalize(ex.clausula_ref || '')
+              const citacaoNorm = normalize(ex.citacao_textual || '')
+
+              const isDuplicate = todasExigencias.some((item) => {
+                const itemDocNorm = normalize(item.documento || '')
+                const itemClausulaNorm = normalize(item.clausula_ref || '')
+                const itemCitacaoNorm = normalize(item.citacao_textual || '')
+                return (
+                  (docNorm &&
+                    itemDocNorm === docNorm &&
+                    clausulaNorm &&
+                    itemClausulaNorm === clausulaNorm) ||
+                  (citacaoNorm.length > 20 && itemCitacaoNorm.includes(citacaoNorm.slice(0, 30)))
+                )
+              })
+
+              if (!isDuplicate && (ex.documento || ex.citacao_textual)) {
+                todasExigencias.push(ex)
+              }
+            }
+          }
+
+          // Concatena cronograma_eventos evitando duplicatas
+          if (Array.isArray(parsed.cronograma_eventos)) {
+            for (const ev of parsed.cronograma_eventos) {
+              const tipoNorm = normalize(ev.tipo_evento || '')
+              const dataStr = ev.data_evento || ''
+              const isDupe = todosEventos.some(
+                (item) => normalize(item.tipo_evento) === tipoNorm && item.data_evento === dataStr,
+              )
+              if (!isDupe && (ev.tipo_evento || ev.citacao)) {
+                todosEventos.push(ev)
+              }
+            }
+          }
+        }
+
+        juridicoExtracted.exigencias = todasExigencias
+        juridicoExtracted.cronograma_eventos = todosEventos
         auditoriaUsada = 'gpt-4o-mini'
 
         // -----------------------------------------------------------
@@ -546,13 +646,20 @@ Retorne um parecer em JSON: {"risco_direcionamento": boolean, "motivo_auditoria"
     const gateSanidadeReprovado = totalItensExtraidos === 0 && totalExigenciasExtraidas === 0
 
     const finalPdfStatus =
-      incomingPdfStatus || (gateSanidadeReprovado ? 'sem_texto_extraivel' : 'ok')
+      incomingPdfStatus ||
+      (gateSanidadeReprovado
+        ? rawText.length >= 2000
+          ? 'texto_sem_itens'
+          : 'sem_texto_extraivel'
+        : 'ok')
     const finalCaminhoRecomendado =
       incomingCaminho || (gateSanidadeReprovado ? 'upload_planilha_xlsx' : 'reanalisar')
 
     const finalAuditStatus = gateSanidadeReprovado ? 'falha' : 'concluido'
     const finalErroDetails = gateSanidadeReprovado
-      ? 'Gate de Sanidade reprovado: 0 itens e 0 exigências extraídas — PDF sem camada de texto ou texto insuficiente; utilize o upload da planilha XLSX ou cole o texto do edital.'
+      ? rawText.length >= 2000
+        ? `Nenhum item ou exigência identificado no texto analisado (texto recebido com ${rawText.length.toLocaleString('pt-BR')} caracteres) — verifique formatação do edital`
+        : 'PDF sem camada de texto ou texto insuficiente (< 2.000 caracteres); utilize o upload da planilha XLSX ou cole o texto do edital na íntegra.'
       : null
 
     // Grava log de auditoria IA da extração
@@ -611,18 +718,33 @@ Retorne um parecer em JSON: {"risco_direcionamento": boolean, "motivo_auditoria"
 /**
  * Extrai itens de maneira determinística via regex para casos onde
  * o edital descreve itens textualmente (Item 1, Lote 1, etc.).
+ * Suporta itens em linha própria com flag /m e término em fim de linha.
  */
-function extrairItensDeterministicosDoTexto(text: string) {
+export function extrairItensDeterministicosDoTexto(text: string) {
   const itens = []
-  const itemRegex = /(?:item|lote)\s*(\d+)[\s:.-]+([^\n\r]+?)(?=(?:item|lote)\s*\d+|$)/gi
+  const itemRegex = /(?:^|\n)\s*(?:item|lote)\s*(\d+)\s*[:.\-–]?\s*([^\n\r]{6,})/gim
   let match
   let count = 0
+  const seenNumbers = new Set<number>()
 
   while ((match = itemRegex.exec(text)) !== null && count < 30) {
-    count++
-    const num = parseInt(match[1]) || count
-    const desc = match[2].trim()
-    if (desc.length > 5) {
+    const rawNum = parseInt(match[1], 10)
+    const num = isNaN(rawNum) ? count + 1 : rawNum
+    // Se já encontramos esse número de item antes, pula para evitar duplicatas por referências posteriores
+    if (seenNumbers.has(num)) {
+      continue
+    }
+
+    let desc = (match[2] || '').trim()
+    // Limpa pontuações ou traços soltos no início/fim
+    desc = desc
+      .replace(/^[:.\-–\s]+/, '')
+      .replace(/[\s;.]+$/, '')
+      .trim()
+
+    if (desc.length >= 6) {
+      seenNumbers.add(num)
+      count++
       itens.push({
         n_item: num,
         descricao: desc,

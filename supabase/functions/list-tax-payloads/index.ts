@@ -43,6 +43,16 @@ Deno.serve(async (req: Request) => {
       })
     }
 
+    let targetPrefix = ''
+    try {
+      const body = await req.json().catch(() => ({}))
+      if (typeof body?.prefix === 'string') {
+        targetPrefix = body.prefix
+      }
+    } catch {
+      // no body
+    }
+
     const listUrl = `${supabaseUrl}/storage/v1/object/list/tax-payloads`
     const method = 'POST'
     const maskedAuth = serviceRoleKey ? `${serviceRoleKey.slice(0, 10)}...` : 'N/A'
@@ -62,7 +72,7 @@ Deno.serve(async (req: Request) => {
         apikey: serviceRoleKey,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ prefix: '' }),
+      body: JSON.stringify({ prefix: targetPrefix, limit: 100 }),
     })
 
     console.log(`[DEBUG] Status da resposta HTTP: ${res.status} ${res.statusText}`)

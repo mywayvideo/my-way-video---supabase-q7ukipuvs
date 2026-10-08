@@ -55,9 +55,16 @@ Deno.serve(async (req: Request) => {
 
     const data = await response.json()
     const brlRate = data.rates?.BRL
+    const eurRate = data.rates?.EUR
 
     if (!brlRate) {
       throw new Error('BRL rate not found in API response')
+    }
+
+    // Calcula EUR-BRL a partir da mesma resposta (base USD: rates.BRL / rates.EUR)
+    let eurToBrlRate: number | null = null
+    if (eurRate && Number(eurRate) > 0) {
+      eurToBrlRate = Number((Number(brlRate) / Number(eurRate)).toFixed(4))
     }
 
     let userId: string | null = null
@@ -107,20 +114,30 @@ Deno.serve(async (req: Request) => {
       .maybeSingle()
 
     if (exchangeRate) {
-      await supabaseClient
-        .from('exchange_rate')
-        .update({
-          usd_to_brl: brlRate,
-          last_updated: new Date().toISOString(),
-          updated_by: userId,
-        })
-        .eq('id', exchangeRate.id)
+      const updatePayload: Record<string, any> = {
+        usd_to_brl: brlRate,
+        last_updated: new Date().toISOString(),
+        updated_by: userId,
+      }
+      if (eurToBrlRate !== null) {
+        updatePayload.eur_to_brl = eurToBrlRate
+      }
+
+      await supabaseClient.from('exchange_rate').update(updatePayload).eq('id', exchangeRate.id)
     }
 
-    return new Response(JSON.stringify({ success: true, rate: brlRate }), {
-      status: 200,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
+    return new Response(
+      JSON.stringify({
+        success: true,
+        rate: brlRate,
+        usd_to_brl: brlRate,
+        eur_to_brl: eurToBrlRate,
+      }),
+      {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      },
+    )
   } catch (error: any) {
     return new Response(JSON.stringify({ error: error.message }), {
       status: 400,

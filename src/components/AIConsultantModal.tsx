@@ -119,7 +119,7 @@ export function AIConsultantModal({
           const { data: productData } = await supabase
             .from('products')
             .select(
-              'id, name, sku, description, technical_info, price_usd, image_url, category, manufacturer:manufacturers(name)',
+              'id, name, sku, description, technical_info, price_usd, image_url, category, is_discontinued, manufacturer:manufacturers(name)',
             )
             .eq('id', activeProductId)
             .maybeSingle()

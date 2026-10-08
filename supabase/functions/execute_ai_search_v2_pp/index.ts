@@ -446,6 +446,7 @@ function buildDynamicSystemPrompt(
     category?: string | null
     description?: string | null
     manufacturer?: string | null
+    is_discontinued?: boolean | null
   } | null,
   isFirstInteraction: boolean,
 ): string {
@@ -482,8 +483,12 @@ function buildDynamicSystemPrompt(
         productContext.price_usd ? `Preco USD (FOB Miami): $${productContext.price_usd}` : '',
         productContext.category ? `Categoria: ${productContext.category}` : '',
         productContext.manufacturer ? `Fabricante: ${productContext.manufacturer}` : '',
+        productContext.is_discontinued === true
+          ? 'STATUS DO PRODUTO: FORA DE LINHA (DESCONTINUADO). Informe SEMPRE ao usuario que este produto esta fora de linha/descontinuado pelo fabricante. A empresa nao trabalha com controle de estoque, portanto NUNCA fale em estoque, falta de estoque ou unidades restantes.'
+          : '',
         '',
         'REGRAS ABSOLUTAS:',
+        '0. REGRA PRIORITARIA ANTI-RECUSA: Na pagina de produto, toda pergunta relacionada ao produto atual, ao contexto da pagina ou ao dominio de audiovisual deve ser respondida diretamente — o produto da pagina faz parte do catalogo, portanto a pergunta e sempre in-scope. E proibido usar qualquer mensagem de recusa de escopo nesta pagina (como "Desculpe, posso responder somente perguntas relacionadas ao nosso catalogo de produtos e servicos"). Se um dado especifico nao estiver no contexto, responda com o que souber sobre o equipamento e informe que um especialista confirmara a informacao complementar.',
         '1. Regra Geral: Sua funcao e sugerir APENAS produtos COMPLEMENTARES (acessorios, lentes, baterias, grips, tripes, monitores, cabos, adaptadores, cases, etc.) que sejam compativeis com o produto atual.',
         '2. EXCECAO PARA COMPARACAO: Se o usuario PEDIR EXPLICITAMENTE uma comparacao (ex: "compare com", "qual a diferenca", "outras opcoes de camera"), VOCE PODE sugerir e referenciar produtos da mesma categoria.',
         '3. Caso contrario (sem pedido explicito): PROIBIDO sugerir produtos substitutos da mesma categoria principal. Se o produto atual e uma camera, NUNCA sugira outras cameras.',
@@ -491,7 +496,9 @@ function buildDynamicSystemPrompt(
         '5. Se nao encontrar acessorios compativeis, seja honesto: "Nao localizei acessorios compativeis especificos para este produto em nosso catalogo."',
         '6. REGRAS DE PRECO: price_usd (Miami) e o UNICO preco exibido por padrao, em USD (US$). price_nationalized_sales e price_brl SO devem ser mencionados quando o cliente perguntar explicitamente sobre preco de entrega no Brasil. price_nationalized_currency define se o valor esta em BRL (R$) ou USD (US$). price_brl e sempre em USD e so usado se nao houver price_nationalized_sales.',
         '7. PROIBIDO escrever a tag literal [PRODUCT:UUID] como texto generico ou placeholder. Use SEMPRE o UUID real do produto fornecido no catalogo abaixo. O formato correto e [PRODUCT:uuid-real-do-produto].',
-      ].join('\n'),
+      ]
+        .filter(Boolean)
+        .join('\n'),
     )
   }
 
@@ -767,11 +774,16 @@ serve(async (req: Request) => {
       category?: string | null
       description?: string | null
       manufacturer?: string | null
+      is_discontinued?: boolean | null
     } | null = null
 
     if (body?.currentProductContext) {
       const pData = body.currentProductContext
       const rawSpecs = pData.technical_info || pData.description || ''
+      const isDiscontinued =
+        pData.is_discontinued === true ||
+        pData.is_discontinued === 'true' ||
+        pData.is_discontinued === 1
       productContext = {
         id: pData.id,
         name: pData.name,
@@ -784,18 +796,23 @@ serve(async (req: Request) => {
           typeof pData.manufacturer === 'string'
             ? pData.manufacturer
             : pData.manufacturer?.name || null,
+        is_discontinued: isDiscontinued ? true : false,
       }
     } else if (lastReferencedProductId) {
       const { data: prodData } = await supabase
         .from('products')
         .select(
-          'id, name, technical_info, description, image_url, price_usd, category, manufacturer:manufacturers(name)',
+          'id, name, technical_info, description, image_url, price_usd, category, is_discontinued, manufacturer:manufacturers(name)',
         )
         .eq('id', lastReferencedProductId)
         .single()
 
       if (prodData) {
         const rawSpecs = prodData.technical_info || prodData.description || ''
+        const isDiscontinued =
+          prodData.is_discontinued === true ||
+          (prodData as any).is_discontinued === 'true' ||
+          (prodData as any).is_discontinued === 1
         productContext = {
           id: prodData.id,
           name: prodData.name,
@@ -807,6 +824,7 @@ serve(async (req: Request) => {
           manufacturer:
             prodData.manufacturer?.name ||
             (typeof prodData.manufacturer === 'string' ? prodData.manufacturer : null),
+          is_discontinued: isDiscontinued ? true : false,
         }
       }
     }
@@ -914,7 +932,7 @@ serve(async (req: Request) => {
           .from('avpro_keywords')
           .select('keyword, weight, is_blocking')
           .in('keyword', tokens)
-        if (keywords?.some((k) => k.is_blocking)) {
+        if (keywords?.some((k) => k.is_blocking) && intent !== 'PRODUCT_SPECIFIC') {
           console.log(`[PERF][TOTAL_BLOCKED] ${Math.round(performance.now() - startTime)}ms`)
           return new Response(
             JSON.stringify({

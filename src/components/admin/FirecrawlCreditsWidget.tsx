@@ -7,6 +7,8 @@ import {
   AlertCircle,
   Clock,
   Sparkles,
+  CloudOff,
+  ExternalLink,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -47,9 +49,24 @@ export const FirecrawlCreditsWidget: React.FC<FirecrawlCreditsWidgetProps> = ({
     try {
       const result = await firecrawlCreditsService.getCredits()
       setData(result)
+      setError(null)
     } catch (err: unknown) {
+      // Captura qualquer erro de rede / função não publicada / 404 / 500 sem quebrar o runtime da página
       const e = err as Error
-      setError(e?.message || 'Falha ao consultar créditos do Firecrawl.')
+      const rawMsg = e?.message || ''
+
+      if (
+        rawMsg.includes('não está publicada') ||
+        rawMsg.includes('Failed to fetch') ||
+        rawMsg.includes('NOT_FOUND') ||
+        rawMsg.includes('indisponível')
+      ) {
+        setError(
+          'Função firecrawl-credits não publicada no projeto Supabase. Faça o deploy da edge function para ativar a consulta automática.',
+        )
+      } else {
+        setError(rawMsg || 'Não foi possível consultar os créditos do Firecrawl.')
+      }
     } finally {
       setLoading(false)
       setRefreshing(false)
@@ -85,6 +102,10 @@ export const FirecrawlCreditsWidget: React.FC<FirecrawlCreditsWidgetProps> = ({
   const percentRemaining = data?.percentRemaining ?? 0
   const isCritical = total > 0 && percentRemaining < 10
   const isLow = total > 0 && percentRemaining < 25 && !isCritical
+  const isNotDeployedError = Boolean(
+    error &&
+    (error.includes('não publicada') || error.includes('deploy') || error.includes('indisponível')),
+  )
 
   // -------------------------------------------------------------
   // Variante 1: COMPACT (Banner horizontal minimalista para Catálogo)
@@ -93,21 +114,41 @@ export const FirecrawlCreditsWidget: React.FC<FirecrawlCreditsWidgetProps> = ({
     return (
       <div
         className={cn(
-          'bg-card/80 border border-border/60 rounded-xl p-3 shadow-sm backdrop-blur-sm transition-all',
+          'bg-card/80 border rounded-xl p-3 shadow-sm backdrop-blur-sm transition-all',
+          error ? 'border-amber-500/40 bg-amber-500/5' : 'border-border/60',
           className,
         )}
       >
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           {/* Lado Esquerdo: Ícone + Título + Status */}
           <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-8 h-8 rounded-lg bg-orange-500/10 border border-orange-500/20 flex items-center justify-center text-orange-500 shrink-0">
-              <Flame className="w-4 h-4 fill-orange-500/20" />
+            <div
+              className={cn(
+                'w-8 h-8 rounded-lg flex items-center justify-center shrink-0 border',
+                error
+                  ? 'bg-amber-500/10 border-amber-500/30 text-amber-500'
+                  : 'bg-orange-500/10 border-orange-500/20 text-orange-500',
+              )}
+            >
+              {error ? (
+                <CloudOff className="w-4 h-4" />
+              ) : (
+                <Flame className="w-4 h-4 fill-orange-500/20" />
+              )}
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-xs font-semibold text-foreground tracking-tight">
                   Créditos Firecrawl
                 </span>
+                {error && (
+                  <Badge
+                    variant="outline"
+                    className="text-[10px] px-1.5 py-0 h-4 font-mono font-medium border bg-amber-500/10 text-amber-500 border-amber-500/30"
+                  >
+                    Função Pendente
+                  </Badge>
+                )}
                 {data && !error && (
                   <Badge
                     variant="outline"
@@ -124,7 +165,15 @@ export const FirecrawlCreditsWidget: React.FC<FirecrawlCreditsWidgetProps> = ({
                   </Badge>
                 )}
               </div>
-              <p className="text-[11px] text-muted-foreground truncate">
+              <p
+                className={cn(
+                  'text-[11px] truncate',
+                  error
+                    ? 'text-amber-600 dark:text-amber-400 font-medium'
+                    : 'text-muted-foreground',
+                )}
+                title={error || undefined}
+              >
                 {error
                   ? error
                   : loading
@@ -203,21 +252,42 @@ export const FirecrawlCreditsWidget: React.FC<FirecrawlCreditsWidgetProps> = ({
   return (
     <div
       className={cn(
-        'bg-card border border-border/60 rounded-xl p-5 shadow-sm space-y-4 transition-all',
+        'bg-card border rounded-xl p-5 shadow-sm space-y-4 transition-all',
+        error ? 'border-amber-500/40' : 'border-border/60',
         className,
       )}
     >
       {/* Cabeçalho do Card */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-border/40">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-orange-500/10 border border-orange-500/20 flex items-center justify-center text-orange-500 shrink-0">
-            <Flame className="w-5 h-5 fill-orange-500/20" />
+          <div
+            className={cn(
+              'w-9 h-9 rounded-lg flex items-center justify-center shrink-0 border',
+              error
+                ? 'bg-amber-500/10 border-amber-500/30 text-amber-500'
+                : 'bg-orange-500/10 border-orange-500/20 text-orange-500',
+            )}
+          >
+            {error ? (
+              <CloudOff className="w-5 h-5" />
+            ) : (
+              <Flame className="w-5 h-5 fill-orange-500/20" />
+            )}
           </div>
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <h3 className="font-semibold text-sm sm:text-base text-foreground tracking-tight">
                 {title}
               </h3>
+              {error && (
+                <Badge
+                  variant="outline"
+                  className="text-xs font-mono font-medium border flex items-center gap-1 bg-amber-500/10 text-amber-500 border-amber-500/30"
+                >
+                  <AlertTriangle className="w-3 h-3" />
+                  {isNotDeployedError ? 'Deploy Pendente' : 'Indisponível'}
+                </Badge>
+              )}
               {data && !error && (
                 <Badge
                   variant="outline"
@@ -278,14 +348,61 @@ export const FirecrawlCreditsWidget: React.FC<FirecrawlCreditsWidgetProps> = ({
         </div>
       </div>
 
-      {/* Estado de Erro */}
+      {/* Estado de Erro Degradado e Explicativo */}
       {error && (
-        <div className="p-3.5 rounded-lg text-xs border bg-destructive/10 text-destructive border-destructive/20 flex items-start gap-2.5">
-          <AlertCircle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
-          <div className="flex-1 space-y-1">
-            <span className="font-semibold block">Não foi possível carregar os créditos</span>
-            <p className="text-destructive/90">{error}</p>
+        <div className="p-4 rounded-xl text-xs border bg-amber-500/10 text-amber-950 dark:text-amber-200 border-amber-500/30 space-y-3">
+          <div className="flex items-start gap-2.5">
+            <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+            <div className="flex-1 space-y-1">
+              <span className="font-semibold block text-sm text-amber-900 dark:text-amber-100">
+                Não foi possível consultar os créditos da API Firecrawl
+              </span>
+              <p className="text-amber-800/90 dark:text-amber-200/90 leading-relaxed">{error}</p>
+            </div>
           </div>
+
+          {isNotDeployedError && (
+            <div className="pt-2 border-t border-amber-500/20 text-[11px] space-y-2 text-amber-900/90 dark:text-amber-200/80">
+              <div className="font-medium text-amber-950 dark:text-amber-100 flex items-center gap-1.5">
+                <span>Instruções para deploy no Supabase:</span>
+              </div>
+              <ol className="list-decimal pl-4 space-y-1">
+                <li>
+                  Acesse o <strong>Supabase Dashboard</strong> do projeto (
+                  <code>ymlkyspcznrrmlktudxx</code>).
+                </li>
+                <li>
+                  Vá em <strong>Edge Functions</strong> → clique em <strong>New Function</strong>{' '}
+                  (ou selecione <code>firecrawl-credits</code>).
+                </li>
+                <li>
+                  Nomeie a função como <code>firecrawl-credits</code>.
+                </li>
+                <li>
+                  Copie o código do arquivo{' '}
+                  <code>supabase/functions/firecrawl-credits/index.ts</code> do repositório e cole
+                  no editor.
+                </li>
+                <li>
+                  Clique em <strong>Deploy</strong>.
+                </li>
+              </ol>
+              <div className="flex items-center gap-2 pt-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => loadCredits(true)}
+                  disabled={loading || refreshing}
+                  className="h-7 text-xs bg-card/60 hover:bg-card border-amber-500/40"
+                >
+                  <RefreshCw
+                    className={cn('w-3 h-3 mr-1.5', (loading || refreshing) && 'animate-spin')}
+                  />
+                  Tentar novamente após o deploy
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

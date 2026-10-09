@@ -66,6 +66,50 @@ describe('firecrawlCreditsService', () => {
     }
   })
 
+  it('gracefully identifies when edge function is not deployed (404 / NOT_FOUND)', async () => {
+    const mockInvoke = vi.fn().mockResolvedValue({
+      data: null,
+      error: {
+        message: 'Edge Function returned a non-2xx status code',
+        context: {
+          status: 404,
+          json: {
+            code: 'NOT_FOUND',
+            message: 'Requested function was not found',
+          },
+        },
+      },
+    })
+
+    const { supabase } = await import('@/lib/supabase/client')
+    const originalInvoke = supabase.functions.invoke
+    supabase.functions.invoke = mockInvoke as any
+
+    try {
+      await expect(firecrawlCreditsService.getCredits()).rejects.toThrow(
+        'A edge function firecrawl-credits ainda não está publicada neste projeto Supabase',
+      )
+    } finally {
+      supabase.functions.invoke = originalInvoke
+    }
+  })
+
+  it('gracefully handles network level failure (Failed to fetch)', async () => {
+    const mockInvoke = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'))
+
+    const { supabase } = await import('@/lib/supabase/client')
+    const originalInvoke = supabase.functions.invoke
+    supabase.functions.invoke = mockInvoke as any
+
+    try {
+      await expect(firecrawlCreditsService.getCredits()).rejects.toThrow(
+        'Função edge firecrawl-credits indisponível ou não publicada no projeto Supabase. Verifique se a função foi deployada.',
+      )
+    } finally {
+      supabase.functions.invoke = originalInvoke
+    }
+  })
+
   it('calculates credit metrics accurately from raw plan and remaining values', () => {
     const planCredits = 10000
     const remainingCredits = 2500

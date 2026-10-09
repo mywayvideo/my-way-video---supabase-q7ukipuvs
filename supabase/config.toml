@@ -155,3 +155,6 @@ verify_jwt = false
 
 [functions.sync-ncm-support-vigencia]
 verify_jwt = false
+
+[functions.firecrawl-credits]
+verify_jwt = false

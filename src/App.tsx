@@ -15,6 +15,7 @@ import AdminProductCache from './pages/AdminProductCache'
 import AdminAISettings from './pages/admin/ai-settings'
 import AdminAIPage from './pages/admin/AdminAIPage'
 import AdminCatalogPage from './pages/admin/AdminCatalogPage'
+import { AdminBhUpdatePage } from './pages/admin/AdminBhUpdatePage'
 import AdminAVProKeywordsPage from './pages/admin/AdminAVProKeywordsPage'
 import AdminNcmSupportPage from './pages/admin/AdminNcmSupportPage'
 import ProductsPage from './pages/admin/ProductsPage'
@@ -151,6 +152,14 @@ const App = () => {
                       element={
                         <ProtectedRoute>
                           <AdminCatalogPage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/admin/bh-update"
+                      element={
+                        <ProtectedRoute>
+                          <AdminBhUpdatePage />
                         </ProtectedRoute>
                       }
                     />

@@ -14,6 +14,11 @@ export interface PriceCheckResult {
   message?: string
   checked_at?: string
   error?: string
+  rebate_active?: boolean
+  price_full?: number | null
+  price_with_rebate?: number | null
+  rebate_savings?: number | null
+  rebate_end_date?: string | null
 }
 
 export interface PriceCheckRecord {
@@ -36,11 +41,14 @@ export const priceCheckService = {
   /**
    * Dispara a verificação unitária em tempo real na B&H via edge function check-price-bhphoto
    */
-  async checkBhPrice(productId: string): Promise<PriceCheckResult> {
+  async checkBhPrice(
+    productId: string,
+    source: 'manual' | 'batch' = 'manual',
+  ): Promise<PriceCheckResult> {
     const { data, error } = await supabase.functions.invoke('check-price-bhphoto', {
       body: {
         product_id: productId,
-        source: 'manual',
+        source,
       },
     })
 
@@ -64,6 +72,11 @@ export const priceCheckService = {
       message: data.message || data.error,
       checked_at: new Date().toISOString(),
       error: data.error,
+      rebate_active: Boolean(data.rebate_active),
+      price_full: data.price_full ?? null,
+      price_with_rebate: data.price_with_rebate ?? null,
+      rebate_savings: data.rebate_savings ?? null,
+      rebate_end_date: data.rebate_end_date ?? null,
     }
   },
 
@@ -97,13 +110,43 @@ export const priceCheckService = {
       throw new Error('Preço B&H inválido para aplicação.')
     }
 
+    const now = new Date().toISOString()
     const { error } = await supabase
       .from('products')
-      .update({ price_usd: newPriceUsd })
+      .update({
+        price_usd: newPriceUsd,
+        updated_at: now,
+        last_reviewed_at: now,
+      } as any)
       .eq('id', productId)
 
     if (error) {
       throw new Error(error.message || 'Erro ao atualizar o preço do produto.')
+    }
+  },
+
+  /**
+   * Salva uma URL manual da B&H em products.website_url
+   * Atualiza updated_at e last_reviewed_at de acordo com as regras de auditoria
+   */
+  async updateWebsiteUrl(productId: string, websiteUrl: string): Promise<void> {
+    const cleanUrl = websiteUrl.trim()
+    if (!cleanUrl || !cleanUrl.startsWith('http')) {
+      throw new Error('URL da B&H inválida. Deve começar com http:// ou https://')
+    }
+
+    const now = new Date().toISOString()
+    const { error } = await supabase
+      .from('products')
+      .update({
+        website_url: cleanUrl,
+        updated_at: now,
+        last_reviewed_at: now,
+      } as any)
+      .eq('id', productId)
+
+    if (error) {
+      throw new Error(error.message || 'Erro ao atualizar a URL do produto.')
     }
   },
 }

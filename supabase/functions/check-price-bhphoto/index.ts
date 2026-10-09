@@ -15,6 +15,10 @@ interface PriceCheckRequest {
 
 interface ScrapedData {
   price?: number | string | null
+  price_regular?: number | string | null
+  rebate_active?: boolean | string | null
+  rebate_savings?: number | string | null
+  rebate_end_date?: string | null
   is_discontinued?: boolean | string | null
   availability?: string | null
   sku?: string | null
@@ -77,7 +81,27 @@ async function scrapeBhUrl(
               price: {
                 type: 'string',
                 description:
-                  'Current selling price in USD, taking into account any instant savings or featured rebate. Only numbers and dot.',
+                  'Current final selling price in USD, taking into account any instant savings or featured rebate. Only numbers and dot.',
+              },
+              price_regular: {
+                type: 'string',
+                description:
+                  'Original regular/list/strikethrough price in USD before instant savings or rebate, if discounted. Empty/null if no discount/rebate.',
+              },
+              rebate_active: {
+                type: 'boolean',
+                description:
+                  'True if an instant savings, manufacturer rebate or promotional discount is currently active on the page.',
+              },
+              rebate_savings: {
+                type: 'string',
+                description:
+                  'Instant savings or rebate amount in USD (e.g. 100.00). Only numbers and dot.',
+              },
+              rebate_end_date: {
+                type: 'string',
+                description:
+                  'Promotion or instant savings expiration/validity date if explicitly stated (e.g. Ends Apr 15).',
               },
               is_discontinued: {
                 type: 'boolean',
@@ -105,7 +129,7 @@ async function scrapeBhUrl(
             required: ['price'],
           },
           prompt:
-            'Extract the current USD selling price (accounting for any instant savings/rebates), whether the product is discontinued by manufacturer, the availability status text, and the Manufacturer Part Number / MFR # code (plus internal SKU).',
+            'Extract the current USD final selling price, the regular/strikethrough price if any, whether instant savings/rebate is active, rebate savings amount and expiration date if present, whether the product is discontinued by manufacturer, the availability status text, and the Manufacturer Part Number / MFR # code (plus internal SKU).',
         },
       ],
       onlyMainContent: true,
@@ -479,6 +503,26 @@ Deno.serve(async (req: Request) => {
     // Processamento do resultado raspado
     const priceDb = product.price_usd != null ? Number(product.price_usd) : null
     const priceBh = parsePrice(scrapedResult.price)
+    const priceRegular = parsePrice(scrapedResult.price_regular)
+    const rebateSavings = parsePrice(scrapedResult.rebate_savings)
+    const rebateActive =
+      scrapedResult.rebate_active === true ||
+      String(scrapedResult.rebate_active).toLowerCase() === 'true' ||
+      Boolean(priceRegular && priceBh && priceRegular > priceBh) ||
+      Boolean(rebateSavings && rebateSavings > 0)
+    const rebateEndDate = scrapedResult.rebate_end_date
+      ? String(scrapedResult.rebate_end_date).trim()
+      : null
+
+    // Preço cheio original (se houver rebate) e preço final
+    const priceFull =
+      rebateActive && priceRegular && priceRegular > (priceBh || 0)
+        ? priceRegular
+        : rebateActive && priceBh && rebateSavings
+          ? Number((priceBh + rebateSavings).toFixed(2))
+          : priceRegular || priceBh
+    const priceWithRebate = rebateActive ? priceBh : null
+
     const isDiscontinued = isDiscontinuedValue(
       scrapedResult.is_discontinued,
       scrapedResult.availability,
@@ -591,9 +635,13 @@ Deno.serve(async (req: Request) => {
     const isWithinTolerance = absDiffUsd <= toleranceUsd || absDiffPct <= 1.0
 
     const status: 'ok' | 'divergente' = isWithinTolerance ? 'ok' : 'divergente'
-    const msg = isWithinTolerance
+    let msg = isWithinTolerance
       ? `Preço conferido com a B&H. Variação de US$ ${diffUsd.toFixed(2)} (${diffPct.toFixed(2)}%) dentro da tolerância acordada.`
       : `Preço divergente da B&H. Diferença de US$ ${diffUsd > 0 ? '+' : ''}${diffUsd.toFixed(2)} (${diffPct > 0 ? '+' : ''}${diffPct.toFixed(2)}%).`
+
+    if (rebateActive) {
+      msg += ` [Rebate/Instant Savings ativo na B&H: Preço com desconto US$ ${priceWithRebate?.toFixed(2)} / Preço cheio US$ ${priceFull?.toFixed(2)}${rebateEndDate ? ` - Vigência: ${rebateEndDate}` : ''}]`
+    }
 
     await recordCheck({
       status,
@@ -604,7 +652,16 @@ Deno.serve(async (req: Request) => {
       url_used: finalUrl,
       url_discovered: urlDiscovered,
       message: msg,
-      raw: scrapedResult,
+      raw: {
+        ...scrapedResult,
+        rebate_info: {
+          rebate_active: rebateActive,
+          price_full: priceFull,
+          price_with_rebate: priceWithRebate,
+          rebate_savings: rebateSavings,
+          rebate_end_date: rebateEndDate,
+        },
+      },
     })
 
     return new Response(
@@ -617,6 +674,11 @@ Deno.serve(async (req: Request) => {
         url_used: finalUrl,
         url_discovered: urlDiscovered,
         message: msg,
+        rebate_active: rebateActive,
+        price_full: priceFull,
+        price_with_rebate: priceWithRebate,
+        rebate_savings: rebateSavings,
+        rebate_end_date: rebateEndDate,
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
     )

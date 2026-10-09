@@ -883,6 +883,15 @@ export default function AdminCatalogPage() {
               />
               <Button
                 variant="outline"
+                className="shadow-sm bg-emerald-500/10 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20"
+                asChild
+              >
+                <Link to="/admin/bh-update">
+                  <RefreshCw className="w-4 h-4 mr-2" /> Atualização B&H em Lotes
+                </Link>
+              </Button>
+              <Button
+                variant="outline"
                 className="shadow-sm"
                 onClick={() => setShowRecalcModal(true)}
               >

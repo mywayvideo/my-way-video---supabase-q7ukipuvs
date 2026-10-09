@@ -254,6 +254,39 @@ export function AdminBhUpdatePage() {
     }
   }, [remainingCooldown])
 
+  // Referências para sincronização das barras de rolagem horizontal (superior e inferior/tabela)
+  const topScrollRef = useRef<HTMLDivElement>(null)
+  const bottomScrollRef = useRef<HTMLDivElement>(null)
+  const isSyncingScrollRef = useRef<boolean>(false)
+  const [tableScrollWidth, setTableScrollWidth] = useState<number>(1150)
+
+  // Sincronização bidirecional de scrollLeft entre a barra superior e a inferior da tabela
+  const handleTopScroll = useCallback(() => {
+    if (isSyncingScrollRef.current) return
+    const topEl = topScrollRef.current
+    const bottomEl = bottomScrollRef.current
+    if (!topEl || !bottomEl) return
+
+    isSyncingScrollRef.current = true
+    bottomEl.scrollLeft = topEl.scrollLeft
+    requestAnimationFrame(() => {
+      isSyncingScrollRef.current = false
+    })
+  }, [])
+
+  const handleBottomScroll = useCallback(() => {
+    if (isSyncingScrollRef.current) return
+    const topEl = topScrollRef.current
+    const bottomEl = bottomScrollRef.current
+    if (!topEl || !bottomEl) return
+
+    isSyncingScrollRef.current = true
+    topEl.scrollLeft = bottomEl.scrollLeft
+    requestAnimationFrame(() => {
+      isSyncingScrollRef.current = false
+    })
+  }, [])
+
   // 2. Filtragem e ordenação dos produtos
   const filteredProducts = useMemo(() => {
     return products
@@ -301,6 +334,33 @@ export function AdminBhUpdatePage() {
         return 0
       })
   }, [products, filterType, searchQuery, sortBy])
+
+  // Atualizar a largura do spacer da barra superior com a largura real scrollWidth da tabela
+  useEffect(() => {
+    const bottomEl = bottomScrollRef.current
+    if (!bottomEl) return
+
+    const updateScrollWidth = () => {
+      if (bottomEl) {
+        setTableScrollWidth(Math.max(1150, bottomEl.scrollWidth))
+      }
+    }
+
+    updateScrollWidth()
+
+    const observer = new ResizeObserver(() => {
+      updateScrollWidth()
+    })
+
+    observer.observe(bottomEl)
+    if (bottomEl.firstElementChild) {
+      observer.observe(bottomEl.firstElementChild)
+    }
+
+    return () => {
+      observer.disconnect()
+    }
+  }, [filteredProducts])
 
   // Produtos que estão selecionados
   const selectedProducts = useMemo(() => {
@@ -1252,7 +1312,37 @@ export function AdminBhUpdatePage() {
 
           {/* Tabela de Produtos */}
           <div className="bg-card border border-border/50 rounded-xl overflow-hidden shadow-sm">
-            <div className="w-full overflow-x-auto pb-2">
+            {/* Barra de rolagem horizontal superior sincronizada com o contêiner da tabela */}
+            <div
+              ref={topScrollRef}
+              onScroll={handleTopScroll}
+              className="w-full overflow-x-scroll border-b border-border/40 bg-muted/20 [&::-webkit-scrollbar]:h-2.5 [&::-webkit-scrollbar-track]:bg-muted/30 [&::-webkit-scrollbar-thumb]:bg-slate-600 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-slate-500"
+              style={{
+                height: '14px',
+                scrollbarWidth: 'thin',
+                scrollbarColor: '#64748b #1e293b',
+              }}
+              title="Barra de rolagem horizontal superior da tabela"
+              aria-label="Barra de rolagem horizontal superior"
+            >
+              <div
+                style={{
+                  width: `${tableScrollWidth}px`,
+                  minWidth: '1150px',
+                  height: '1px',
+                }}
+              />
+            </div>
+
+            <div
+              ref={bottomScrollRef}
+              onScroll={handleBottomScroll}
+              className="w-full overflow-x-auto pb-2 [&::-webkit-scrollbar]:h-2.5 [&::-webkit-scrollbar-track]:bg-muted/30 [&::-webkit-scrollbar-thumb]:bg-slate-600 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-slate-500"
+              style={{
+                scrollbarWidth: 'thin',
+                scrollbarColor: '#64748b #1e293b',
+              }}
+            >
               <Table className="min-w-[1150px]">
                 <TableHeader>
                   <TableRow className="hover:bg-transparent bg-muted/20">

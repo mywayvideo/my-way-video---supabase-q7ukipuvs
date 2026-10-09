@@ -19,6 +19,9 @@ export interface PriceCheckResult {
   price_with_rebate?: number | null
   rebate_savings?: number | null
   rebate_end_date?: string | null
+  rebate_end_date_iso?: string | null
+  sku_matched?: boolean
+  mfr_number_found?: string | null
 }
 
 export interface PriceCheckRecord {
@@ -44,11 +47,13 @@ export const priceCheckService = {
   async checkBhPrice(
     productId: string,
     source: 'manual' | 'batch' = 'manual',
+    manualUrl?: string,
   ): Promise<PriceCheckResult> {
     const { data, error } = await supabase.functions.invoke('check-price-bhphoto', {
       body: {
         product_id: productId,
         source,
+        ...(manualUrl ? { manual_url: manualUrl } : {}),
       },
     })
 
@@ -77,6 +82,9 @@ export const priceCheckService = {
       price_with_rebate: data.price_with_rebate ?? null,
       rebate_savings: data.rebate_savings ?? null,
       rebate_end_date: data.rebate_end_date ?? null,
+      rebate_end_date_iso: data.rebate_end_date_iso ?? null,
+      sku_matched: data.sku_matched !== undefined ? Boolean(data.sku_matched) : true,
+      mfr_number_found: data.mfr_number_found ?? null,
     }
   },
 

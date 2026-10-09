@@ -52,6 +52,8 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { toast } from '@/hooks/use-toast'
 import { bhBatchUpdateService, ProductBatchItem } from '@/services/bhBatchUpdateService'
 import { priceCheckService } from '@/services/priceCheckService'
+import { rebateDiscountService, ExistingRebateRule } from '@/services/rebateDiscountService'
+import { RebateDiscountModal } from '@/components/admin/RebateDiscountModal'
 import { cn } from '@/lib/utils'
 
 const STORAGE_KEY = 'bh_batch_update_session_v1'
@@ -84,10 +86,46 @@ export function AdminBhUpdatePage() {
   const stopSignalRef = useRef<boolean>(false)
   const cooldownIntervalRef = useRef<any>(null)
 
+  // Estado do modal de Rebate Fabricante
+  const [rebateModalOpen, setRebateModalOpen] = useState<boolean>(false)
+  const [rebateModalProduct, setRebateModalProduct] = useState<ProductBatchItem | null>(null)
+  const [rebateExistingRule, setRebateExistingRule] = useState<ExistingRebateRule | null>(null)
+
+  // Cache em memória de regras ativas de rebate mapeadas por productId
+  const [activeRebatesMap, setActiveRebatesMap] = useState<Record<string, ExistingRebateRule>>({})
+  const [isBulkReviewing, setIsBulkReviewing] = useState<boolean>(false)
+
   // 1. Carregar produtos iniciais
+  // Carregar regras "Rebate Fabricante" existentes para exibir status correto nos botões
+  const loadExistingRebates = useCallback(async () => {
+    try {
+      const { supabase } = await import('@/lib/supabase/client')
+      const { data, error } = await (supabase.from('discounts') as any)
+        .select(
+          'id, name, discount_type, discount_value, start_date, end_date, is_active, product_selection',
+        )
+        .eq('name', 'Rebate Fabricante')
+
+      if (error || !data) return
+
+      const map: Record<string, ExistingRebateRule> = {}
+      data.forEach((rule: any) => {
+        if (Array.isArray(rule.product_selection)) {
+          rule.product_selection.forEach((prodId: string) => {
+            map[prodId] = rule
+          })
+        }
+      })
+      setActiveRebatesMap(map)
+    } catch (err) {
+      console.warn('Erro ao carregar regras ativas de rebate:', err)
+    }
+  }, [])
+
   const loadInitialProducts = useCallback(async () => {
     setLoading(true)
     try {
+      await loadExistingRebates()
       const data = await bhBatchUpdateService.fetchProductsForBatch(2000)
 
       // Se houver estado em localStorage da sessão atual, mescla para persistir status e url draft
@@ -126,7 +164,7 @@ export function AdminBhUpdatePage() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [loadExistingRebates])
 
   useEffect(() => {
     loadInitialProducts()
@@ -212,10 +250,15 @@ export function AdminBhUpdatePage() {
       })
       .sort((a, b) => {
         if (sortBy === 'updated_at_asc') {
-          return new Date(a.updated_at || 0).getTime() - new Date(b.updated_at || 0).getTime()
+          // Prioriza produtos com last_reviewed_at mais antigo (ou nunca revisados)
+          const aRev = a.last_reviewed_at || a.updated_at || 0
+          const bRev = b.last_reviewed_at || b.updated_at || 0
+          return new Date(aRev).getTime() - new Date(bRev).getTime()
         }
         if (sortBy === 'updated_at_desc') {
-          return new Date(b.updated_at || 0).getTime() - new Date(a.updated_at || 0).getTime()
+          const aRev = a.last_reviewed_at || a.updated_at || 0
+          const bRev = b.last_reviewed_at || b.updated_at || 0
+          return new Date(bRev).getTime() - new Date(aRev).getTime()
         }
         if (sortBy === 'name_asc') {
           return a.name.localeCompare(b.name)
@@ -312,6 +355,16 @@ export function AdminBhUpdatePage() {
       title: 'Status reiniciados',
       description: 'O histórico da rodada foi limpo com sucesso.',
     })
+  }
+
+  // Abertura do modal de Rebate Fabricante
+  const handleOpenRebateModal = async (item: ProductBatchItem) => {
+    setRebateModalProduct(item)
+    // Busca se já existe regra no banco para este produto
+    const existing =
+      activeRebatesMap[item.id] || (await rebateDiscountService.findActiveRebateRule(item.id))
+    setRebateExistingRule(existing)
+    setRebateModalOpen(true)
   }
 
   // 3. Execução do lote seguro
@@ -533,6 +586,194 @@ export function AdminBhUpdatePage() {
     }
   }
 
+  // Ação 3: Entrada Manual de Link e Análise (para produtos sem link ou duvidosos)
+  const handleAnalyzeManualUrl = async (item: ProductBatchItem) => {
+    const rawUrl = (item.manualUrlDraft || '').trim()
+    if (!rawUrl || !rawUrl.startsWith('http')) {
+      toast({
+        title: 'URL inválida',
+        description: 'Cole uma URL válida da B&H iniciando com http:// ou https://',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    setProducts((prev) =>
+      prev.map((p) => (p.id === item.id ? { ...p, isAnalyzingUrl: true, errorMessage: null } : p)),
+    )
+
+    try {
+      const result = await bhBatchUpdateService.analyzeManualUrl(item.id, rawUrl)
+      const nowIso = new Date().toISOString()
+
+      if (result.status === 'sem_url_confirmada') {
+        // MFR # não bateu com SKU do cadastro: não grava no banco, marca como duvidoso
+        setProducts((prev) =>
+          prev.map((p) =>
+            p.id === item.id
+              ? {
+                  ...p,
+                  isAnalyzingUrl: false,
+                  batchStatus: 'done',
+                  checkResult: result,
+                }
+              : p,
+          ),
+        )
+
+        toast({
+          title: 'Link duvidoso: MFR # divergente',
+          description:
+            result.message || 'O código de fabricante (MFR #) da página B&H não confere com o SKU.',
+          variant: 'destructive',
+        })
+        return
+      }
+
+      if (result.status === 'erro') {
+        setProducts((prev) =>
+          prev.map((p) =>
+            p.id === item.id
+              ? {
+                  ...p,
+                  isAnalyzingUrl: false,
+                  batchStatus: 'error',
+                  checkResult: result,
+                  errorMessage: result.message || 'Falha ao analisar link',
+                }
+              : p,
+          ),
+        )
+
+        toast({
+          title: 'Erro na análise do link',
+          description: result.message || 'Não foi possível extrair dados da página da B&H.',
+          variant: 'destructive',
+        })
+        return
+      }
+
+      // Validado com sucesso! MFR # confere. O link foi gravado no banco pelo edge function.
+      const newWebsiteUrl = result.url_used || rawUrl
+      setProducts((prev) =>
+        prev.map((p) =>
+          p.id === item.id
+            ? {
+                ...p,
+                website_url: newWebsiteUrl,
+                manualUrlDraft: newWebsiteUrl,
+                updated_at: nowIso,
+                last_reviewed_at: nowIso,
+                isAnalyzingUrl: false,
+                batchStatus: 'done',
+                checkResult: result,
+              }
+            : p,
+        ),
+      )
+
+      toast({
+        title: 'Link validado com sucesso!',
+        description: `MFR # conferido com SKU. Link gravado em website_url. Preço B&H: US$ ${result.price_bh?.toFixed(2) || '—'}.`,
+      })
+    } catch (err: any) {
+      setProducts((prev) =>
+        prev.map((p) => (p.id === item.id ? { ...p, isAnalyzingUrl: false } : p)),
+      )
+      toast({
+        title: 'Falha ao analisar link',
+        description: err.message || 'Erro inesperado na verificação do link.',
+        variant: 'destructive',
+      })
+    }
+  }
+
+  // Ação 4: Confirmação Manual de Revisão Individual (Atualiza SOMENTE last_reviewed_at)
+  const handleConfirmSingleReview = async (item: ProductBatchItem) => {
+    setProducts((prev) => prev.map((p) => (p.id === item.id ? { ...p, isReviewing: true } : p)))
+
+    try {
+      const reviewedAtIso = await bhBatchUpdateService.confirmSingleReview(item.id)
+
+      setProducts((prev) =>
+        prev.map((p) =>
+          p.id === item.id
+            ? {
+                ...p,
+                last_reviewed_at: reviewedAtIso,
+                isReviewing: false,
+              }
+            : p,
+        ),
+      )
+
+      toast({
+        title: 'Revisão confirmada!',
+        description: `Produto "${item.name}" conferido manualmente. Data de revisão atualizada.`,
+      })
+    } catch (err: any) {
+      setProducts((prev) => prev.map((p) => (p.id === item.id ? { ...p, isReviewing: false } : p)))
+      toast({
+        title: 'Erro ao confirmar revisão',
+        description: err.message || 'Não foi possível registrar a conferência.',
+        variant: 'destructive',
+      })
+    }
+  }
+
+  // Ação 5: Confirmação de Revisão em Lote para Selecionados
+  const handleConfirmBatchReview = async () => {
+    const candidateIds = selectedProducts
+      .filter((p) => {
+        // Elegíveis: produtos com status OK/validado e link confirmado
+        const hasUrl = Boolean(p.website_url && p.website_url.trim().startsWith('http'))
+        const isOkOrClean =
+          p.checkResult?.status === 'ok' || (!p.checkResult && hasUrl && !p.is_discontinued)
+        return hasUrl && isOkOrClean
+      })
+      .map((p) => p.id)
+
+    if (candidateIds.length === 0) {
+      toast({
+        title: 'Nenhum produto elegível',
+        description:
+          'Selecione produtos que possuam link validado da B&H e status alinhado/OK para confirmar a revisão.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    setIsBulkReviewing(true)
+    try {
+      const reviewedAtIso = await bhBatchUpdateService.confirmBatchReview(candidateIds)
+
+      setProducts((prev) =>
+        prev.map((p) =>
+          candidateIds.includes(p.id)
+            ? {
+                ...p,
+                last_reviewed_at: reviewedAtIso,
+              }
+            : p,
+        ),
+      )
+
+      toast({
+        title: `Revisão de ${candidateIds.length} produtos confirmada!`,
+        description:
+          'Data de revisão (last_reviewed_at) atualizada sem alterar updated_at. Produtos desceram no topo da fila.',
+      })
+    } catch (err: any) {
+      toast({
+        title: 'Erro na revisão em lote',
+        description: err.message || 'Falha ao confirmar revisão dos produtos selecionados.',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsBulkReviewing(false)
+    }
+  }
+
   const isAllFilteredSelected =
     filteredProducts.length > 0 && filteredProducts.every((p) => selectedIds.has(p.id))
 
@@ -730,7 +971,7 @@ export function AdminBhUpdatePage() {
                     variant="outline"
                     size="sm"
                     onClick={() => selectTopUnprocessed(10)}
-                    disabled={isProcessingBatch}
+                    disabled={isProcessingBatch || isBulkReviewing}
                     className="h-9 text-xs"
                   >
                     +10 Mais Antigos
@@ -739,7 +980,7 @@ export function AdminBhUpdatePage() {
                     variant="outline"
                     size="sm"
                     onClick={() => selectTopUnprocessed(30)}
-                    disabled={isProcessingBatch}
+                    disabled={isProcessingBatch || isBulkReviewing}
                     className="h-9 text-xs"
                   >
                     +30 Mais Antigos
@@ -748,17 +989,36 @@ export function AdminBhUpdatePage() {
                     variant="outline"
                     size="sm"
                     onClick={toggleSelectAllFiltered}
-                    disabled={isProcessingBatch || filteredProducts.length === 0}
+                    disabled={isProcessingBatch || isBulkReviewing || filteredProducts.length === 0}
                     className="h-9 text-xs"
                   >
                     {isAllFilteredSelected ? 'Desmarcar Visíveis' : 'Selecionar Todos Filtrados'}
                   </Button>
+
+                  {/* Ação em Lote: Confirmar Revisão dos Selecionados */}
+                  {selectedIds.size > 0 && (
+                    <Button
+                      size="sm"
+                      onClick={handleConfirmBatchReview}
+                      disabled={isProcessingBatch || isBulkReviewing}
+                      className="h-9 text-xs bg-emerald-600/90 hover:bg-emerald-600 text-white font-medium border border-emerald-500/30"
+                      title="Atualiza SOMENTE last_reviewed_at dos produtos selecionados com link confirmado"
+                    >
+                      {isBulkReviewing ? (
+                        <RefreshCw className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                      ) : (
+                        <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
+                      )}
+                      Confirmar Revisão ({selectedIds.size})
+                    </Button>
+                  )}
+
                   {selectedIds.size > 0 && (
                     <Button
                       variant="ghost"
                       size="sm"
                       onClick={clearSelection}
-                      disabled={isProcessingBatch}
+                      disabled={isProcessingBatch || isBulkReviewing}
                       className="h-9 text-xs text-muted-foreground"
                     >
                       Limpar ({selectedIds.size})
@@ -768,7 +1028,7 @@ export function AdminBhUpdatePage() {
                     variant="ghost"
                     size="sm"
                     onClick={resetAllStatuses}
-                    disabled={isProcessingBatch}
+                    disabled={isProcessingBatch || isBulkReviewing}
                     className="h-9 text-xs text-muted-foreground ml-auto"
                     title="Limpa status das auditorias realizadas na tela"
                   >
@@ -939,13 +1199,14 @@ export function AdminBhUpdatePage() {
                         aria-label="Selecionar todos os filtrados"
                       />
                     </TableHead>
-                    <TableHead className="min-w-[240px]">Produto & Fabricante</TableHead>
-                    <TableHead className="w-32">SKU</TableHead>
+                    <TableHead className="min-w-[220px]">Produto & Fabricante</TableHead>
+                    <TableHead className="w-28">SKU</TableHead>
                     <TableHead className="w-28 text-right">Preço DB (FOB)</TableHead>
                     <TableHead className="w-32 text-right">Preço B&H</TableHead>
                     <TableHead className="w-32">Status da Auditoria</TableHead>
+                    <TableHead className="w-32">Revisão Manual</TableHead>
                     <TableHead className="min-w-[280px]">Link B&H (Confirmado / Edição)</TableHead>
-                    <TableHead className="w-36 text-right">Ação Corretiva</TableHead>
+                    <TableHead className="w-44 text-right">Ação Corretiva</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -1071,46 +1332,90 @@ export function AdminBhUpdatePage() {
                             )}
 
                             {rebateActive && (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Badge
-                                    variant="outline"
-                                    className="text-[10px] bg-purple-500/15 text-purple-300 border-purple-500/30 py-0 flex items-center gap-1 cursor-help"
-                                  >
-                                    <Tag className="w-2.5 h-2.5" /> Rebate B&H
-                                  </Badge>
-                                </TooltipTrigger>
-                                <TooltipContent className="text-xs max-w-xs space-y-1 p-2.5">
-                                  <p className="font-semibold text-purple-300">
-                                    Instant Savings / Rebate Ativo na B&H
-                                  </p>
-                                  <p>
-                                    Preço cheio:{' '}
-                                    <strong>
-                                      US$ {p.checkResult?.price_full?.toFixed(2) || '—'}
-                                    </strong>
-                                  </p>
-                                  <p>
-                                    Preço com rebate:{' '}
-                                    <strong className="text-emerald-400">
-                                      US$ {p.checkResult?.price_with_rebate?.toFixed(2) || '—'}
-                                    </strong>
-                                  </p>
-                                  {p.checkResult?.rebate_end_date && (
-                                    <p className="text-muted-foreground text-[11px]">
-                                      Vigência identificada: {p.checkResult.rebate_end_date}
+                              <div className="flex flex-col gap-0.5">
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Badge
+                                      variant="outline"
+                                      className="text-[10px] bg-purple-500/15 text-purple-300 border-purple-500/30 py-0 flex items-center gap-1 cursor-help"
+                                    >
+                                      <Tag className="w-2.5 h-2.5" /> Rebate B&H
+                                      {p.checkResult?.rebate_end_date && (
+                                        <span className="text-[9px] font-mono opacity-80 truncate max-w-[120px]">
+                                          • {p.checkResult.rebate_end_date}
+                                        </span>
+                                      )}
+                                    </Badge>
+                                  </TooltipTrigger>
+                                  <TooltipContent className="text-xs max-w-xs space-y-1 p-2.5">
+                                    <p className="font-semibold text-purple-300">
+                                      Instant Savings / Rebate Ativo na B&H
                                     </p>
-                                  )}
-                                  <p className="text-[10px] text-muted-foreground italic pt-1 border-t border-border/40">
-                                    Conforme aprovado, rebates não são aplicados automaticamente.
-                                  </p>
-                                </TooltipContent>
-                              </Tooltip>
+                                    <p>
+                                      Preço cheio:{' '}
+                                      <strong>
+                                        US$ {p.checkResult?.price_full?.toFixed(2) || '—'}
+                                      </strong>
+                                    </p>
+                                    <p>
+                                      Preço com rebate:{' '}
+                                      <strong className="text-emerald-400">
+                                        US$ {p.checkResult?.price_with_rebate?.toFixed(2) || '—'}
+                                      </strong>
+                                    </p>
+                                    {p.checkResult?.rebate_end_date && (
+                                      <p className="text-purple-200 text-[11px] font-medium">
+                                        Vigente até: {p.checkResult.rebate_end_date}
+                                      </p>
+                                    )}
+                                    <p className="text-[10px] text-muted-foreground italic pt-1 border-t border-border/40">
+                                      Conforme aprovado, rebates não são aplicados diretamente em
+                                      price_usd.
+                                    </p>
+                                  </TooltipContent>
+                                </Tooltip>
+                                {p.checkResult?.rebate_end_date && (
+                                  <span
+                                    className="text-[10px] text-purple-300/80 font-mono truncate max-w-[160px]"
+                                    title={`Vigência do rebate: ${p.checkResult.rebate_end_date}`}
+                                  >
+                                    Até: {p.checkResult.rebate_end_date}
+                                  </span>
+                                )}
+                              </div>
                             )}
                           </div>
                         </TableCell>
 
-                        {/* Link B&H (Confirmado ou Campo Editável) */}
+                        {/* Revisão Manual (last_reviewed_at) */}
+                        <TableCell>
+                          <div className="flex flex-col text-xs">
+                            <span
+                              className="font-mono text-[11px] text-foreground/80 font-medium"
+                              title={
+                                p.last_reviewed_at
+                                  ? `Revisado em: ${new Date(p.last_reviewed_at).toLocaleString('pt-BR')}`
+                                  : 'Nunca revisado'
+                              }
+                            >
+                              {p.last_reviewed_at ? (
+                                new Date(p.last_reviewed_at).toLocaleDateString('pt-BR')
+                              ) : (
+                                <span className="text-muted-foreground italic">Nunca</span>
+                              )}
+                            </span>
+                            {p.last_reviewed_at && (
+                              <span className="text-[10px] text-muted-foreground font-mono">
+                                {new Date(p.last_reviewed_at).toLocaleTimeString('pt-BR', {
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })}
+                              </span>
+                            )}
+                          </div>
+                        </TableCell>
+
+                        {/* Link B&H (Confirmado ou Campo Editável para Entrada Manual / Duvidoso) */}
                         <TableCell>
                           {p.website_url ? (
                             <div className="flex items-center gap-2 max-w-[280px]">
@@ -1143,20 +1448,20 @@ export function AdminBhUpdatePage() {
                               <Button
                                 size="sm"
                                 variant="outline"
-                                onClick={() => handleConfirmManualUrl(p)}
+                                onClick={() => handleAnalyzeManualUrl(p)}
                                 disabled={
-                                  p.isSavingUrl ||
+                                  p.isAnalyzingUrl ||
                                   !(p.manualUrlDraft || '').trim().startsWith('http')
                                 }
-                                className="h-7 px-2 text-[11px] shrink-0 bg-primary/10 hover:bg-primary/20 text-primary border-primary/30"
-                                title="Grava URL e revalida MFR # contra SKU"
+                                className="h-7 px-2 text-[11px] shrink-0 bg-blue-600/10 hover:bg-blue-600/20 text-blue-400 border-blue-500/30 font-medium"
+                                title="Chama edge function para raspar a URL informada, conferir MFR # contra SKU e obter preço"
                               >
-                                {p.isSavingUrl ? (
-                                  <RefreshCw className="w-3 h-3 animate-spin" />
+                                {p.isAnalyzingUrl ? (
+                                  <RefreshCw className="w-3 h-3 animate-spin mr-1" />
                                 ) : (
-                                  <Check className="w-3 h-3 mr-1" />
+                                  <Search className="w-3 h-3 mr-1" />
                                 )}
-                                Confirmar
+                                Analisar
                               </Button>
                             </div>
                           )}
@@ -1164,43 +1469,93 @@ export function AdminBhUpdatePage() {
 
                         {/* Ações Corretivas por Linha */}
                         <TableCell className="text-right whitespace-nowrap">
-                          {isDivergent && priceBh != null && (
-                            <Button
-                              size="sm"
-                              onClick={() => handleApplyPrice(p)}
-                              disabled={p.isApplyingPrice}
-                              className="h-7 text-xs px-2.5 bg-[#FF9F1A] hover:bg-[#FF9F1A]/90 text-[#111111] font-semibold shadow-sm"
-                              title="Atualiza products.price_usd com 1 clique (trigger recalcula price_brl)"
-                            >
-                              {p.isApplyingPrice ? (
-                                <RefreshCw className="w-3 h-3 mr-1 animate-spin" />
-                              ) : (
-                                <ArrowRight className="w-3 h-3 mr-1" />
+                          <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                            {/* Botão Rebate Fabricante */}
+                            {rebateActive && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleOpenRebateModal(p)}
+                                className={cn(
+                                  'h-7 text-[11px] px-2 font-medium border-purple-500/30 shadow-sm',
+                                  activeRebatesMap[p.id]
+                                    ? 'bg-purple-500/20 text-purple-200 hover:bg-purple-500/30'
+                                    : 'bg-purple-600/10 hover:bg-purple-600/20 text-purple-300',
+                                )}
+                                title={
+                                  activeRebatesMap[p.id]
+                                    ? 'Editar vigência ou percentual da regra existente Rebate Fabricante'
+                                    : 'Ativar regra de desconto Rebate Fabricante na tabela discounts'
+                                }
+                              >
+                                <Tag className="w-3 h-3 mr-1" />
+                                {activeRebatesMap[p.id] ? 'Editar Rebate' : 'Ativar Rebate'}
+                              </Button>
+                            )}
+
+                            {/* Botão Aplicar B&H (Divergente) */}
+                            {isDivergent && priceBh != null && (
+                              <Button
+                                size="sm"
+                                onClick={() => handleApplyPrice(p)}
+                                disabled={p.isApplyingPrice}
+                                className="h-7 text-xs px-2.5 bg-[#FF9F1A] hover:bg-[#FF9F1A]/90 text-[#111111] font-semibold shadow-sm"
+                                title="Atualiza products.price_usd com 1 clique (trigger recalcula price_brl)"
+                              >
+                                {p.isApplyingPrice ? (
+                                  <RefreshCw className="w-3 h-3 mr-1 animate-spin" />
+                                ) : (
+                                  <ArrowRight className="w-3 h-3 mr-1" />
+                                )}
+                                Aplicar B&H
+                              </Button>
+                            )}
+
+                            {/* Botão Confirmar Revisão Manual Individual */}
+                            {p.website_url &&
+                              !isDiscontinued &&
+                              (p.checkResult?.status === 'ok' || !p.checkResult) && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleConfirmSingleReview(p)}
+                                  disabled={p.isReviewing}
+                                  className="h-7 text-[11px] px-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border-emerald-500/30 font-medium"
+                                  title="Atualiza SOMENTE last_reviewed_at = agora, sem tocar updated_at"
+                                >
+                                  {p.isReviewing ? (
+                                    <RefreshCw className="w-3 h-3 mr-1 animate-spin" />
+                                  ) : (
+                                    <Check className="w-3 h-3 mr-1" />
+                                  )}
+                                  Confirmar Revisão
+                                </Button>
                               )}
-                              Aplicar B&H
-                            </Button>
-                          )}
 
-                          {isDiscontinued && (
-                            <Badge
-                              variant="destructive"
-                              className="text-[10px] uppercase font-mono py-0.5"
-                            >
-                              Descontinuado
-                            </Badge>
-                          )}
+                            {isDiscontinued && (
+                              <Badge
+                                variant="destructive"
+                                className="text-[10px] uppercase font-mono py-0.5"
+                              >
+                                Descontinuado
+                              </Badge>
+                            )}
 
-                          {!isDivergent && !isDiscontinued && p.checkResult?.status === 'ok' && (
-                            <span className="text-emerald-400 font-mono text-xs flex items-center justify-end gap-1">
-                              <CheckCircle2 className="w-3.5 h-3.5" /> Alinhado
-                            </span>
-                          )}
+                            {!isDivergent &&
+                              !isDiscontinued &&
+                              p.checkResult?.status === 'ok' &&
+                              !p.website_url && (
+                                <span className="text-emerald-400 font-mono text-xs flex items-center justify-end gap-1">
+                                  <CheckCircle2 className="w-3.5 h-3.5" /> Alinhado
+                                </span>
+                              )}
 
-                          {isDoubtful && !p.website_url && (
-                            <span className="text-yellow-400 text-[11px] italic">
-                              Cole URL ao lado
-                            </span>
-                          )}
+                            {isDoubtful && !p.website_url && (
+                              <span className="text-yellow-400 text-[11px] italic">
+                                Cole URL ao lado
+                              </span>
+                            )}
+                          </div>
                         </TableCell>
                       </TableRow>
                     )
@@ -1208,7 +1563,7 @@ export function AdminBhUpdatePage() {
 
                   {filteredProducts.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={8} className="h-32 text-center text-muted-foreground">
+                      <TableCell colSpan={9} className="h-32 text-center text-muted-foreground">
                         {loading
                           ? 'Carregando catálogo...'
                           : 'Nenhum equipamento encontrado com estes filtros.'}
@@ -1219,6 +1574,21 @@ export function AdminBhUpdatePage() {
               </Table>
             </div>
           </div>
+
+          {/* Modal de Configuração de Desconto: Rebate Fabricante */}
+          <RebateDiscountModal
+            isOpen={rebateModalOpen}
+            onClose={() => {
+              setRebateModalOpen(false)
+              setRebateModalProduct(null)
+              setRebateExistingRule(null)
+            }}
+            product={rebateModalProduct}
+            existingRule={rebateExistingRule}
+            onSuccess={() => {
+              loadExistingRebates()
+            }}
+          />
         </div>
       </AdminLayout>
     </TooltipProvider>

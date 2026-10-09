@@ -21,6 +21,8 @@ export interface ProductBatchItem {
   manualUrlDraft?: string
   isApplyingPrice?: boolean
   isSavingUrl?: boolean
+  isReviewing?: boolean
+  isAnalyzingUrl?: boolean
 }
 
 export interface BatchProcessingStats {
@@ -71,6 +73,45 @@ export const bhBatchUpdateService = {
   },
 
   /**
+   * Confirmação manual de revisão em lote: atualiza SOMENTE last_reviewed_at = agora
+   * (conforme regra vinculante de auditoria de datas, NUNCA alterando updated_at)
+   */
+  async confirmBatchReview(productIds: string[]): Promise<string> {
+    if (!productIds || productIds.length === 0) {
+      throw new Error('Nenhum produto selecionado para confirmação de revisão.')
+    }
+
+    const nowIso = new Date().toISOString()
+    const { error } = await supabase
+      .from('products')
+      .update({ last_reviewed_at: nowIso } as any)
+      .in('id', productIds)
+
+    if (error) {
+      throw new Error(`Falha ao confirmar revisão em lote: ${error.message}`)
+    }
+
+    return nowIso
+  },
+
+  /**
+   * Confirmação manual de revisão individual: atualiza SOMENTE last_reviewed_at = agora
+   */
+  async confirmSingleReview(productId: string): Promise<string> {
+    const nowIso = new Date().toISOString()
+    const { error } = await supabase
+      .from('products')
+      .update({ last_reviewed_at: nowIso } as any)
+      .eq('id', productId)
+
+    if (error) {
+      throw new Error(`Falha ao confirmar revisão: ${error.message}`)
+    }
+
+    return nowIso
+  },
+
+  /**
    * Constrói e filtra os produtos do catálogo para a tabela de atualização B&H
    */
   async fetchProductsForBatch(limit = 1500): Promise<ProductBatchItem[]> {
@@ -113,6 +154,14 @@ export const bhBatchUpdateService = {
    */
   async processSingleItem(productId: string): Promise<PriceCheckResult> {
     return await priceCheckService.checkBhPrice(productId, 'batch')
+  },
+
+  /**
+   * Analisa e valida uma URL manual da B&H para qualquer produto (sem link ou com link duvidoso),
+   * checando MFR # contra SKU e obtendo dados completos de preço e rebate.
+   */
+  async analyzeManualUrl(productId: string, manualUrl: string): Promise<PriceCheckResult> {
+    return await priceCheckService.checkBhPrice(productId, 'manual', manualUrl)
   },
 
   /**

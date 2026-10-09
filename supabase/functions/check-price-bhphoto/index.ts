@@ -11,6 +11,7 @@ export const corsHeaders = {
 interface PriceCheckRequest {
   product_id?: string
   source?: 'manual' | 'batch'
+  manual_url?: string
 }
 
 interface ScrapedData {
@@ -101,7 +102,7 @@ async function scrapeBhUrl(
               rebate_end_date: {
                 type: 'string',
                 description:
-                  'Promotion or instant savings expiration/validity date if explicitly stated (e.g. Ends Apr 15).',
+                  'Promotion or instant savings expiration/validity raw text or date if explicitly stated (e.g. "Offer ends Oct 11 at 11:59 PM ET", "Ends Apr 15", "Valid thru 10/11/2025").',
               },
               is_discontinued: {
                 type: 'boolean',
@@ -129,7 +130,7 @@ async function scrapeBhUrl(
             required: ['price'],
           },
           prompt:
-            'Extract the current USD final selling price, the regular/strikethrough price if any, whether instant savings/rebate is active, rebate savings amount and expiration date if present, whether the product is discontinued by manufacturer, the availability status text, and the Manufacturer Part Number / MFR # code (plus internal SKU).',
+            'Extract the current USD final selling price, the regular/strikethrough price if any, whether instant savings/rebate is active, rebate savings amount and the exact expiration date / deadline text (e.g. "Offer ends Oct 11 at 11:59 PM ET") if present, whether the product is discontinued by manufacturer, the availability status text, and the Manufacturer Part Number / MFR # code (plus internal SKU).',
         },
       ],
       onlyMainContent: true,
@@ -272,7 +273,7 @@ Deno.serve(async (req: Request) => {
     })
   }
 
-  const { product_id, source = 'manual' } = body
+  const { product_id, source = 'manual', manual_url } = body
 
   if (!product_id || typeof product_id !== 'string') {
     return new Response(JSON.stringify({ error: 'product_id é obrigatório.' }), {
@@ -306,7 +307,10 @@ Deno.serve(async (req: Request) => {
   const targetSku = (product.sku || '').trim()
   const normalizedTargetSku = normalizeSku(targetSku)
 
-  let finalUrl: string | null = product.website_url ? String(product.website_url).trim() : null
+  // URL a usar: manual_url explicitamente enviada (validação de link manual) OU website_url cadastrado
+  const cleanManualUrl = manual_url && typeof manual_url === 'string' ? manual_url.trim() : null
+  let finalUrl: string | null =
+    cleanManualUrl || (product.website_url ? String(product.website_url).trim() : null)
   let urlDiscovered = false
   let scrapedResult: ScrapedData | null = null
 
@@ -346,8 +350,94 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    // CAMINHO A: Produto TEM website_url
-    if (finalUrl && finalUrl.startsWith('http')) {
+    // Se foi fornecida manual_url para validação (análise manual de link para produto sem link ou duvidoso)
+    if (cleanManualUrl && cleanManualUrl.startsWith('http')) {
+      console.log(`[check-price-bhphoto] Analisando URL informada manualmente: ${cleanManualUrl}`)
+      const scrapeRes = await scrapeBhUrl(cleanManualUrl, firecrawlToken)
+      if (!scrapeRes.success || !scrapeRes.data) {
+        const errorMsg = scrapeRes.error || 'Falha ao raspar a URL informada da B&H.'
+        await recordCheck({
+          status: 'erro',
+          price_db: product.price_usd != null ? Number(product.price_usd) : null,
+          price_bh: null,
+          diff_usd: null,
+          diff_pct: null,
+          url_used: cleanManualUrl,
+          url_discovered: false,
+          message: errorMsg,
+        })
+        return new Response(
+          JSON.stringify({
+            status: 'erro',
+            message: errorMsg,
+            url_used: cleanManualUrl,
+            url_discovered: false,
+            sku_matched: false,
+          }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        )
+      }
+
+      const candData = scrapeRes.data
+      const candMfrSku = normalizeSku(candData.mfr_number)
+      const candBhSku = normalizeSku(candData.sku)
+
+      const matchesSku =
+        !normalizedTargetSku ||
+        (candMfrSku && candMfrSku === normalizedTargetSku) ||
+        (candBhSku && candBhSku === normalizedTargetSku) ||
+        (candMfrSku && candMfrSku.includes(normalizedTargetSku)) ||
+        (normalizedTargetSku && candMfrSku && normalizedTargetSku.includes(candMfrSku))
+
+      if (!matchesSku) {
+        const mismatchMsg = `MFR # da B&H ("${candData.mfr_number || candData.sku || 'não identificado'}") não confere com o SKU cadastrado ("${targetSku}"). Link considerado duvidoso.`
+        await recordCheck({
+          status: 'sem_url_confirmada',
+          price_db: product.price_usd != null ? Number(product.price_usd) : null,
+          price_bh: null,
+          diff_usd: null,
+          diff_pct: null,
+          url_used: cleanManualUrl,
+          url_discovered: false,
+          message: mismatchMsg,
+          raw: candData,
+        })
+        return new Response(
+          JSON.stringify({
+            status: 'sem_url_confirmada',
+            message: mismatchMsg,
+            url_used: cleanManualUrl,
+            url_discovered: false,
+            sku_matched: false,
+            mfr_number_found: candData.mfr_number || candData.sku || null,
+          }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        )
+      }
+
+      // MFR # validado com sucesso! Gravar website_url no banco de dados (conforme item 4)
+      console.log(
+        `[check-price-bhphoto] MFR # conferido com sucesso para ${cleanManualUrl}. Gravando website_url no produto ${product.id}`,
+      )
+      const nowIso = new Date().toISOString()
+      const { error: updateUrlErr } = await supabase
+        .from('products')
+        .update({
+          website_url: cleanManualUrl,
+          updated_at: nowIso,
+          last_reviewed_at: nowIso,
+        })
+        .eq('id', product.id)
+
+      if (updateUrlErr) {
+        console.warn('[check-price-bhphoto] Falha ao gravar website_url validada:', updateUrlErr)
+      }
+
+      finalUrl = cleanManualUrl
+      urlDiscovered = true
+      scrapedResult = candData
+    } else if (finalUrl && finalUrl.startsWith('http')) {
+      // CAMINHO A: Produto TEM website_url
       console.log(`[check-price-bhphoto] Caminho A: raspando URL cadastrada: ${finalUrl}`)
       const scrapeRes = await scrapeBhUrl(finalUrl, firecrawlToken)
       if (!scrapeRes.success || !scrapeRes.data) {
@@ -513,6 +603,27 @@ Deno.serve(async (req: Request) => {
     const rebateEndDate = scrapedResult.rebate_end_date
       ? String(scrapedResult.rebate_end_date).trim()
       : null
+    let rebateEndDateIso: string | null = null
+
+    // Tentar normalizar data ISO se identificável
+    if (rebateEndDate) {
+      // Padrões comuns B&H: "Offer ends Oct 11 at 11:59 PM ET", "Ends Apr 15", "10/11/2025"
+      try {
+        // Remover "Offer ends", "Ends", "at ... ET" para tentativa de parse
+        const cleanedDateStr = rebateEndDate
+          .replace(/^(offer\s+ends|ends|valid\s+thru|expires)\s*:?/i, '')
+          .replace(/at\s+\d{1,2}(:\d{2})?\s*(am|pm)?\s*(et|est|edt)?/i, '')
+          .trim()
+        const parsedTimestamp = Date.parse(cleanedDateStr)
+        if (!isNaN(parsedTimestamp)) {
+          const d = new Date(parsedTimestamp)
+          // Se ano veio padrão (ano corrente ou próximo), converte para ISO
+          rebateEndDateIso = d.toISOString()
+        }
+      } catch {
+        rebateEndDateIso = null
+      }
+    }
 
     // Preço cheio original (se houver rebate) e preço final
     const priceFull =
@@ -679,6 +790,8 @@ Deno.serve(async (req: Request) => {
         price_with_rebate: priceWithRebate,
         rebate_savings: rebateSavings,
         rebate_end_date: rebateEndDate,
+        rebate_end_date_iso: rebateEndDateIso,
+        sku_matched: true,
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
     )

@@ -180,7 +180,8 @@ describe('B&H Batch Update Service & Business Rules', () => {
         price_full: 1500,
         price_with_rebate: 1299,
         rebate_savings: 201,
-        rebate_end_date: 'Ends Apr 30',
+        rebate_end_date: 'Offer ends Oct 11 at 11:59 PM ET',
+        rebate_end_date_iso: '2025-10-11T23:59:00.000Z',
       },
       error: null,
     })
@@ -202,7 +203,8 @@ describe('B&H Batch Update Service & Business Rules', () => {
       expect(result.price_full).toBe(1500)
       expect(result.price_with_rebate).toBe(1299)
       expect(result.rebate_savings).toBe(201)
-      expect(result.rebate_end_date).toBe('Ends Apr 30')
+      expect(result.rebate_end_date).toBe('Offer ends Oct 11 at 11:59 PM ET')
+      expect(result.rebate_end_date_iso).toBe('2025-10-11T23:59:00.000Z')
     } finally {
       supabase.functions.invoke = originalInvoke
     }
@@ -269,6 +271,174 @@ describe('B&H Batch Update Service & Business Rules', () => {
       expect(updatedPayload.updated_at).toBeDefined()
       expect(updatedPayload.last_reviewed_at).toBeDefined()
       expect(updatedPayload.updated_at).toBe(updatedPayload.last_reviewed_at)
+    } finally {
+      supabase.from = originalFrom
+    }
+  })
+
+  it('manual review confirmation updates ONLY last_reviewed_at, never updated_at (single and batch)', async () => {
+    let singlePayload: any = null
+    let batchPayload: any = null
+
+    const mockUpdate = vi.fn((payload) => {
+      return {
+        eq: vi.fn((col, val) => {
+          singlePayload = payload
+          return Promise.resolve({ error: null })
+        }),
+        in: vi.fn((col, vals) => {
+          batchPayload = payload
+          return Promise.resolve({ error: null })
+        }),
+      }
+    })
+
+    const { supabase } = await import('@/lib/supabase/client')
+    const originalFrom = supabase.from
+    supabase.from = vi.fn((table: any) => {
+      if (table === 'products') {
+        return {
+          update: mockUpdate,
+        } as any
+      }
+      return originalFrom(table)
+    }) as any
+
+    try {
+      // 1. Single review confirmation
+      const singleRes = await bhBatchUpdateService.confirmSingleReview('prod-123')
+      expect(singleRes).toBeDefined()
+      expect(singlePayload).toBeDefined()
+      expect(singlePayload.last_reviewed_at).toBeDefined()
+      expect(singlePayload.updated_at).toBeUndefined()
+
+      // 2. Batch review confirmation
+      const batchRes = await bhBatchUpdateService.confirmBatchReview(['prod-1', 'prod-2', 'prod-3'])
+      expect(batchRes).toBeDefined()
+      expect(batchPayload).toBeDefined()
+      expect(batchPayload.last_reviewed_at).toBeDefined()
+      expect(batchPayload.updated_at).toBeUndefined()
+    } finally {
+      supabase.from = originalFrom
+    }
+  })
+
+  it('analyzing manual url sends manual_url to check-price-bhphoto and handles response', async () => {
+    const mockInvoke = vi.fn().mockResolvedValue({
+      data: {
+        status: 'ok',
+        price_usd_cadastrado: 299,
+        price_bh: 299,
+        diff_usd: 0,
+        diff_pct: 0,
+        url_used: 'https://www.bhphotovideo.com/c/product/456-mic.html',
+        url_discovered: true,
+        sku_matched: true,
+        rebate_active: false,
+      },
+      error: null,
+    })
+
+    const { supabase } = await import('@/lib/supabase/client')
+    const originalInvoke = supabase.functions.invoke
+    supabase.functions.invoke = mockInvoke as any
+
+    try {
+      const result = await bhBatchUpdateService.analyzeManualUrl(
+        'prod-mic',
+        'https://www.bhphotovideo.com/c/product/456-mic.html',
+      )
+
+      expect(mockInvoke).toHaveBeenCalledWith('check-price-bhphoto', {
+        body: {
+          product_id: 'prod-mic',
+          source: 'manual',
+          manual_url: 'https://www.bhphotovideo.com/c/product/456-mic.html',
+        },
+      })
+      expect(result.status).toBe('ok')
+      expect(result.sku_matched).toBe(true)
+      expect(result.url_used).toBe('https://www.bhphotovideo.com/c/product/456-mic.html')
+    } finally {
+      supabase.functions.invoke = originalInvoke
+    }
+  })
+
+  it('rebateDiscountService creates and updates discounts with fixed name "Rebate Fabricante" and never modifies price_usd', async () => {
+    const { rebateDiscountService } = await import('@/services/rebateDiscountService')
+
+    let insertedRecord: any = null
+    let updatedRecord: any = null
+
+    const mockInsert = vi.fn((record) => {
+      insertedRecord = record
+      return {
+        select: vi.fn(() => ({
+          single: vi.fn().mockResolvedValue({ data: { id: 'disc-1', ...record }, error: null }),
+        })),
+      }
+    })
+
+    const mockUpdate = vi.fn((record) => {
+      updatedRecord = record
+      return {
+        eq: vi.fn(() => ({
+          select: vi.fn(() => ({
+            single: vi.fn().mockResolvedValue({ data: { id: 'disc-existing', ...record }, error: null }),
+          })),
+        })),
+      }
+    })
+
+    const { supabase } = await import('@/lib/supabase/client')
+    const originalFrom = supabase.from
+    supabase.from = vi.fn((table: any) => {
+      if (table === 'discounts') {
+        return {
+          insert: mockInsert,
+          update: mockUpdate,
+        } as any
+      }
+      return originalFrom(table)
+    }) as any
+
+    try {
+      // 1. Criar novo Rebate Fabricante
+      const created = await rebateDiscountService.saveRebateDiscount({
+        productId: 'prod-canon-c70',
+        productName: 'Canon EOS C70 Cinema Camera',
+        discountType: 'percentage',
+        discountValue: 12.5,
+        startDate: '2026-10-01T00:00:00.000Z',
+        endDate: '2026-10-31T23:59:00.000Z',
+        isActive: true,
+      })
+
+      expect(created).toBeDefined()
+      expect(insertedRecord.name).toBe('Rebate Fabricante')
+      expect(insertedRecord.target_type).toBe('specific')
+      expect(insertedRecord.product_selection).toEqual(['prod-canon-c70'])
+      expect(insertedRecord.discount_type).toBe('percentage')
+      expect(insertedRecord.discount_value).toBe(12.5)
+      expect(insertedRecord.end_date).toBe('2026-10-31T23:59:00.000Z')
+
+      // 2. Atualizar regra existente sem duplicar
+      const updated = await rebateDiscountService.saveRebateDiscount({
+        productId: 'prod-canon-c70',
+        productName: 'Canon EOS C70 Cinema Camera',
+        discountType: 'fixed',
+        discountValue: 600,
+        startDate: '2026-10-01T00:00:00.000Z',
+        endDate: '2026-11-15T23:59:00.000Z',
+        isActive: true,
+        existingDiscountId: 'disc-existing',
+      })
+
+      expect(updated).toBeDefined()
+      expect(updatedRecord.name).toBe('Rebate Fabricante')
+      expect(updatedRecord.discount_type).toBe('fixed')
+      expect(updatedRecord.discount_value).toBe(600)
+      expect(updatedRecord.end_date).toBe('2026-11-15T23:59:00.000Z')
     } finally {
       supabase.from = originalFrom
     }

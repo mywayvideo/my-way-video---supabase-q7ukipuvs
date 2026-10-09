@@ -64,6 +64,7 @@ import { ImageWithFallback } from '@/components/ImageWithFallback'
 import { fetchProductImageMetrics } from '@/services/imageMetricsService'
 import { ProductImageMetricsBanner } from '@/components/admin/ProductImageMetricsBanner'
 import { isStorageImageUrl } from '@/lib/image-proxy'
+import { FirecrawlCreditsWidget } from '@/components/admin/FirecrawlCreditsWidget'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { formatOrderDate, formatOrderDateTime } from '@/utils/formatters'
 import {
@@ -903,6 +904,9 @@ export default function AdminCatalogPage() {
               </Button>
             </div>
           </div>
+
+          {/* Indicador de Créditos Firecrawl (raspagem de produtos e verificação de preços B&H) */}
+          <FirecrawlCreditsWidget variant="compact" />
 
           {/* Painel Informativo de Armazenamento de Imagens (Supabase Storage vs Proxy) */}
           <ProductImageMetricsBanner

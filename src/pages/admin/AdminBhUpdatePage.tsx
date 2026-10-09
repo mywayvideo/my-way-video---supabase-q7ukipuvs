@@ -58,6 +58,38 @@ import { cn } from '@/lib/utils'
 
 const STORAGE_KEY = 'bh_batch_update_session_v1'
 
+/**
+ * Retorna true se last_reviewed_at existe, é da data de HOJE (dia civil local),
+ * e não é anterior a updated_at (respeita a invariante do sistema: last_reviewed_at >= updated_at).
+ */
+export function isReviewedToday(
+  lastReviewedAt?: string | null,
+  updatedAt?: string | null,
+): boolean {
+  if (!lastReviewedAt) return false
+
+  const reviewDate = new Date(lastReviewedAt)
+  if (isNaN(reviewDate.getTime())) return false
+
+  const today = new Date()
+  const isSameDay =
+    reviewDate.getFullYear() === today.getFullYear() &&
+    reviewDate.getMonth() === today.getMonth() &&
+    reviewDate.getDate() === today.getDate()
+
+  if (!isSameDay) return false
+
+  // Se houver updated_at, last_reviewed_at não pode ser anterior a ele
+  if (updatedAt) {
+    const updateDate = new Date(updatedAt)
+    if (!isNaN(updateDate.getTime()) && reviewDate.getTime() < updateDate.getTime()) {
+      return false
+    }
+  }
+
+  return true
+}
+
 export function AdminBhUpdatePage() {
   const [products, setProducts] = useState<ProductBatchItem[]>([])
   const [loading, setLoading] = useState<boolean>(true)
@@ -780,7 +812,7 @@ export function AdminBhUpdatePage() {
   return (
     <TooltipProvider delayDuration={200}>
       <AdminLayout breadcrumb="Atualização B&H em Lotes">
-        <div className="flex flex-col gap-6 max-w-7xl mx-auto pb-16 animate-fade-in">
+        <div className="flex flex-col gap-6 max-w-7xl mx-auto pb-16 animate-fade-in w-full min-w-0">
           {/* Cabeçalho */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
@@ -996,22 +1028,54 @@ export function AdminBhUpdatePage() {
                   </Button>
 
                   {/* Ação em Lote: Confirmar Revisão dos Selecionados */}
-                  {selectedIds.size > 0 && (
-                    <Button
-                      size="sm"
-                      onClick={handleConfirmBatchReview}
-                      disabled={isProcessingBatch || isBulkReviewing}
-                      className="h-9 text-xs bg-emerald-600/90 hover:bg-emerald-600 text-white font-medium border border-emerald-500/30"
-                      title="Atualiza SOMENTE last_reviewed_at dos produtos selecionados com link confirmado"
-                    >
-                      {isBulkReviewing ? (
-                        <RefreshCw className="w-3.5 h-3.5 mr-1.5 animate-spin" />
-                      ) : (
-                        <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
-                      )}
-                      Confirmar Revisão ({selectedIds.size})
-                    </Button>
-                  )}
+                  {selectedIds.size > 0 &&
+                    (() => {
+                      const allSelectedReviewedToday =
+                        selectedProducts.length > 0 &&
+                        selectedProducts.every((sp) =>
+                          isReviewedToday(sp.last_reviewed_at, sp.updated_at),
+                        )
+
+                      if (allSelectedReviewedToday) {
+                        return (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span tabIndex={0} className="inline-block cursor-not-allowed">
+                                <Button
+                                  size="sm"
+                                  disabled
+                                  className="h-9 text-xs bg-muted/40 text-muted-foreground opacity-70 cursor-not-allowed border border-border/40 font-medium"
+                                >
+                                  <CheckCircle2 className="w-3.5 h-3.5 mr-1.5 text-muted-foreground" />
+                                  Revisão Confirmada ({selectedIds.size})
+                                </Button>
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              Revisão manual já confirmada para a data de hoje para todos os
+                              selecionados
+                            </TooltipContent>
+                          </Tooltip>
+                        )
+                      }
+
+                      return (
+                        <Button
+                          size="sm"
+                          onClick={handleConfirmBatchReview}
+                          disabled={isProcessingBatch || isBulkReviewing}
+                          className="h-9 text-xs bg-emerald-600/90 hover:bg-emerald-600 text-white font-medium border border-emerald-500/30"
+                          title="Atualiza SOMENTE last_reviewed_at dos produtos selecionados com link confirmado"
+                        >
+                          {isBulkReviewing ? (
+                            <RefreshCw className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                          ) : (
+                            <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
+                          )}
+                          Confirmar Revisão ({selectedIds.size})
+                        </Button>
+                      )
+                    })()}
 
                   {selectedIds.size > 0 && (
                     <Button
@@ -1188,8 +1252,8 @@ export function AdminBhUpdatePage() {
 
           {/* Tabela de Produtos */}
           <div className="bg-card border border-border/50 rounded-xl overflow-hidden shadow-sm">
-            <div className="overflow-x-auto">
-              <Table>
+            <div className="w-full overflow-x-auto pb-2">
+              <Table className="min-w-[1150px]">
                 <TableHeader>
                   <TableRow className="hover:bg-transparent bg-muted/20">
                     <TableHead className="w-12 text-center">
@@ -1514,7 +1578,27 @@ export function AdminBhUpdatePage() {
                             {/* Botão Confirmar Revisão Manual Individual */}
                             {p.website_url &&
                               !isDiscontinued &&
-                              (p.checkResult?.status === 'ok' || !p.checkResult) && (
+                              (p.checkResult?.status === 'ok' || !p.checkResult) &&
+                              (isReviewedToday(p.last_reviewed_at, p.updated_at) ? (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <span tabIndex={0} className="inline-block cursor-not-allowed">
+                                      <Button
+                                        size="sm"
+                                        disabled
+                                        variant="outline"
+                                        className="h-7 text-[11px] px-2 bg-muted/40 text-muted-foreground opacity-70 cursor-not-allowed border-border/40 font-medium"
+                                      >
+                                        <CheckCircle2 className="w-3 h-3 mr-1 text-muted-foreground" />
+                                        Revisão Confirmada
+                                      </Button>
+                                    </span>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    Revisão manual já confirmada para a data de hoje
+                                  </TooltipContent>
+                                </Tooltip>
+                              ) : (
                                 <Button
                                   size="sm"
                                   variant="outline"
@@ -1530,7 +1614,7 @@ export function AdminBhUpdatePage() {
                                   )}
                                   Confirmar Revisão
                                 </Button>
-                              )}
+                              ))}
 
                             {isDiscontinued && (
                               <Badge

@@ -85,4 +85,32 @@ describe('Product audit dates invariant and business rules', () => {
       new Date(itemReviewed.updated_at).getTime()
     expect(isReviewed).toBe(true)
   })
+
+  it('rule 6: isReviewedToday utility validates current day and invariant last_reviewed_at >= updated_at', async () => {
+    const { isReviewedToday } = await import('@/pages/admin/AdminBhUpdatePage')
+
+    const now = new Date()
+    const todayIso = now.toISOString()
+    const earlierTodayIso = new Date(now.getTime() - 1000 * 60 * 30).toISOString()
+    const laterTodayIso = new Date(now.getTime() + 1000 * 60 * 30).toISOString()
+    const yesterdayIso = new Date(now.getTime() - 1000 * 60 * 60 * 25).toISOString()
+
+    // 1. null / undefined -> false
+    expect(isReviewedToday(null, todayIso)).toBe(false)
+    expect(isReviewedToday(undefined, todayIso)).toBe(false)
+    expect(isReviewedToday('', todayIso)).toBe(false)
+
+    // 2. Revisado ontem -> false
+    expect(isReviewedToday(yesterdayIso, yesterdayIso)).toBe(false)
+
+    // 3. Revisado hoje e atualizado hoje mais cedo -> true
+    expect(isReviewedToday(todayIso, earlierTodayIso)).toBe(true)
+
+    // 4. Invariante: revisado hoje, mas com data anterior a updated_at (ex: produto editado depois da revisão) -> false
+    expect(isReviewedToday(earlierTodayIso, laterTodayIso)).toBe(false)
+
+    // 5. Revisado hoje sem updated_at informado -> true
+    expect(isReviewedToday(todayIso, null)).toBe(true)
+    expect(isReviewedToday(todayIso, undefined)).toBe(true)
+  })
 })

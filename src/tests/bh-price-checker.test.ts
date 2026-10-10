@@ -91,4 +91,28 @@ describe('priceCheckService & B&H verification tolerance logic', () => {
 
     expect(formPriceUsa).toBe(999)
   })
+
+  it('calculates rebate percentage correctly from B&H rebate info', () => {
+    // Caso de uso citado pelo usuário: Sony AN-820A
+    // Preço cheio US$ 282.00, Preço com rebate US$ 159.00 -> desconto de US$ 123.00 (~43.62%)
+    const priceFull = 282
+    const priceWithRebate = 159
+    const savings = priceFull - priceWithRebate
+    const pct = Number(((savings / priceFull) * 100).toFixed(2))
+
+    expect(savings).toBe(123)
+    expect(pct).toBe(43.62)
+  })
+
+  it('extracts rebate info from price check message when raw data is structured', () => {
+    const message =
+      'Preço divergente da B&H. Diferença de US$ -123.00 (-43.62%). [Rebate/Instant Savings ativo na B&H: Preço com desconto US$ 159.00 / Preço cheio US$ 282.00 - Vigência: Limited supply at this price]'
+
+    const isRebateActive = /\[rebate\/instant savings/i.test(message)
+    const matchEndDate = message.match(/Vigência:\s*([^\]]+)/i)
+    const vigencia = matchEndDate ? matchEndDate[1].trim() : null
+
+    expect(isRebateActive).toBe(true)
+    expect(vigencia).toBe('Limited supply at this price')
+  })
 })

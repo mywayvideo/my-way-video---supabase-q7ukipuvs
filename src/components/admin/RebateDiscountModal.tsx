@@ -74,6 +74,11 @@ export function RebateDiscountModal({
       const pct = Number(((savings / priceFull) * 100).toFixed(2))
       setDiscountType('percentage')
       setDiscountValue(pct)
+    } else if (checkRes?.price_with_rebate && priceFull > checkRes.price_with_rebate) {
+      const diff = priceFull - checkRes.price_with_rebate
+      const pct = Number(((diff / priceFull) * 100).toFixed(2))
+      setDiscountType('percentage')
+      setDiscountValue(pct)
     } else {
       setDiscountType('percentage')
       setDiscountValue(0)

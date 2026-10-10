@@ -612,6 +612,7 @@ export default function NewProductPage() {
                     <div className="md:col-span-2">
                       <BhPriceChecker
                         productId={id}
+                        productName={form.watch('name')}
                         currentPriceUsd={form.watch('price_usa')}
                         websiteUrl={form.watch('website_url')}
                         sku={form.watch('sku')}

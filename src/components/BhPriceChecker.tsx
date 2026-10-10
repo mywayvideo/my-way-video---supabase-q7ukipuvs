@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import {
   RefreshCw,
   ExternalLink,
@@ -10,40 +10,63 @@ import {
   Sparkles,
   ArrowRight,
   Search,
+  Tag,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { toast } from '@/hooks/use-toast'
+import { cn } from '@/lib/utils'
 import {
   priceCheckService,
   PriceCheckResult,
   PriceCheckRecord,
   PriceCheckStatus,
 } from '@/services/priceCheckService'
+import { rebateDiscountService, ExistingRebateRule } from '@/services/rebateDiscountService'
+import { RebateDiscountModal } from '@/components/admin/RebateDiscountModal'
+import { ProductBatchItem } from '@/services/bhBatchUpdateService'
 
 interface BhPriceCheckerProps {
   productId: string
+  productName?: string | null | undefined
   currentPriceUsd: number | null | undefined
   websiteUrl: string | null | undefined
   sku: string | null | undefined
   onPriceUpdated?: () => void
   onPriceApplied?: (appliedPrice: number) => void
   onUrlDiscovered?: (newUrl: string) => void
+  onRebateSaved?: () => void
 }
 
 export const BhPriceChecker: React.FC<BhPriceCheckerProps> = ({
   productId,
+  productName,
   currentPriceUsd,
   websiteUrl,
   sku,
   onPriceUpdated,
   onPriceApplied,
   onUrlDiscovered,
+  onRebateSaved,
 }) => {
   const [isChecking, setIsChecking] = useState(false)
   const [isApplying, setIsApplying] = useState(false)
   const [lastRecord, setLastRecord] = useState<PriceCheckRecord | null>(null)
   const [currentResult, setCurrentResult] = useState<PriceCheckResult | null>(null)
+
+  // Estado da regra "Rebate Fabricante" e do modal
+  const [existingRebateRule, setExistingRebateRule] = useState<ExistingRebateRule | null>(null)
+  const [isRebateModalOpen, setIsRebateModalOpen] = useState(false)
+
+  const loadExistingRebate = useCallback(async () => {
+    if (!productId) return
+    try {
+      const rule = await rebateDiscountService.findActiveRebateRule(productId)
+      setExistingRebateRule(rule)
+    } catch (err) {
+      console.warn('Erro ao verificar regra existente de rebate:', err)
+    }
+  }, [productId])
 
   useEffect(() => {
     let mounted = true
@@ -53,11 +76,12 @@ export const BhPriceChecker: React.FC<BhPriceCheckerProps> = ({
           setLastRecord(rec)
         }
       })
+      loadExistingRebate()
     }
     return () => {
       mounted = false
     }
-  }, [productId])
+  }, [productId, loadExistingRebate])
 
   const handleCheck = async () => {
     setIsChecking(true)
@@ -196,10 +220,73 @@ export const BhPriceChecker: React.FC<BhPriceCheckerProps> = ({
   const checkedAt = currentResult?.checked_at ?? lastRecord?.checked_at ?? null
   const displayMessage = currentResult?.message ?? lastRecord?.message ?? null
 
+  // Dados de rebate: do resultado em tempo real ou do payload raw gravado no último price_check
+  const rawRebateInfo = lastRecord?.raw?.rebate_info
+  const isRebateActive = Boolean(
+    currentResult?.rebate_active ??
+    rawRebateInfo?.rebate_active ??
+    (displayMessage && /\[rebate\/instant savings/i.test(displayMessage)),
+  )
+
+  const rebatePriceFull =
+    currentResult?.price_full ??
+    rawRebateInfo?.price_full ??
+    (displayPriceDb != null ? displayPriceDb : null)
+
+  const rebatePriceWithDiscount =
+    currentResult?.price_with_rebate ??
+    rawRebateInfo?.price_with_rebate ??
+    (displayPriceBh != null ? displayPriceBh : null)
+
+  const rebateSavings =
+    currentResult?.rebate_savings ??
+    rawRebateInfo?.rebate_savings ??
+    (rebatePriceFull != null &&
+    rebatePriceWithDiscount != null &&
+    rebatePriceFull > rebatePriceWithDiscount
+      ? rebatePriceFull - rebatePriceWithDiscount
+      : null)
+
+  const rebateEndDate =
+    currentResult?.rebate_end_date ??
+    rawRebateInfo?.rebate_end_date ??
+    (() => {
+      const match = displayMessage?.match(/Vigência:\s*([^\]]+)/i)
+      return match ? match[1].trim() : null
+    })()
+
+  const rebateEndDateIso = currentResult?.rebate_end_date_iso ?? null
+
   const canApplyPrice =
     displayPriceBh != null &&
     displayPriceBh > 0 &&
     (activeStatus === 'divergente' || (displayPriceDb != null && displayPriceDb !== displayPriceBh))
+
+  // Objeto sintético do produto para o RebateDiscountModal
+  const modalProduct: ProductBatchItem = {
+    id: productId,
+    name: productName || (sku ? `Produto SKU ${sku}` : 'Produto'),
+    sku: sku || null,
+    price_usd: displayPriceDb ?? currentPriceUsd ?? null,
+    website_url: displayUrl || null,
+    is_discontinued: activeStatus === 'descontinuado',
+    updated_at: '',
+    last_reviewed_at: '',
+    checkResult: {
+      status: activeStatus || 'divergente',
+      price_usd_cadastrado: displayPriceDb,
+      price_bh: displayPriceBh,
+      diff_usd: displayDiffUsd,
+      diff_pct: displayDiffPct,
+      url_used: displayUrl,
+      rebate_active: isRebateActive,
+      price_full: rebatePriceFull,
+      price_with_rebate: rebatePriceWithDiscount,
+      rebate_savings: rebateSavings,
+      rebate_end_date: rebateEndDate,
+      rebate_end_date_iso: rebateEndDateIso,
+    },
+  }
 
   const renderStatusBadge = () => {
     switch (activeStatus) {
@@ -387,23 +474,65 @@ export const BhPriceChecker: React.FC<BhPriceCheckerProps> = ({
             )}
           </div>
 
-          {/* Botão de Aplicar Preço da B&H */}
-          {canApplyPrice && (
-            <div className="pt-2 flex justify-end">
-              <Button
-                onClick={handleApplyPrice}
-                disabled={isApplying || isChecking}
-                className="bg-[#FF9F1A] hover:bg-[#FF9F1A]/90 text-[#111111] font-semibold text-xs h-9 shadow transition-all"
-              >
-                <ArrowRight className="w-4 h-4 mr-1.5" />
-                {isApplying
-                  ? 'Atualizando preço...'
-                  : `Aplicar preço da B&H (US$ ${displayPriceBh?.toFixed(2)})`}
-              </Button>
+          {/* Botões de Ação: Rebate Fabricante e Aplicar Preço da B&H */}
+          {(isRebateActive || canApplyPrice) && (
+            <div className="pt-2 flex items-center justify-end gap-2 flex-wrap">
+              {/* Botão Ativar / Editar Rebate Fabricante */}
+              {isRebateActive && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setIsRebateModalOpen(true)}
+                  className={cn(
+                    'h-9 text-xs px-3 font-medium border-purple-500/40 shadow-sm transition-all',
+                    existingRebateRule
+                      ? 'bg-purple-500/20 text-purple-200 hover:bg-purple-500/30'
+                      : 'bg-purple-600/10 hover:bg-purple-600/20 text-purple-300',
+                  )}
+                  title={
+                    existingRebateRule
+                      ? 'Editar vigência ou percentual da regra existente Rebate Fabricante'
+                      : 'Ativar regra de desconto Rebate Fabricante na tabela discounts'
+                  }
+                >
+                  <Tag className="w-4 h-4 mr-1.5" />
+                  {existingRebateRule ? 'Editar Rebate' : 'Ativar Rebate Fabricante'}
+                </Button>
+              )}
+
+              {/* Botão de Aplicar Preço da B&H */}
+              {canApplyPrice && (
+                <Button
+                  type="button"
+                  onClick={handleApplyPrice}
+                  disabled={isApplying || isChecking}
+                  className="bg-[#FF9F1A] hover:bg-[#FF9F1A]/90 text-[#111111] font-semibold text-xs h-9 shadow transition-all"
+                >
+                  <ArrowRight className="w-4 h-4 mr-1.5" />
+                  {isApplying
+                    ? 'Atualizando preço...'
+                    : `Aplicar preço da B&H (US$ ${displayPriceBh?.toFixed(2)})`}
+                </Button>
+              )}
             </div>
           )}
         </div>
       )}
+
+      {/* Modal de Configuração de Desconto: Rebate Fabricante */}
+      <RebateDiscountModal
+        isOpen={isRebateModalOpen}
+        onClose={() => setIsRebateModalOpen(false)}
+        product={modalProduct}
+        existingRule={existingRebateRule}
+        onSuccess={() => {
+          loadExistingRebate()
+          if (onRebateSaved) {
+            onRebateSaved()
+          }
+        }}
+      />
     </div>
   )
 }

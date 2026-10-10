@@ -23,8 +23,12 @@ export const calculateDiscountedPrice = (
     return costPrice + newMargin
   }
 
-  if (discountType === 'price_usa_percentage') {
+  if (discountType === 'price_usa_percentage' || discountType === 'percentage') {
     return originalPrice * (1 - discountValue / 100)
+  }
+
+  if (discountType === 'fixed' || discountType === 'fixed_amount') {
+    return Math.max(0, originalPrice - discountValue)
   }
 
   return originalPrice

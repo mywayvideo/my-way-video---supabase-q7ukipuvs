@@ -142,7 +142,7 @@ export function RebateDiscountModal({
       await rebateDiscountService.saveRebateDiscount({
         productId: product.id,
         productName: product.name,
-        discountType,
+        discountType: discountType === 'percentage' ? 'price_usa_percentage' : 'fixed',
         discountValue,
         startDate: startDate ? new Date(startDate).toISOString() : new Date().toISOString(),
         endDate: new Date(endDate).toISOString(),

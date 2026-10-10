@@ -1,5 +1,11 @@
 import { describe, it, expect, vi } from 'vitest'
 import { priceCheckService } from '@/services/priceCheckService'
+import {
+  calculateDiscountedPrice,
+  calculateDiscountPercentage,
+  getBestDiscount,
+} from '@/services/discountApplicationService'
+import { Discount } from '@/types/discount'
 
 describe('priceCheckService & B&H verification tolerance logic', () => {
   it('calculates divergence within tolerance (1% or US$ 1.00, whichever is greater)', () => {
@@ -114,5 +120,153 @@ describe('priceCheckService & B&H verification tolerance logic', () => {
 
     expect(isRebateActive).toBe(true)
     expect(vigencia).toBe('Limited supply at this price')
+  })
+
+  describe('discountApplicationService rebate & legacy type compatibility', () => {
+    it('applies legacy "percentage" discount type retroactively (Sony AN-820A real case)', () => {
+      // Caso de teste real: Sony AN-820A
+      // Preço cheio original US$ 282.00, rebate B&H US$ 159.00 -> ~43.617%
+      const priceFull = 282.0
+      const costPrice = 200.0
+      const rebatePct = Number((((282 - 159) / 282) * 100).toFixed(2)) // 43.62%
+
+      // Teste com tipo legado "percentage" gravado previamente pelo modal
+      const discountedWithLegacyType = calculateDiscountedPrice(
+        priceFull,
+        costPrice,
+        'percentage',
+        rebatePct,
+      )
+
+      // Teste com novo tipo padrão "price_usa_percentage"
+      const discountedWithStandardType = calculateDiscountedPrice(
+        priceFull,
+        costPrice,
+        'price_usa_percentage',
+        rebatePct,
+      )
+
+      expect(discountedWithLegacyType).toBeCloseTo(159.0, 1)
+      expect(discountedWithLegacyType).toEqual(discountedWithStandardType)
+      expect(discountedWithLegacyType).toBeLessThan(priceFull)
+    })
+
+    it('applies "fixed" and "fixed_amount" discount types with floor at 0', () => {
+      const priceFull = 282.0
+      const costPrice = 200.0
+
+      // Desconto fixo de US$ 123.00
+      const fixedResult = calculateDiscountedPrice(priceFull, costPrice, 'fixed', 123.0)
+      expect(fixedResult).toBe(159.0)
+
+      const fixedAmountResult = calculateDiscountedPrice(
+        priceFull,
+        costPrice,
+        'fixed_amount',
+        123.0,
+      )
+      expect(fixedAmountResult).toBe(159.0)
+
+      // Desconto fixo maior que o preço (não deve ficar negativo, floor em 0)
+      const clampedResult = calculateDiscountedPrice(priceFull, costPrice, 'fixed', 350.0)
+      expect(clampedResult).toBe(0)
+    })
+
+    it('evaluates getBestDiscount correctly with legacy "percentage" rule in database format', () => {
+      const productId = 'sony-an820a-id'
+      const originalPrice = 282.0
+      const costPrice = 200.0
+
+      const futureDate = new Date()
+      futureDate.setDate(futureDate.getDate() + 10)
+
+      const discounts: Discount[] = [
+        {
+          id: 'rule-legacy-rebate',
+          name: 'Rebate Fabricante',
+          discount_type: 'percentage', // legado
+          discount_value: 43.62,
+          target_type: 'specific',
+          product_selection: [productId],
+          is_active: true,
+          end_date: futureDate.toISOString(),
+        },
+      ]
+
+      const best = getBestDiscount(
+        discounts,
+        productId,
+        null,
+        null,
+        originalPrice,
+        costPrice,
+      )
+
+      expect(best.ruleName).toBe('Rebate Fabricante')
+      expect(best.discountType).toBe('percentage')
+      expect(best.originalPrice).toBe(282.0)
+      expect(best.discountedPrice).toBeCloseTo(159.0, 1)
+      expect(best.discountPercentage).toBeCloseTo(43.62, 1)
+    })
+
+    it('evaluates getBestDiscount correctly with "fixed" rule', () => {
+      const productId = 'sony-an820a-id'
+      const originalPrice = 282.0
+      const costPrice = 200.0
+
+      const futureDate = new Date()
+      futureDate.setDate(futureDate.getDate() + 10)
+
+      const discounts: Discount[] = [
+        {
+          id: 'rule-fixed-rebate',
+          name: 'Rebate Fabricante',
+          discount_type: 'fixed',
+          discount_value: 123.0,
+          target_type: 'specific',
+          product_selection: [productId],
+          is_active: true,
+          end_date: futureDate.toISOString(),
+        },
+      ]
+
+      const best = getBestDiscount(
+        discounts,
+        productId,
+        null,
+        null,
+        originalPrice,
+        costPrice,
+      )
+
+      expect(best.ruleName).toBe('Rebate Fabricante')
+      expect(best.discountType).toBe('fixed')
+      expect(best.originalPrice).toBe(282.0)
+      expect(best.discountedPrice).toBe(159.0)
+      expect(best.discountPercentage).toBeCloseTo(43.62, 1)
+    })
+
+    it('preserves existing behavior for margin_percentage and price_usa_percentage', () => {
+      const originalPrice = 100
+      const costPrice = 60 // margem = 40
+
+      // 50% sobre margem -> margem cai de 40 para 20 -> preço final = 60 + 20 = 80
+      const marginResult = calculateDiscountedPrice(
+        originalPrice,
+        costPrice,
+        'margin_percentage',
+        50,
+      )
+      expect(marginResult).toBe(80)
+
+      // 10% sobre preço original -> preço final = 90
+      const priceUsaResult = calculateDiscountedPrice(
+        originalPrice,
+        costPrice,
+        'price_usa_percentage',
+        10,
+      )
+      expect(priceUsaResult).toBe(90)
+    })
   })
 })

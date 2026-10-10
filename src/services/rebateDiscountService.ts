@@ -3,7 +3,7 @@ import { supabase } from '@/lib/supabase/client'
 export interface RebateDiscountRuleParams {
   productId: string
   productName: string
-  discountType: 'percentage' | 'fixed'
+  discountType: 'price_usa_percentage' | 'percentage' | 'fixed' | 'fixed_amount'
   discountValue: number
   startDate: string // ISO string
   endDate: string // ISO string

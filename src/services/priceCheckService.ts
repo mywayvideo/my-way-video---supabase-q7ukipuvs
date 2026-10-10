@@ -1,6 +1,28 @@
 import { supabase } from '@/lib/supabase/client'
+import { rebateDiscountService, ExistingRebateRule } from '@/services/rebateDiscountService'
+import { calculateDiscountedPrice } from '@/services/discountApplicationService'
 
 export type PriceCheckStatus = 'ok' | 'divergente' | 'descontinuado' | 'sem_url_confirmada' | 'erro'
+
+export interface PricePairComparison {
+  label: string
+  priceCatalog: number | null
+  priceBh: number | null
+  diffUsd: number | null
+  diffPct: number | null
+  isWithinTolerance: boolean
+}
+
+export interface PairedCheckEvaluation {
+  status: PriceCheckStatus
+  mode: 'single' | 'paired'
+  fullPair?: PricePairComparison | null
+  rebatePair?: PricePairComparison | null
+  overallWithinTolerance: boolean
+  message: string
+  rebateRuleFound?: boolean
+  catalogEffectivePrice?: number | null
+}
 
 export interface PriceCheckResult {
   status: PriceCheckStatus
@@ -22,6 +44,175 @@ export interface PriceCheckResult {
   rebate_end_date_iso?: string | null
   sku_matched?: boolean
   mfr_number_found?: string | null
+  evaluation?: PairedCheckEvaluation | null
+}
+
+/**
+ * Avalia se a diferença entre dois preços em USD está dentro da tolerância
+ * (1% ou US$ 1.00, o que for MAIOR)
+ */
+export function evaluatePricePair(
+  label: string,
+  priceCatalog: number | null | undefined,
+  priceBh: number | null | undefined,
+): PricePairComparison {
+  if (priceCatalog == null || priceBh == null) {
+    return {
+      label,
+      priceCatalog: priceCatalog ?? null,
+      priceBh: priceBh ?? null,
+      diffUsd: null,
+      diffPct: null,
+      isWithinTolerance: false,
+    }
+  }
+
+  const diffUsd = Number((priceBh - priceCatalog).toFixed(2))
+  const absDiffUsd = Math.abs(diffUsd)
+  const diffPct =
+    priceCatalog > 0 ? Number((((priceBh - priceCatalog) / priceCatalog) * 100).toFixed(2)) : null
+  const absDiffPct = diffPct != null ? Math.abs(diffPct) : 100
+
+  // Tolerância: 1% ou US$ 1.00, o que for maior
+  const toleranceUsd = Math.max(1.0, priceCatalog * 0.01)
+  const isWithinTolerance = absDiffUsd <= toleranceUsd || absDiffPct <= 1.0
+
+  return {
+    label,
+    priceCatalog,
+    priceBh,
+    diffUsd,
+    diffPct,
+    isWithinTolerance,
+  }
+}
+
+/**
+ * Avalia comparação de preços com consciência de desconto vigente.
+ * Quando houver rebate/desconto ativo no cadastro E na B&H, compara pareado:
+ * - Par cheio: price_usd × price_full (B&H regular)
+ * - Par desconto: preço efetivo do cadastro (com desconto aplicado) × price_with_rebate (B&H com rebate)
+ * Caso contrário, mantém a comparação simples atual.
+ */
+export function evaluatePairedPrices(params: {
+  catalogPriceUsd: number | null | undefined
+  rebateRule: ExistingRebateRule | null | undefined
+  bhPrice: number | null | undefined
+  bhPriceFull?: number | null | undefined
+  bhPriceWithRebate?: number | null | undefined
+  bhRebateActive?: boolean | null
+}): PairedCheckEvaluation {
+  const { catalogPriceUsd, rebateRule, bhPrice, bhPriceFull, bhPriceWithRebate, bhRebateActive } =
+    params
+
+  const priceDb = catalogPriceUsd != null && catalogPriceUsd > 0 ? catalogPriceUsd : null
+
+  // Verifica se a regra de rebate está vigente
+  let isCatalogRebateActive = false
+  let catalogEffectivePrice: number | null = null
+
+  if (rebateRule && rebateRule.is_active !== false && priceDb != null) {
+    const now = new Date()
+    const isStarted = !rebateRule.start_date || new Date(rebateRule.start_date) <= now
+    const isNotExpired = !rebateRule.end_date || new Date(rebateRule.end_date) >= now
+    if (isStarted && isNotExpired && rebateRule.discount_value > 0) {
+      isCatalogRebateActive = true
+      catalogEffectivePrice = Number(
+        calculateDiscountedPrice(
+          priceDb,
+          0,
+          rebateRule.discount_type,
+          rebateRule.discount_value,
+        ).toFixed(2),
+      )
+    }
+  }
+
+  const isBhRebate = Boolean(
+    bhRebateActive ||
+    (bhPriceWithRebate != null && bhPriceFull != null && bhPriceFull > bhPriceWithRebate),
+  )
+
+  // CENÁRIO PAREADO: rebate no cadastro E rebate na B&H
+  if (isCatalogRebateActive && catalogEffectivePrice != null && isBhRebate) {
+    const bhEffectiveRebatePrice = bhPriceWithRebate ?? bhPrice ?? null
+    // Se a B&H tem price_full explícito (preço regular cheio)
+    const bhEffectiveFullPrice =
+      bhPriceFull != null && bhPriceFull > (bhEffectiveRebatePrice ?? 0) ? bhPriceFull : null
+
+    let fullPair: PricePairComparison | null = null
+    if (bhEffectiveFullPrice != null && priceDb != null) {
+      fullPair = evaluatePricePair('Preço Cheio', priceDb, bhEffectiveFullPrice)
+    }
+
+    const rebatePair = evaluatePricePair(
+      'Com Rebate',
+      catalogEffectivePrice,
+      bhEffectiveRebatePrice,
+    )
+
+    // Se temos os dois pares, ambos devem estar dentro da tolerância
+    // Se a B&H não reportou preço cheio separado, avaliamos o par com desconto
+    const overallWithinTolerance =
+      fullPair != null
+        ? fullPair.isWithinTolerance && rebatePair.isWithinTolerance
+        : rebatePair.isWithinTolerance
+
+    const status: PriceCheckStatus = overallWithinTolerance ? 'ok' : 'divergente'
+
+    let message = ''
+    if (overallWithinTolerance) {
+      if (fullPair) {
+        message = `Preços conferidos com a B&H em ambos os pares: Cheio (US$ ${priceDb?.toFixed(2)} × US$ ${bhEffectiveFullPrice?.toFixed(2)}) e Rebate (US$ ${catalogEffectivePrice.toFixed(2)} × US$ ${bhEffectiveRebatePrice?.toFixed(2)}).`
+      } else {
+        message = `Preço com rebate conferido com a B&H: US$ ${catalogEffectivePrice.toFixed(2)} × US$ ${bhEffectiveRebatePrice?.toFixed(2)} dentro da tolerância.`
+      }
+    } else {
+      const divergentParts: string[] = []
+      if (fullPair && !fullPair.isWithinTolerance) {
+        divergentParts.push(
+          `Preço cheio diverge: Cadastrado US$ ${priceDb?.toFixed(2)} × B&H regular US$ ${bhEffectiveFullPrice?.toFixed(2)} (dif: ${fullPair.diffUsd! > 0 ? '+' : ''}${fullPair.diffUsd?.toFixed(2)})`,
+        )
+      }
+      if (!rebatePair.isWithinTolerance) {
+        divergentParts.push(
+          `Preço com rebate diverge: Cadastrado US$ ${catalogEffectivePrice.toFixed(2)} × B&H rebate US$ ${bhEffectiveRebatePrice?.toFixed(2)} (dif: ${rebatePair.diffUsd! > 0 ? '+' : ''}${rebatePair.diffUsd?.toFixed(2)})`,
+        )
+      }
+      message = divergentParts.join(' · ')
+    }
+
+    return {
+      status,
+      mode: 'paired',
+      fullPair,
+      rebatePair,
+      overallWithinTolerance,
+      message,
+      rebateRuleFound: true,
+      catalogEffectivePrice,
+    }
+  }
+
+  // CENÁRIO NÃO PAREADO (padrão atual: comparação simples)
+  // Se não houver rebate vigente no cadastro, mas houver preço da B&H
+  const singlePair = evaluatePricePair('Preço', priceDb, bhPrice)
+  const status: PriceCheckStatus = singlePair.isWithinTolerance ? 'ok' : 'divergente'
+
+  const message = singlePair.isWithinTolerance
+    ? `Preço conferido com a B&H. Variação de US$ ${singlePair.diffUsd?.toFixed(2)} dentro da tolerância acordada.`
+    : `Preço divergente da B&H. Diferença de US$ ${singlePair.diffUsd != null && singlePair.diffUsd > 0 ? '+' : ''}${singlePair.diffUsd?.toFixed(2)} (${singlePair.diffPct != null && singlePair.diffPct > 0 ? '+' : ''}${singlePair.diffPct?.toFixed(2)}%).`
+
+  return {
+    status,
+    mode: 'single',
+    fullPair: singlePair,
+    rebatePair: null,
+    overallWithinTolerance: singlePair.isWithinTolerance,
+    message,
+    rebateRuleFound: isCatalogRebateActive,
+    catalogEffectivePrice,
+  }
 }
 
 export interface PriceCheckRecord {

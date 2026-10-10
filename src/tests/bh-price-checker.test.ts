@@ -1,11 +1,16 @@
 import { describe, it, expect, vi } from 'vitest'
-import { priceCheckService } from '@/services/priceCheckService'
+import {
+  priceCheckService,
+  evaluatePricePair,
+  evaluatePairedPrices,
+} from '@/services/priceCheckService'
 import {
   calculateDiscountedPrice,
   calculateDiscountPercentage,
   getBestDiscount,
 } from '@/services/discountApplicationService'
 import { Discount } from '@/types/discount'
+import { ExistingRebateRule } from '@/services/rebateDiscountService'
 
 describe('priceCheckService & B&H verification tolerance logic', () => {
   it('calculates divergence within tolerance (1% or US$ 1.00, whichever is greater)', () => {
@@ -267,6 +272,173 @@ describe('priceCheckService & B&H verification tolerance logic', () => {
         10,
       )
       expect(priceUsaResult).toBe(90)
+    })
+  })
+
+  describe('evaluatePairedPrices - Paired comparison aware of active rebate', () => {
+    it('Caso real Sony AN820A: 282,00 cheio / 159,00 com rebate em ambos os lados -> resultado OK nos dois pares sem falso alerta', () => {
+      const futureDate = new Date()
+      futureDate.setDate(futureDate.getDate() + 30)
+
+      const activeRebateRule: ExistingRebateRule = {
+        id: 'rebate-rule-sony-an820a',
+        name: 'Rebate Fabricante',
+        discount_type: 'price_usa_percentage',
+        discount_value: 43.62, // Desconto que leva de 282 para 159
+        start_date: new Date(Date.now() - 86400000).toISOString(),
+        end_date: futureDate.toISOString(),
+        is_active: true,
+        product_selection: ['sony-an820a-id'],
+      }
+
+      const evaluation = evaluatePairedPrices({
+        catalogPriceUsd: 282.0,
+        rebateRule: activeRebateRule,
+        bhPrice: 159.0, // preço retornado pela B&H
+        bhPriceFull: 282.0, // preço cheio da B&H
+        bhPriceWithRebate: 159.0, // preço com rebate da B&H
+        bhRebateActive: true,
+      })
+
+      expect(evaluation.mode).toBe('paired')
+      expect(evaluation.status).toBe('ok')
+      expect(evaluation.overallWithinTolerance).toBe(true)
+
+      // Par cheio: 282 x 282 -> OK
+      expect(evaluation.fullPair).toBeDefined()
+      expect(evaluation.fullPair?.priceCatalog).toBe(282.0)
+      expect(evaluation.fullPair?.priceBh).toBe(282.0)
+      expect(evaluation.fullPair?.isWithinTolerance).toBe(true)
+      expect(evaluation.fullPair?.diffUsd).toBe(0)
+
+      // Par desconto: 159 x 159 -> OK
+      expect(evaluation.rebatePair).toBeDefined()
+      expect(evaluation.rebatePair?.priceCatalog).toBeCloseTo(159.0, 1)
+      expect(evaluation.rebatePair?.priceBh).toBe(159.0)
+      expect(evaluation.rebatePair?.isWithinTolerance).toBe(true)
+      expect(evaluation.rebatePair?.diffUsd).toBeCloseTo(0, 1)
+    })
+
+    it('Caso de divergência real no rebate: B&H rebate para US$ 149,00 enquanto cadastro dá US$ 159,00 -> status "divergente" no par desconto e cheio OK', () => {
+      const futureDate = new Date()
+      futureDate.setDate(futureDate.getDate() + 30)
+
+      const activeRebateRule: ExistingRebateRule = {
+        id: 'rebate-rule-sony-an820a',
+        name: 'Rebate Fabricante',
+        discount_type: 'price_usa_percentage',
+        discount_value: 43.62,
+        start_date: new Date(Date.now() - 86400000).toISOString(),
+        end_date: futureDate.toISOString(),
+        is_active: true,
+        product_selection: ['sony-an820a-id'],
+      }
+
+      const evaluation = evaluatePairedPrices({
+        catalogPriceUsd: 282.0,
+        rebateRule: activeRebateRule,
+        bhPrice: 149.0,
+        bhPriceFull: 282.0,
+        bhPriceWithRebate: 149.0, // diverge em US$ 10.00
+        bhRebateActive: true,
+      })
+
+      expect(evaluation.mode).toBe('paired')
+      expect(evaluation.status).toBe('divergente')
+      expect(evaluation.overallWithinTolerance).toBe(false)
+
+      // Par cheio OK
+      expect(evaluation.fullPair?.isWithinTolerance).toBe(true)
+      // Par desconto divergente
+      expect(evaluation.rebatePair?.isWithinTolerance).toBe(false)
+      expect(evaluation.rebatePair?.diffUsd).toBeCloseTo(-10.0, 1)
+      expect(evaluation.message).toContain('Preço com rebate diverge')
+    })
+
+    it('Caso de divergência real no preço cheio: B&H alterou preço de lista para US$ 299,00 mas desconto bate -> status "divergente" no par cheio', () => {
+      const futureDate = new Date()
+      futureDate.setDate(futureDate.getDate() + 30)
+
+      const activeRebateRule: ExistingRebateRule = {
+        id: 'rebate-rule-sony-an820a',
+        name: 'Rebate Fabricante',
+        discount_type: 'price_usa_percentage',
+        discount_value: 43.62,
+        start_date: new Date(Date.now() - 86400000).toISOString(),
+        end_date: futureDate.toISOString(),
+        is_active: true,
+        product_selection: ['sony-an820a-id'],
+      }
+
+      const evaluation = evaluatePairedPrices({
+        catalogPriceUsd: 282.0,
+        rebateRule: activeRebateRule,
+        bhPrice: 159.0,
+        bhPriceFull: 299.0, // preço de lista da B&H subiu
+        bhPriceWithRebate: 159.0,
+        bhRebateActive: true,
+      })
+
+      expect(evaluation.mode).toBe('paired')
+      expect(evaluation.status).toBe('divergente')
+      expect(evaluation.fullPair?.isWithinTolerance).toBe(false)
+      expect(evaluation.rebatePair?.isWithinTolerance).toBe(true)
+      expect(evaluation.message).toContain('Preço cheio diverge')
+    })
+
+    it('Produto sem rebate vigente no cadastro: mantém modo single (comparação simples atual)', () => {
+      const evaluation = evaluatePairedPrices({
+        catalogPriceUsd: 282.0,
+        rebateRule: null, // sem regra de rebate
+        bhPrice: 282.0,
+      })
+
+      expect(evaluation.mode).toBe('single')
+      expect(evaluation.status).toBe('ok')
+      expect(evaluation.overallWithinTolerance).toBe(true)
+      expect(evaluation.rebatePair).toBeNull()
+    })
+
+    it('Produto sem rebate com divergência simples: gera divergente corretamente', () => {
+      const evaluation = evaluatePairedPrices({
+        catalogPriceUsd: 282.0,
+        rebateRule: null,
+        bhPrice: 250.0,
+      })
+
+      expect(evaluation.mode).toBe('single')
+      expect(evaluation.status).toBe('divergente')
+      expect(evaluation.overallWithinTolerance).toBe(false)
+    })
+
+    it('B&H sem preço regular separado mas com rebate: compara par de desconto com efetivo', () => {
+      const futureDate = new Date()
+      futureDate.setDate(futureDate.getDate() + 30)
+
+      const activeRebateRule: ExistingRebateRule = {
+        id: 'rebate-rule-1',
+        name: 'Rebate Fabricante',
+        discount_type: 'price_usa_percentage',
+        discount_value: 43.62,
+        start_date: null,
+        end_date: futureDate.toISOString(),
+        is_active: true,
+        product_selection: ['p1'],
+      }
+
+      const evaluation = evaluatePairedPrices({
+        catalogPriceUsd: 282.0,
+        rebateRule: activeRebateRule,
+        bhPrice: 159.0,
+        bhPriceFull: null, // B&H não reportou regular
+        bhPriceWithRebate: 159.0,
+        bhRebateActive: true,
+      })
+
+      expect(evaluation.mode).toBe('paired')
+      expect(evaluation.status).toBe('ok')
+      expect(evaluation.rebatePair?.isWithinTolerance).toBe(true)
+      expect(evaluation.fullPair).toBeNull()
     })
   })
 })

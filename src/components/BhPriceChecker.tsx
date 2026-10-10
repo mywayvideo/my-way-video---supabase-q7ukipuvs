@@ -21,6 +21,8 @@ import {
   PriceCheckResult,
   PriceCheckRecord,
   PriceCheckStatus,
+  evaluatePairedPrices,
+  PairedCheckEvaluation,
 } from '@/services/priceCheckService'
 import { rebateDiscountService, ExistingRebateRule } from '@/services/rebateDiscountService'
 import { RebateDiscountModal } from '@/components/admin/RebateDiscountModal'
@@ -89,6 +91,36 @@ export const BhPriceChecker: React.FC<BhPriceCheckerProps> = ({
       const res = await priceCheckService.checkBhPrice(productId)
       setCurrentResult(res)
 
+      // Se houver rebate cadastrado e rebate na B&H, avalia pareamento imediatamente
+      const activeRule =
+        existingRebateRule ?? (await rebateDiscountService.findActiveRebateRule(productId))
+      if (activeRule && !existingRebateRule) {
+        setExistingRebateRule(activeRule)
+      }
+
+      const evalRes = evaluatePairedPrices({
+        catalogPriceUsd: res.price_usd_cadastrado ?? currentPriceUsd ?? null,
+        rebateRule: activeRule,
+        bhPrice: res.price_bh ?? null,
+        bhPriceFull: res.price_full ?? null,
+        bhPriceWithRebate: res.price_with_rebate ?? null,
+        bhRebateActive: res.rebate_active,
+      })
+
+      const finalStatus =
+        res.status === 'descontinuado' ||
+        res.status === 'sem_url_confirmada' ||
+        res.status === 'erro'
+          ? res.status
+          : evalRes.status
+
+      const finalMessage =
+        res.status === 'descontinuado' ||
+        res.status === 'sem_url_confirmada' ||
+        res.status === 'erro'
+          ? res.message
+          : evalRes.message
+
       // Atualiza o registro visual
       setLastRecord({
         id: 'latest',
@@ -98,23 +130,32 @@ export const BhPriceChecker: React.FC<BhPriceCheckerProps> = ({
         price_bh: res.price_bh ?? null,
         diff_usd: res.diff_usd ?? null,
         diff_pct: res.diff_pct ?? null,
-        status: res.status,
+        status: finalStatus,
         source: 'manual',
         url_used: res.url_used ?? null,
         url_discovered: !!res.url_discovered,
-        message: res.message || null,
+        message: finalMessage || null,
+        raw: {
+          rebate_info: {
+            rebate_active: res.rebate_active,
+            price_full: res.price_full,
+            price_with_rebate: res.price_with_rebate,
+            rebate_savings: res.rebate_savings,
+            rebate_end_date: res.rebate_end_date,
+          },
+        },
       })
 
-      if (res.status === 'ok') {
+      if (finalStatus === 'ok') {
         toast({
           title: 'Preço B&H conferido!',
-          description: res.message || 'O preço cadastrado está dentro da tolerância acordada.',
+          description: finalMessage || 'O preço cadastrado está dentro da tolerância acordada.',
         })
-      } else if (res.status === 'divergente') {
+      } else if (finalStatus === 'divergente') {
         toast({
           title: 'Divergência detectada!',
           description:
-            res.message || 'O preço na B&H difere do cadastrado além da tolerância permitida.',
+            finalMessage || 'O preço na B&H difere do cadastrado além da tolerância permitida.',
           variant: 'default',
         })
       } else if (res.status === 'descontinuado') {
@@ -158,7 +199,7 @@ export const BhPriceChecker: React.FC<BhPriceCheckerProps> = ({
   }
 
   const handleApplyPrice = async () => {
-    const targetPrice = currentResult?.price_bh ?? lastRecord?.price_bh
+    const targetPrice = targetApplyPrice ?? currentResult?.price_bh ?? lastRecord?.price_bh
     if (!targetPrice || targetPrice <= 0) return
 
     setIsApplying(true)
@@ -222,7 +263,7 @@ export const BhPriceChecker: React.FC<BhPriceCheckerProps> = ({
 
   // Dados de rebate: do resultado em tempo real ou do payload raw gravado no último price_check
   const rawRebateInfo = lastRecord?.raw?.rebate_info
-  const isRebateActive = Boolean(
+  const isBhRebateActive = Boolean(
     currentResult?.rebate_active ??
     rawRebateInfo?.rebate_active ??
     (displayMessage && /\[rebate\/instant savings/i.test(displayMessage)),
@@ -257,10 +298,35 @@ export const BhPriceChecker: React.FC<BhPriceCheckerProps> = ({
 
   const rebateEndDateIso = currentResult?.rebate_end_date_iso ?? null
 
+  // Avaliação pareada (cheio × cheio e desconto × desconto quando houver rebate vigente)
+  const pairedEval: PairedCheckEvaluation | null =
+    activeStatus &&
+    activeStatus !== 'descontinuado' &&
+    activeStatus !== 'sem_url_confirmada' &&
+    activeStatus !== 'erro'
+      ? evaluatePairedPrices({
+          catalogPriceUsd: displayPriceDb,
+          rebateRule: existingRebateRule,
+          bhPrice: displayPriceBh,
+          bhPriceFull: rebatePriceFull,
+          bhPriceWithRebate: rebatePriceWithDiscount,
+          bhRebateActive: isBhRebateActive,
+        })
+      : null
+
+  // Status visual final: se houver avaliação pareada estruturada, ela governa status e mensagem
+  const effectiveStatus: PriceCheckStatus | null =
+    pairedEval != null ? pairedEval.status : activeStatus
+  const effectiveMessage: string | null = pairedEval != null ? pairedEval.message : displayMessage
+
+  const targetApplyPrice =
+    rebatePriceFull != null && isBhRebateActive ? rebatePriceFull : displayPriceBh
+
   const canApplyPrice =
-    displayPriceBh != null &&
-    displayPriceBh > 0 &&
-    (activeStatus === 'divergente' || (displayPriceDb != null && displayPriceDb !== displayPriceBh))
+    targetApplyPrice != null &&
+    targetApplyPrice > 0 &&
+    (effectiveStatus === 'divergente' ||
+      (displayPriceDb != null && displayPriceDb !== targetApplyPrice))
 
   // Objeto sintético do produto para o RebateDiscountModal
   const modalProduct: ProductBatchItem = {
@@ -273,13 +339,13 @@ export const BhPriceChecker: React.FC<BhPriceCheckerProps> = ({
     updated_at: '',
     last_reviewed_at: '',
     checkResult: {
-      status: activeStatus || 'divergente',
+      status: effectiveStatus || 'divergente',
       price_usd_cadastrado: displayPriceDb,
       price_bh: displayPriceBh,
       diff_usd: displayDiffUsd,
       diff_pct: displayDiffPct,
       url_used: displayUrl,
-      rebate_active: isRebateActive,
+      rebate_active: isBhRebateActive,
       price_full: rebatePriceFull,
       price_with_rebate: rebatePriceWithDiscount,
       rebate_savings: rebateSavings,
@@ -289,7 +355,7 @@ export const BhPriceChecker: React.FC<BhPriceCheckerProps> = ({
   }
 
   const renderStatusBadge = () => {
-    switch (activeStatus) {
+    switch (effectiveStatus) {
       case 'ok':
         return (
           <Badge className="bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
@@ -359,72 +425,206 @@ export const BhPriceChecker: React.FC<BhPriceCheckerProps> = ({
       </div>
 
       {/* Painel com o resultado da verificação */}
-      {activeStatus && (
+      {effectiveStatus && (
         <div className="mt-4 pt-1 space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div className="p-3 bg-muted/40 rounded-lg border border-border/40">
-              <span className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold block">
-                Preço Cadastrado
-              </span>
-              <span className="text-base font-bold font-mono text-foreground mt-0.5 block">
-                {displayPriceDb != null ? `US$ ${displayPriceDb.toFixed(2)}` : 'US$ —'}
-              </span>
-            </div>
+          {/* Se a comparação for pareada (ambos os lados com rebate ativo) */}
+          {pairedEval && pairedEval.mode === 'paired' ? (
+            <div className="space-y-3">
+              {/* Card Par Cheio */}
+              <div className="bg-muted/30 border border-border/50 rounded-lg p-3">
+                <div className="flex items-center justify-between pb-2 mb-2 border-b border-border/30">
+                  <span className="text-xs font-semibold flex items-center gap-1.5 text-foreground">
+                    <span className="w-2 h-2 rounded-full bg-blue-400" />
+                    Par Preço Cheio (FOB Base)
+                  </span>
+                  {pairedEval.fullPair ? (
+                    pairedEval.fullPair.isWithinTolerance ? (
+                      <span className="text-[11px] font-medium text-emerald-400 flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3" /> Cheio OK (sem divergência)
+                      </span>
+                    ) : (
+                      <span className="text-[11px] font-medium text-amber-400 flex items-center gap-1">
+                        <AlertTriangle className="w-3 h-3" /> Divergente
+                      </span>
+                    )
+                  ) : (
+                    <span className="text-[11px] text-muted-foreground italic">
+                      B&H sem preço cheio separado
+                    </span>
+                  )}
+                </div>
 
-            <div className="p-3 bg-muted/40 rounded-lg border border-border/40">
-              <span className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold block">
-                Preço B&H (Tempo Real)
-              </span>
-              <span className="text-base font-bold font-mono text-emerald-400 mt-0.5 block">
-                {displayPriceBh != null ? `US$ ${displayPriceBh.toFixed(2)}` : 'Não identificado'}
-              </span>
-            </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <div className="p-2.5 bg-background/60 rounded border border-border/30">
+                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold block">
+                      Cadastrado Cheio
+                    </span>
+                    <span className="text-sm font-bold font-mono text-foreground mt-0.5 block">
+                      {displayPriceDb != null ? `US$ ${displayPriceDb.toFixed(2)}` : 'US$ —'}
+                    </span>
+                  </div>
 
-            <div className="p-3 bg-muted/40 rounded-lg border border-border/40">
-              <span className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold block">
-                Divergência
-              </span>
-              <span
-                className={`text-base font-bold font-mono mt-0.5 block ${
-                  displayDiffUsd == null || displayDiffUsd === 0
-                    ? 'text-muted-foreground'
-                    : displayDiffUsd > 0
-                      ? 'text-amber-400'
-                      : 'text-blue-400'
-                }`}
-              >
-                {displayDiffUsd != null
-                  ? `${displayDiffUsd > 0 ? '+' : ''}US$ ${displayDiffUsd.toFixed(2)} (${displayDiffPct != null && displayDiffPct > 0 ? '+' : ''}${displayDiffPct != null ? displayDiffPct.toFixed(2) : '0.00'}%)`
-                  : '—'}
-              </span>
+                  <div className="p-2.5 bg-background/60 rounded border border-border/30">
+                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold block">
+                      B&H Preço Regular
+                    </span>
+                    <span className="text-sm font-bold font-mono text-blue-400 mt-0.5 block">
+                      {pairedEval.fullPair?.priceBh != null
+                        ? `US$ ${pairedEval.fullPair.priceBh.toFixed(2)}`
+                        : 'Não reportado'}
+                    </span>
+                  </div>
+
+                  <div className="p-2.5 bg-background/60 rounded border border-border/30">
+                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold block">
+                      Divergência Cheio
+                    </span>
+                    <span
+                      className={`text-sm font-bold font-mono mt-0.5 block ${
+                        pairedEval.fullPair == null || pairedEval.fullPair.diffUsd === 0
+                          ? 'text-muted-foreground'
+                          : pairedEval.fullPair.isWithinTolerance
+                            ? 'text-emerald-400'
+                            : 'text-amber-400'
+                      }`}
+                    >
+                      {pairedEval.fullPair?.diffUsd != null
+                        ? `${pairedEval.fullPair.diffUsd > 0 ? '+' : ''}US$ ${pairedEval.fullPair.diffUsd.toFixed(2)} (${pairedEval.fullPair.diffPct != null && pairedEval.fullPair.diffPct > 0 ? '+' : ''}${pairedEval.fullPair.diffPct?.toFixed(2)}%)`
+                        : '—'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Card Par Com Desconto / Rebate */}
+              <div className="bg-purple-500/5 border border-purple-500/20 rounded-lg p-3">
+                <div className="flex items-center justify-between pb-2 mb-2 border-b border-purple-500/20">
+                  <span className="text-xs font-semibold flex items-center gap-1.5 text-purple-300">
+                    <Tag className="w-3.5 h-3.5 text-purple-400" />
+                    Par com Desconto / Rebate Vigente
+                  </span>
+                  {pairedEval.rebatePair?.isWithinTolerance ? (
+                    <span className="text-[11px] font-medium text-emerald-400 flex items-center gap-1">
+                      <CheckCircle2 className="w-3 h-3" /> Rebate OK (sem divergência)
+                    </span>
+                  ) : (
+                    <span className="text-[11px] font-medium text-amber-400 flex items-center gap-1">
+                      <AlertTriangle className="w-3 h-3" /> Divergente
+                    </span>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <div className="p-2.5 bg-background/60 rounded border border-purple-500/20">
+                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold block">
+                      Cadastrado com Desconto
+                    </span>
+                    <span className="text-sm font-bold font-mono text-purple-300 mt-0.5 block">
+                      {pairedEval.catalogEffectivePrice != null
+                        ? `US$ ${pairedEval.catalogEffectivePrice.toFixed(2)}`
+                        : 'US$ —'}
+                    </span>
+                  </div>
+
+                  <div className="p-2.5 bg-background/60 rounded border border-purple-500/20">
+                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold block">
+                      B&H com Rebate
+                    </span>
+                    <span className="text-sm font-bold font-mono text-emerald-400 mt-0.5 block">
+                      {pairedEval.rebatePair?.priceBh != null
+                        ? `US$ ${pairedEval.rebatePair.priceBh.toFixed(2)}`
+                        : 'US$ —'}
+                    </span>
+                  </div>
+
+                  <div className="p-2.5 bg-background/60 rounded border border-purple-500/20">
+                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold block">
+                      Divergência Rebate
+                    </span>
+                    <span
+                      className={`text-sm font-bold font-mono mt-0.5 block ${
+                        pairedEval.rebatePair == null || pairedEval.rebatePair.diffUsd === 0
+                          ? 'text-muted-foreground'
+                          : pairedEval.rebatePair.isWithinTolerance
+                            ? 'text-emerald-400'
+                            : 'text-amber-400'
+                      }`}
+                    >
+                      {pairedEval.rebatePair?.diffUsd != null
+                        ? `${pairedEval.rebatePair.diffUsd > 0 ? '+' : ''}US$ ${pairedEval.rebatePair.diffUsd.toFixed(2)} (${pairedEval.rebatePair.diffPct != null && pairedEval.rebatePair.diffPct > 0 ? '+' : ''}${pairedEval.rebatePair.diffPct?.toFixed(2)}%)`
+                        : '—'}
+                    </span>
+                  </div>
+                </div>
+              </div>
             </div>
-          </div>
+          ) : (
+            /* Layout clássico / simples quando não há rebate vigente pareado */
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="p-3 bg-muted/40 rounded-lg border border-border/40">
+                <span className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold block">
+                  Preço Cadastrado
+                </span>
+                <span className="text-base font-bold font-mono text-foreground mt-0.5 block">
+                  {displayPriceDb != null ? `US$ ${displayPriceDb.toFixed(2)}` : 'US$ —'}
+                </span>
+              </div>
+
+              <div className="p-3 bg-muted/40 rounded-lg border border-border/40">
+                <span className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold block">
+                  Preço B&H (Tempo Real)
+                </span>
+                <span className="text-base font-bold font-mono text-emerald-400 mt-0.5 block">
+                  {displayPriceBh != null ? `US$ ${displayPriceBh.toFixed(2)}` : 'Não identificado'}
+                </span>
+              </div>
+
+              <div className="p-3 bg-muted/40 rounded-lg border border-border/40">
+                <span className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold block">
+                  Divergência
+                </span>
+                <span
+                  className={`text-base font-bold font-mono mt-0.5 block ${
+                    displayDiffUsd == null || displayDiffUsd === 0
+                      ? 'text-muted-foreground'
+                      : displayDiffUsd > 0
+                        ? 'text-amber-400'
+                        : 'text-blue-400'
+                  }`}
+                >
+                  {displayDiffUsd != null
+                    ? `${displayDiffUsd > 0 ? '+' : ''}US$ ${displayDiffUsd.toFixed(2)} (${displayDiffPct != null && displayDiffPct > 0 ? '+' : ''}${displayDiffPct != null ? displayDiffPct.toFixed(2) : '0.00'}%)`
+                    : '—'}
+                </span>
+              </div>
+            </div>
+          )}
 
           {/* Mensagem e aviso */}
-          {displayMessage && (
+          {effectiveMessage && (
             <div
               className={`p-3 rounded-lg text-xs leading-relaxed border flex items-start gap-2.5 ${
-                activeStatus === 'ok'
+                effectiveStatus === 'ok'
                   ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20'
-                  : activeStatus === 'divergente'
+                  : effectiveStatus === 'divergente'
                     ? 'bg-amber-500/10 text-amber-300 border-amber-500/20'
-                    : activeStatus === 'descontinuado'
+                    : effectiveStatus === 'descontinuado'
                       ? 'bg-red-500/10 text-red-300 border-red-500/20'
                       : 'bg-yellow-500/10 text-yellow-300 border-yellow-500/20'
               }`}
             >
-              {activeStatus === 'ok' ? (
+              {effectiveStatus === 'ok' ? (
                 <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-              ) : activeStatus === 'divergente' ? (
+              ) : effectiveStatus === 'divergente' ? (
                 <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-              ) : activeStatus === 'descontinuado' ? (
+              ) : effectiveStatus === 'descontinuado' ? (
                 <AlertOctagon className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
               ) : (
                 <HelpCircle className="w-4 h-4 text-yellow-400 shrink-0 mt-0.5" />
               )}
               <div className="flex-1">
-                <span>{displayMessage}</span>
-                {activeStatus === 'sem_url_confirmada' && (
+                <span>{effectiveMessage}</span>
+                {effectiveStatus === 'sem_url_confirmada' && (
                   <p className="mt-1 font-medium text-yellow-200">
                     Dica: acesse a edição deste produto e cole manualmente a URL da página da B&H no
                     campo &quot;URL da B&H (website_url)&quot;.
@@ -475,10 +675,10 @@ export const BhPriceChecker: React.FC<BhPriceCheckerProps> = ({
           </div>
 
           {/* Botões de Ação: Rebate Fabricante e Aplicar Preço da B&H */}
-          {(isRebateActive || canApplyPrice) && (
+          {(isBhRebateActive || canApplyPrice) && (
             <div className="pt-2 flex items-center justify-end gap-2 flex-wrap">
               {/* Botão Ativar / Editar Rebate Fabricante */}
-              {isRebateActive && (
+              {isBhRebateActive && (
                 <Button
                   type="button"
                   size="sm"
@@ -512,7 +712,7 @@ export const BhPriceChecker: React.FC<BhPriceCheckerProps> = ({
                   <ArrowRight className="w-4 h-4 mr-1.5" />
                   {isApplying
                     ? 'Atualizando preço...'
-                    : `Aplicar preço da B&H (US$ ${displayPriceBh?.toFixed(2)})`}
+                    : `Aplicar preço da B&H (US$ ${targetApplyPrice?.toFixed(2)})`}
                 </Button>
               )}
             </div>

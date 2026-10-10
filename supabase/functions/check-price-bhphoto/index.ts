@@ -634,6 +634,51 @@ Deno.serve(async (req: Request) => {
           : priceRegular || priceBh
     const priceWithRebate = rebateActive ? priceBh : null
 
+    // Verificar se existe regra de rebate cadastrada no banco de dados para pareamento
+    let activeCatalogRebateRule: any = null
+    try {
+      const nowIso = new Date().toISOString()
+      const { data: rebateRules } = await supabase
+        .from('discounts')
+        .select(
+          'id, name, discount_type, discount_value, start_date, end_date, is_active, product_selection',
+        )
+        .eq('name', 'Rebate Fabricante')
+        .eq('is_active', true)
+        .order('created_at', { ascending: false })
+
+      if (rebateRules && Array.isArray(rebateRules)) {
+        const found = rebateRules.find((r: any) => {
+          if (!r.product_selection) return false
+          const matches =
+            Array.isArray(r.product_selection) && r.product_selection.includes(product.id)
+          if (!matches) return false
+          if (r.start_date && new Date(r.start_date) > new Date(nowIso)) return false
+          if (r.end_date && new Date(r.end_date) < new Date(nowIso)) return false
+          return true
+        })
+        if (found) {
+          activeCatalogRebateRule = found
+        }
+      }
+    } catch (ruleErr) {
+      console.warn(
+        '[check-price-bhphoto] Erro ao consultar regra Rebate Fabricante no edge:',
+        ruleErr,
+      )
+    }
+
+    const calcDiscountedPrice = (orig: number, type: string, val: number): number => {
+      if (val <= 0) return orig
+      if (type === 'price_usa_percentage' || type === 'percentage') {
+        return orig * (1 - val / 100)
+      }
+      if (type === 'fixed' || type === 'fixed_amount') {
+        return Math.max(0, orig - val)
+      }
+      return orig
+    }
+
     const isDiscontinued = isDiscontinuedValue(
       scrapedResult.is_discontinued,
       scrapedResult.availability,
@@ -735,20 +780,82 @@ Deno.serve(async (req: Request) => {
       )
     }
 
-    // Cálculo da divergência
-    const diffUsd = Number((priceBh - priceDb).toFixed(2))
-    const absDiffUsd = Math.abs(diffUsd)
-    const diffPct = Number((((priceBh - priceDb) / priceDb) * 100).toFixed(2))
-    const absDiffPct = Math.abs(diffPct)
+    // Cálculo da divergência e status (com suporte a pareamento de rebate)
+    let status: 'ok' | 'divergente' = 'divergente'
+    let msg = ''
+    let diffUsd = Number((priceBh - priceDb).toFixed(2))
+    let diffPct = Number((((priceBh - priceDb) / priceDb) * 100).toFixed(2))
 
-    // Tolerância: 1% ou US$ 1, o que for MAIOR
-    const toleranceUsd = Math.max(1.0, priceDb * 0.01)
-    const isWithinTolerance = absDiffUsd <= toleranceUsd || absDiffPct <= 1.0
+    // Se temos rebate vigente em ambos os lados: pareia Cheio × Cheio e Desconto × Desconto
+    if (activeCatalogRebateRule && rebateActive && (priceWithRebate != null || priceBh != null)) {
+      const catalogDiscounted = Number(
+        calcDiscountedPrice(
+          priceDb,
+          String(activeCatalogRebateRule.discount_type),
+          Number(activeCatalogRebateRule.discount_value),
+        ).toFixed(2),
+      )
+      const bhTargetRebate = priceWithRebate ?? priceBh!
+      const bhTargetFull = priceFull && priceFull > bhTargetRebate ? priceFull : null
 
-    const status: 'ok' | 'divergente' = isWithinTolerance ? 'ok' : 'divergente'
-    let msg = isWithinTolerance
-      ? `Preço conferido com a B&H. Variação de US$ ${diffUsd.toFixed(2)} (${diffPct.toFixed(2)}%) dentro da tolerância acordada.`
-      : `Preço divergente da B&H. Diferença de US$ ${diffUsd > 0 ? '+' : ''}${diffUsd.toFixed(2)} (${diffPct > 0 ? '+' : ''}${diffPct.toFixed(2)}%).`
+      const evalTolerance = (baseVal: number, targetVal: number) => {
+        const dUsd = Number((targetVal - baseVal).toFixed(2))
+        const aDUsd = Math.abs(dUsd)
+        const dPct =
+          baseVal > 0 ? Number((((targetVal - baseVal) / baseVal) * 100).toFixed(2)) : 100
+        const aDPct = Math.abs(dPct)
+        const tolUsd = Math.max(1.0, baseVal * 0.01)
+        return {
+          within: aDUsd <= tolUsd || aDPct <= 1.0,
+          diffUsd: dUsd,
+          diffPct: dPct,
+        }
+      }
+
+      const rebatePairEval = evalTolerance(catalogDiscounted, bhTargetRebate)
+      let fullPairEval: { within: boolean; diffUsd: number; diffPct: number } | null = null
+      if (bhTargetFull != null) {
+        fullPairEval = evalTolerance(priceDb, bhTargetFull)
+      }
+
+      const isBothOk = fullPairEval
+        ? fullPairEval.within && rebatePairEval.within
+        : rebatePairEval.within
+      status = isBothOk ? 'ok' : 'divergente'
+
+      diffUsd = rebatePairEval.diffUsd
+      diffPct = rebatePairEval.diffPct
+
+      if (isBothOk) {
+        msg = fullPairEval
+          ? `Preços conferidos com a B&H em ambos os pares: Cheio (US$ ${priceDb.toFixed(2)} × US$ ${bhTargetFull?.toFixed(2)}) e Rebate (US$ ${catalogDiscounted.toFixed(2)} × US$ ${bhTargetRebate.toFixed(2)}).`
+          : `Preço com rebate conferido com a B&H: US$ ${catalogDiscounted.toFixed(2)} × US$ ${bhTargetRebate.toFixed(2)} dentro da tolerância.`
+      } else {
+        const issues: string[] = []
+        if (fullPairEval && !fullPairEval.within) {
+          issues.push(
+            `Preço cheio diverge: Cadastrado US$ ${priceDb.toFixed(2)} × B&H US$ ${bhTargetFull?.toFixed(2)} (dif: ${fullPairEval.diffUsd > 0 ? '+' : ''}${fullPairEval.diffUsd.toFixed(2)})`,
+          )
+        }
+        if (!rebatePairEval.within) {
+          issues.push(
+            `Preço com rebate diverge: Cadastrado US$ ${catalogDiscounted.toFixed(2)} × B&H US$ ${bhTargetRebate.toFixed(2)} (dif: ${rebatePairEval.diffUsd > 0 ? '+' : ''}${rebatePairEval.diffUsd.toFixed(2)})`,
+          )
+        }
+        msg = issues.join(' · ')
+      }
+    } else {
+      // Comparação simples atual
+      const absDiffUsd = Math.abs(diffUsd)
+      const absDiffPct = Math.abs(diffPct)
+      const toleranceUsd = Math.max(1.0, priceDb * 0.01)
+      const isWithinTolerance = absDiffUsd <= toleranceUsd || absDiffPct <= 1.0
+
+      status = isWithinTolerance ? 'ok' : 'divergente'
+      msg = isWithinTolerance
+        ? `Preço conferido com a B&H. Variação de US$ ${diffUsd.toFixed(2)} (${diffPct.toFixed(2)}%) dentro da tolerância acordada.`
+        : `Preço divergente da B&H. Diferença de US$ ${diffUsd > 0 ? '+' : ''}${diffUsd.toFixed(2)} (${diffPct > 0 ? '+' : ''}${diffPct.toFixed(2)}%).`
+    }
 
     if (rebateActive) {
       msg += ` [Rebate/Instant Savings ativo na B&H: Preço com desconto US$ ${priceWithRebate?.toFixed(2)} / Preço cheio US$ ${priceFull?.toFixed(2)}${rebateEndDate ? ` - Vigência: ${rebateEndDate}` : ''}]`

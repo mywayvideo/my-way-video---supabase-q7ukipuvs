@@ -185,4 +185,60 @@
   tr:nth-child(even) {
     @apply bg-gray-900;
   }
+
+  /* Colunas fixas (sticky) para tabelas de produtos em telas com rolagem horizontal */
+  .table-sticky-col-header {
+    position: sticky;
+    left: 0;
+    z-index: 20;
+    background-color: #0f172a; /* Slate 900 sólido opaco */
+    box-shadow: 2px 0 6px -2px rgba(0, 0, 0, 0.45);
+    border-right: 1px solid hsl(var(--border) / 0.8);
+  }
+
+  .table-sticky-col-cell {
+    position: sticky;
+    left: 0;
+    z-index: 10;
+    background-color: #0f172a; /* Slate 900 sólido opaco */
+    box-shadow: 2px 0 6px -2px rgba(0, 0, 0, 0.45);
+    border-right: 1px solid hsl(var(--border) / 0.8);
+  }
+
+  /* Sticky da 2ª coluna quando a 1ª é checkbox fixa */
+  .table-sticky-col-header-2 {
+    position: sticky;
+    left: 48px;
+    z-index: 20;
+    background-color: #0f172a; /* Slate 900 sólido opaco */
+    box-shadow: 3px 0 6px -2px rgba(0, 0, 0, 0.45);
+    border-right: 1px solid hsl(var(--border) / 0.8);
+  }
+
+  .table-sticky-col-cell-2 {
+    position: sticky;
+    left: 48px;
+    z-index: 10;
+    background-color: #0f172a; /* Slate 900 sólido opaco */
+    box-shadow: 3px 0 6px -2px rgba(0, 0, 0, 0.45);
+    border-right: 1px solid hsl(var(--border) / 0.8);
+  }
+
+  /* Garante opacidade sólida mesmo com hover e seleção de linha */
+  tr:hover > .table-sticky-col-cell,
+  tr:hover > .table-sticky-col-cell-2 {
+    background-color: #1e293b; /* Slate 800 sólido no hover */
+  }
+
+  tr[data-state='selected'] > .table-sticky-col-cell,
+  tr[data-state='selected'] > .table-sticky-col-cell-2 {
+    background-color: #1e293b;
+  }
+
+  /* Largura padrão controlada para coluna de produto em tabelas de lote */
+  .bh-product-name-col {
+    width: 280px;
+    min-width: 240px;
+    max-width: 300px;
+  }
 }

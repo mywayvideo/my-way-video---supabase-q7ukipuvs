@@ -1588,14 +1588,16 @@ export function AdminBhUpdatePage() {
               <Table className="min-w-[1150px]">
                 <TableHeader>
                   <TableRow className="hover:bg-transparent bg-muted/20">
-                    <TableHead className="w-12 text-center">
+                    <TableHead className="w-12 text-center table-sticky-col-header">
                       <Checkbox
                         checked={isAllFilteredSelected}
                         onCheckedChange={toggleSelectAllFiltered}
                         aria-label="Selecionar todos os filtrados"
                       />
                     </TableHead>
-                    <TableHead className="min-w-[220px]">Produto & Fabricante</TableHead>
+                    <TableHead className="bh-product-name-col table-sticky-col-header-2">
+                      Produto & Fabricante
+                    </TableHead>
                     <TableHead className="w-28">SKU</TableHead>
                     <TableHead className="w-28 text-right">Preço DB (FOB)</TableHead>
                     <TableHead className="w-32 text-right">Preço B&H</TableHead>
@@ -1639,7 +1641,7 @@ export function AdminBhUpdatePage() {
                         )}
                       >
                         {/* Checkbox de seleção */}
-                        <TableCell className="text-center">
+                        <TableCell className="text-center table-sticky-col-cell">
                           <Checkbox
                             checked={isSelected}
                             onCheckedChange={() => toggleSelect(p.id)}
@@ -1648,19 +1650,23 @@ export function AdminBhUpdatePage() {
                         </TableCell>
 
                         {/* Produto e Fabricante */}
-                        <TableCell>
-                          <div className="flex flex-col min-w-0 pr-2">
+                        <TableCell className="bh-product-name-col table-sticky-col-cell-2">
+                          <div className="flex flex-col min-w-0 pr-2 overflow-hidden">
                             <span
-                              className="font-medium text-foreground text-sm truncate"
+                              className="font-medium text-foreground text-sm truncate block"
                               title={p.name}
                             >
                               {p.name}
                             </span>
-                            <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
-                              <span>{p.manufacturer?.name || 'Sem fabricante'}</span>
-                              <span className="text-[10px] text-muted-foreground/60">•</span>
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5 truncate">
+                              <span className="truncate">
+                                {p.manufacturer?.name || 'Sem fabricante'}
+                              </span>
+                              <span className="text-[10px] text-muted-foreground/60 shrink-0">
+                                •
+                              </span>
                               <span
-                                className="font-mono text-[11px]"
+                                className="font-mono text-[11px] shrink-0"
                                 title={`Última alteração: ${p.updated_at ? new Date(p.updated_at).toLocaleString('pt-BR') : 'nunca'}`}
                               >
                                 {p.updated_at

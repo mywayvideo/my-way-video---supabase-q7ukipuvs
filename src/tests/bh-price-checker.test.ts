@@ -278,24 +278,14 @@ describe('priceCheckService & B&H verification tolerance logic', () => {
   })
 
   describe('evaluatePairedPrices - Paired comparison aware of active rebate', () => {
-    it('Caso real Sony AN820A: 282,00 cheio / 159,00 com rebate em ambos os lados -> resultado OK nos dois pares sem falso alerta', () => {
+    it('Caso real Sony AN820A com campos NATIVOS: 282,00 cheio / 159,00 com rebate em ambos os lados -> resultado OK nos dois pares sem falso alerta', () => {
       const futureDate = new Date()
       futureDate.setDate(futureDate.getDate() + 30)
 
-      const activeRebateRule: ExistingRebateRule = {
-        id: 'rebate-rule-sony-an820a',
-        name: 'Rebate Fabricante',
-        discount_type: 'price_usa_percentage',
-        discount_value: 43.62, // Desconto que leva de 282 para 159
-        start_date: new Date(Date.now() - 86400000).toISOString(),
-        end_date: futureDate.toISOString(),
-        is_active: true,
-        product_selection: ['sony-an820a-id'],
-      }
-
       const evaluation = evaluatePairedPrices({
         catalogPriceUsd: 282.0,
-        rebateRule: activeRebateRule,
+        catalogPriceRebate: 159.0,
+        catalogDateRebate: futureDate.toISOString(),
         bhPrice: 159.0, // preço retornado pela B&H
         bhPriceFull: 282.0, // preço cheio da B&H
         bhPriceWithRebate: 159.0, // preço com rebate da B&H
@@ -315,10 +305,61 @@ describe('priceCheckService & B&H verification tolerance logic', () => {
 
       // Par desconto: 159 x 159 -> OK
       expect(evaluation.rebatePair).toBeDefined()
-      expect(evaluation.rebatePair?.priceCatalog).toBeCloseTo(159.0, 1)
+      expect(evaluation.rebatePair?.priceCatalog).toBe(159.0)
       expect(evaluation.rebatePair?.priceBh).toBe(159.0)
       expect(evaluation.rebatePair?.isWithinTolerance).toBe(true)
-      expect(evaluation.rebatePair?.diffUsd).toBeCloseTo(0, 1)
+      expect(evaluation.rebatePair?.diffUsd).toBe(0)
+    })
+
+    it('Caso real Sony AN820A com regra legada ExistingRebateRule -> compatibilidade mantida', () => {
+      const futureDate = new Date()
+      futureDate.setDate(futureDate.getDate() + 30)
+
+      const activeRebateRule: ExistingRebateRule = {
+        id: 'rebate-rule-sony-an820a',
+        name: 'Rebate Fabricante',
+        discount_type: 'price_usa_percentage',
+        discount_value: 43.62, // Desconto que leva de 282 para 159
+        start_date: new Date(Date.now() - 86400000).toISOString(),
+        end_date: futureDate.toISOString(),
+        is_active: true,
+        product_selection: ['sony-an820a-id'],
+      }
+
+      const evaluation = evaluatePairedPrices({
+        catalogPriceUsd: 282.0,
+        rebateRule: activeRebateRule,
+        bhPrice: 159.0,
+        bhPriceFull: 282.0,
+        bhPriceWithRebate: 159.0,
+        bhRebateActive: true,
+      })
+
+      expect(evaluation.mode).toBe('paired')
+      expect(evaluation.status).toBe('ok')
+      expect(evaluation.overallWithinTolerance).toBe(true)
+      expect(evaluation.fullPair?.isWithinTolerance).toBe(true)
+      expect(evaluation.rebatePair?.isWithinTolerance).toBe(true)
+    })
+
+    it('Caso rebate expirado (date_rebate no passado): ignora rebate e compara só preço cheio', () => {
+      const pastDate = new Date(Date.now() - 86400000 * 5) // 5 dias atrás
+
+      const evaluation = evaluatePairedPrices({
+        catalogPriceUsd: 282.0,
+        catalogPriceRebate: 159.0,
+        catalogDateRebate: pastDate.toISOString(),
+        bhPrice: 282.0,
+        bhPriceFull: 282.0,
+        bhPriceWithRebate: 159.0,
+        bhRebateActive: true,
+      })
+
+      // Como o rebate expirou no catálogo, cai para comparação single do preço cheio
+      expect(evaluation.mode).toBe('single')
+      expect(evaluation.status).toBe('ok')
+      expect(evaluation.overallWithinTolerance).toBe(true)
+      expect(evaluation.rebatePair).toBeNull()
     })
 
     it('Caso de divergência real no rebate: B&H rebate para US$ 149,00 enquanto cadastro dá US$ 159,00 -> status "divergente" no par desconto e cheio OK', () => {
@@ -466,23 +507,13 @@ describe('priceCheckService & B&H verification tolerance logic', () => {
       expect(extracted.rebateEndDate).toBe('Ends May 31')
     })
 
-    it('resolvePairedEvaluation helper unifica o status na página de edição e no lote', () => {
-      const activeRebateRule: ExistingRebateRule = {
-        id: 'rebate-rule-sony-an820a',
-        name: 'Rebate Fabricante',
-        discount_type: 'fixed',
-        discount_value: 123,
-        start_date: null,
-        end_date: '2026-12-31',
-        is_active: true,
-        product_selection: ['prod-sony-an820a'],
-      }
-
-      // Simulação do caso AN820A onde o edge function retorna status divergente (-43.62%) por comparação simples
+    it('resolvePairedEvaluation helper unifica o status com campos nativos do produto', () => {
+      // Simulação do caso AN820A nativo (price_usd 282, price_usa_rebate 159)
       const resolution = resolvePairedEvaluation({
         status: 'divergente',
         catalogPriceUsd: 282,
-        rebateRule: activeRebateRule,
+        catalogPriceRebate: 159,
+        catalogDateRebate: '2028-12-31T23:59:59.000Z',
         priceBh: 159,
         priceFull: 282,
         priceWithRebate: 159,

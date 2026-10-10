@@ -119,6 +119,8 @@ export function extractRebateInfo(params: {
 export function resolvePairedEvaluation(params: {
   status?: PriceCheckStatus | null
   catalogPriceUsd?: number | null
+  catalogPriceRebate?: number | null
+  catalogDateRebate?: string | Date | null
   rebateRule?: ExistingRebateRule | null
   priceBh?: number | null
   priceFull?: number | null
@@ -133,6 +135,8 @@ export function resolvePairedEvaluation(params: {
   const {
     status,
     catalogPriceUsd,
+    catalogPriceRebate,
+    catalogDateRebate,
     rebateRule,
     priceBh,
     priceFull,
@@ -159,6 +163,8 @@ export function resolvePairedEvaluation(params: {
   // Executa avaliação pareada (se houver rebate ativo no cadastro e na B&H, compara pareado; senão simples)
   const pairedEval = evaluatePairedPrices({
     catalogPriceUsd,
+    catalogPriceRebate,
+    catalogDateRebate,
     rebateRule,
     bhPrice: priceBh,
     bhPriceFull: priceFull,
@@ -222,33 +228,62 @@ export function evaluatePricePair(
  */
 export function evaluatePairedPrices(params: {
   catalogPriceUsd: number | null | undefined
-  rebateRule: ExistingRebateRule | null | undefined
+  catalogPriceRebate?: number | null | undefined
+  catalogDateRebate?: string | Date | null | undefined
+  rebateRule?: ExistingRebateRule | null | undefined
   bhPrice: number | null | undefined
   bhPriceFull?: number | null | undefined
   bhPriceWithRebate?: number | null | undefined
   bhRebateActive?: boolean | null
 }): PairedCheckEvaluation {
-  const { catalogPriceUsd, rebateRule, bhPrice, bhPriceFull, bhPriceWithRebate, bhRebateActive } =
-    params
+  const {
+    catalogPriceUsd,
+    catalogPriceRebate,
+    catalogDateRebate,
+    rebateRule,
+    bhPrice,
+    bhPriceFull,
+    bhPriceWithRebate,
+    bhRebateActive,
+  } = params
 
   const priceDb = catalogPriceUsd != null && catalogPriceUsd > 0 ? catalogPriceUsd : null
 
-  // Verifica se a regra de rebate está vigente
+  // 1. Prioridade: rebate NATIVO do produto (price_usa_rebate + date_rebate)
   let isCatalogRebateActive = false
   let catalogEffectivePrice: number | null = null
 
-  if (rebateRule && rebateRule.is_active !== false && priceDb != null) {
-    const now = new Date()
+  const now = new Date()
+
+  // Se o rebate nativo foi fornecido diretamente
+  const nativeRebate =
+    catalogPriceRebate != null
+      ? Number(catalogPriceRebate)
+      : rebateRule?.price_usa_rebate != null
+        ? Number(rebateRule.price_usa_rebate)
+        : null
+  const nativeDate = catalogDateRebate ?? rebateRule?.date_rebate
+
+  if (nativeRebate != null && nativeRebate > 0) {
+    const isNativeNotExpired = !nativeDate || new Date(nativeDate) >= now
+    if (isNativeNotExpired) {
+      isCatalogRebateActive = true
+      catalogEffectivePrice = Number(nativeRebate.toFixed(2))
+    }
+  }
+
+  // 2. Fallback: regra legada de discounts (para compatibilidade reversa antes da migração completa)
+  if (!isCatalogRebateActive && rebateRule && rebateRule.is_active !== false && priceDb != null) {
     const isStarted = !rebateRule.start_date || new Date(rebateRule.start_date) <= now
     const isNotExpired = !rebateRule.end_date || new Date(rebateRule.end_date) >= now
-    if (isStarted && isNotExpired && rebateRule.discount_value > 0) {
+    if (isStarted && isNotExpired && (rebateRule.discount_value || 0) > 0) {
       isCatalogRebateActive = true
       catalogEffectivePrice = Number(
         calculateDiscountedPrice(
           priceDb,
           0,
-          rebateRule.discount_type,
-          rebateRule.discount_value,
+          rebateRule.discount_type || 'percentage',
+          rebateRule.discount_value || 0,
         ).toFixed(2),
       )
     }

@@ -26,20 +26,22 @@ describe('B&H Batch Update Service & Business Rules', () => {
   })
 
   it('resolves paired evaluation in batch items matching product edit page logic (Sony AN820A)', () => {
-    // Sony AN820A: Cadastrado US$ 282, regra Rebate Fabricante fixa US$ 123 (efetivo US$ 159).
+    // Sony AN820A com campos NATIVOS: price_usd 282, price_usa_rebate 159, date_rebate no futuro
     // B&H retorna: price_bh 159, price_full 282, price_with_rebate 159, rebate_active true.
-    const sonyAn820Item: ProductBatchItem = {
+    const sonyAn820NativeItem: ProductBatchItem = {
       id: 'prod-sony-an820a',
       name: 'Sony AN-820A Active Dipole Antenna',
       sku: 'AN820A',
       price_usd: 282,
+      price_usa_rebate: 159,
+      date_rebate: new Date(Date.now() + 86400000 * 30).toISOString(),
       website_url: 'https://www.bhphotovideo.com/c/product/68297-REG/Sony_AN820A_AN_820A_Active_Antenna.html',
       is_discontinued: false,
       updated_at: '2026-10-01',
       last_reviewed_at: '2026-10-01',
       batchStatus: 'done',
       checkResult: {
-        status: 'divergente', // Se edge function mandasse divergente por comparação simples 282 x 159 (-43.62%)
+        status: 'divergente', // Edge function bruta antes da avaliação pareada
         price_usd_cadastrado: 282,
         price_bh: 159,
         diff_usd: -123,
@@ -52,37 +54,20 @@ describe('B&H Batch Update Service & Business Rules', () => {
       },
     }
 
-    const rebateRule = {
-      id: 'rebate-an820a',
-      name: 'Rebate Fabricante',
-      discount_type: 'fixed' as const,
-      discount_value: 123,
-      start_date: '2026-05-01',
-      end_date: '2026-05-31',
-      is_active: true,
-      product_selection: ['prod-sony-an820a'],
-    }
+    // Avalia pareado diretamente dos campos nativos do item, sem depender de activeRebatesMap
+    const resNative = bhBatchUpdateService.resolveItemPairedEvaluation(sonyAn820NativeItem)
+    expect(resNative.effectiveStatus).toBe('ok')
+    expect(resNative.pairedEval?.overallWithinTolerance).toBe(true)
+    expect(resNative.pairedEval?.fullPair?.isWithinTolerance).toBe(true)
+    expect(resNative.pairedEval?.rebatePair?.isWithinTolerance).toBe(true)
+    expect(resNative.pairedEval?.fullPair?.diffUsd).toBe(0)
+    expect(resNative.pairedEval?.rebatePair?.diffUsd).toBe(0)
 
-    // Sem a regra ativa passada, mantém status retornado
-    const resWithoutRule = bhBatchUpdateService.resolveItemPairedEvaluation(sonyAn820Item, null)
-    expect(resWithoutRule.effectiveStatus).toBe('divergente')
-
-    // Com a regra ativa passada, avalia pareado: Cheio OK (282 x 282) e Desconto OK (159 x 159) -> OK!
-    const resWithRule = bhBatchUpdateService.resolveItemPairedEvaluation(sonyAn820Item, rebateRule)
-    expect(resWithRule.effectiveStatus).toBe('ok')
-    expect(resWithRule.pairedEval?.overallWithinTolerance).toBe(true)
-    expect(resWithRule.pairedEval?.fullPair?.isWithinTolerance).toBe(true)
-    expect(resWithRule.pairedEval?.rebatePair?.isWithinTolerance).toBe(true)
-    expect(resWithRule.pairedEval?.fullPair?.diffUsd).toBe(0)
-    expect(resWithRule.pairedEval?.rebatePair?.diffUsd).toBe(0)
-
-    // Validar se calculateStats computa como OK quando o mapa de regras é fornecido
-    const statsWithRebate = bhBatchUpdateService.calculateStats([sonyAn820Item], {
-      'prod-sony-an820a': rebateRule,
-    })
-    expect(statsWithRebate.okCount).toBe(1)
-    expect(statsWithRebate.divergenceCount).toBe(0)
-    expect(statsWithRebate.rebateDetectedCount).toBe(1)
+    // Validar se calculateStats computa como OK diretamente dos campos nativos
+    const statsNative = bhBatchUpdateService.calculateStats([sonyAn820NativeItem])
+    expect(statsNative.okCount).toBe(1)
+    expect(statsNative.divergenceCount).toBe(0)
+    expect(statsNative.rebateDetectedCount).toBe(1)
   })
 
   it('calculates batch statistics accurately', () => {
@@ -426,81 +411,77 @@ describe('B&H Batch Update Service & Business Rules', () => {
     }
   })
 
-  it('rebateDiscountService creates and updates discounts with fixed name "Rebate Fabricante" and never modifies price_usd', async () => {
+  it('rebateDiscountService updates native rebate fields in products and preserves price_usd', async () => {
     const { rebateDiscountService } = await import('@/services/rebateDiscountService')
 
-    let insertedRecord: any = null
-    let updatedRecord: any = null
+    let updatedProductPayload: any = null
 
-    const mockInsert = vi.fn((record) => {
-      insertedRecord = record
+    const mockProductSelect = vi.fn(() => ({
+      eq: vi.fn(() => ({
+        maybeSingle: vi.fn().mockResolvedValue({
+          data: {
+            id: 'prod-canon-c70',
+            price_usd: 5499.0,
+            price_cost: 4500.0,
+          },
+          error: null,
+        }),
+      })),
+    }))
+
+    const mockProductUpdate = vi.fn((payload) => {
+      updatedProductPayload = payload
       return {
-        select: vi.fn(() => ({
-          single: vi.fn().mockResolvedValue({ data: { id: 'disc-1', ...record }, error: null }),
-        })),
+        eq: vi.fn().mockResolvedValue({ error: null }),
       }
     })
 
-    const mockUpdate = vi.fn((record) => {
-      updatedRecord = record
-      return {
-        eq: vi.fn(() => ({
-          select: vi.fn(() => ({
-            single: vi.fn().mockResolvedValue({ data: { id: 'disc-existing', ...record }, error: null }),
-          })),
-        })),
-      }
-    })
+    const mockDiscountsSelect = vi.fn(() => ({
+      eq: vi.fn(() => ({
+        eq: vi.fn().mockResolvedValue({ data: [], error: null }),
+      })),
+    }))
 
     const { supabase } = await import('@/lib/supabase/client')
     const originalFrom = supabase.from
     supabase.from = vi.fn((table: any) => {
+      if (table === 'products') {
+        return {
+          select: mockProductSelect,
+          update: mockProductUpdate,
+        } as any
+      }
       if (table === 'discounts') {
         return {
-          insert: mockInsert,
-          update: mockUpdate,
+          select: mockDiscountsSelect,
+          update: vi.fn(() => ({ eq: vi.fn().mockResolvedValue({ error: null }) })),
         } as any
       }
       return originalFrom(table)
     }) as any
 
     try {
-      // 1. Criar novo Rebate Fabricante
-      const created = await rebateDiscountService.saveRebateDiscount({
+      // 1. Salvar rebate nativo percentual (10% sobre 5499 = 4949.10)
+      const result = await rebateDiscountService.saveRebateDiscount({
         productId: 'prod-canon-c70',
         productName: 'Canon EOS C70 Cinema Camera',
         discountType: 'percentage',
-        discountValue: 12.5,
-        startDate: '2026-10-01T00:00:00.000Z',
+        discountValue: 10,
         endDate: '2026-10-31T23:59:00.000Z',
-        isActive: true,
       })
 
-      expect(created).toBeDefined()
-      expect(insertedRecord.name).toBe('Rebate Fabricante')
-      expect(insertedRecord.target_type).toBe('specific')
-      expect(insertedRecord.product_selection).toEqual(['prod-canon-c70'])
-      expect(insertedRecord.discount_type).toBe('percentage')
-      expect(insertedRecord.discount_value).toBe(12.5)
-      expect(insertedRecord.end_date).toBe('2026-10-31T23:59:00.000Z')
-
-      // 2. Atualizar regra existente sem duplicar
-      const updated = await rebateDiscountService.saveRebateDiscount({
-        productId: 'prod-canon-c70',
-        productName: 'Canon EOS C70 Cinema Camera',
-        discountType: 'fixed',
-        discountValue: 600,
-        startDate: '2026-10-01T00:00:00.000Z',
-        endDate: '2026-11-15T23:59:00.000Z',
-        isActive: true,
-        existingDiscountId: 'disc-existing',
-      })
-
-      expect(updated).toBeDefined()
-      expect(updatedRecord.name).toBe('Rebate Fabricante')
-      expect(updatedRecord.discount_type).toBe('fixed')
-      expect(updatedRecord.discount_value).toBe(600)
-      expect(updatedRecord.end_date).toBe('2026-11-15T23:59:00.000Z')
+      expect(result).toBeDefined()
+      expect(result.priceUsaRebate).toBe(4949.1)
+      expect(updatedProductPayload).toBeDefined()
+      expect(updatedProductPayload.price_usa_rebate).toBe(4949.1)
+      expect(updatedProductPayload.price_cost_rebate).toBe(4050.0) // 4500 * (4949.1 / 5499) = 4050
+      expect(updatedProductPayload.date_rebate).toBe('2026-10-31T23:59:00.000Z')
+      // Regra permanente do usuário: updated_at = last_reviewed_at = agora (mesmo valor)
+      expect(updatedProductPayload.updated_at).toBeDefined()
+      expect(updatedProductPayload.last_reviewed_at).toBeDefined()
+      expect(updatedProductPayload.updated_at).toBe(updatedProductPayload.last_reviewed_at)
+      // price_usd NUNCA é alterado
+      expect(updatedProductPayload.price_usd).toBeUndefined()
     } finally {
       supabase.from = originalFrom
     }

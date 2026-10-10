@@ -13,6 +13,10 @@ export interface ProductBatchItem {
   name: string
   sku: string | null
   price_usd: number | null
+  price_cost?: number | null
+  price_usa_rebate?: number | null
+  price_cost_rebate?: number | null
+  date_rebate?: string | null
   website_url: string | null
   is_discontinued: boolean
   updated_at: string
@@ -83,6 +87,8 @@ export const bhBatchUpdateService = {
     const resolved = resolvePairedEvaluation({
       status: checkRes?.status || (item.batchStatus === 'error' ? 'erro' : null),
       catalogPriceUsd: item.price_usd,
+      catalogPriceRebate: item.price_usa_rebate,
+      catalogDateRebate: item.date_rebate,
       rebateRule: rebateRule || null,
       priceBh: checkRes?.price_bh ?? null,
       priceFull: rebateInfo.rebatePriceFull,
@@ -186,7 +192,7 @@ export const bhBatchUpdateService = {
     const { data, error } = await supabase
       .from('products')
       .select(
-        'id, name, sku, price_usd, website_url, is_discontinued, updated_at, last_reviewed_at, manufacturer:manufacturers(id, name)',
+        'id, name, sku, price_usd, price_cost, price_usa_rebate, price_cost_rebate, date_rebate, website_url, is_discontinued, updated_at, last_reviewed_at, manufacturer:manufacturers(id, name)',
       )
       .order('updated_at', { ascending: true }) // Mais desatualizados primeiro como padrão do banco
       .limit(limit)
@@ -200,6 +206,10 @@ export const bhBatchUpdateService = {
       name: row.name,
       sku: row.sku || null,
       price_usd: row.price_usd != null ? Number(row.price_usd) : null,
+      price_cost: row.price_cost != null ? Number(row.price_cost) : null,
+      price_usa_rebate: row.price_usa_rebate != null ? Number(row.price_usa_rebate) : null,
+      price_cost_rebate: row.price_cost_rebate != null ? Number(row.price_cost_rebate) : null,
+      date_rebate: row.date_rebate || null,
       website_url: row.website_url || null,
       is_discontinued: Boolean(row.is_discontinued),
       updated_at: row.updated_at || '',
@@ -256,6 +266,7 @@ export const bhBatchUpdateService = {
 
       if (item.checkResult) {
         const res = item.checkResult
+        // Regra ativa vem primariamente dos campos nativos do item, com fallback para o mapa se fornecido
         const rule = activeRebatesMap ? activeRebatesMap[item.id] : null
         const evaluated = this.resolveItemPairedEvaluation(item, rule)
         const effectiveStatus = evaluated.effectiveStatus || res.status

@@ -51,7 +51,27 @@ export function RebateDiscountModal({
     const savings =
       checkRes?.rebate_savings || (priceFull > priceWithRebate ? priceFull - priceWithRebate : 0)
 
-    // Se já existe regra salva no banco para o produto
+    // Se o produto já possui rebate nativo nos campos do produto
+    const nativeRebatePrice = product.price_usa_rebate
+    const nativeDateRebate = product.date_rebate
+
+    if (nativeRebatePrice != null && nativeRebatePrice > 0 && priceFull > 0) {
+      const diff = priceFull - nativeRebatePrice
+      const pct = Number(((diff / priceFull) * 100).toFixed(2))
+      setDiscountType('percentage')
+      setDiscountValue(pct > 0 ? pct : 0)
+      if (nativeDateRebate) {
+        try {
+          setEndDate(new Date(nativeDateRebate).toISOString().slice(0, 16))
+        } catch {
+          setEndDate('')
+        }
+      }
+      setRawEndDateHint(checkRes?.rebate_end_date || '')
+      return
+    }
+
+    // Se já existe regra salva no banco para o produto (legada ou objeto de regra)
     if (existingRule) {
       setDiscountType(
         existingRule.discount_type === 'fixed' || existingRule.discount_type === 'fixed_amount'
@@ -62,8 +82,9 @@ export function RebateDiscountModal({
       if (existingRule.start_date) {
         setStartDate(new Date(existingRule.start_date).toISOString().slice(0, 16))
       }
-      if (existingRule.end_date) {
-        setEndDate(new Date(existingRule.end_date).toISOString().slice(0, 16))
+      const ruleEndDate = existingRule.date_rebate || existingRule.end_date
+      if (ruleEndDate) {
+        setEndDate(new Date(ruleEndDate).toISOString().slice(0, 16))
       }
       setRawEndDateHint(checkRes?.rebate_end_date || '')
       return
@@ -139,7 +160,7 @@ export function RebateDiscountModal({
 
     setSaving(true)
     try {
-      await rebateDiscountService.saveRebateDiscount({
+      const result = await rebateDiscountService.saveRebateDiscount({
         productId: product.id,
         productName: product.name,
         discountType: discountType === 'percentage' ? 'price_usa_percentage' : 'fixed',
@@ -150,9 +171,12 @@ export function RebateDiscountModal({
         existingDiscountId: existingRule?.id || null,
       })
 
+      const hasRebateAlready =
+        Boolean(product.price_usa_rebate && product.price_usa_rebate > 0) || Boolean(existingRule)
+
       toast({
-        title: existingRule ? 'Rebate Fabricante atualizado!' : 'Rebate Fabricante ativado!',
-        description: `Regra de desconto criada no catálogo para "${product.name}". Preço base FOB US$ ${product.price_usd?.toFixed(2)} preservado.`,
+        title: hasRebateAlready ? 'Rebate Fabricante atualizado!' : 'Rebate Fabricante ativado!',
+        description: `Rebate nativo gravado no produto "${product.name}" (price_usa_rebate: US$ ${result.priceUsaRebate.toFixed(2)}). Preço FOB base US$ ${product.price_usd?.toFixed(2)} preservado.`,
       })
 
       onSuccess()
@@ -160,13 +184,16 @@ export function RebateDiscountModal({
     } catch (err: any) {
       toast({
         title: 'Erro ao salvar rebate',
-        description: err.message || 'Falha ao gravar regra na tabela discounts.',
+        description: err.message || 'Falha ao gravar rebate nos campos do produto.',
         variant: 'destructive',
       })
     } finally {
       setSaving(false)
     }
   }
+
+  const isEditing =
+    Boolean(product.price_usa_rebate && product.price_usa_rebate > 0) || Boolean(existingRule)
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
@@ -178,11 +205,11 @@ export function RebateDiscountModal({
             </div>
             <div>
               <DialogTitle className="text-base font-semibold">
-                {existingRule ? 'Editar Rebate Fabricante' : 'Ativar Rebate Fabricante'}
+                {isEditing ? 'Editar Rebate Fabricante' : 'Ativar Rebate Fabricante'}
               </DialogTitle>
               <DialogDescription className="text-xs">
-                Cria regra na tabela de descontos em tempo de exibição, sem alterar o preço FOB
-                base.
+                Grava nos campos nativos de rebate do produto (price_usa_rebate, price_cost_rebate,
+                date_rebate), preservando o preço FOB base inalterado.
               </DialogDescription>
             </div>
           </div>
@@ -304,8 +331,9 @@ export function RebateDiscountModal({
           <div className="p-2.5 bg-amber-500/10 border border-amber-500/20 rounded text-[11px] text-amber-300 flex items-start gap-2">
             <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
             <span>
-              <strong>Regra Vinculante:</strong> Esta ação grava exclusivamente na tabela{' '}
-              <code>discounts</code> com escopo para este produto. O <code>price_usd</code> original
+              <strong>Regra Vinculante:</strong> Esta ação atualiza diretamente os campos nativos{' '}
+              <code>price_usa_rebate</code>, <code>price_cost_rebate</code> e{' '}
+              <code>date_rebate</code> em <code>products</code>. O <code>price_usd</code> original
               do produto permanece inalterado.
             </span>
           </div>
@@ -332,7 +360,7 @@ export function RebateDiscountModal({
                 <RefreshCw className="w-3.5 h-3.5 mr-1.5 animate-spin" />
                 Gravando...
               </>
-            ) : existingRule ? (
+            ) : isEditing ? (
               <>
                 <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
                 Salvar Alterações

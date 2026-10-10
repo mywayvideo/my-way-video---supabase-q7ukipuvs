@@ -125,41 +125,13 @@ export function AdminBhUpdatePage() {
   const [rebateModalProduct, setRebateModalProduct] = useState<ProductBatchItem | null>(null)
   const [rebateExistingRule, setRebateExistingRule] = useState<ExistingRebateRule | null>(null)
 
-  // Cache em memória de regras ativas de rebate mapeadas por productId
-  const [activeRebatesMap, setActiveRebatesMap] = useState<Record<string, ExistingRebateRule>>({})
   const [isBulkReviewing, setIsBulkReviewing] = useState<boolean>(false)
+  const [isMigratingRebates, setIsMigratingRebates] = useState<boolean>(false)
 
   // 1. Carregar produtos iniciais
-  // Carregar regras "Rebate Fabricante" existentes para exibir status correto nos botões
-  const loadExistingRebates = useCallback(async () => {
-    try {
-      const { supabase } = await import('@/lib/supabase/client')
-      const { data, error } = await (supabase.from('discounts') as any)
-        .select(
-          'id, name, discount_type, discount_value, start_date, end_date, is_active, product_selection',
-        )
-        .eq('name', 'Rebate Fabricante')
-
-      if (error || !data) return
-
-      const map: Record<string, ExistingRebateRule> = {}
-      data.forEach((rule: any) => {
-        if (Array.isArray(rule.product_selection)) {
-          rule.product_selection.forEach((prodId: string) => {
-            map[prodId] = rule
-          })
-        }
-      })
-      setActiveRebatesMap(map)
-    } catch (err) {
-      console.warn('Erro ao carregar regras ativas de rebate:', err)
-    }
-  }, [])
-
   const loadInitialProducts = useCallback(async () => {
     setLoading(true)
     try {
-      await loadExistingRebates()
       const data = await bhBatchUpdateService.fetchProductsForBatch(2000)
 
       // Se houver estado em localStorage da sessão atual, mescla para persistir status e url draft
@@ -198,7 +170,7 @@ export function AdminBhUpdatePage() {
     } finally {
       setLoading(false)
     }
-  }, [loadExistingRebates])
+  }, [])
 
   useEffect(() => {
     loadInitialProducts()
@@ -540,10 +512,10 @@ export function AdminBhUpdatePage() {
     return bhBatchUpdateService.estimateFirecrawlCredits(selectedProducts)
   }, [selectedProducts])
 
-  // Estatísticas do processamento atual (com resolução pareada quando houver regra de rebate ativa)
+  // Estatísticas do processamento atual (com resolução pareada quando houver rebate nativo ativo)
   const stats = useMemo(() => {
-    return bhBatchUpdateService.calculateStats(selectedProducts, activeRebatesMap)
-  }, [selectedProducts, activeRebatesMap])
+    return bhBatchUpdateService.calculateStats(selectedProducts)
+  }, [selectedProducts])
 
   // Itens selecionados que ainda não foram processados (pendentes no lote)
   const pendingSelectedItems = useMemo(() => {
@@ -620,11 +592,37 @@ export function AdminBhUpdatePage() {
   // Abertura do modal de Rebate Fabricante
   const handleOpenRebateModal = async (item: ProductBatchItem) => {
     setRebateModalProduct(item)
-    // Busca se já existe regra no banco para este produto
-    const existing =
-      activeRebatesMap[item.id] || (await rebateDiscountService.findActiveRebateRule(item.id))
+    const existing = await rebateDiscountService.findActiveRebateRule(item.id)
     setRebateExistingRule(existing)
     setRebateModalOpen(true)
+  }
+
+  // Rotina de migração em lote de regras legadas da tabela discounts para os campos nativos do produto
+  const handleMigrateLegacyRebates = async () => {
+    setIsMigratingRebates(true)
+    try {
+      const res = await rebateDiscountService.migrateLegacyRebates()
+      if (res.migratedRulesCount === 0 && res.updatedProductsCount === 0) {
+        toast({
+          title: 'Migração concluída',
+          description: 'Nenhuma regra legada pendente na tabela discounts.',
+        })
+      } else {
+        toast({
+          title: 'Regras legadas migradas com sucesso!',
+          description: `${res.migratedRulesCount} regra(s) desativada(s) e ${res.updatedProductsCount} produto(s) atualizados com rebate nativo.`,
+        })
+        await loadInitialProducts()
+      }
+    } catch (err: any) {
+      toast({
+        title: 'Erro na migração de rebates',
+        description: err.message || 'Falha ao migrar regras legadas.',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsMigratingRebates(false)
+    }
   }
 
   // 3. Execução do lote seguro
@@ -987,8 +985,7 @@ export function AdminBhUpdatePage() {
       .filter((p) => {
         // Elegíveis: produtos com status OK/validado (incluindo pareado) e link confirmado
         const hasUrl = Boolean(p.website_url && p.website_url.trim().startsWith('http'))
-        const activeRuleForProd = activeRebatesMap[p.id] || null
-        const pairedRes = bhBatchUpdateService.resolveItemPairedEvaluation(p, activeRuleForProd)
+        const pairedRes = bhBatchUpdateService.resolveItemPairedEvaluation(p)
         const effectiveStatus = pairedRes.effectiveStatus || p.checkResult?.status || null
 
         const isOkOrClean =
@@ -1071,11 +1068,26 @@ export function AdminBhUpdatePage() {
                 variant="outline"
                 size="sm"
                 onClick={loadInitialProducts}
-                disabled={loading || isProcessingBatch}
+                disabled={loading || isProcessingBatch || isMigratingRebates}
                 className="h-9"
               >
                 <RefreshCw className={cn('w-4 h-4 mr-2', loading && 'animate-spin')} />
                 Recarregar Catálogo
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleMigrateLegacyRebates}
+                disabled={loading || isProcessingBatch || isMigratingRebates}
+                className="h-9 text-xs border-purple-500/30 text-purple-300 hover:bg-purple-600/10"
+                title="Migra regras ativas 'Rebate Fabricante' de discounts para os campos nativos de products e as desativa (idempotente)"
+              >
+                {isMigratingRebates ? (
+                  <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <Tag className="w-4 h-4 mr-2" />
+                )}
+                Migrar Rebates Legados
               </Button>
             </div>
           </div>
@@ -1598,12 +1610,8 @@ export function AdminBhUpdatePage() {
                     const isSelected = selectedIds.has(p.id)
                     const isCurrent = currentProcessingId === p.id
 
-                    // Resolução pareada unificada: avalia rebate ativo no cadastro e na B&H
-                    const activeRuleForProd = activeRebatesMap[p.id] || null
-                    const pairedResolution = bhBatchUpdateService.resolveItemPairedEvaluation(
-                      p,
-                      activeRuleForProd,
-                    )
+                    // Resolução pareada unificada: avalia rebate ativo direto dos campos do produto
+                    const pairedResolution = bhBatchUpdateService.resolveItemPairedEvaluation(p)
 
                     const effectiveStatus =
                       pairedResolution.effectiveStatus || p.checkResult?.status || null
@@ -1910,18 +1918,20 @@ export function AdminBhUpdatePage() {
                                 onClick={() => handleOpenRebateModal(p)}
                                 className={cn(
                                   'h-7 text-[11px] px-2 font-medium border-purple-500/30 shadow-sm',
-                                  activeRebatesMap[p.id]
+                                  p.price_usa_rebate != null && p.price_usa_rebate > 0
                                     ? 'bg-purple-500/20 text-purple-200 hover:bg-purple-500/30'
                                     : 'bg-purple-600/10 hover:bg-purple-600/20 text-purple-300',
                                 )}
                                 title={
-                                  activeRebatesMap[p.id]
-                                    ? 'Editar vigência ou percentual da regra existente Rebate Fabricante'
-                                    : 'Ativar regra de desconto Rebate Fabricante na tabela discounts'
+                                  p.price_usa_rebate != null && p.price_usa_rebate > 0
+                                    ? 'Editar vigência ou valor do rebate gravado nos campos do produto'
+                                    : 'Ativar rebate do fabricante gravando diretamente nos campos do produto'
                                 }
                               >
                                 <Tag className="w-3 h-3 mr-1" />
-                                {activeRebatesMap[p.id] ? 'Editar Rebate' : 'Ativar Rebate'}
+                                {p.price_usa_rebate != null && p.price_usa_rebate > 0
+                                  ? 'Editar Rebate'
+                                  : 'Ativar Rebate'}
                               </Button>
                             )}
 
@@ -2037,8 +2047,8 @@ export function AdminBhUpdatePage() {
             }}
             product={rebateModalProduct}
             existingRule={rebateExistingRule}
-            onSuccess={() => {
-              loadExistingRebates()
+            onSuccess={async () => {
+              await loadInitialProducts()
             }}
           />
         </div>

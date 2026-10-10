@@ -533,11 +533,11 @@ Deno.serve(async (req: Request) => {
     })
   }
 
-  // 1. Buscar produto no banco com fabricante
+  // 1. Buscar produto no banco com fabricante e campos nativos de rebate
   const { data: product, error: prodErr } = await supabase
     .from('products')
     .select(
-      'id, name, sku, price_usd, website_url, is_discontinued, manufacturer:manufacturers(id, name)',
+      'id, name, sku, price_usd, website_url, is_discontinued, price_usa_rebate, price_cost_rebate, date_rebate, manufacturer:manufacturers(id, name)',
     )
     .eq('id', product_id)
     .maybeSingle()
@@ -893,50 +893,17 @@ Deno.serve(async (req: Request) => {
           : priceRegular || priceBh
     const priceWithRebate = rebateActive ? priceBh : null
 
-    // Verificar se existe regra de rebate cadastrada no banco de dados para pareamento
-    let activeCatalogRebateRule: any = null
-    try {
-      const nowIso = new Date().toISOString()
-      const { data: rebateRules } = await supabase
-        .from('discounts')
-        .select(
-          'id, name, discount_type, discount_value, start_date, end_date, is_active, product_selection',
-        )
-        .eq('name', 'Rebate Fabricante')
-        .eq('is_active', true)
-        .order('created_at', { ascending: false })
+    // Avaliar rebate nativo do produto (price_usa_rebate + date_rebate)
+    const nativePriceRebate =
+      product.price_usa_rebate != null ? Number(product.price_usa_rebate) : null
+    const nativeDateRebate = product.date_rebate ? new Date(product.date_rebate) : null
+    const now = new Date()
 
-      if (rebateRules && Array.isArray(rebateRules)) {
-        const found = rebateRules.find((r: any) => {
-          if (!r.product_selection) return false
-          const matches =
-            Array.isArray(r.product_selection) && r.product_selection.includes(product.id)
-          if (!matches) return false
-          if (r.start_date && new Date(r.start_date) > new Date(nowIso)) return false
-          if (r.end_date && new Date(r.end_date) < new Date(nowIso)) return false
-          return true
-        })
-        if (found) {
-          activeCatalogRebateRule = found
-        }
-      }
-    } catch (ruleErr) {
-      console.warn(
-        '[check-price-bhphoto] Erro ao consultar regra Rebate Fabricante no edge:',
-        ruleErr,
-      )
-    }
-
-    const calcDiscountedPrice = (orig: number, type: string, val: number): number => {
-      if (val <= 0) return orig
-      if (type === 'price_usa_percentage' || type === 'percentage') {
-        return orig * (1 - val / 100)
-      }
-      if (type === 'fixed' || type === 'fixed_amount') {
-        return Math.max(0, orig - val)
-      }
-      return orig
-    }
+    const isCatalogNativeRebateActive = Boolean(
+      nativePriceRebate != null &&
+      nativePriceRebate > 0 &&
+      (!nativeDateRebate || nativeDateRebate >= now),
+    )
 
     const isDiscontinued = isDiscontinuedValue(
       scrapedResult.is_discontinued,
@@ -1046,14 +1013,12 @@ Deno.serve(async (req: Request) => {
     let diffPct = Number((((priceBh - priceDb) / priceDb) * 100).toFixed(2))
 
     // Se temos rebate vigente em ambos os lados: pareia Cheio × Cheio e Desconto × Desconto
-    if (activeCatalogRebateRule && rebateActive && (priceWithRebate != null || priceBh != null)) {
-      const catalogDiscounted = Number(
-        calcDiscountedPrice(
-          priceDb,
-          String(activeCatalogRebateRule.discount_type),
-          Number(activeCatalogRebateRule.discount_value),
-        ).toFixed(2),
-      )
+    if (
+      isCatalogNativeRebateActive &&
+      rebateActive &&
+      (priceWithRebate != null || priceBh != null)
+    ) {
+      const catalogDiscounted = Number(nativePriceRebate!.toFixed(2))
       const bhTargetRebate = priceWithRebate ?? priceBh!
       const bhTargetFull = priceFull && priceFull > bhTargetRebate ? priceFull : null
 

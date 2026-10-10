@@ -486,4 +486,74 @@ describe('B&H Batch Update Service & Business Rules', () => {
       supabase.from = originalFrom
     }
   })
+
+  it('bhBatchUpdateService.confirmBatchDiscontinued updates is_discontinued=true and aligns updated_at/last_reviewed_at without touching price_usd', async () => {
+    let capturedPayload: any = null
+    let capturedIds: string[] = []
+
+    const { supabase } = await import('@/lib/supabase/client')
+    const originalFrom = supabase.from
+    supabase.from = vi.fn((table: any) => {
+      if (table === 'products') {
+        return {
+          update: vi.fn((payload) => {
+            capturedPayload = payload
+            return {
+              in: vi.fn((_col, ids) => {
+                capturedIds = ids
+                return Promise.resolve({ error: null })
+              }),
+            }
+          }),
+        } as any
+      }
+      return originalFrom(table)
+    }) as any
+
+    try {
+      const nowIso = await bhBatchUpdateService.confirmBatchDiscontinued(['id-1', 'id-2'])
+      expect(nowIso).toBeDefined()
+      expect(capturedIds).toEqual(['id-1', 'id-2'])
+      expect(capturedPayload.is_discontinued).toBe(true)
+      expect(capturedPayload.updated_at).toBe(capturedPayload.last_reviewed_at)
+      expect(capturedPayload.price_usd).toBeUndefined()
+    } finally {
+      supabase.from = originalFrom
+    }
+  })
+
+  it('bhBatchUpdateService.reactivateBatchProducts updates is_discontinued=false and aligns updated_at/last_reviewed_at without touching price_usd', async () => {
+    let capturedPayload: any = null
+    let capturedIds: string[] = []
+
+    const { supabase } = await import('@/lib/supabase/client')
+    const originalFrom = supabase.from
+    supabase.from = vi.fn((table: any) => {
+      if (table === 'products') {
+        return {
+          update: vi.fn((payload) => {
+            capturedPayload = payload
+            return {
+              in: vi.fn((_col, ids) => {
+                capturedIds = ids
+                return Promise.resolve({ error: null })
+              }),
+            }
+          }),
+        } as any
+      }
+      return originalFrom(table)
+    }) as any
+
+    try {
+      const nowIso = await bhBatchUpdateService.reactivateBatchProducts(['id-3', 'id-4'])
+      expect(nowIso).toBeDefined()
+      expect(capturedIds).toEqual(['id-3', 'id-4'])
+      expect(capturedPayload.is_discontinued).toBe(false)
+      expect(capturedPayload.updated_at).toBe(capturedPayload.last_reviewed_at)
+      expect(capturedPayload.price_usd).toBeUndefined()
+    } finally {
+      supabase.from = originalFrom
+    }
+  })
 })

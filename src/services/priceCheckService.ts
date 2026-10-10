@@ -652,4 +652,50 @@ export const priceCheckService = {
       throw new Error(error.message || 'Erro ao atualizar a URL do produto.')
     }
   },
+
+  /**
+   * Confirma descontinuação de um produto no catálogo:
+   * Grava is_discontinued = true, updated_at = last_reviewed_at = agora (mesmo valor).
+   * NUNCA altera price_usd.
+   */
+  async confirmDiscontinued(productId: string): Promise<string> {
+    if (!productId) throw new Error('ID do produto não informado.')
+    const nowIso = new Date().toISOString()
+    const { error } = await supabase
+      .from('products')
+      .update({
+        is_discontinued: true,
+        updated_at: nowIso,
+        last_reviewed_at: nowIso,
+      } as any)
+      .eq('id', productId)
+
+    if (error) {
+      throw new Error(error.message || 'Erro ao confirmar descontinuação do produto.')
+    }
+    return nowIso
+  },
+
+  /**
+   * Reativa um produto que estava marcado como descontinuado:
+   * Grava is_discontinued = false, updated_at = last_reviewed_at = agora (mesmo valor).
+   * NUNCA altera price_usd.
+   */
+  async reactivateProduct(productId: string): Promise<string> {
+    if (!productId) throw new Error('ID do produto não informado.')
+    const nowIso = new Date().toISOString()
+    const { error } = await supabase
+      .from('products')
+      .update({
+        is_discontinued: false,
+        updated_at: nowIso,
+        last_reviewed_at: nowIso,
+      } as any)
+      .eq('id', productId)
+
+    if (error) {
+      throw new Error(error.message || 'Erro ao reativar o produto.')
+    }
+    return nowIso
+  },
 }

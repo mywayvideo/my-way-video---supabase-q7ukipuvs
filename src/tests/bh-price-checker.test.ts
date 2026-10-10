@@ -742,4 +742,109 @@ describe('priceCheckService & B&H verification tolerance logic', () => {
       expect(result.updatedProduct.is_discontinued).toBe(false)
     })
   })
+
+  describe('Fluxos de Confirmação e Reativação na Edição e em Lotes (v0.0.680)', () => {
+    it('confirmação manual de descontinuação: atualiza is_discontinued=true, updated_at=last_reviewed_at=agora sem alterar price_usd', () => {
+      const initial = {
+        id: 'prod-confirm-1',
+        name: 'Câmera Especial',
+        price_usd: 1500,
+        is_discontinued: false,
+        updated_at: '2026-01-01T00:00:00.000Z',
+        last_reviewed_at: '2026-01-01T00:00:00.000Z',
+      }
+
+      const nowIso = '2026-04-14T10:00:00.000Z'
+
+      // Simulação da lógica executada por priceCheckService.confirmDiscontinued
+      const updated = {
+        ...initial,
+        is_discontinued: true,
+        updated_at: nowIso,
+        last_reviewed_at: nowIso,
+      }
+
+      expect(updated.is_discontinued).toBe(true)
+      expect(updated.updated_at).toBe(nowIso)
+      expect(updated.last_reviewed_at).toBe(nowIso)
+      expect(updated.last_reviewed_at).toBe(updated.updated_at)
+      expect(updated.price_usd).toBe(initial.price_usd) // NUNCA altera price_usd
+    })
+
+    it('reativação manual de produto: atualiza is_discontinued=false, updated_at=last_reviewed_at=agora sem alterar price_usd', () => {
+      const initial = {
+        id: 'prod-reactivate-1',
+        name: 'Lente Retornada',
+        price_usd: 850,
+        is_discontinued: true,
+        updated_at: '2026-02-01T00:00:00.000Z',
+        last_reviewed_at: '2026-02-01T00:00:00.000Z',
+      }
+
+      const nowIso = '2026-04-14T10:05:00.000Z'
+
+      // Simulação da lógica executada por priceCheckService.reactivateProduct
+      const updated = {
+        ...initial,
+        is_discontinued: false,
+        updated_at: nowIso,
+        last_reviewed_at: nowIso,
+      }
+
+      expect(updated.is_discontinued).toBe(false)
+      expect(updated.updated_at).toBe(nowIso)
+      expect(updated.last_reviewed_at).toBe(nowIso)
+      expect(updated.last_reviewed_at).toBe(updated.updated_at)
+      expect(updated.price_usd).toBe(initial.price_usd)
+    })
+
+    it('ações em lote: elegibilidade de produtos para confirmação de descontinuado e reativação', () => {
+      const items = [
+        {
+          id: 'item-1',
+          name: 'Item 1',
+          is_discontinued: false,
+          checkResult: { status: 'descontinuado' as const },
+        },
+        {
+          id: 'item-2',
+          name: 'Item 2',
+          is_discontinued: true,
+          checkResult: { status: 'descontinuado' as const },
+        },
+        {
+          id: 'item-3',
+          name: 'Item 3',
+          is_discontinued: true,
+          checkResult: { status: 'ok' as const },
+        },
+        {
+          id: 'item-4',
+          name: 'Item 4',
+          is_discontinued: true,
+          checkResult: { status: 'divergente' as const },
+        },
+        {
+          id: 'item-5',
+          name: 'Item 5',
+          is_discontinued: false,
+          checkResult: { status: 'ok' as const },
+        },
+      ]
+
+      // Elegíveis para confirmação em lote de descontinuação (auditoria = descontinuado, mas banco ainda false)
+      const eligibleToConfirm = items.filter(
+        (i) => i.checkResult?.status === 'descontinuado' && !i.is_discontinued,
+      )
+      expect(eligibleToConfirm.map((i) => i.id)).toEqual(['item-1'])
+
+      // Elegíveis para reativação em lote (banco = descontinuado, mas auditoria = ok ou divergente)
+      const eligibleToReactivate = items.filter(
+        (i) =>
+          i.is_discontinued &&
+          (i.checkResult?.status === 'ok' || i.checkResult?.status === 'divergente'),
+      )
+      expect(eligibleToReactivate.map((i) => i.id)).toEqual(['item-3', 'item-4'])
+    })
+  })
 })

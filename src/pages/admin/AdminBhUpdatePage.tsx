@@ -979,7 +979,192 @@ export function AdminBhUpdatePage() {
     }
   }
 
-  // Ação 5: Confirmação de Revisão em Lote para Selecionados
+  // Ação 4.5: Confirmação de Descontinuação Individual
+  const handleConfirmSingleDiscontinued = async (item: ProductBatchItem) => {
+    setProducts((prev) =>
+      prev.map((p) => (p.id === item.id ? { ...p, isUpdatingDiscontinued: true } : p)),
+    )
+
+    try {
+      const nowIso = await priceCheckService.confirmDiscontinued(item.id)
+
+      setProducts((prev) =>
+        prev.map((p) =>
+          p.id === item.id
+            ? {
+                ...p,
+                is_discontinued: true,
+                updated_at: nowIso,
+                last_reviewed_at: nowIso,
+                isUpdatingDiscontinued: false,
+              }
+            : p,
+        ),
+      )
+
+      toast({
+        title: 'Descontinuação confirmada!',
+        description: `Produto "${item.name}" marcado como descontinuado no catálogo.`,
+      })
+    } catch (err: any) {
+      setProducts((prev) =>
+        prev.map((p) => (p.id === item.id ? { ...p, isUpdatingDiscontinued: false } : p)),
+      )
+      toast({
+        title: 'Erro ao confirmar descontinuação',
+        description: err.message || 'Falha ao atualizar o produto.',
+        variant: 'destructive',
+      })
+    }
+  }
+
+  // Ação 4.6: Reativação de Produto Individual
+  const handleReactivateSingleProduct = async (item: ProductBatchItem) => {
+    setProducts((prev) =>
+      prev.map((p) => (p.id === item.id ? { ...p, isUpdatingDiscontinued: true } : p)),
+    )
+
+    try {
+      const nowIso = await priceCheckService.reactivateProduct(item.id)
+
+      setProducts((prev) =>
+        prev.map((p) =>
+          p.id === item.id
+            ? {
+                ...p,
+                is_discontinued: false,
+                updated_at: nowIso,
+                last_reviewed_at: nowIso,
+                isUpdatingDiscontinued: false,
+              }
+            : p,
+        ),
+      )
+
+      toast({
+        title: 'Produto reativado!',
+        description: `Produto "${item.name}" reativado no catálogo com sucesso.`,
+      })
+    } catch (err: any) {
+      setProducts((prev) =>
+        prev.map((p) => (p.id === item.id ? { ...p, isUpdatingDiscontinued: false } : p)),
+      )
+      toast({
+        title: 'Erro ao reativar produto',
+        description: err.message || 'Falha ao atualizar o produto.',
+        variant: 'destructive',
+      })
+    }
+  }
+
+  // Ação 5: Confirmação de Descontinuação em Lote para Selecionados
+  const handleConfirmBatchDiscontinued = async () => {
+    const candidateIds = selectedProducts
+      .filter((p) => {
+        const pairedRes = bhBatchUpdateService.resolveItemPairedEvaluation(p)
+        const effectiveStatus = pairedRes.effectiveStatus || p.checkResult?.status || null
+        // Elegíveis: produtos cuja auditoria retornou descontinuado e ainda não estão salvos como descontinuados no banco
+        return effectiveStatus === 'descontinuado' && !p.is_discontinued
+      })
+      .map((p) => p.id)
+
+    if (candidateIds.length === 0) {
+      toast({
+        title: 'Nenhum produto elegível',
+        description:
+          'Selecione produtos cuja auditoria retornou "Descontinuado" para confirmar o flag em lote.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    setIsBulkReviewing(true)
+    try {
+      const nowIso = await bhBatchUpdateService.confirmBatchDiscontinued(candidateIds)
+
+      setProducts((prev) =>
+        prev.map((p) =>
+          candidateIds.includes(p.id)
+            ? {
+                ...p,
+                is_discontinued: true,
+                updated_at: nowIso,
+                last_reviewed_at: nowIso,
+              }
+            : p,
+        ),
+      )
+
+      toast({
+        title: `Descontinuação de ${candidateIds.length} produto(s) confirmada!`,
+        description:
+          'Produtos marcados como descontinuados com datas atualizadas (updated_at e last_reviewed_at sincronizados).',
+      })
+    } catch (err: any) {
+      toast({
+        title: 'Erro na confirmação em lote',
+        description: err.message || 'Falha ao confirmar descontinuação dos produtos selecionados.',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsBulkReviewing(false)
+    }
+  }
+
+  // Ação 6: Reativação em Lote para Selecionados
+  const handleReactivateBatchProducts = async () => {
+    const candidateIds = selectedProducts
+      .filter((p) => {
+        const pairedRes = bhBatchUpdateService.resolveItemPairedEvaluation(p)
+        const effectiveStatus = pairedRes.effectiveStatus || p.checkResult?.status || null
+        // Elegíveis: produtos flagados como descontinuados no banco mas cuja auditoria retornou disponível (ok ou divergente)
+        return p.is_discontinued && (effectiveStatus === 'ok' || effectiveStatus === 'divergente')
+      })
+      .map((p) => p.id)
+
+    if (candidateIds.length === 0) {
+      toast({
+        title: 'Nenhum produto elegível',
+        description:
+          'Selecione produtos descontinuados cuja auditoria retornou disponível (OK ou divergente) para reativar.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    setIsBulkReviewing(true)
+    try {
+      const nowIso = await bhBatchUpdateService.reactivateBatchProducts(candidateIds)
+
+      setProducts((prev) =>
+        prev.map((p) =>
+          candidateIds.includes(p.id)
+            ? {
+                ...p,
+                is_discontinued: false,
+                updated_at: nowIso,
+                last_reviewed_at: nowIso,
+              }
+            : p,
+        ),
+      )
+
+      toast({
+        title: `Reativação de ${candidateIds.length} produto(s) confirmada!`,
+        description: 'Produtos reativados no catálogo com sucesso.',
+      })
+    } catch (err: any) {
+      toast({
+        title: 'Erro na reativação em lote',
+        description: err.message || 'Falha ao reativar produtos selecionados.',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsBulkReviewing(false)
+    }
+  }
+
+  // Ação 7: Confirmação de Revisão em Lote para Selecionados
   const handleConfirmBatchReview = async () => {
     const candidateIds = selectedProducts
       .filter((p) => {
@@ -1273,55 +1458,120 @@ export function AdminBhUpdatePage() {
                     {isAllFilteredSelected ? 'Desmarcar Visíveis' : 'Selecionar Todos Filtrados'}
                   </Button>
 
-                  {/* Ação em Lote: Confirmar Revisão dos Selecionados */}
-                  {selectedIds.size > 0 &&
-                    (() => {
-                      const allSelectedReviewedToday =
-                        selectedProducts.length > 0 &&
-                        selectedProducts.every((sp) =>
-                          isReviewedToday(sp.last_reviewed_at, sp.updated_at),
-                        )
+                  {/* Ações em Lote para Selecionados */}
+                  {selectedIds.size > 0 && (
+                    <>
+                      {/* Ação em Lote: Confirmar Descontinuados */}
+                      {(() => {
+                        const discontinuedCandidates = selectedProducts.filter((p) => {
+                          const pairedRes = bhBatchUpdateService.resolveItemPairedEvaluation(p)
+                          const effStatus =
+                            pairedRes.effectiveStatus || p.checkResult?.status || null
+                          return effStatus === 'descontinuado' && !p.is_discontinued
+                        })
 
-                      if (allSelectedReviewedToday) {
+                        if (discontinuedCandidates.length === 0) return null
+
                         return (
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span tabIndex={0} className="inline-block cursor-not-allowed">
-                                <Button
-                                  size="sm"
-                                  disabled
-                                  className="h-9 text-xs bg-muted/40 text-muted-foreground opacity-70 cursor-not-allowed border border-border/40 font-medium"
-                                >
-                                  <CheckCircle2 className="w-3.5 h-3.5 mr-1.5 text-muted-foreground" />
-                                  Revisão Confirmada ({selectedIds.size})
-                                </Button>
-                              </span>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              Revisão manual já confirmada para a data de hoje para todos os
-                              selecionados
-                            </TooltipContent>
-                          </Tooltip>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={handleConfirmBatchDiscontinued}
+                            disabled={isProcessingBatch || isBulkReviewing}
+                            className="h-9 text-xs font-medium shadow-sm"
+                            title="Grava is_discontinued = true para todos os selecionados com auditoria descontinuado"
+                          >
+                            {isBulkReviewing ? (
+                              <RefreshCw className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                            ) : (
+                              <AlertOctagon className="w-3.5 h-3.5 mr-1.5" />
+                            )}
+                            Confirmar Descontinuados ({discontinuedCandidates.length})
+                          </Button>
                         )
-                      }
+                      })()}
 
-                      return (
-                        <Button
-                          size="sm"
-                          onClick={handleConfirmBatchReview}
-                          disabled={isProcessingBatch || isBulkReviewing}
-                          className="h-9 text-xs bg-emerald-600/90 hover:bg-emerald-600 text-white font-medium border border-emerald-500/30"
-                          title="Atualiza SOMENTE last_reviewed_at dos produtos selecionados com link confirmado"
-                        >
-                          {isBulkReviewing ? (
-                            <RefreshCw className="w-3.5 h-3.5 mr-1.5 animate-spin" />
-                          ) : (
-                            <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
-                          )}
-                          Confirmar Revisão ({selectedIds.size})
-                        </Button>
-                      )
-                    })()}
+                      {/* Ação em Lote: Reativar Produtos */}
+                      {(() => {
+                        const reactivateCandidates = selectedProducts.filter((p) => {
+                          const pairedRes = bhBatchUpdateService.resolveItemPairedEvaluation(p)
+                          const effStatus =
+                            pairedRes.effectiveStatus || p.checkResult?.status || null
+                          return (
+                            p.is_discontinued && (effStatus === 'ok' || effStatus === 'divergente')
+                          )
+                        })
+
+                        if (reactivateCandidates.length === 0) return null
+
+                        return (
+                          <Button
+                            size="sm"
+                            onClick={handleReactivateBatchProducts}
+                            disabled={isProcessingBatch || isBulkReviewing}
+                            className="h-9 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-medium border border-emerald-500/30 shadow-sm"
+                            title="Reativa produtos selecionados que estavam descontinuados e a auditoria detectou disponíveis"
+                          >
+                            {isBulkReviewing ? (
+                              <RefreshCw className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                            ) : (
+                              <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
+                            )}
+                            Reativar ({reactivateCandidates.length})
+                          </Button>
+                        )
+                      })()}
+
+                      {/* Ação em Lote: Confirmar Revisão dos Selecionados */}
+                      {(() => {
+                        const allSelectedReviewedToday =
+                          selectedProducts.length > 0 &&
+                          selectedProducts.every((sp) =>
+                            isReviewedToday(sp.last_reviewed_at, sp.updated_at),
+                          )
+
+                        if (allSelectedReviewedToday) {
+                          return (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span tabIndex={0} className="inline-block cursor-not-allowed">
+                                  <Button
+                                    size="sm"
+                                    disabled
+                                    className="h-9 text-xs bg-muted/40 text-muted-foreground opacity-70 cursor-not-allowed border border-border/40 font-medium"
+                                  >
+                                    <CheckCircle2 className="w-3.5 h-3.5 mr-1.5 text-muted-foreground" />
+                                    Revisão Confirmada ({selectedIds.size})
+                                  </Button>
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                Revisão manual já confirmada para a data de hoje para todos os
+                                selecionados
+                              </TooltipContent>
+                            </Tooltip>
+                          )
+                        }
+
+                        return (
+                          <Button
+                            size="sm"
+                            onClick={handleConfirmBatchReview}
+                            disabled={isProcessingBatch || isBulkReviewing}
+                            className="h-9 text-xs bg-emerald-600/90 hover:bg-emerald-600 text-white font-medium border border-emerald-500/30"
+                            title="Atualiza SOMENTE last_reviewed_at dos produtos selecionados com link confirmado"
+                          >
+                            {isBulkReviewing ? (
+                              <RefreshCw className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                            ) : (
+                              <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
+                            )}
+                            Confirmar Revisão ({selectedIds.size})
+                          </Button>
+                        )
+                      })()}
+                    </>
+                  )}
 
                   {selectedIds.size > 0 && (
                     <Button
@@ -2000,14 +2250,56 @@ export function AdminBhUpdatePage() {
                                 </Button>
                               ))}
 
-                            {isDiscontinued && (
-                              <Badge
+                            {/* Confirmação de Descontinuado quando a verificação retornar descontinuado e ainda não estiver gravado */}
+                            {effectiveStatus === 'descontinuado' && !p.is_discontinued && (
+                              <Button
+                                size="sm"
                                 variant="destructive"
-                                className="text-[10px] uppercase font-mono py-0.5"
+                                onClick={() => handleConfirmSingleDiscontinued(p)}
+                                disabled={p.isUpdatingDiscontinued}
+                                className="h-7 text-[11px] px-2 font-medium shadow-sm"
+                                title="Grava is_discontinued = true com updated_at = last_reviewed_at = agora"
                               >
-                                Descontinuado
-                              </Badge>
+                                {p.isUpdatingDiscontinued ? (
+                                  <RefreshCw className="w-3 h-3 mr-1 animate-spin" />
+                                ) : (
+                                  <AlertOctagon className="w-3 h-3 mr-1" />
+                                )}
+                                Confirmar Descontinuado
+                              </Button>
                             )}
+
+                            {/* Reativação quando o produto estiver marcado como descontinuado no cadastro mas a verificação retornou disponível */}
+                            {p.is_discontinued &&
+                              (effectiveStatus === 'ok' || effectiveStatus === 'divergente') && (
+                                <Button
+                                  size="sm"
+                                  onClick={() => handleReactivateSingleProduct(p)}
+                                  disabled={p.isUpdatingDiscontinued}
+                                  className="h-7 text-[11px] px-2 bg-emerald-600 hover:bg-emerald-700 text-white font-medium shadow-sm"
+                                  title="Grava is_discontinued = false com updated_at = last_reviewed_at = agora"
+                                >
+                                  {p.isUpdatingDiscontinued ? (
+                                    <RefreshCw className="w-3 h-3 mr-1 animate-spin" />
+                                  ) : (
+                                    <CheckCircle2 className="w-3 h-3 mr-1" />
+                                  )}
+                                  Reativar
+                                </Button>
+                              )}
+
+                            {isDiscontinued &&
+                              !(
+                                p.is_discontinued &&
+                                (effectiveStatus === 'ok' || effectiveStatus === 'divergente')
+                              ) && (
+                                <Badge
+                                  variant="destructive"
+                                  className="text-[10px] uppercase font-mono py-0.5"
+                                >
+                                  Descontinuado
+                                </Badge>
+                              )}
 
                             {!isDivergent &&
                               !isDiscontinued &&

@@ -616,6 +616,13 @@ export default function NewProductPage() {
                         currentPriceUsd={form.watch('price_usa')}
                         websiteUrl={form.watch('website_url')}
                         sku={form.watch('sku')}
+                        isDiscontinued={form.watch('is_discontinued')}
+                        onDiscontinuedConfirmed={(discontinued) => {
+                          form.setValue('is_discontinued', discontinued, {
+                            shouldDirty: true,
+                            shouldValidate: true,
+                          })
+                        }}
                         onPriceApplied={(newPrice) => {
                           form.setValue('price_usa', newPrice, {
                             shouldDirty: true,

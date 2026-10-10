@@ -36,6 +36,8 @@ interface BhPriceCheckerProps {
   currentPriceUsd: number | null | undefined
   websiteUrl: string | null | undefined
   sku: string | null | undefined
+  isDiscontinued?: boolean
+  onDiscontinuedConfirmed?: (isDiscontinued: boolean) => void
   onPriceUpdated?: () => void
   onPriceApplied?: (appliedPrice: number) => void
   onUrlDiscovered?: (newUrl: string) => void
@@ -48,6 +50,8 @@ export const BhPriceChecker: React.FC<BhPriceCheckerProps> = ({
   currentPriceUsd,
   websiteUrl,
   sku,
+  isDiscontinued = false,
+  onDiscontinuedConfirmed,
   onPriceUpdated,
   onPriceApplied,
   onUrlDiscovered,
@@ -55,6 +59,7 @@ export const BhPriceChecker: React.FC<BhPriceCheckerProps> = ({
 }) => {
   const [isChecking, setIsChecking] = useState(false)
   const [isApplying, setIsApplying] = useState(false)
+  const [isUpdatingDiscontinued, setIsUpdatingDiscontinued] = useState(false)
   const [lastRecord, setLastRecord] = useState<PriceCheckRecord | null>(null)
   const [currentResult, setCurrentResult] = useState<PriceCheckResult | null>(null)
 
@@ -248,6 +253,60 @@ export const BhPriceChecker: React.FC<BhPriceCheckerProps> = ({
       })
     } finally {
       setIsApplying(false)
+    }
+  }
+
+  const handleConfirmDiscontinued = async () => {
+    if (!productId) return
+    setIsUpdatingDiscontinued(true)
+    try {
+      await priceCheckService.confirmDiscontinued(productId)
+      toast({
+        title: 'Descontinuação confirmada!',
+        description: 'Produto marcado como descontinuado no catálogo.',
+      })
+
+      if (onDiscontinuedConfirmed) {
+        onDiscontinuedConfirmed(true)
+      }
+      if (onPriceUpdated) {
+        onPriceUpdated()
+      }
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao confirmar descontinuação',
+        description: err.message || 'Não foi possível atualizar o produto.',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsUpdatingDiscontinued(false)
+    }
+  }
+
+  const handleReactivateProduct = async () => {
+    if (!productId) return
+    setIsUpdatingDiscontinued(true)
+    try {
+      await priceCheckService.reactivateProduct(productId)
+      toast({
+        title: 'Produto reativado com sucesso!',
+        description: 'Produto voltou a estar ativo no catálogo.',
+      })
+
+      if (onDiscontinuedConfirmed) {
+        onDiscontinuedConfirmed(false)
+      }
+      if (onPriceUpdated) {
+        onPriceUpdated()
+      }
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao reativar produto',
+        description: err.message || 'Não foi possível reativar o produto.',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsUpdatingDiscontinued(false)
     }
   }
 
@@ -645,9 +704,45 @@ export const BhPriceChecker: React.FC<BhPriceCheckerProps> = ({
             )}
           </div>
 
-          {/* Botões de Ação: Rebate Fabricante e Aplicar Preço da B&H */}
-          {(isBhRebateActive || canApplyPrice) && (
+          {/* Botões de Ação: Rebate Fabricante, Aplicar Preço da B&H, Confirmar Descontinuado e Reativar Produto */}
+          {(isBhRebateActive ||
+            canApplyPrice ||
+            activeStatus === 'descontinuado' ||
+            (isDiscontinued && (activeStatus === 'ok' || activeStatus === 'divergente'))) && (
             <div className="pt-2 flex items-center justify-end gap-2 flex-wrap">
+              {/* Botão Confirmar Descontinuado: visível quando auditoria retornar descontinuado */}
+              {activeStatus === 'descontinuado' && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="destructive"
+                  onClick={handleConfirmDiscontinued}
+                  disabled={isChecking || isApplying || isUpdatingDiscontinued}
+                  className="h-9 text-xs px-3 font-medium shadow-sm transition-all"
+                >
+                  <AlertOctagon
+                    className={cn('w-4 h-4 mr-1.5', isUpdatingDiscontinued && 'animate-spin')}
+                  />
+                  {isUpdatingDiscontinued ? 'Confirmando...' : 'Confirmar Descontinuado'}
+                </Button>
+              )}
+
+              {/* Botão Reativar Produto: visível quando produto está flagado descontinuado no cadastro e a auditoria retornou disponível */}
+              {isDiscontinued && (activeStatus === 'ok' || activeStatus === 'divergente') && (
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={handleReactivateProduct}
+                  disabled={isChecking || isApplying || isUpdatingDiscontinued}
+                  className="h-9 text-xs px-3 font-medium bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition-all"
+                >
+                  <CheckCircle2
+                    className={cn('w-4 h-4 mr-1.5', isUpdatingDiscontinued && 'animate-spin')}
+                  />
+                  {isUpdatingDiscontinued ? 'Reativando...' : 'Reativar produto'}
+                </Button>
+              )}
+
               {/* Botão Ativar / Editar Rebate Fabricante */}
               {isBhRebateActive && (
                 <Button
@@ -655,6 +750,7 @@ export const BhPriceChecker: React.FC<BhPriceCheckerProps> = ({
                   size="sm"
                   variant="outline"
                   onClick={() => setIsRebateModalOpen(true)}
+                  disabled={isChecking || isApplying || isUpdatingDiscontinued}
                   className={cn(
                     'h-9 text-xs px-3 font-medium border-purple-500/40 shadow-sm transition-all',
                     existingRebateRule
@@ -677,7 +773,7 @@ export const BhPriceChecker: React.FC<BhPriceCheckerProps> = ({
                 <Button
                   type="button"
                   onClick={handleApplyPrice}
-                  disabled={isApplying || isChecking}
+                  disabled={isApplying || isChecking || isUpdatingDiscontinued}
                   className="bg-[#FF9F1A] hover:bg-[#FF9F1A]/90 text-[#111111] font-semibold text-xs h-9 shadow transition-all"
                 >
                   <ArrowRight className="w-4 h-4 mr-1.5" />

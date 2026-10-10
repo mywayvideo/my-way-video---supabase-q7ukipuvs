@@ -34,6 +34,7 @@ export interface ProductBatchItem {
   isSavingUrl?: boolean
   isReviewing?: boolean
   isAnalyzingUrl?: boolean
+  isUpdatingDiscontinued?: boolean
 }
 
 export interface BatchProcessingStats {
@@ -180,6 +181,60 @@ export const bhBatchUpdateService = {
 
     if (error) {
       throw new Error(`Falha ao confirmar revisão: ${error.message}`)
+    }
+
+    return nowIso
+  },
+
+  /**
+   * Confirma descontinuação em lote para múltiplos produtos:
+   * Grava is_discontinued = true, updated_at = last_reviewed_at = agora (mesmo valor)
+   * para todos os IDs informados. NUNCA altera price_usd.
+   */
+  async confirmBatchDiscontinued(productIds: string[]): Promise<string> {
+    if (!productIds || productIds.length === 0) {
+      throw new Error('Nenhum produto selecionado para confirmação de descontinuação.')
+    }
+
+    const nowIso = new Date().toISOString()
+    const { error } = await supabase
+      .from('products')
+      .update({
+        is_discontinued: true,
+        updated_at: nowIso,
+        last_reviewed_at: nowIso,
+      } as any)
+      .in('id', productIds)
+
+    if (error) {
+      throw new Error(`Falha ao confirmar descontinuação em lote: ${error.message}`)
+    }
+
+    return nowIso
+  },
+
+  /**
+   * Reativa produtos em lote que estavam descontinuados:
+   * Grava is_discontinued = false, updated_at = last_reviewed_at = agora (mesmo valor)
+   * para todos os IDs informados. NUNCA altera price_usd.
+   */
+  async reactivateBatchProducts(productIds: string[]): Promise<string> {
+    if (!productIds || productIds.length === 0) {
+      throw new Error('Nenhum produto selecionado para reativação.')
+    }
+
+    const nowIso = new Date().toISOString()
+    const { error } = await supabase
+      .from('products')
+      .update({
+        is_discontinued: false,
+        updated_at: nowIso,
+        last_reviewed_at: nowIso,
+      } as any)
+      .in('id', productIds)
+
+    if (error) {
+      throw new Error(`Falha ao reativar produtos em lote: ${error.message}`)
     }
 
     return nowIso

@@ -30,6 +30,7 @@ import {
   Package,
   Star,
   RefreshCw,
+  Tag,
 } from 'lucide-react'
 import { Link, Navigate } from 'react-router-dom'
 import { toast } from '@/hooks/use-toast'
@@ -113,6 +114,7 @@ export default function AdminCatalogPage() {
   const debouncedSearch = useDebounce(search, 300)
   const [filterNoImage, setFilterNoImage] = useState(false)
   const [filterUnreviewedMonths, setFilterUnreviewedMonths] = useState<string>('all')
+  const [filterActiveRebate, setFilterActiveRebate] = useState(false)
 
   const [isProcessingCSV, setIsProcessingCSV] = useState(false)
   const [csvProgress, setCsvProgress] = useState({ current: 0, total: 0, currentName: '' })
@@ -456,6 +458,11 @@ export default function AdminCatalogPage() {
       pQuery = pQuery.or('image_url.is.null,image_url.eq.')
     }
 
+    if (filterActiveRebate) {
+      const nowIso = new Date().toISOString()
+      pQuery = pQuery.gt('price_usa_rebate', 0).or(`date_rebate.is.null,date_rebate.gte.${nowIso}`)
+    }
+
     if (filterUnreviewedMonths !== 'all') {
       const months = parseInt(filterUnreviewedMonths, 10)
       if (!isNaN(months) && months > 0) {
@@ -466,7 +473,7 @@ export default function AdminCatalogPage() {
     }
 
     if (sortColumn !== 'brand') {
-      pQuery = pQuery.order(sortColumn, { ascending: sortDirection === 'asc' })
+      pQuery = pQuery.order(sortColumn, { ascending: sortDirection === 'asc', nullsFirst: false })
     } else {
       pQuery = pQuery.order('created_at', { ascending: false })
     }
@@ -512,7 +519,14 @@ export default function AdminCatalogPage() {
 
   useEffect(() => {
     setPage(1)
-  }, [sortColumn, sortDirection, debouncedSearch, filterNoImage, filterUnreviewedMonths])
+  }, [
+    sortColumn,
+    sortDirection,
+    debouncedSearch,
+    filterNoImage,
+    filterUnreviewedMonths,
+    filterActiveRebate,
+  ])
 
   useEffect(() => {
     if (user) fetchProductsData(debouncedSearch)
@@ -523,6 +537,7 @@ export default function AdminCatalogPage() {
     debouncedSearch,
     filterNoImage,
     filterUnreviewedMonths,
+    filterActiveRebate,
     page,
   ])
 
@@ -948,6 +963,20 @@ export default function AdminCatalogPage() {
                   </Select>
                 </div>
                 <Button
+                  variant={filterActiveRebate ? 'secondary' : 'outline'}
+                  size="sm"
+                  onClick={() => setFilterActiveRebate((prev) => !prev)}
+                  className={cn(
+                    'h-9 whitespace-nowrap',
+                    filterActiveRebate &&
+                      'bg-purple-500/20 text-purple-300 border-purple-500/40 hover:bg-purple-500/30 font-medium',
+                  )}
+                  title="Exibir somente produtos com rebate de fabricante ativo e vigente"
+                >
+                  <Tag className="w-4 h-4 mr-2" />
+                  Com Rebate Vigente
+                </Button>
+                <Button
                   variant={filterNoImage ? 'secondary' : 'outline'}
                   size="sm"
                   onClick={toggleNoImageFilter}
@@ -962,7 +991,7 @@ export default function AdminCatalogPage() {
                   <Badge variant="secondary" className="ml-2 bg-background/50 text-foreground">
                     {noImageCount}
                   </Badge>
-                </Button>
+                </Button>{' '}
                 <div className="relative w-full sm:w-72">
                   <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                   <Input
@@ -1138,6 +1167,14 @@ export default function AdminCatalogPage() {
                       </div>
                     </TableHead>
                     <TableHead
+                      className={cn('w-40', sortableHeaderClasses('price_usa_rebate'))}
+                      onClick={() => handleSort('price_usa_rebate')}
+                    >
+                      <div className="flex items-center">
+                        Rebate Ativo {renderSortIndicator('price_usa_rebate')}
+                      </div>
+                    </TableHead>
+                    <TableHead
                       className={cn('w-44', sortableHeaderClasses('last_reviewed_at'))}
                       onClick={() => handleSort('last_reviewed_at')}
                     >
@@ -1252,6 +1289,87 @@ export default function AdminCatalogPage() {
                           maximumFractionDigits: 2,
                         })}
                       </TableCell>
+                      {/* Rebate Ativo (Fabricante) */}
+                      <TableCell className="whitespace-nowrap">
+                        {(() => {
+                          const rebatePrice = p.price_usa_rebate ? Number(p.price_usa_rebate) : 0
+                          if (!rebatePrice || rebatePrice <= 0) {
+                            return (
+                              <span className="text-muted-foreground/40 font-mono text-xs">—</span>
+                            )
+                          }
+
+                          const now = new Date()
+                          const rebateEnd = p.date_rebate ? new Date(p.date_rebate) : null
+                          const isExpired = rebateEnd ? rebateEnd < now : false
+
+                          if (isExpired) {
+                            return (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Badge
+                                    variant="outline"
+                                    className="bg-amber-500/10 text-amber-400 border-amber-500/30 text-[10px] font-mono cursor-help"
+                                  >
+                                    Expirado
+                                    {p.date_rebate && (
+                                      <span className="ml-1 opacity-75">
+                                        ({new Date(p.date_rebate).toLocaleDateString('pt-BR')})
+                                      </span>
+                                    )}
+                                  </Badge>
+                                </TooltipTrigger>
+                                <TooltipContent className="text-xs">
+                                  Rebate anterior de US$ {rebatePrice.toFixed(2)} expirou em{' '}
+                                  {p.date_rebate
+                                    ? new Date(p.date_rebate).toLocaleDateString('pt-BR')
+                                    : ''}
+                                </TooltipContent>
+                              </Tooltip>
+                            )
+                          }
+
+                          return (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Badge
+                                  variant="outline"
+                                  className="bg-purple-500/15 text-purple-300 border-purple-500/40 text-[11px] font-mono flex items-center gap-1 cursor-help py-0.5"
+                                >
+                                  <Tag className="w-3 h-3 shrink-0 text-purple-400" />
+                                  <span>US$ {rebatePrice.toFixed(2)}</span>
+                                  {p.date_rebate && (
+                                    <span className="text-[10px] text-purple-300/80 ml-0.5">
+                                      até {new Date(p.date_rebate).toLocaleDateString('pt-BR')}
+                                    </span>
+                                  )}
+                                </Badge>
+                              </TooltipTrigger>
+                              <TooltipContent className="text-xs space-y-1 p-2.5">
+                                <p className="font-semibold text-purple-300">
+                                  Rebate do Fabricante Vigente
+                                </p>
+                                <p>
+                                  Preço FOB Base:{' '}
+                                  <strong>US$ {(p.price_usd || 0).toFixed(2)}</strong>
+                                </p>
+                                <p>
+                                  Preço com Rebate:{' '}
+                                  <strong className="text-emerald-400">
+                                    US$ {rebatePrice.toFixed(2)}
+                                  </strong>
+                                </p>
+                                <p className="text-[11px] text-muted-foreground">
+                                  Válido até:{' '}
+                                  {p.date_rebate
+                                    ? new Date(p.date_rebate).toLocaleDateString('pt-BR')
+                                    : 'Indeterminado'}
+                                </p>
+                              </TooltipContent>
+                            </Tooltip>
+                          )
+                        })()}
+                      </TableCell>
                       <TableCell className="whitespace-nowrap">
                         {(() => {
                           const updatedTime = p.updated_at ? new Date(p.updated_at).getTime() : 0
@@ -1357,7 +1475,7 @@ export default function AdminCatalogPage() {
                   ))}
                   {filteredProducts.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={10} className="h-24 text-center text-muted-foreground">
+                      <TableCell colSpan={11} className="h-24 text-center text-muted-foreground">
                         Nenhum equipamento encontrado.
                       </TableCell>
                     </TableRow>

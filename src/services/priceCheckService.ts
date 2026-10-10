@@ -390,9 +390,152 @@ export interface PriceCheckRecord {
   url_discovered: boolean
   message: string | null
   raw?: any
+  product?: {
+    id: string
+    name: string
+    sku: string | null
+    price_usd: number | null
+    price_usa_rebate: number | null
+    date_rebate: string | null
+    website_url: string | null
+    is_discontinued: boolean
+  } | null
+}
+
+export interface PriceChecksSummaryStats {
+  monthCount: number
+  divergentCount: number
+  discontinuedCount: number
+  withoutUrlCount: number
+  errorCount: number
+  totalFiltered: number
+}
+
+export interface FetchPriceChecksParams {
+  page?: number
+  pageSize?: number
+  statuses?: PriceCheckStatus[]
+  source?: 'all' | 'manual' | 'batch'
+  startDate?: string | null
+  endDate?: string | null
+  search?: string
 }
 
 export const priceCheckService = {
+  /**
+   * Lista o histórico de verificações com filtros, paginação e dados do produto
+   */
+  async fetchPriceChecksHistory(params: FetchPriceChecksParams): Promise<{
+    data: PriceCheckRecord[]
+    totalCount: number
+  }> {
+    const { page = 1, pageSize = 30, statuses, source = 'all', startDate, endDate, search } = params
+
+    let query = supabase
+      .from('price_checks')
+      .select(
+        'id, product_id, checked_at, price_db, price_bh, diff_usd, diff_pct, status, source, url_used, url_discovered, message, raw, product:products!price_checks_product_id_fkey(id, name, sku, price_usd, price_usa_rebate, date_rebate, website_url, is_discontinued)',
+        { count: 'exact' },
+      )
+
+    // Filtro por múltiplos status
+    if (statuses && statuses.length > 0) {
+      query = query.in('status', statuses)
+    }
+
+    // Filtro por fonte (manual / batch)
+    if (source && source !== 'all') {
+      query = query.eq('source', source)
+    }
+
+    // Filtro por período
+    if (startDate) {
+      query = query.gte('checked_at', `${startDate}T00:00:00.000Z`)
+    }
+    if (endDate) {
+      query = query.lte('checked_at', `${endDate}T23:59:59.999Z`)
+    }
+
+    // Busca textual no nome do produto ou SKU via join
+    if (search && search.trim()) {
+      const term = search.trim()
+      query = query.or(
+        `message.ilike.%${term}%,product.name.ilike.%${term}%,product.sku.ilike.%${term}%`,
+      )
+    }
+
+    // Ordenação mais recente primeiro
+    query = query.order('checked_at', { ascending: false })
+
+    const from = (page - 1) * pageSize
+    const to = from + pageSize - 1
+    query = query.range(from, to)
+
+    const { data, count, error } = await query
+
+    if (error) {
+      console.error('Erro ao buscar histórico de price_checks:', error)
+      throw new Error(error.message || 'Falha ao buscar histórico de verificações.')
+    }
+
+    return {
+      data: (data as unknown as PriceCheckRecord[]) || [],
+      totalCount: count || 0,
+    }
+  },
+
+  /**
+   * Computa contagens de resumo para os cards no topo:
+   * - Total no mês corrente
+   * - Divergentes pendentes (no mês)
+   * - Descontinuados (no mês)
+   * - Sem URL confirmada (no mês)
+   * - Erros (no mês)
+   */
+  async fetchMonthlySummary(): Promise<PriceChecksSummaryStats> {
+    const now = new Date()
+    const firstDayMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
+
+    const { data, error, count } = await supabase
+      .from('price_checks')
+      .select('status', { count: 'exact' })
+      .gte('checked_at', firstDayMonth)
+
+    if (error) {
+      console.warn('Erro ao carregar resumo de verificações do mês:', error)
+      return {
+        monthCount: 0,
+        divergentCount: 0,
+        discontinuedCount: 0,
+        withoutUrlCount: 0,
+        errorCount: 0,
+        totalFiltered: 0,
+      }
+    }
+
+    let divergentCount = 0
+    let discontinuedCount = 0
+    let withoutUrlCount = 0
+    let errorCount = 0
+
+    if (data) {
+      for (const row of data) {
+        if (row.status === 'divergente') divergentCount++
+        else if (row.status === 'descontinuado') discontinuedCount++
+        else if (row.status === 'sem_url_confirmada') withoutUrlCount++
+        else if (row.status === 'erro') errorCount++
+      }
+    }
+
+    return {
+      monthCount: count || 0,
+      divergentCount,
+      discontinuedCount,
+      withoutUrlCount,
+      errorCount,
+      totalFiltered: count || 0,
+    }
+  },
   /**
    * Dispara a verificação unitária em tempo real na B&H via edge function check-price-bhphoto
    */

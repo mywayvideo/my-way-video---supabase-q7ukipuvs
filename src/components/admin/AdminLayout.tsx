@@ -35,6 +35,7 @@ const navigation = [
   { name: 'Testador de Busca', href: '/admin/search-test', icon: Search },
   { name: 'Catálogo & Produtos', href: '/admin/catalog', icon: Package },
   { name: 'Atualização B&H', href: '/admin/bh-update', icon: RefreshCw },
+  { name: 'Verificação de Preços', href: '/admin/price-checks', icon: RefreshCw },
   { name: 'Tabela de Apoio NCM', href: '/admin/ncm-support', icon: BookOpen },
   { name: 'Cache de Produtos', href: '/admin/product-cache', icon: Database },
   { name: 'Dicionário AVPRO', href: '/admin/avpro-keywords', icon: Sparkles },

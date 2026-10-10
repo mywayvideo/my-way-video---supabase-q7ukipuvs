@@ -25,6 +25,9 @@ export type Product = {
   updated_at?: string
   last_reviewed_at?: string
   website_url?: string | null
+  price_usa_rebate?: number | null
+  price_cost_rebate?: number | null
+  date_rebate?: string | null
   manufacturer?: Manufacturer
 }
 

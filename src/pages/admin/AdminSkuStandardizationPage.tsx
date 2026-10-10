@@ -1037,7 +1037,8 @@ export default function AdminSkuStandardizationPage() {
                 </div>
                 <CardDescription className="text-xs text-muted-foreground">
                   Resumo detalhado das alterações executadas no catálogo com salvaguarda de preços e
-                  invariante de datas.
+                  preservação de datas (renames e desativações não sensibilizam datas; apenas
+                  prevalentes com dados mesclados recebem novas datas).
                 </CardDescription>
               </CardHeader>
 
@@ -1511,8 +1512,12 @@ export default function AdminSkuStandardizationPage() {
                     price_checks.
                   </li>
                   <li>
-                    <strong>Regra de Datas:</strong> Em cada produto alterado, updated_at =
-                    last_reviewed_at = agora.
+                    <strong>Regra de Datas:</strong> Renames de SKU não alteram datas (apenas o
+                    campo
+                    <code>sku</code> é atualizado). Produtos prevalentes recebem{' '}
+                    <code>updated_at = last_reviewed_at = agora</code>
+                    apenas se receberem dados mesclados reais. Perdedores desativados não recebem
+                    marcação de datas.
                   </li>
                   <li>
                     <strong>Não Exclusão:</strong> Perdedores são apenas desativados

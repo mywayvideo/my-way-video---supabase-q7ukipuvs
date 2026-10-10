@@ -68,8 +68,8 @@ export interface RenamedSkuItem {
   oldSku: string
   newSku: string
   lastReviewedAtBefore?: string
-  lastReviewedAtAfter: string
-  updatedAtAfter: string
+  lastReviewedAtAfter?: string
+  updatedAtAfter?: string
 }
 
 export interface SkippedCollisionItem {
@@ -839,12 +839,18 @@ export const skuStandardizationService = {
           newPreferredSku = standardSku
         }
 
-        // Se houver atualizações para o preferred, executa com regra de datas
+        // Se houver dados mesclados de fato (website_url, image_url, description, technical_info, ncm),
+        // isso configura alteração real de conteúdo: updated_at = last_reviewed_at = agora.
+        // Se alterou APENAS o sku (padronização), NUNCA sensibiliza as datas (regra permanente).
         const nowIso = new Date().toISOString()
-        if (Object.keys(updatesForPreferred).length > 0) {
+        const hasRealMergedData = mergedFields.length > 0
+
+        if (hasRealMergedData) {
           updatesForPreferred.updated_at = nowIso
           updatesForPreferred.last_reviewed_at = nowIso
+        }
 
+        if (Object.keys(updatesForPreferred).length > 0) {
           try {
             const { error: prefErr } = await supabase
               .from('products')
@@ -867,7 +873,8 @@ export const skuStandardizationService = {
           }
         }
 
-        // Desativar secundários (perdedores): is_discontinued = true, com regra de datas
+        // Desativar secundários (perdedores): is_discontinued = true.
+        // O produto perdedor desativado NÃO recebe marcação de datas (updated_at/last_reviewed_at permanecem intactos).
         const deactivatedList: MergeResultItem['deactivatedProducts'] = []
         for (const sec of secondaries) {
           try {
@@ -876,8 +883,6 @@ export const skuStandardizationService = {
               .from('products')
               .update({
                 is_discontinued: true,
-                updated_at: nowIso,
-                last_reviewed_at: nowIso,
               })
               .eq('id', sec.id)
 
@@ -941,15 +946,15 @@ export const skuStandardizationService = {
     for (let i = 0; i < totalToRename; i++) {
       const p = toRename[i]
       const standardSku = formatSonyStandardSku(p.sku)
-      const nowIso = new Date().toISOString()
 
       try {
+        // Renames de SKU (backfill do traço): altera APENAS o campo sku.
+        // Padronização de SKU é operação de catálogo, NÃO revisão/alteração de conteúdo —
+        // não toca em updated_at nem last_reviewed_at (as datas existentes permanecem exatamente como estão).
         const { error: updateErr } = await supabase
           .from('products')
           .update({
             sku: standardSku,
-            updated_at: nowIso,
-            last_reviewed_at: nowIso,
           })
           .eq('id', p.id)
 
@@ -962,8 +967,8 @@ export const skuStandardizationService = {
             oldSku: p.sku || '',
             newSku: standardSku,
             lastReviewedAtBefore: p.last_reviewed_at,
-            lastReviewedAtAfter: nowIso,
-            updatedAtAfter: nowIso,
+            lastReviewedAtAfter: p.last_reviewed_at,
+            updatedAtAfter: p.updated_at,
           })
         }
       } catch (err: any) {

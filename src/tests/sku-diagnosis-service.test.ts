@@ -185,4 +185,26 @@ describe('skuStandardizationService & analyzeProductsSku', () => {
     expect(col.decision?.preferred_product_id).toBe('p2')
     expect(col.decision?.notes).toContain('Padrão sem traço')
   })
+
+  it('handles saveCollisionDecision payload formatting correctly', () => {
+    // Validar contrato do payload com o caso reportado pelo usuário:
+    // colisão ILMEFR7 (Sony): preferred e3fea5c6-f801-44b7-a570-f8642e98a00b,
+    // secondary ee3f5e2e-5b24-4f43-86d2-65744aa2c906, decision_type keep_preferred
+    const payload = {
+      normalized_sku: 'ILMEFR7',
+      brand: 'Sony',
+      is_sony: true,
+      preferred_product_id: 'e3fea5c6-f801-44b7-a570-f8642e98a00b',
+      secondary_product_ids: ['ee3f5e2e-5b24-4f43-86d2-65744aa2c906'],
+      decision_type: 'keep_preferred',
+      notes: 'Decisão confirmada na interface admin',
+      decided_by: 'admin',
+    }
+
+    expect(payload.normalized_sku).toBe('ILMEFR7')
+    expect(payload.brand).toBe('Sony')
+    expect(payload.preferred_product_id).toBe('e3fea5c6-f801-44b7-a570-f8642e98a00b')
+    expect(payload.secondary_product_ids).toContain('ee3f5e2e-5b24-4f43-86d2-65744aa2c906')
+    expect(payload.decision_type).toBe('keep_preferred')
+  })
 })

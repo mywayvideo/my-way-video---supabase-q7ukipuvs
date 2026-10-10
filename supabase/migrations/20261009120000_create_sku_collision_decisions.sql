@@ -10,9 +10,7 @@ CREATE TABLE IF NOT EXISTS public.sku_collision_decisions (
   is_sony BOOLEAN NOT NULL DEFAULT true,
   preferred_product_id UUID REFERENCES public.products(id) ON DELETE SET NULL,
   secondary_product_ids UUID[] NOT NULL DEFAULT '{}',
-  decision_type TEXT NOT NULL DEFAULT 'undecided' CHECK (
-    decision_type IN ('keep_preferred', 'distinct_products', 'merge_pending', 'undecided')
-  ),
+  decision_type TEXT NOT NULL DEFAULT 'undecided',
   notes TEXT,
   decided_by TEXT,
   decided_at TIMESTAMPTZ,
@@ -49,3 +47,6 @@ DROP POLICY IF EXISTS "Admin delete sku_collision_decisions" ON public.sku_colli
 CREATE POLICY "Admin delete sku_collision_decisions" ON public.sku_collision_decisions
   FOR DELETE TO authenticated
   USING (public.check_is_admin());
+
+-- Reload PostgREST schema cache so the table is immediately exposed via the REST API
+NOTIFY pgrst, 'reload schema';

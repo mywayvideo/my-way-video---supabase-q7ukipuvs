@@ -351,14 +351,15 @@ export const skuStandardizationService = {
     // 2. Decisões prévias gravadas (se houver tabela)
     let existingDecisions: any[] = []
     try {
-      const { data: decData, error: decError } = await (supabase as any)
+      const { data: decData, error: decError } = await supabase
         .from('sku_collision_decisions')
         .select('*')
       if (!decError && decData) {
         existingDecisions = decData
+      } else if (decError) {
+        console.warn('Aviso ao carregar decisões de colisão:', decError.message)
       }
     } catch (e) {
-      // Tabela pode ainda estar sendo criada via migração
       console.warn('Tabela sku_collision_decisions não consultável:', e)
     }
 
@@ -403,7 +404,7 @@ export const skuStandardizationService = {
     decidedBy?: string
   }): Promise<void> {
     const nowIso = new Date().toISOString()
-    const { error } = await (supabase as any).from('sku_collision_decisions').upsert(
+    const { error } = await supabase.from('sku_collision_decisions').upsert(
       {
         normalized_sku: params.normalizedSku,
         brand: params.brand,

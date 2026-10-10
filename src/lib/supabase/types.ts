@@ -5192,6 +5192,59 @@ export type Database = {
         }
         Relationships: []
       }
+      sku_collision_decisions: {
+        Row: {
+          brand: string
+          created_at: string
+          decided_at: string | null
+          decided_by: string | null
+          decision_type: string
+          id: string
+          is_sony: boolean
+          notes: string | null
+          normalized_sku: string
+          preferred_product_id: string | null
+          secondary_product_ids: string[]
+          updated_at: string
+        }
+        Insert: {
+          brand?: string
+          created_at?: string
+          decided_at?: string | null
+          decided_by?: string | null
+          decision_type?: string
+          id?: string
+          is_sony?: boolean
+          notes?: string | null
+          normalized_sku: string
+          preferred_product_id?: string | null
+          secondary_product_ids?: string[]
+          updated_at?: string
+        }
+        Update: {
+          brand?: string
+          created_at?: string
+          decided_at?: string | null
+          decided_by?: string | null
+          decision_type?: string
+          id?: string
+          is_sony?: boolean
+          notes?: string | null
+          normalized_sku?: string
+          preferred_product_id?: string | null
+          secondary_product_ids?: string[]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'sku_collision_decisions_preferred_product_id_fkey'
+            columns: ['preferred_product_id']
+            isOneToOne: false
+            referencedRelation: 'products'
+            referencedColumns: ['id']
+          },
+        ]
+      }
       simulations: {
         Row: {
           budget_items: Json

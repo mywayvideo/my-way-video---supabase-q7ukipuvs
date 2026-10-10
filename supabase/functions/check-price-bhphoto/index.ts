@@ -142,54 +142,137 @@ function parseBhMarkdown(content: string): ScrapedData | null {
 
   // 5. Preço regular (preço original / list price / strikethrough)
   // Padrões B&H: "Regular Price: $282.00", "Reg: $282.00", "List Price: $282.00", "Original Price: $282.00"
+  // Nunca captura parcela mensal (ex: /mo, /month, per month) ou financiamento
   let price_regular: number | null = null
-  const regMatch = text.match(
-    /(?:Regular\s*Price|Reg\.?|List\s*Price|Original\s*Price|Was)\s*:?\s*\$([0-9,]+(?:\.[0-9]{2})?)/i,
+  const regMatches = Array.from(
+    text.matchAll(
+      /(?:Regular\s*Price|Reg\.?|List\s*Price|Original\s*Price|Was)\s*:?\s*\$([0-9,]+(?:\.[0-9]{2})?)(?!\s*\/(?:mo|month)\b)(?!\s*(?:per\s*month|mo\.?\b))/gi,
+    ),
   )
-  if (regMatch) {
-    const parsedReg = parseFloat(regMatch[1].replace(/,/g, ''))
+  for (const m of regMatches) {
+    const matchIndex = m.index ?? 0
+    const preceding = text.slice(Math.max(0, matchIndex - 60), matchIndex).toLowerCase()
+    if (/suggested\s+(?:monthly\s+)?payments?|financing|payboo|cardmember/i.test(preceding)) {
+      continue
+    }
+    const parsedReg = parseFloat(m[1].replace(/,/g, ''))
     if (!isNaN(parsedReg) && parsedReg > 0) {
       price_regular = parsedReg
       rebate_active = true
+      break
     }
   }
 
   // 6. Preço final de venda (current price)
-  // Padrões:
-  // - "Price: $159.00", "You Pay: $159.00", "Final Price: $159.00"
-  // - Ou primeiro valor de dólar próximo a "Buy", "Add to Cart", ou cabeçalho de preço
+  // Padrões válidos:
+  // - "You Pay: $159.00", "Our Price: $159.00", "Current Price: $159.00", "Final Price: $159.00", "Price: $159.00"
+  // NOTA CRÍTICA: "Pay" isolado foi REMOVIDO pois colidia com parcelas mensais de cartão ("or Pay $34/mo. suggested payments").
+  // Negative lookahead impede capturar valores de financiamento tipo $34/mo ou $34 per month.
   let price: number | null = null
-  const explicitPriceMatch = text.match(
-    /(?:You\s*Pay|Our\s*Price|Current\s*Price|Price|Pay)\s*:?\s*\$([0-9,]+(?:\.[0-9]{2})?)/i,
+  const explicitMatches = Array.from(
+    text.matchAll(
+      /(?:You\s*Pay|Our\s*Price|Current\s*Price|Final\s*Price|Price)\s*:?\s*\$([0-9,]+(?:\.[0-9]{2})?)(?!\s*\/(?:mo|month)\b)(?!\s*(?:per\s*month|mo\.?\b))/gi,
+    ),
   )
-  if (explicitPriceMatch) {
-    const p = parseFloat(explicitPriceMatch[1].replace(/,/g, ''))
+  for (const match of explicitMatches) {
+    const matchIndex = match.index ?? 0
+    const preceding = text.slice(Math.max(0, matchIndex - 60), matchIndex).toLowerCase()
+    // Descarta se em contexto de financiamento/parcelamento
+    if (/suggested\s+(?:monthly\s+)?payments?|financing|payboo|cardmember/i.test(preceding)) {
+      continue
+    }
+    const p = parseFloat(match[1].replace(/,/g, ''))
     if (!isNaN(p) && p > 0) {
       price = p
+      break
     }
   }
 
-  // Fallback para preço: varrer todos os "$X.XX" no texto
+  // 7. Fallback para preço: varrer ocorrências de "$X.XX" no texto descartando parcelamento
   if (price == null) {
-    const dollarMatches = Array.from(text.matchAll(/\$([0-9,]+(?:\.[0-9]{2})?)/g))
-    if (dollarMatches.length > 0) {
-      // Coleta valores candidatos válidos
-      const candidates = dollarMatches
-        .map((m) => parseFloat(m[1].replace(/,/g, '')))
-        .filter((val) => !isNaN(val) && val > 0)
+    // Busca candidatos com contexto para filtragem rigorosa
+    const dollarRegex = /\$([0-9,]+(?:\.[0-9]{2})?)/g
+    let dMatch: RegExpExecArray | null
+    const validCandidates: { value: number; index: number; nearCart: boolean }[] = []
 
-      if (candidates.length > 0) {
-        // Se houver preço regular e rebate_savings identificados: price = regular - savings
-        if (price_regular && rebate_savings && price_regular > rebate_savings) {
-          price = Number((price_regular - rebate_savings).toFixed(2))
-        } else if (price_regular) {
-          // Preço com desconto deve ser o candidato menor que o regular
-          const discountedCand = candidates.find((c) => c < price_regular! && c > 5)
-          price = discountedCand || candidates[0]
-        } else {
-          // Pega o primeiro candidato plausível
-          price = candidates[0]
-        }
+    // Procura posições do botão de compra / carrinho
+    const cartIndices: number[] = []
+    const cartRegex = /(?:add\s*to\s*cart|buy\s*now|in\s*stock|special\s*order|backordered)/gi
+    let cMatch: RegExpExecArray | null
+    while ((cMatch = cartRegex.exec(text)) !== null) {
+      cartIndices.push(cMatch.index)
+    }
+
+    while ((dMatch = dollarRegex.exec(text)) !== null) {
+      const matchIndex = dMatch.index
+      const matchLength = dMatch[0].length
+      const following = text
+        .slice(matchIndex + matchLength, matchIndex + matchLength + 40)
+        .toLowerCase()
+      const preceding = text.slice(Math.max(0, matchIndex - 60), matchIndex).toLowerCase()
+
+      // Exclusão 1: Qualquer sufixo de parcelamento mensal
+      if (
+        /^\s*\/(?:mo|month)\b/.test(following) ||
+        /^\s*per\s+month\b/.test(following) ||
+        /^\s*mo\.?\b/.test(following)
+      ) {
+        continue
+      }
+
+      // Exclusão 2: Contexto textual de parcelamento ou pagamentos sugeridos
+      if (
+        /suggested\s+(?:monthly\s+)?payments?/i.test(following) ||
+        /suggested\s+(?:monthly\s+)?payments?/i.test(preceding) ||
+        /\bfor\s+\d+\s+mos\.?/i.test(following) ||
+        /\bfinancing\b/i.test(preceding) ||
+        /\bpromo\s+financing\b/i.test(preceding) ||
+        /\bpayboo\b/i.test(following) ||
+        /\bpayboo\b/i.test(preceding)
+      ) {
+        continue
+      }
+
+      // Exclusão 3: Savings/Rebate (já tratados separadamente na seção 4)
+      if (
+        /(?:instant\s*savings|savings|save)\s*:?\s*$/i.test(preceding) ||
+        /^\s*(?:instant\s*savings|savings)/i.test(following)
+      ) {
+        continue
+      }
+
+      const val = parseFloat(dMatch[1].replace(/,/g, ''))
+      if (!isNaN(val) && val > 0) {
+        // Verifica proximidade com área de compra (Add to Cart / In Stock, etc. num raio de 300 caracteres)
+        const nearCart = cartIndices.some((ci) => Math.abs(ci - matchIndex) <= 300)
+        validCandidates.push({ value: val, index: matchIndex, nearCart })
+      }
+    }
+
+    if (validCandidates.length > 0) {
+      // Se houver preço regular e rebate_savings identificados: price = regular - savings
+      if (price_regular && rebate_savings && price_regular > rebate_savings) {
+        price = Number((price_regular - rebate_savings).toFixed(2))
+      } else if (price_regular) {
+        // Preço com desconto deve ser o candidato menor que o regular
+        // Prioriza candidato próximo ao carrinho; na dúvida, o maior valor plausível abaixo de price_regular
+        const discounted = validCandidates
+          .filter((c) => c.value < price_regular! && c.value > 5)
+          .sort((a, b) => {
+            if (a.nearCart && !b.nearCart) return -1
+            if (!a.nearCart && b.nearCart) return 1
+            return b.value - a.value // Maior valor plausível vence parcela
+          })
+        price = discounted.length > 0 ? discounted[0].value : validCandidates[0].value
+      } else {
+        // Sem preço regular prévio: prioriza candidatos do bloco de compra (nearCart)
+        // e entre eles o maior valor plausível sobre o menor (parcelas descartadas, mas segurança extra)
+        const sorted = [...validCandidates].sort((a, b) => {
+          if (a.nearCart && !b.nearCart) return -1
+          if (!a.nearCart && b.nearCart) return 1
+          return b.value - a.value // Maior valor plausível tem preferência sobre menor
+        })
+        price = sorted[0].value
       }
     }
   }

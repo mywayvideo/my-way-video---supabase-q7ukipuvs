@@ -68,43 +68,125 @@ function parseBhMarkdown(content: string) {
     }
   }
 
+  // 5. Preço regular (preço original / list price / strikethrough)
+  // Nunca captura parcela mensal (ex: /mo, /month, per month) ou financiamento
   let price_regular: number | null = null
-  const regMatch =
-    text.match(/(?:Regular\s*Price|Reg\.?|List\s*Price|Original\s*Price|Was)\s*:?\s*\$([0-9,]+(?:\.[0-9]{2})?)/i)
-  if (regMatch) {
-    const parsedReg = parseFloat(regMatch[1].replace(/,/g, ''))
+  const regMatches = Array.from(
+    text.matchAll(
+      /(?:Regular\s*Price|Reg\.?|List\s*Price|Original\s*Price|Was)\s*:?\s*\$([0-9,]+(?:\.[0-9]{2})?)(?!\s*\/(?:mo|month)\b)(?!\s*(?:per\s*month|mo\.?\b))/gi,
+    ),
+  )
+  for (const m of regMatches) {
+    const matchIndex = m.index ?? 0
+    const preceding = text.slice(Math.max(0, matchIndex - 60), matchIndex).toLowerCase()
+    if (/suggested\s+(?:monthly\s+)?payments?|financing|payboo|cardmember/i.test(preceding)) {
+      continue
+    }
+    const parsedReg = parseFloat(m[1].replace(/,/g, ''))
     if (!isNaN(parsedReg) && parsedReg > 0) {
       price_regular = parsedReg
       rebate_active = true
+      break
     }
   }
 
+  // 6. Preço final de venda (current price)
+  // NOTA CRÍTICA: "Pay" isolado foi REMOVIDO pois colidia com parcelas mensais de cartão ("or Pay $34/mo. suggested payments").
+  // Negative lookahead impede capturar valores de financiamento tipo $34/mo ou $34 per month.
   let price: number | null = null
-  const explicitPriceMatch =
-    text.match(/(?:You\s*Pay|Our\s*Price|Current\s*Price|Price|Pay)\s*:?\s*\$([0-9,]+(?:\.[0-9]{2})?)/i)
-  if (explicitPriceMatch) {
-    const p = parseFloat(explicitPriceMatch[1].replace(/,/g, ''))
+  const explicitMatches = Array.from(
+    text.matchAll(
+      /(?:You\s*Pay|Our\s*Price|Current\s*Price|Final\s*Price|Price)\s*:?\s*\$([0-9,]+(?:\.[0-9]{2})?)(?!\s*\/(?:mo|month)\b)(?!\s*(?:per\s*month|mo\.?\b))/gi,
+    ),
+  )
+  for (const match of explicitMatches) {
+    const matchIndex = match.index ?? 0
+    const preceding = text.slice(Math.max(0, matchIndex - 60), matchIndex).toLowerCase()
+    if (/suggested\s+(?:monthly\s+)?payments?|financing|payboo|cardmember/i.test(preceding)) {
+      continue
+    }
+    const p = parseFloat(match[1].replace(/,/g, ''))
     if (!isNaN(p) && p > 0) {
       price = p
+      break
     }
   }
 
+  // 7. Fallback para preço: varrer ocorrências de "$X.XX" no texto descartando parcelamento
   if (price == null) {
-    const dollarMatches = Array.from(text.matchAll(/\$([0-9,]+(?:\.[0-9]{2})?)/g))
-    if (dollarMatches.length > 0) {
-      const candidates = dollarMatches
-        .map((m) => parseFloat(m[1].replace(/,/g, '')))
-        .filter((val) => !isNaN(val) && val > 0)
+    const dollarRegex = /\$([0-9,]+(?:\.[0-9]{2})?)/g
+    let dMatch: RegExpExecArray | null
+    const validCandidates: { value: number; index: number; nearCart: boolean }[] = []
 
-      if (candidates.length > 0) {
-        if (price_regular && rebate_savings && price_regular > rebate_savings) {
-          price = Number((price_regular - rebate_savings).toFixed(2))
-        } else if (price_regular) {
-          const discountedCand = candidates.find((c) => c < price_regular! && c > 5)
-          price = discountedCand || candidates[0]
-        } else {
-          price = candidates[0]
-        }
+    const cartIndices: number[] = []
+    const cartRegex = /(?:add\s*to\s*cart|buy\s*now|in\s*stock|special\s*order|backordered)/gi
+    let cMatch: RegExpExecArray | null
+    while ((cMatch = cartRegex.exec(text)) !== null) {
+      cartIndices.push(cMatch.index)
+    }
+
+    while ((dMatch = dollarRegex.exec(text)) !== null) {
+      const matchIndex = dMatch.index
+      const matchLength = dMatch[0].length
+      const following = text.slice(matchIndex + matchLength, matchIndex + matchLength + 40).toLowerCase()
+      const preceding = text.slice(Math.max(0, matchIndex - 60), matchIndex).toLowerCase()
+
+      // Exclusão 1: Qualquer sufixo de parcelamento mensal
+      if (
+        /^\s*\/(?:mo|month)\b/.test(following) ||
+        /^\s*per\s+month\b/.test(following) ||
+        /^\s*mo\.?\b/.test(following)
+      ) {
+        continue
+      }
+
+      // Exclusão 2: Contexto textual de parcelamento ou pagamentos sugeridos
+      if (
+        /suggested\s+(?:monthly\s+)?payments?/i.test(following) ||
+        /suggested\s+(?:monthly\s+)?payments?/i.test(preceding) ||
+        /\bfor\s+\d+\s+mos\.?/i.test(following) ||
+        /\bfinancing\b/i.test(preceding) ||
+        /\bpromo\s+financing\b/i.test(preceding) ||
+        /\bpayboo\b/i.test(following) ||
+        /\bpayboo\b/i.test(preceding)
+      ) {
+        continue
+      }
+
+      // Exclusão 3: Savings/Rebate
+      if (
+        /(?:instant\s*savings|savings|save)\s*:?\s*$/i.test(preceding) ||
+        /^\s*(?:instant\s*savings|savings)/i.test(following)
+      ) {
+        continue
+      }
+
+      const val = parseFloat(dMatch[1].replace(/,/g, ''))
+      if (!isNaN(val) && val > 0) {
+        const nearCart = cartIndices.some((ci) => Math.abs(ci - matchIndex) <= 300)
+        validCandidates.push({ value: val, index: matchIndex, nearCart })
+      }
+    }
+
+    if (validCandidates.length > 0) {
+      if (price_regular && rebate_savings && price_regular > rebate_savings) {
+        price = Number((price_regular - rebate_savings).toFixed(2))
+      } else if (price_regular) {
+        const discounted = validCandidates
+          .filter((c) => c.value < price_regular! && c.value > 5)
+          .sort((a, b) => {
+            if (a.nearCart && !b.nearCart) return -1
+            if (!a.nearCart && b.nearCart) return 1
+            return b.value - a.value
+          })
+        price = discounted.length > 0 ? discounted[0].value : validCandidates[0].value
+      } else {
+        const sorted = [...validCandidates].sort((a, b) => {
+          if (a.nearCart && !b.nearCart) return -1
+          if (!a.nearCart && b.nearCart) return 1
+          return b.value - a.value
+        })
+        price = sorted[0].value
       }
     }
   }
@@ -190,5 +272,91 @@ In Stock
     expect(parsed?.price).toBe(295.0)
     expect(parsed?.rebate_active).toBe(false)
     expect(parsed?.mfr_number).toBe('SWATEMMINIBPR')
+  })
+
+  // =========================================================================
+  // CASO DE REGRESSÃO OBRIGATÓRIO: Sony AD-C88 (SKU ADC-88)
+  // Texto de financiamento: "or Pay $34/mo. suggested payments for 6 Mos."
+  // Preço real da B&H: $200.00
+  // Deve resultar em price_bh = 200.00, sem confundir com a parcela de $34
+  // =========================================================================
+  it('Caso de regressão Sony AD-C88: não confunde parcela de cartão ($34/mo) com preço real ($200.00)', () => {
+    const sampleMarkdownAdc88 = `
+# Sony AD-C88 6-Piece Foam Windscreen Set for ECM-88 Series
+MFR # ADC-88
+B&H # SOADC88
+
+Price: $200.00
+or Pay $34/mo. suggested payments for 6 Mos. with the B&H Payboo Card.
+
+[Add to Cart]
+Special Order
+Expected availability: 2-4 Weeks
+Free Standard Shipping
+`
+    const parsed = parseBhMarkdown(sampleMarkdownAdc88)
+    expect(parsed).not.toBeNull()
+    expect(parsed?.mfr_number).toBe('ADC-88')
+    expect(parsed?.sku).toBe('SOADC88')
+    expect(parsed?.price).toBe(200.0) // NUNCA deve ser 34.0
+    expect(parsed?.price_regular).toBeUndefined()
+    expect(parsed?.rebate_active).toBe(false)
+  })
+
+  it('Caso de regressão Sony AD-C88 no fallback sem "Price:" explícito: parcela $34/mo descartada e preço $200.00 escolhido', () => {
+    const markdownWithoutPrefix = `
+# Sony AD-C88 6-Piece Foam Windscreen Set
+MFR # ADC-88
+B&H # SOADC88
+
+$200.00
+or Pay $34/mo. suggested payments for 6 Mos.
+
+[Add to Cart]
+Special Order
+`
+    const parsed = parseBhMarkdown(markdownWithoutPrefix)
+    expect(parsed).not.toBeNull()
+    expect(parsed?.price).toBe(200.0)
+  })
+
+  it('descarta parcelamentos múltiplos (per month, /month, mo.) e preserva preço de lista e venda', () => {
+    const markdownFinancing = `
+# Sony FX3 Cinema Camera
+MFR # ILME-FX3
+B&H # SOILMEFX3
+
+Regular Price: $3,899.99
+Our Price: $3,698.00
+Starting at $110/month with Affirm or $154.08 per month suggested payments for 24 mos.
+
+Instant Savings: $201.99
+Offer ends Dec 31
+
+[Add to Cart]
+In Stock
+`
+    const parsed = parseBhMarkdown(markdownFinancing)
+    expect(parsed).not.toBeNull()
+    expect(parsed?.price).toBe(3698.0)
+    expect(parsed?.price_regular).toBe(3899.99)
+    expect(parsed?.rebate_savings).toBe(201.99)
+    expect(parsed?.rebate_active).toBe(true)
+  })
+
+  it('rejeita "Pay" isolado como indicador de preço para evitar capturar "Pay $X" de financiamento', () => {
+    const markdownPayAlone = `
+# Accessory Kit
+MFR # ACC-123
+B&H # SOACC123
+
+or Pay $19/mo. suggested payments
+$150.00
+[Add to Cart]
+In Stock
+`
+    const parsed = parseBhMarkdown(markdownPayAlone)
+    expect(parsed).not.toBeNull()
+    expect(parsed?.price).toBe(150.0) // $19 descartado por ser /mo e contexto sugerido
   })
 })

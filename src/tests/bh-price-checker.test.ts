@@ -42,6 +42,11 @@ describe('priceCheckService & B&H verification tolerance logic', () => {
 
     // Caso 4: Produto de $2000, diferença de $25 (1.25%, acima de 1%) -> DIVERGENTE
     expect(evaluateTolerance(2000, 2025).status).toBe('divergente')
+
+    // Caso 5: Regressão Sony AD-C88: price_usd = 200.00 e B&H correto = 200.00 -> status "ok", diff 0
+    expect(evaluateTolerance(200, 200).status).toBe('ok')
+    expect(evaluateTolerance(200, 200).diffUsd).toBe(0)
+    expect(evaluateTolerance(200, 200).diffPct).toBe(0)
   })
 
   it('normalizes SKU correctly for strict comparison', () => {

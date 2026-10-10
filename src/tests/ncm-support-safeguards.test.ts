@@ -81,4 +81,5 @@ describe('ncm_support layer integration and safeguards', () => {
     expect(insertError).toBeDefined()
     expect(insertError?.message).toMatch(/não existe na tabela de tarifas vigentes/i)
   })
+
 })

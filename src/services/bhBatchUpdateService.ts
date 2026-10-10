@@ -1,4 +1,11 @@
-import { PriceCheckResult, PriceCheckStatus, priceCheckService } from './priceCheckService'
+import {
+  PriceCheckResult,
+  PriceCheckStatus,
+  priceCheckService,
+  extractRebateInfo,
+  resolvePairedEvaluation,
+} from './priceCheckService'
+import { ExistingRebateRule } from './rebateDiscountService'
 import { supabase } from '@/lib/supabase/client'
 
 export interface ProductBatchItem {
@@ -45,13 +52,67 @@ export interface BatchFilterOptions {
 
 export const bhBatchUpdateService = {
   /**
+   * Avalia um item individual no contexto do lote aplicando a lógica pareada compartilhada.
+   * Se houver rebate ativo no cadastro e na B&H, avalia par cheio e par desconto.
+   */
+  resolveItemPairedEvaluation(
+    item: ProductBatchItem,
+    rebateRule?: ExistingRebateRule | null,
+  ): {
+    effectiveStatus: PriceCheckStatus | null
+    effectiveMessage: string | null
+    rebateInfo: ReturnType<typeof extractRebateInfo>
+    pairedEval: ReturnType<typeof resolvePairedEvaluation>['pairedEval']
+  } {
+    const checkRes = item.checkResult
+    if (!checkRes && !item.batchStatus) {
+      return {
+        effectiveStatus: null,
+        effectiveMessage: null,
+        rebateInfo: extractRebateInfo({}),
+        pairedEval: null,
+      }
+    }
+
+    const rebateInfo = extractRebateInfo({
+      checkResult: checkRes,
+      message: checkRes?.message || item.errorMessage,
+      catalogPriceUsd: item.price_usd,
+    })
+
+    const resolved = resolvePairedEvaluation({
+      status: checkRes?.status || (item.batchStatus === 'error' ? 'erro' : null),
+      catalogPriceUsd: item.price_usd,
+      rebateRule: rebateRule || null,
+      priceBh: checkRes?.price_bh ?? null,
+      priceFull: rebateInfo.rebatePriceFull,
+      priceWithRebate: rebateInfo.rebatePriceWithDiscount,
+      isBhRebateActive: rebateInfo.isBhRebateActive,
+      defaultMessage: checkRes?.message || item.errorMessage,
+    })
+
+    return {
+      effectiveStatus: resolved.effectiveStatus,
+      effectiveMessage: resolved.effectiveMessage,
+      rebateInfo,
+      pairedEval: resolved.pairedEval,
+    }
+  },
+
+  /**
    * Estima o consumo de créditos Firecrawl da lista de produtos selecionados
-   * Regra de bolso: 1 crédito se tiver link direto (raspagem), 2 créditos se não tiver link (busca + raspagem)
+   * Custos reais pós-otimização:
+   * - Raspagem direta (com link validado): 1 crédito (scrape comum markdown/html)
+   * - Busca + raspagem direta (sem link): 2 créditos de busca + 1 crédito de scrape do 1º candidato = 3 créditos
+   *   (se o 1º não confirmar, testa até 3 candidatos, +1 a +2 créditos; fallback JSON extremo = 5 créditos)
+   * Mantém métricas detalhadas com link e sem link.
    */
   estimateFirecrawlCredits(items: Array<{ website_url?: string | null }>): {
     totalCredits: number
     withLinkCount: number
     withoutLinkCount: number
+    creditsDirectScrape: number
+    creditsSearchFlow: number
   } {
     let withLinkCount = 0
     let withoutLinkCount = 0
@@ -64,11 +125,18 @@ export const bhBatchUpdateService = {
       }
     }
 
-    const totalCredits = withLinkCount * 1 + withoutLinkCount * 2
+    // Com link: 1 crédito (scrape comum)
+    // Sem link: 2 créditos (busca) + 1 crédito (scrape do primeiro candidato) = 3 créditos no caso ideal de 1º acerto
+    const creditsDirectScrape = withLinkCount * 1
+    const creditsSearchFlow = withoutLinkCount * 3
+    const totalCredits = creditsDirectScrape + creditsSearchFlow
+
     return {
       totalCredits,
       withLinkCount,
       withoutLinkCount,
+      creditsDirectScrape,
+      creditsSearchFlow,
     }
   },
 
@@ -165,9 +233,13 @@ export const bhBatchUpdateService = {
   },
 
   /**
-   * Calcula as estatísticas acumuladas dos itens processados
+   * Calcula as estatísticas acumuladas dos itens processados, aplicando pareamento
+   * de regras de rebate ativas quando o mapa de regras for fornecido.
    */
-  calculateStats(items: ProductBatchItem[]): BatchProcessingStats {
+  calculateStats(
+    items: ProductBatchItem[],
+    activeRebatesMap?: Record<string, ExistingRebateRule>,
+  ): BatchProcessingStats {
     let okCount = 0
     let divergenceCount = 0
     let urlDiscoveredCount = 0
@@ -184,14 +256,18 @@ export const bhBatchUpdateService = {
 
       if (item.checkResult) {
         const res = item.checkResult
-        if (res.status === 'ok') okCount++
-        if (res.status === 'divergente') divergenceCount++
-        if (res.status === 'descontinuado') discontinuedCount++
-        if (res.status === 'sem_url_confirmada') doubtfulLinkCount++
-        if (res.status === 'erro') errorCount++
+        const rule = activeRebatesMap ? activeRebatesMap[item.id] : null
+        const evaluated = this.resolveItemPairedEvaluation(item, rule)
+        const effectiveStatus = evaluated.effectiveStatus || res.status
+
+        if (effectiveStatus === 'ok') okCount++
+        if (effectiveStatus === 'divergente') divergenceCount++
+        if (effectiveStatus === 'descontinuado') discontinuedCount++
+        if (effectiveStatus === 'sem_url_confirmada') doubtfulLinkCount++
+        if (effectiveStatus === 'erro') errorCount++
 
         if (res.url_discovered) urlDiscoveredCount++
-        if (res.rebate_active) rebateDetectedCount++
+        if (evaluated.rebateInfo.isBhRebateActive) rebateDetectedCount++
       } else if (item.batchStatus === 'error') {
         errorCount++
       }

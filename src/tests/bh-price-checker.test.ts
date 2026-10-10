@@ -3,6 +3,8 @@ import {
   priceCheckService,
   evaluatePricePair,
   evaluatePairedPrices,
+  extractRebateInfo,
+  resolvePairedEvaluation,
 } from '@/services/priceCheckService'
 import {
   calculateDiscountedPrice,
@@ -439,6 +441,61 @@ describe('priceCheckService & B&H verification tolerance logic', () => {
       expect(evaluation.status).toBe('ok')
       expect(evaluation.rebatePair?.isWithinTolerance).toBe(true)
       expect(evaluation.fullPair).toBeNull()
+    })
+
+    it('extractRebateInfo helper extrai corretamente dados de rebate em raw payload e mensagens', () => {
+      const rawPayload = {
+        rebate_info: {
+          rebate_active: true,
+          price_full: 282,
+          price_with_rebate: 159,
+          rebate_savings: 123,
+          rebate_end_date: 'Ends May 31',
+        },
+      }
+
+      const extracted = extractRebateInfo({
+        raw: rawPayload,
+        catalogPriceUsd: 282,
+      })
+
+      expect(extracted.isBhRebateActive).toBe(true)
+      expect(extracted.rebatePriceFull).toBe(282)
+      expect(extracted.rebatePriceWithDiscount).toBe(159)
+      expect(extracted.rebateSavings).toBe(123)
+      expect(extracted.rebateEndDate).toBe('Ends May 31')
+    })
+
+    it('resolvePairedEvaluation helper unifica o status na página de edição e no lote', () => {
+      const activeRebateRule: ExistingRebateRule = {
+        id: 'rebate-rule-sony-an820a',
+        name: 'Rebate Fabricante',
+        discount_type: 'fixed',
+        discount_value: 123,
+        start_date: null,
+        end_date: '2026-12-31',
+        is_active: true,
+        product_selection: ['prod-sony-an820a'],
+      }
+
+      // Simulação do caso AN820A onde o edge function retorna status divergente (-43.62%) por comparação simples
+      const resolution = resolvePairedEvaluation({
+        status: 'divergente',
+        catalogPriceUsd: 282,
+        rebateRule: activeRebateRule,
+        priceBh: 159,
+        priceFull: 282,
+        priceWithRebate: 159,
+        isBhRebateActive: true,
+        defaultMessage: 'Preço divergente da B&H',
+      })
+
+      // Status efetivo DEVE ser 'ok', com ambos os pares OK
+      expect(resolution.effectiveStatus).toBe('ok')
+      expect(resolution.pairedEval?.overallWithinTolerance).toBe(true)
+      expect(resolution.pairedEval?.fullPair?.isWithinTolerance).toBe(true)
+      expect(resolution.pairedEval?.rebatePair?.isWithinTolerance).toBe(true)
+      expect(resolution.effectiveMessage).toContain('Preços conferidos com a B&H em ambos os pares')
     })
   })
 })

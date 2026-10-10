@@ -23,6 +23,8 @@ import {
   PriceCheckStatus,
   evaluatePairedPrices,
   PairedCheckEvaluation,
+  extractRebateInfo,
+  resolvePairedEvaluation,
 } from '@/services/priceCheckService'
 import { rebateDiscountService, ExistingRebateRule } from '@/services/rebateDiscountService'
 import { RebateDiscountModal } from '@/components/admin/RebateDiscountModal'
@@ -261,63 +263,32 @@ export const BhPriceChecker: React.FC<BhPriceCheckerProps> = ({
   const checkedAt = currentResult?.checked_at ?? lastRecord?.checked_at ?? null
   const displayMessage = currentResult?.message ?? lastRecord?.message ?? null
 
-  // Dados de rebate: do resultado em tempo real ou do payload raw gravado no último price_check
-  const rawRebateInfo = lastRecord?.raw?.rebate_info
-  const isBhRebateActive = Boolean(
-    currentResult?.rebate_active ??
-    rawRebateInfo?.rebate_active ??
-    (displayMessage && /\[rebate\/instant savings/i.test(displayMessage)),
-  )
-
-  const rebatePriceFull =
-    currentResult?.price_full ??
-    rawRebateInfo?.price_full ??
-    (displayPriceDb != null ? displayPriceDb : null)
-
-  const rebatePriceWithDiscount =
-    currentResult?.price_with_rebate ??
-    rawRebateInfo?.price_with_rebate ??
-    (displayPriceBh != null ? displayPriceBh : null)
-
-  const rebateSavings =
-    currentResult?.rebate_savings ??
-    rawRebateInfo?.rebate_savings ??
-    (rebatePriceFull != null &&
-    rebatePriceWithDiscount != null &&
-    rebatePriceFull > rebatePriceWithDiscount
-      ? rebatePriceFull - rebatePriceWithDiscount
-      : null)
-
-  const rebateEndDate =
-    currentResult?.rebate_end_date ??
-    rawRebateInfo?.rebate_end_date ??
-    (() => {
-      const match = displayMessage?.match(/Vigência:\s*([^\]]+)/i)
-      return match ? match[1].trim() : null
-    })()
-
-  const rebateEndDateIso = currentResult?.rebate_end_date_iso ?? null
+  // Dados de rebate: unificados via helper compartilhado
+  const {
+    isBhRebateActive,
+    rebatePriceFull,
+    rebatePriceWithDiscount,
+    rebateSavings,
+    rebateEndDate,
+    rebateEndDateIso,
+  } = extractRebateInfo({
+    checkResult: currentResult,
+    raw: lastRecord?.raw,
+    message: displayMessage,
+    catalogPriceUsd: displayPriceDb,
+  })
 
   // Avaliação pareada (cheio × cheio e desconto × desconto quando houver rebate vigente)
-  const pairedEval: PairedCheckEvaluation | null =
-    activeStatus &&
-    activeStatus !== 'descontinuado' &&
-    activeStatus !== 'sem_url_confirmada' &&
-    activeStatus !== 'erro'
-      ? evaluatePairedPrices({
-          catalogPriceUsd: displayPriceDb,
-          rebateRule: existingRebateRule,
-          bhPrice: displayPriceBh,
-          bhPriceFull: rebatePriceFull,
-          bhPriceWithRebate: rebatePriceWithDiscount,
-          bhRebateActive: isBhRebateActive,
-        })
-      : null
-
-  // Status visual final: se houver avaliação pareada estruturada, ela governa status e mensagem
-  const effectiveStatus: PriceCheckStatus | null =
-    pairedEval != null ? pairedEval.status : activeStatus
-  const effectiveMessage: string | null = pairedEval != null ? pairedEval.message : displayMessage
+  const { effectiveStatus, effectiveMessage, pairedEval } = resolvePairedEvaluation({
+    status: activeStatus,
+    catalogPriceUsd: displayPriceDb,
+    rebateRule: existingRebateRule,
+    priceBh: displayPriceBh,
+    priceFull: rebatePriceFull,
+    priceWithRebate: rebatePriceWithDiscount,
+    isBhRebateActive,
+    defaultMessage: displayMessage,
+  })
 
   const targetApplyPrice =
     rebatePriceFull != null && isBhRebateActive ? rebatePriceFull : displayPriceBh

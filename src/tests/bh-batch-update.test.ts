@@ -6,7 +6,7 @@ import {
 import { priceCheckService } from '@/services/priceCheckService'
 
 describe('B&H Batch Update Service & Business Rules', () => {
-  it('estimates Firecrawl credits: 1 credit with link, 2 credits without link', () => {
+  it('estimates Firecrawl credits: 1 credit with link, 3 credits without link (search 2 + scrape 1)', () => {
     const items = [
       { website_url: 'https://www.bhphotovideo.com/c/product/1-sony-fx3.html' },
       { website_url: 'https://www.bhphotovideo.com/c/product/2-lens.html' },
@@ -19,8 +19,70 @@ describe('B&H Batch Update Service & Business Rules', () => {
 
     expect(estimate.withLinkCount).toBe(2)
     expect(estimate.withoutLinkCount).toBe(3)
-    // 2 * 1 + 3 * 2 = 8
-    expect(estimate.totalCredits).toBe(8)
+    // 2 * 1 (scrape comum) + 3 * 3 (busca 2 + scrape 1) = 2 + 9 = 11 créditos
+    expect(estimate.creditsDirectScrape).toBe(2)
+    expect(estimate.creditsSearchFlow).toBe(9)
+    expect(estimate.totalCredits).toBe(11)
+  })
+
+  it('resolves paired evaluation in batch items matching product edit page logic (Sony AN820A)', () => {
+    // Sony AN820A: Cadastrado US$ 282, regra Rebate Fabricante fixa US$ 123 (efetivo US$ 159).
+    // B&H retorna: price_bh 159, price_full 282, price_with_rebate 159, rebate_active true.
+    const sonyAn820Item: ProductBatchItem = {
+      id: 'prod-sony-an820a',
+      name: 'Sony AN-820A Active Dipole Antenna',
+      sku: 'AN820A',
+      price_usd: 282,
+      website_url: 'https://www.bhphotovideo.com/c/product/68297-REG/Sony_AN820A_AN_820A_Active_Antenna.html',
+      is_discontinued: false,
+      updated_at: '2026-10-01',
+      last_reviewed_at: '2026-10-01',
+      batchStatus: 'done',
+      checkResult: {
+        status: 'divergente', // Se edge function mandasse divergente por comparação simples 282 x 159 (-43.62%)
+        price_usd_cadastrado: 282,
+        price_bh: 159,
+        diff_usd: -123,
+        diff_pct: -43.62,
+        rebate_active: true,
+        price_full: 282,
+        price_with_rebate: 159,
+        rebate_savings: 123,
+        rebate_end_date: 'Ends May 31',
+      },
+    }
+
+    const rebateRule = {
+      id: 'rebate-an820a',
+      name: 'Rebate Fabricante',
+      discount_type: 'fixed' as const,
+      discount_value: 123,
+      start_date: '2026-05-01',
+      end_date: '2026-05-31',
+      is_active: true,
+      product_selection: ['prod-sony-an820a'],
+    }
+
+    // Sem a regra ativa passada, mantém status retornado
+    const resWithoutRule = bhBatchUpdateService.resolveItemPairedEvaluation(sonyAn820Item, null)
+    expect(resWithoutRule.effectiveStatus).toBe('divergente')
+
+    // Com a regra ativa passada, avalia pareado: Cheio OK (282 x 282) e Desconto OK (159 x 159) -> OK!
+    const resWithRule = bhBatchUpdateService.resolveItemPairedEvaluation(sonyAn820Item, rebateRule)
+    expect(resWithRule.effectiveStatus).toBe('ok')
+    expect(resWithRule.pairedEval?.overallWithinTolerance).toBe(true)
+    expect(resWithRule.pairedEval?.fullPair?.isWithinTolerance).toBe(true)
+    expect(resWithRule.pairedEval?.rebatePair?.isWithinTolerance).toBe(true)
+    expect(resWithRule.pairedEval?.fullPair?.diffUsd).toBe(0)
+    expect(resWithRule.pairedEval?.rebatePair?.diffUsd).toBe(0)
+
+    // Validar se calculateStats computa como OK quando o mapa de regras é fornecido
+    const statsWithRebate = bhBatchUpdateService.calculateStats([sonyAn820Item], {
+      'prod-sony-an820a': rebateRule,
+    })
+    expect(statsWithRebate.okCount).toBe(1)
+    expect(statsWithRebate.divergenceCount).toBe(0)
+    expect(statsWithRebate.rebateDetectedCount).toBe(1)
   })
 
   it('calculates batch statistics accurately', () => {

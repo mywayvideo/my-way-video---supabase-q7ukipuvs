@@ -48,6 +48,132 @@ export interface PriceCheckResult {
 }
 
 /**
+ * Normaliza os dados de rebate para uso compartilhado tanto do resultado em tempo real
+ * quanto do histórico (raw.rebate_info) ou mensagens de verificação.
+ */
+export function extractRebateInfo(params: {
+  checkResult?: PriceCheckResult | null
+  raw?: any
+  message?: string | null
+  catalogPriceUsd?: number | null
+}): {
+  isBhRebateActive: boolean
+  rebatePriceFull: number | null
+  rebatePriceWithDiscount: number | null
+  rebateSavings: number | null
+  rebateEndDate: string | null
+  rebateEndDateIso: string | null
+} {
+  const { checkResult, raw, message, catalogPriceUsd } = params
+  const rawRebate = raw?.rebate_info || raw
+
+  const displayMessage = checkResult?.message || message || ''
+  const isBhRebateActive = Boolean(
+    checkResult?.rebate_active ??
+    rawRebate?.rebate_active ??
+    (displayMessage && /\[rebate\/instant savings/i.test(displayMessage)),
+  )
+
+  const rebatePriceFull =
+    checkResult?.price_full ??
+    rawRebate?.price_full ??
+    (catalogPriceUsd != null ? catalogPriceUsd : null)
+
+  const rebatePriceWithDiscount =
+    checkResult?.price_with_rebate ?? rawRebate?.price_with_rebate ?? checkResult?.price_bh ?? null
+
+  const rebateSavings =
+    checkResult?.rebate_savings ??
+    rawRebate?.rebate_savings ??
+    (rebatePriceFull != null &&
+    rebatePriceWithDiscount != null &&
+    rebatePriceFull > rebatePriceWithDiscount
+      ? Number((rebatePriceFull - rebatePriceWithDiscount).toFixed(2))
+      : null)
+
+  const rebateEndDate =
+    checkResult?.rebate_end_date ??
+    rawRebate?.rebate_end_date ??
+    (() => {
+      const match = displayMessage?.match(/Vigência:\s*([^\]]+)/i)
+      return match ? match[1].trim() : null
+    })()
+
+  const rebateEndDateIso =
+    checkResult?.rebate_end_date_iso ?? rawRebate?.rebate_end_date_iso ?? null
+
+  return {
+    isBhRebateActive,
+    rebatePriceFull,
+    rebatePriceWithDiscount,
+    rebateSavings,
+    rebateEndDate,
+    rebateEndDateIso,
+  }
+}
+
+/**
+ * Avalia o resultado de verificação com consciência de pareamento (Rebate Fabricante ativo),
+ * retornando o status efetivo, mensagem efetiva e a avaliação estruturada PairedCheckEvaluation.
+ */
+export function resolvePairedEvaluation(params: {
+  status?: PriceCheckStatus | null
+  catalogPriceUsd?: number | null
+  rebateRule?: ExistingRebateRule | null
+  priceBh?: number | null
+  priceFull?: number | null
+  priceWithRebate?: number | null
+  isBhRebateActive?: boolean | null
+  defaultMessage?: string | null
+}): {
+  effectiveStatus: PriceCheckStatus
+  effectiveMessage: string | null
+  pairedEval: PairedCheckEvaluation | null
+} {
+  const {
+    status,
+    catalogPriceUsd,
+    rebateRule,
+    priceBh,
+    priceFull,
+    priceWithRebate,
+    isBhRebateActive,
+    defaultMessage,
+  } = params
+
+  const baseStatus: PriceCheckStatus = status || 'ok'
+
+  // Casos terminais ou de erro não sofrem pareamento
+  if (
+    baseStatus === 'descontinuado' ||
+    baseStatus === 'sem_url_confirmada' ||
+    baseStatus === 'erro'
+  ) {
+    return {
+      effectiveStatus: baseStatus,
+      effectiveMessage: defaultMessage || null,
+      pairedEval: null,
+    }
+  }
+
+  // Executa avaliação pareada (se houver rebate ativo no cadastro e na B&H, compara pareado; senão simples)
+  const pairedEval = evaluatePairedPrices({
+    catalogPriceUsd,
+    rebateRule,
+    bhPrice: priceBh,
+    bhPriceFull: priceFull,
+    bhPriceWithRebate: priceWithRebate,
+    bhRebateActive: isBhRebateActive,
+  })
+
+  return {
+    effectiveStatus: pairedEval.status,
+    effectiveMessage: pairedEval.message || defaultMessage || null,
+    pairedEval,
+  }
+}
+
+/**
  * Avalia se a diferença entre dois preços em USD está dentro da tolerância
  * (1% ou US$ 1.00, o que for MAIOR)
  */

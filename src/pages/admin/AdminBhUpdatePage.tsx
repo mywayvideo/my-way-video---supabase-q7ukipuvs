@@ -540,10 +540,10 @@ export function AdminBhUpdatePage() {
     return bhBatchUpdateService.estimateFirecrawlCredits(selectedProducts)
   }, [selectedProducts])
 
-  // Estatísticas do processamento atual
+  // Estatísticas do processamento atual (com resolução pareada quando houver regra de rebate ativa)
   const stats = useMemo(() => {
-    return bhBatchUpdateService.calculateStats(selectedProducts)
-  }, [selectedProducts])
+    return bhBatchUpdateService.calculateStats(selectedProducts, activeRebatesMap)
+  }, [selectedProducts, activeRebatesMap])
 
   // Itens selecionados que ainda não foram processados (pendentes no lote)
   const pendingSelectedItems = useMemo(() => {
@@ -985,10 +985,14 @@ export function AdminBhUpdatePage() {
   const handleConfirmBatchReview = async () => {
     const candidateIds = selectedProducts
       .filter((p) => {
-        // Elegíveis: produtos com status OK/validado e link confirmado
+        // Elegíveis: produtos com status OK/validado (incluindo pareado) e link confirmado
         const hasUrl = Boolean(p.website_url && p.website_url.trim().startsWith('http'))
+        const activeRuleForProd = activeRebatesMap[p.id] || null
+        const pairedRes = bhBatchUpdateService.resolveItemPairedEvaluation(p, activeRuleForProd)
+        const effectiveStatus = pairedRes.effectiveStatus || p.checkResult?.status || null
+
         const isOkOrClean =
-          p.checkResult?.status === 'ok' || (!p.checkResult && hasUrl && !p.is_discontinued)
+          effectiveStatus === 'ok' || (!p.checkResult && hasUrl && !p.is_discontinued)
         return hasUrl && isOkOrClean
       })
       .map((p) => p.id)
@@ -1076,25 +1080,27 @@ export function AdminBhUpdatePage() {
             </div>
           </div>
 
-          {/* Widget Compacto de Créditos Firecrawl + Regra de Bolso */}
+          {/* Widget Compacto de Créditos Firecrawl + Estimativa Real Pós-Otimização */}
           <div className="space-y-2">
             <FirecrawlCreditsWidget variant="compact" />
             <div className="bg-muted/30 border border-border/50 rounded-lg p-3 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-muted-foreground">
               <div className="flex items-center gap-2">
                 <Info className="w-4 h-4 text-primary shrink-0" />
                 <span>
-                  <strong>Regra de bolso Firecrawl:</strong> 1 crédito para produto com link
-                  validado (raspagem direta); 2 créditos para produto sem link (busca + extração do
-                  MFR #).
+                  <strong>Custos Firecrawl pós-otimização:</strong> 1 crédito para link validado
+                  (scrape direto markdown); 3 créditos sem link (2 da busca + 1 do scrape do 1º
+                  candidato, parando no match). Fallback JSON por IA = 5 créditos.
                 </span>
               </div>
-              <div className="font-mono text-[11px] bg-background/60 px-2 py-0.5 rounded border border-border/40 shrink-0">
-                Estimativa desta seleção:{' '}
+              <div className="font-mono text-[11px] bg-background/60 px-2.5 py-1 rounded border border-border/40 shrink-0 flex items-center gap-1.5">
+                <span>Estimativa seleção:</span>
                 <span className="text-foreground font-semibold">
-                  {creditsEstimate.totalCredits} créditos
-                </span>{' '}
-                ({creditsEstimate.withLinkCount} com link + {creditsEstimate.withoutLinkCount} sem
-                link)
+                  ~{creditsEstimate.totalCredits} créditos
+                </span>
+                <span className="text-muted-foreground text-[10px]">
+                  ({creditsEstimate.withLinkCount} × 1 cr direto +{' '}
+                  {creditsEstimate.withoutLinkCount} × 3 cr busca)
+                </span>
               </div>
             </div>
           </div>
@@ -1591,19 +1597,29 @@ export function AdminBhUpdatePage() {
                   {filteredProducts.map((p) => {
                     const isSelected = selectedIds.has(p.id)
                     const isCurrent = currentProcessingId === p.id
+
+                    // Resolução pareada unificada: avalia rebate ativo no cadastro e na B&H
+                    const activeRuleForProd = activeRebatesMap[p.id] || null
+                    const pairedResolution = bhBatchUpdateService.resolveItemPairedEvaluation(
+                      p,
+                      activeRuleForProd,
+                    )
+
+                    const effectiveStatus =
+                      pairedResolution.effectiveStatus || p.checkResult?.status || null
                     const statusInfo = bhBatchUpdateService.getStatusLabel(
-                      p.checkResult?.status,
+                      effectiveStatus,
                       p.batchStatus,
                     )
                     const priceDb = p.price_usd
                     const priceBh = p.checkResult?.price_bh
                     const diffUsd = p.checkResult?.diff_usd
                     const diffPct = p.checkResult?.diff_pct
-                    const isDivergent = p.checkResult?.status === 'divergente'
-                    const isDiscontinued =
-                      p.is_discontinued || p.checkResult?.status === 'descontinuado'
-                    const isDoubtful = p.checkResult?.status === 'sem_url_confirmada'
-                    const rebateActive = p.checkResult?.rebate_active
+                    const isDivergent = effectiveStatus === 'divergente'
+                    const isDiscontinued = p.is_discontinued || effectiveStatus === 'descontinuado'
+                    const isDoubtful = effectiveStatus === 'sem_url_confirmada'
+                    const rebateActive = pairedResolution.rebateInfo.isBhRebateActive
+                    const pairedEval = pairedResolution.pairedEval
 
                     return (
                       <TableRow
@@ -1709,6 +1725,34 @@ export function AdminBhUpdatePage() {
                               </Badge>
                             )}
 
+                            {/* Se houver comparação pareada ativa (Cheio × Cheio e Rebate × Rebate) */}
+                            {pairedEval && pairedEval.mode === 'paired' && (
+                              <div className="flex flex-col gap-0.5 mt-0.5">
+                                <Badge
+                                  variant="outline"
+                                  className={cn(
+                                    'text-[10px] py-0 px-1.5 flex items-center gap-1 font-mono',
+                                    pairedEval.overallWithinTolerance
+                                      ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                                      : 'bg-amber-500/10 text-amber-400 border-amber-500/30',
+                                  )}
+                                  title={pairedEval.message}
+                                >
+                                  {pairedEval.overallWithinTolerance ? (
+                                    <CheckCircle2 className="w-2.5 h-2.5" />
+                                  ) : (
+                                    <AlertTriangle className="w-2.5 h-2.5" />
+                                  )}
+                                  <span>
+                                    Pareado: Cheio{' '}
+                                    {pairedEval.fullPair?.isWithinTolerance ? 'OK' : 'Div.'} ·
+                                    Rebate{' '}
+                                    {pairedEval.rebatePair?.isWithinTolerance ? 'OK' : 'Div.'}
+                                  </span>
+                                </Badge>
+                              </div>
+                            )}
+
                             {rebateActive && (
                               <div className="flex flex-col gap-0.5">
                                 <Tooltip>
@@ -1718,9 +1762,9 @@ export function AdminBhUpdatePage() {
                                       className="text-[10px] bg-purple-500/15 text-purple-300 border-purple-500/30 py-0 flex items-center gap-1 cursor-help"
                                     >
                                       <Tag className="w-2.5 h-2.5" /> Rebate B&H
-                                      {p.checkResult?.rebate_end_date && (
+                                      {pairedResolution.rebateInfo.rebateEndDate && (
                                         <span className="text-[9px] font-mono opacity-80 truncate max-w-[120px]">
-                                          • {p.checkResult.rebate_end_date}
+                                          • {pairedResolution.rebateInfo.rebateEndDate}
                                         </span>
                                       )}
                                     </Badge>
@@ -1732,18 +1776,28 @@ export function AdminBhUpdatePage() {
                                     <p>
                                       Preço cheio:{' '}
                                       <strong>
-                                        US$ {p.checkResult?.price_full?.toFixed(2) || '—'}
+                                        US${' '}
+                                        {pairedResolution.rebateInfo.rebatePriceFull?.toFixed(2) ||
+                                          '—'}
                                       </strong>
                                     </p>
                                     <p>
                                       Preço com rebate:{' '}
                                       <strong className="text-emerald-400">
-                                        US$ {p.checkResult?.price_with_rebate?.toFixed(2) || '—'}
+                                        US${' '}
+                                        {pairedResolution.rebateInfo.rebatePriceWithDiscount?.toFixed(
+                                          2,
+                                        ) || '—'}
                                       </strong>
                                     </p>
-                                    {p.checkResult?.rebate_end_date && (
+                                    {pairedResolution.rebateInfo.rebateEndDate && (
                                       <p className="text-purple-200 text-[11px] font-medium">
-                                        Vigente até: {p.checkResult.rebate_end_date}
+                                        Vigente até: {pairedResolution.rebateInfo.rebateEndDate}
+                                      </p>
+                                    )}
+                                    {pairedEval && (
+                                      <p className="text-blue-300 text-[11px] pt-1 border-t border-border/40">
+                                        Status Pareado: {pairedEval.message}
                                       </p>
                                     )}
                                     <p className="text-[10px] text-muted-foreground italic pt-1 border-t border-border/40">
@@ -1752,12 +1806,12 @@ export function AdminBhUpdatePage() {
                                     </p>
                                   </TooltipContent>
                                 </Tooltip>
-                                {p.checkResult?.rebate_end_date && (
+                                {pairedResolution.rebateInfo.rebateEndDate && (
                                   <span
                                     className="text-[10px] text-purple-300/80 font-mono truncate max-w-[160px]"
-                                    title={`Vigência do rebate: ${p.checkResult.rebate_end_date}`}
+                                    title={`Vigência do rebate: ${pairedResolution.rebateInfo.rebateEndDate}`}
                                   >
-                                    Até: {p.checkResult.rebate_end_date}
+                                    Até: {pairedResolution.rebateInfo.rebateEndDate}
                                   </span>
                                 )}
                               </div>
@@ -1892,7 +1946,7 @@ export function AdminBhUpdatePage() {
                             {/* Botão Confirmar Revisão Manual Individual */}
                             {p.website_url &&
                               !isDiscontinued &&
-                              (p.checkResult?.status === 'ok' || !p.checkResult) &&
+                              (effectiveStatus === 'ok' || !p.checkResult) &&
                               (isReviewedToday(p.last_reviewed_at, p.updated_at) ? (
                                 <Tooltip>
                                   <TooltipTrigger asChild>
@@ -1941,7 +1995,7 @@ export function AdminBhUpdatePage() {
 
                             {!isDivergent &&
                               !isDiscontinued &&
-                              p.checkResult?.status === 'ok' &&
+                              effectiveStatus === 'ok' &&
                               !p.website_url && (
                                 <span className="text-emerald-400 font-mono text-xs flex items-center justify-end gap-1">
                                   <CheckCircle2 className="w-3.5 h-3.5" /> Alinhado

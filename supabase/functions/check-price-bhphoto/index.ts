@@ -59,11 +59,230 @@ function isDiscontinuedValue(val: any, availability?: any): boolean {
   return false
 }
 
+/**
+ * Extrai dados estruturados de um conteúdo markdown/HTML raspado da página de produto da B&H
+ * usando expressões regulares e heurísticas determinísticas (custo = 1 crédito).
+ */
+function parseBhMarkdown(content: string): ScrapedData | null {
+  if (!content || typeof content !== 'string' || content.trim().length === 0) {
+    return null
+  }
+
+  const text = content
+
+  // 1. MFR # (Manufacturer Part Number)
+  // Padrões B&H: "MFR # AN-820A", "MFR #AN820A", "Manufacturer # AN-820A", "Mfr Part # AN-820A"
+  let mfr_number: string | null = null
+  const mfrMatch =
+    text.match(/MFR\s*#\s*([A-Za-z0-9\-_./]+)/i) ||
+    text.match(/Manufacturer\s*#\s*:?\s*([A-Za-z0-9\-_./]+)/i) ||
+    text.match(/Mfr\s*Part\s*#\s*:?\s*([A-Za-z0-9\-_./]+)/i) ||
+    text.match(/Part\s*#\s*:?\s*([A-Za-z0-9\-_./]+)/i)
+  if (mfrMatch) {
+    mfr_number = mfrMatch[1].trim()
+  }
+
+  // 2. SKU B&H (B&H #)
+  // Padrões B&H: "B&H # SOAN820A", "BH # SOAN820A", "B&H Item # SOAN820A"
+  let sku: string | null = null
+  const skuMatch =
+    text.match(/B&H\s*#\s*([A-Za-z0-9\-_]+)/i) ||
+    text.match(/BH\s*#\s*([A-Za-z0-9\-_]+)/i) ||
+    text.match(/B&H\s*Item\s*#\s*:?\s*([A-Za-z0-9\-_]+)/i)
+  if (skuMatch) {
+    sku = skuMatch[1].trim()
+  }
+
+  // 3. Status de descontinuação
+  let is_discontinued: boolean = false
+  let availability: string | null = null
+  if (
+    /discontinued\s*by\s*manufacturer/i.test(text) ||
+    /this\s*item\s*has\s*been\s*discontinued/i.test(text) ||
+    /\bdiscontinued\b/i.test(text)
+  ) {
+    is_discontinued = true
+    availability = 'Discontinued'
+  } else if (/in\s*stock/i.test(text)) {
+    availability = 'In Stock'
+  } else if (/special\s*order/i.test(text)) {
+    availability = 'Special Order'
+  } else if (/backordered/i.test(text)) {
+    availability = 'Backordered'
+  }
+
+  // 4. Detecção de Rebate / Instant Savings / Savings
+  // Padrões B&H: "Instant Savings: $123.00", "Savings: $123.00", "Save $123", "Instant Savings $123"
+  let rebate_active = false
+  let rebate_savings: number | null = null
+  const savingsMatch =
+    text.match(/(?:Instant\s*Savings|Savings|Save)\s*:?\s*\$([0-9,]+(?:\.[0-9]{2})?)/i) ||
+    text.match(/\$([0-9,]+(?:\.[0-9]{2})?)\s*(?:Instant\s*Savings|Savings)/i)
+  if (savingsMatch) {
+    rebate_savings = parseFloat(savingsMatch[1].replace(/,/g, ''))
+    if (!isNaN(rebate_savings) && rebate_savings > 0) {
+      rebate_active = true
+    }
+  }
+
+  // Prazo de expiração do rebate / oferta
+  // Ex: "Offer ends Oct 11 at 11:59 PM ET", "Ends Apr 15", "Offer ends May 31, 2026", "Valid thru 10/11/2025"
+  let rebate_end_date: string | null = null
+  const offerEndMatch = text.match(
+    /(?:Offer\s*ends|Ends|Valid\s*thru|Expires)\s*:?\s*([A-Za-z0-9,\s.:/]+?(?:(?:AM|PM)\s*(?:ET|EST|EDT)?)?)(?:\.|\n|$)/i,
+  )
+  if (offerEndMatch) {
+    const rawMatch = offerEndMatch[0].trim()
+    // Limita tamanho para evitar pegar parágrafos inteiros
+    if (rawMatch.length <= 80) {
+      rebate_end_date = rawMatch
+      rebate_active = true
+    }
+  }
+
+  // 5. Preço regular (preço original / list price / strikethrough)
+  // Padrões B&H: "Regular Price: $282.00", "Reg: $282.00", "List Price: $282.00", "Original Price: $282.00"
+  let price_regular: number | null = null
+  const regMatch = text.match(
+    /(?:Regular\s*Price|Reg\.?|List\s*Price|Original\s*Price|Was)\s*:?\s*\$([0-9,]+(?:\.[0-9]{2})?)/i,
+  )
+  if (regMatch) {
+    const parsedReg = parseFloat(regMatch[1].replace(/,/g, ''))
+    if (!isNaN(parsedReg) && parsedReg > 0) {
+      price_regular = parsedReg
+      rebate_active = true
+    }
+  }
+
+  // 6. Preço final de venda (current price)
+  // Padrões:
+  // - "Price: $159.00", "You Pay: $159.00", "Final Price: $159.00"
+  // - Ou primeiro valor de dólar próximo a "Buy", "Add to Cart", ou cabeçalho de preço
+  let price: number | null = null
+  const explicitPriceMatch = text.match(
+    /(?:You\s*Pay|Our\s*Price|Current\s*Price|Price|Pay)\s*:?\s*\$([0-9,]+(?:\.[0-9]{2})?)/i,
+  )
+  if (explicitPriceMatch) {
+    const p = parseFloat(explicitPriceMatch[1].replace(/,/g, ''))
+    if (!isNaN(p) && p > 0) {
+      price = p
+    }
+  }
+
+  // Fallback para preço: varrer todos os "$X.XX" no texto
+  if (price == null) {
+    const dollarMatches = Array.from(text.matchAll(/\$([0-9,]+(?:\.[0-9]{2})?)/g))
+    if (dollarMatches.length > 0) {
+      // Coleta valores candidatos válidos
+      const candidates = dollarMatches
+        .map((m) => parseFloat(m[1].replace(/,/g, '')))
+        .filter((val) => !isNaN(val) && val > 0)
+
+      if (candidates.length > 0) {
+        // Se houver preço regular e rebate_savings identificados: price = regular - savings
+        if (price_regular && rebate_savings && price_regular > rebate_savings) {
+          price = Number((price_regular - rebate_savings).toFixed(2))
+        } else if (price_regular) {
+          // Preço com desconto deve ser o candidato menor que o regular
+          const discountedCand = candidates.find((c) => c < price_regular! && c > 5)
+          price = discountedCand || candidates[0]
+        } else {
+          // Pega o primeiro candidato plausível
+          price = candidates[0]
+        }
+      }
+    }
+  }
+
+  // Se identificamos preço e preço regular maior que o preço, confirma rebate_active
+  if (price && price_regular && price_regular > price) {
+    rebate_active = true
+    if (!rebate_savings) {
+      rebate_savings = Number((price_regular - price).toFixed(2))
+    }
+  }
+
+  // Se não foi possível extrair nem o preço nem a condição de descontinuado, consideramos falha no parse
+  if (price == null && !is_discontinued) {
+    return null
+  }
+
+  return {
+    price: price != null ? price : undefined,
+    price_regular: price_regular != null ? price_regular : undefined,
+    rebate_active,
+    rebate_savings: rebate_savings != null ? rebate_savings : undefined,
+    rebate_end_date,
+    is_discontinued,
+    availability,
+    sku,
+    mfr_number,
+  }
+}
+
+/**
+ * Raspa a página da B&H utilizando prioritariamente scrape comum (markdown, 1 crédito).
+ * Se o parsing regex falhar em extrair preço ou dados mínimos, recorre transparentemente
+ * ao fallback com extração JSON via LLM (5 créditos), registrando log de fallback.
+ */
 async function scrapeBhUrl(
   url: string,
   firecrawlToken: string,
-): Promise<{ success: boolean; data?: ScrapedData; error?: string }> {
+): Promise<{ success: boolean; data?: ScrapedData; error?: string; usedFallback?: boolean }> {
   const firecrawlUrl = 'https://api.firecrawl.dev/v2/scrape'
+
+  // =========================================================================
+  // ETAPA 1: OTIMIZAÇÃO (1 CRÉDITO) - Scrape comum com markdown e parsing determinístico
+  // =========================================================================
+  try {
+    const resCommon = await fetch(firecrawlUrl, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${firecrawlToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        url,
+        formats: ['markdown'],
+        onlyMainContent: true,
+      }),
+    })
+
+    if (resCommon.status === 429) {
+      return {
+        success: false,
+        error: 'Limite de requisições do Firecrawl atingido. Tente em instantes.',
+      }
+    }
+
+    if (resCommon.ok) {
+      const jsonCommon = await resCommon.json()
+      const markdown = jsonCommon?.data?.markdown || jsonCommon?.data?.content || ''
+      if (markdown && typeof markdown === 'string') {
+        const parsed = parseBhMarkdown(markdown)
+        if (parsed && (parsed.price != null || parsed.is_discontinued)) {
+          // Sucesso no parsing comum (custo = 1 crédito!)
+          return { success: true, data: parsed, usedFallback: false }
+        }
+      }
+      console.warn(
+        `[check-price-bhphoto] Parsing regex de markdown não extraiu preço em ${url}. Acionando fallback JSON LLM...`,
+      )
+    } else {
+      console.warn(
+        `[check-price-bhphoto] Scrape comum markdown HTTP ${resCommon.status} para ${url}. Tentando fallback JSON...`,
+      )
+    }
+  } catch (commonErr) {
+    console.warn('[check-price-bhphoto] Erro no scrape comum markdown:', commonErr)
+  }
+
+  // =========================================================================
+  // ETAPA 2: FALLBACK COM JSON / LLM (5 CRÉDITOS) - Acionado apenas se o parsing falhar
+  // =========================================================================
+  console.log(
+    `[check-price-bhphoto] [FALLBACK_JSON] Acionando raspagem JSON via LLM para URL: ${url}`,
+  )
 
   const res = await fetch(firecrawlUrl, {
     method: 'POST',
@@ -156,7 +375,7 @@ async function scrapeBhUrl(
   }
 
   const extracted = (json.data.json || json.data) as ScrapedData
-  return { success: true, data: extracted }
+  return { success: true, data: extracted, usedFallback: true }
 }
 
 async function searchBhUrls(
@@ -226,6 +445,38 @@ async function searchBhUrls(
   })
 
   return { success: true, urls: filtered.length > 0 ? filtered : urls }
+}
+
+/**
+ * Ordena URLs candidatas por relevância semântica em relação ao fabricante e SKU procurados.
+ * URLs cujo pathname contenha partes do SKU ou do fabricante recebem pontuação maior para
+ * serem raspadas primeiro, maximizando o acerto no 1º candidato e economizando créditos.
+ */
+function rankCandidateUrls(urls: string[], manufacturer: string, targetSku: string): string[] {
+  if (!urls || urls.length <= 1) return urls
+
+  const cleanSku = targetSku.toLowerCase().replace(/[^a-z0-9]/g, '')
+  const cleanMfr = manufacturer.toLowerCase().replace(/[^a-z0-9]/g, '')
+
+  return [...urls].sort((a, b) => {
+    const aLower = a.toLowerCase().replace(/[^a-z0-9]/g, '')
+    const bLower = b.toLowerCase().replace(/[^a-z0-9]/g, '')
+
+    let scoreA = 0
+    let scoreB = 0
+
+    if (cleanSku && aLower.includes(cleanSku)) scoreA += 10
+    if (cleanSku && bLower.includes(cleanSku)) scoreB += 10
+
+    if (cleanMfr && aLower.includes(cleanMfr)) scoreA += 3
+    if (cleanMfr && bLower.includes(cleanMfr)) scoreB += 3
+
+    // /c/product/ tem preferência sobre páginas genéricas
+    if (a.includes('/c/product/')) scoreA += 2
+    if (b.includes('/c/product/')) scoreB += 2
+
+    return scoreB - scoreA
+  })
 }
 
 Deno.serve(async (req: Request) => {
@@ -517,14 +768,22 @@ Deno.serve(async (req: Request) => {
         )
       }
 
-      // Tenta os resultados ranqueados (até 3 candidatos) procurando confirmação estrita de SKU
-      let candidateMatch: { url: string; data: ScrapedData } | null = null
-      const candidatesToTest = searchRes.urls.slice(0, 3)
+      // Ordena candidatos para testar prioritariamente aquele cuja URL tem maior correlação com o SKU
+      const rankedCandidates = rankCandidateUrls(searchRes.urls, manufacturerName, targetSku)
+      const candidatesToTest = rankedCandidates.slice(0, 3)
 
-      for (const candidateUrl of candidatesToTest) {
-        console.log(`[check-price-bhphoto] Testando candidato: ${candidateUrl}`)
+      // Testar 1 candidato por vez — parar imediatamente no 1º match confirmado para economizar créditos
+      let candidateMatch: { url: string; data: ScrapedData } | null = null
+
+      for (let i = 0; i < candidatesToTest.length; i++) {
+        const candidateUrl = candidatesToTest[i]
+        console.log(
+          `[check-price-bhphoto] Testando candidato ${i + 1}/${candidatesToTest.length}: ${candidateUrl}`,
+        )
         const scrapeCand = await scrapeBhUrl(candidateUrl, firecrawlToken)
-        if (!scrapeCand.success || !scrapeCand.data) continue
+        if (!scrapeCand.success || !scrapeCand.data) {
+          continue
+        }
 
         const candData = scrapeCand.data
         const candMfrSku = normalizeSku(candData.mfr_number)
@@ -539,13 +798,13 @@ Deno.serve(async (req: Request) => {
 
         if (matchesSku) {
           console.log(
-            `[check-price-bhphoto] SKU confirmado com sucesso! Cadastro: "${normalizedTargetSku}", B&H MFR: "${candMfrSku}", B&H SKU: "${candBhSku}"`,
+            `[check-price-bhphoto] SKU confirmado com sucesso no candidato ${i + 1}! Cadastro: "${normalizedTargetSku}", B&H MFR: "${candMfrSku}", B&H SKU: "${candBhSku}"`,
           )
           candidateMatch = { url: candidateUrl, data: candData }
-          break
+          break // PÁRA NO PRIMEIRO MATCH! Não gasta créditos com os próximos candidatos.
         } else {
           console.log(
-            `[check-price-bhphoto] SKU não confere para ${candidateUrl}: alvo="${normalizedTargetSku}", mfr="${candMfrSku}", sku="${candBhSku}"`,
+            `[check-price-bhphoto] SKU não confere para candidato ${i + 1} (${candidateUrl}): alvo="${normalizedTargetSku}", mfr="${candMfrSku}", sku="${candBhSku}"`,
           )
         }
       }

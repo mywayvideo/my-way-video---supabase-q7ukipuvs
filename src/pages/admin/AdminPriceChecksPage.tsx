@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react'
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import {
   RefreshCw,
@@ -106,6 +106,45 @@ export function AdminPriceChecksPage() {
   // Linhas expandidas para exibição do detalhe pareado
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
 
+  // Referências para sincronização das barras de rolagem horizontal (superior e inferior/tabela)
+  const topScrollRef = useRef<HTMLDivElement>(null)
+  const topTrackRef = useRef<HTMLDivElement>(null)
+  const bottomScrollRef = useRef<HTMLDivElement>(null)
+  const [isDraggingTop, setIsDraggingTop] = useState(false)
+  const [scrollMetrics, setScrollMetrics] = useState({
+    scrollLeft: 0,
+    scrollWidth: 1200,
+    clientWidth: 0,
+  })
+  const topDragStartRef = useRef<{
+    startX: number
+    scrollLeft: number
+    maxScroll: number
+    trackTravel: number
+  }>({ startX: 0, scrollLeft: 0, maxScroll: 0, trackTravel: 0 })
+
+  // Obtém o elemento de scroll real da tabela (div wrapper gerado pelo componente Table)
+  const getTableScrollElement = useCallback((): HTMLElement | null => {
+    const container = bottomScrollRef.current
+    if (!container) return null
+    const innerWrapper = container.querySelector<HTMLElement>('.relative.w-full.overflow-auto')
+    if (innerWrapper) return innerWrapper
+    const firstChild = container.firstElementChild as HTMLElement | null
+    if (firstChild && firstChild.tagName === 'DIV') return firstChild
+    return container
+  }, [])
+
+  // Helpers para atualização de métricas de scroll
+  const updateMetricsFromTable = useCallback(() => {
+    const tableEl = getTableScrollElement()
+    if (!tableEl) return
+    setScrollMetrics({
+      scrollLeft: tableEl.scrollLeft,
+      scrollWidth: tableEl.scrollWidth,
+      clientWidth: tableEl.clientWidth,
+    })
+  }, [getTableScrollElement])
+
   // Resumo mensal dos cards superiores
   const [summary, setSummary] = useState<PriceChecksSummaryStats>({
     monthCount: 0,
@@ -168,6 +207,191 @@ export function AdminPriceChecksPage() {
   useEffect(() => {
     setPage(1)
   }, [debouncedSearch, selectedStatuses, selectedSource, startDate, endDate])
+
+  // Atualizar as métricas de rolagem e sincronizar listeners no elemento de tabela real
+  useEffect(() => {
+    const tableEl = getTableScrollElement()
+    const topEl = topScrollRef.current
+    if (!tableEl) return
+
+    // Ocultar barra nativa do wrapper interno da Table, mantendo overflow habilitado
+    tableEl.classList.add(
+      '[scrollbar-width:none]',
+      '[-ms-overflow-style:none]',
+      '[&::-webkit-scrollbar]:hidden',
+    )
+
+    let isSyncingTop = false
+    let isSyncingBottom = false
+
+    const onTableScrollListener = () => {
+      if (isSyncingBottom) {
+        isSyncingBottom = false
+        return
+      }
+      isSyncingTop = true
+      if (topEl) {
+        topEl.scrollLeft = tableEl.scrollLeft
+      }
+      updateMetricsFromTable()
+    }
+
+    const onTopScrollListener = () => {
+      if (isSyncingTop) {
+        isSyncingTop = false
+        return
+      }
+      isSyncingBottom = true
+      tableEl.scrollLeft = topEl ? topEl.scrollLeft : 0
+      updateMetricsFromTable()
+    }
+
+    tableEl.addEventListener('scroll', onTableScrollListener, { passive: true })
+    if (topEl) {
+      topEl.addEventListener('scroll', onTopScrollListener, { passive: true })
+    }
+
+    updateMetricsFromTable()
+
+    const observer = new ResizeObserver(() => {
+      updateMetricsFromTable()
+    })
+
+    observer.observe(tableEl)
+    const tableChild = tableEl.querySelector('table')
+    if (tableChild) {
+      observer.observe(tableChild)
+    }
+    if (bottomScrollRef.current && bottomScrollRef.current !== tableEl) {
+      observer.observe(bottomScrollRef.current)
+    }
+
+    return () => {
+      tableEl.removeEventListener('scroll', onTableScrollListener)
+      if (topEl) {
+        topEl.removeEventListener('scroll', onTopScrollListener)
+      }
+      observer.disconnect()
+    }
+  }, [records, getTableScrollElement, updateMetricsFromTable])
+
+  // Drag handlers para a barra de rolagem horizontal superior via Pointer Events (arrastar o thumb)
+  const handleTopPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const tableEl = getTableScrollElement()
+    const trackEl = topTrackRef.current
+    if (!tableEl || !trackEl) return
+
+    const { scrollWidth, clientWidth, scrollLeft } = scrollMetrics
+    const maxScroll = Math.max(0, scrollWidth - clientWidth)
+    if (maxScroll <= 0) return
+
+    const trackWidth = trackEl.clientWidth
+    const ratio = clientWidth / scrollWidth
+    const thumbWidth = Math.max(56, Math.min(trackWidth, trackWidth * ratio))
+    const trackTravel = trackWidth - thumbWidth
+    if (trackTravel <= 0) return
+
+    e.currentTarget.setPointerCapture(e.pointerId)
+    topDragStartRef.current = {
+      startX: e.clientX,
+      scrollLeft,
+      maxScroll,
+      trackTravel,
+    }
+    setIsDraggingTop(true)
+  }
+
+  const handleTopPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isDraggingTop) return
+    const tableEl = getTableScrollElement()
+    if (!tableEl) return
+
+    const { startX, scrollLeft, maxScroll, trackTravel } = topDragStartRef.current
+    if (trackTravel <= 0 || maxScroll <= 0) return
+
+    const deltaX = e.clientX - startX
+    const scrollDelta = (deltaX / trackTravel) * maxScroll
+    const newScrollLeft = Math.max(0, Math.min(maxScroll, scrollLeft + scrollDelta))
+
+    tableEl.scrollLeft = newScrollLeft
+    if (topScrollRef.current) {
+      topScrollRef.current.scrollLeft = newScrollLeft
+    }
+    setScrollMetrics((prev) => ({ ...prev, scrollLeft: newScrollLeft }))
+  }
+
+  const handleTopPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isDraggingTop) return
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId)
+    }
+    setIsDraggingTop(false)
+  }
+
+  // Clique direto no trilho da barra superior
+  const handleTrackClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const trackEl = topTrackRef.current
+    if (!trackEl) return
+    const tableEl = getTableScrollElement()
+    if (!tableEl) return
+
+    const { scrollWidth, clientWidth } = scrollMetrics
+    const maxScroll = Math.max(0, scrollWidth - clientWidth)
+    if (maxScroll <= 0) return
+
+    const rect = trackEl.getBoundingClientRect()
+    const clickX = e.clientX - rect.left
+    const trackWidth = rect.width
+    const ratio = clientWidth / scrollWidth
+    const thumbWidth = Math.max(56, Math.min(trackWidth, trackWidth * ratio))
+
+    const targetThumbLeft = Math.max(0, Math.min(trackWidth - thumbWidth, clickX - thumbWidth / 2))
+    const trackTravel = trackWidth - thumbWidth
+    const newScrollLeft = trackTravel > 0 ? (targetThumbLeft / trackTravel) * maxScroll : 0
+
+    tableEl.scrollTo({ left: newScrollLeft, behavior: 'smooth' })
+    if (topScrollRef.current) {
+      topScrollRef.current.scrollLeft = newScrollLeft
+    }
+    setScrollMetrics((prev) => ({ ...prev, scrollLeft: newScrollLeft }))
+  }
+
+  // Botões de passo horizontal (setas ◀ e ▶)
+  const handleStepScroll = (direction: 'left' | 'right') => {
+    const tableEl = getTableScrollElement()
+    if (!tableEl) return
+    const step = 280
+    const targetLeft = direction === 'left' ? tableEl.scrollLeft - step : tableEl.scrollLeft + step
+    tableEl.scrollTo({ left: targetLeft, behavior: 'smooth' })
+    if (topScrollRef.current) {
+      topScrollRef.current.scrollTo({ left: targetLeft, behavior: 'smooth' })
+    }
+  }
+
+  const canScrollHorizontally =
+    scrollMetrics.scrollWidth > scrollMetrics.clientWidth && scrollMetrics.clientWidth > 0
+
+  const getThumbStyle = () => {
+    const trackEl = topTrackRef.current
+    const trackWidth = trackEl?.clientWidth || 0
+    if (!canScrollHorizontally || trackWidth <= 0) {
+      return { width: '100%', left: '0px', display: 'none' }
+    }
+    const { scrollLeft, scrollWidth, clientWidth } = scrollMetrics
+    const maxScroll = Math.max(1, scrollWidth - clientWidth)
+    const ratio = clientWidth / scrollWidth
+    const thumbWidth = Math.max(56, Math.min(trackWidth, trackWidth * ratio))
+    const trackTravel = trackWidth - thumbWidth
+    const thumbLeft = Math.max(0, Math.min(trackTravel, (scrollLeft / maxScroll) * trackTravel))
+
+    return {
+      width: `${thumbWidth}px`,
+      transform: `translateX(${thumbLeft}px)`,
+      left: 0,
+    }
+  }
 
   const toggleExpand = (id: string) => {
     setExpandedIds((prev) => {
@@ -567,15 +791,100 @@ export function AdminPriceChecksPage() {
             </span>
           </div>
 
-          <div className="overflow-x-auto">
-            <Table>
+          {/* Barra de rolagem horizontal superior sincronizada com a tabela */}
+          <div
+            className="relative w-full border-b border-border/60 bg-muted/40 select-none transition-colors hover:bg-muted/50 flex items-center px-1"
+            style={{ height: '22px' }}
+            aria-label="Barra de rolagem horizontal superior da tabela"
+          >
+            {/* Botão de rolagem para esquerda ◀ */}
+            <button
+              type="button"
+              onClick={() => handleStepScroll('left')}
+              className="shrink-0 w-5 h-5 flex items-center justify-center rounded text-muted-foreground hover:text-amber-400 hover:bg-amber-500/10 active:scale-95 transition-all cursor-pointer mr-1 z-10"
+              title="Rolar tabela para a esquerda (◀)"
+              aria-label="Rolar para a esquerda"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+            </button>
+
+            {/* Contêiner nativo invisível espelhado para manter sincronização por eventos de scroll nativos */}
+            <div
+              ref={topScrollRef}
+              className="absolute inset-0 overflow-x-auto overflow-y-hidden opacity-0 pointer-events-none [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+              tabIndex={-1}
+            >
+              <div
+                style={{
+                  width:
+                    scrollMetrics.scrollWidth > 0 ? `${scrollMetrics.scrollWidth}px` : '1200px',
+                  height: '1px',
+                }}
+              />
+            </div>
+
+            {/* Trilho visual interativo */}
+            <div
+              ref={topTrackRef}
+              onClick={handleTrackClick}
+              className="relative flex-1 h-full cursor-pointer flex items-center"
+              title="Clique ou arraste a pegada para rolar a tabela horizontalmente"
+            >
+              {/* Linha guia do trilho no tema escuro */}
+              <div className="absolute left-0 right-0 h-2.5 bg-slate-900/90 border border-slate-700/80 rounded-full shadow-inner" />
+
+              {/* Pegada (Thumb) visível em destaque no tema escuro com suporte a drag */}
+              {canScrollHorizontally && (
+                <div
+                  onPointerDown={handleTopPointerDown}
+                  onPointerMove={handleTopPointerMove}
+                  onPointerUp={handleTopPointerUp}
+                  onPointerCancel={handleTopPointerUp}
+                  style={getThumbStyle()}
+                  className={cn(
+                    'absolute h-4 rounded-full cursor-grab active:cursor-grabbing transition-[filter,transform] duration-75 shadow-md z-10 flex items-center justify-center touch-none',
+                    'bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 hover:brightness-110 active:brightness-125 shadow-[0_1px_8px_rgba(245,158,11,0.55)] border border-amber-300/60',
+                    isDraggingTop &&
+                      'scale-y-110 brightness-125 shadow-[0_2px_10px_rgba(245,158,11,0.75)]',
+                  )}
+                >
+                  <div className="flex gap-0.5 pointer-events-none opacity-85">
+                    <div className="w-0.5 h-2 bg-amber-950/80 rounded-full" />
+                    <div className="w-0.5 h-2 bg-amber-950/80 rounded-full" />
+                    <div className="w-0.5 h-2 bg-amber-950/80 rounded-full" />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Botão de rolagem para direita ▶ */}
+            <button
+              type="button"
+              onClick={() => handleStepScroll('right')}
+              className="shrink-0 w-5 h-5 flex items-center justify-center rounded text-muted-foreground hover:text-amber-400 hover:bg-amber-500/10 active:scale-95 transition-all cursor-pointer ml-1 z-10"
+              title="Rolar tabela para a direita (▶)"
+              aria-label="Rolar para a direita"
+            >
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          <div
+            ref={bottomScrollRef}
+            className="w-full overflow-x-auto pb-2 [&::-webkit-scrollbar]:h-2.5 [&::-webkit-scrollbar-track]:bg-muted/30 [&::-webkit-scrollbar-thumb]:bg-slate-600 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-slate-500"
+            style={{
+              scrollbarWidth: 'thin',
+              scrollbarColor: '#64748b #1e293b',
+            }}
+          >
+            <Table className="min-w-[1200px]">
               <TableHeader>
                 <TableRow className="hover:bg-transparent border-b border-border/50">
-                  <TableHead className="w-10 text-center"></TableHead>
-                  <TableHead className="w-40 font-semibold text-xs">Data da Checagem</TableHead>
-                  <TableHead className="table-sticky-col-header min-w-[240px] max-w-[320px] font-semibold text-xs">
+                  <TableHead className="w-10 text-center table-sticky-col-header"></TableHead>
+                  <TableHead className="bh-product-name-col table-sticky-col-header-2 font-semibold text-xs">
                     Produto
                   </TableHead>
+                  <TableHead className="w-40 font-semibold text-xs">Data da Checagem</TableHead>
                   <TableHead className="w-32 font-semibold text-xs">Status</TableHead>
                   <TableHead className="w-36 font-semibold text-xs">Rebate Ativo</TableHead>
                   <TableHead className="text-right w-28 font-semibold text-xs">Price DB</TableHead>
@@ -633,8 +942,8 @@ export function AdminPriceChecksPage() {
                         )}
                         onClick={() => toggleExpand(rec.id)}
                       >
-                        {/* Botão Expandir */}
-                        <TableCell className="text-center p-2">
+                        {/* Botão Expandir - Coluna 1 Fixa */}
+                        <TableCell className="text-center p-2 table-sticky-col-cell">
                           <Button
                             variant="ghost"
                             size="icon"
@@ -655,6 +964,44 @@ export function AdminPriceChecksPage() {
                           </Button>
                         </TableCell>
 
+                        {/* Produto (Nome + link para /products/edit/:id) - Coluna 2 Fixa */}
+                        <TableCell className="bh-product-name-col table-sticky-col-cell-2">
+                          <div className="flex flex-col min-w-0 pr-2 overflow-hidden">
+                            {product ? (
+                              <Link
+                                to={`/products/edit/${product.id}`}
+                                onClick={(e) => e.stopPropagation()}
+                                className="font-medium text-foreground text-sm hover:text-primary hover:underline truncate block"
+                                title={product.name}
+                              >
+                                {product.name}
+                              </Link>
+                            ) : (
+                              <span
+                                className="font-medium text-foreground text-sm truncate block"
+                                title={`Produto ${rec.product_id}`}
+                              >
+                                Produto {rec.product_id.slice(0, 8)}...
+                              </span>
+                            )}
+                            <div className="flex items-center gap-2 text-[11px] text-muted-foreground mt-0.5 truncate">
+                              {product?.sku ? (
+                                <span className="font-mono truncate">{product.sku}</span>
+                              ) : (
+                                <span className="font-mono text-muted-foreground/60">Sem SKU</span>
+                              )}
+                              {product?.is_discontinued && (
+                                <Badge
+                                  variant="destructive"
+                                  className="text-[9px] py-0 px-1 uppercase shrink-0"
+                                >
+                                  Inativo
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+                        </TableCell>
+
                         {/* Data da Checagem */}
                         <TableCell className="font-mono text-xs whitespace-nowrap text-muted-foreground">
                           {rec.checked_at ? (
@@ -673,41 +1020,6 @@ export function AdminPriceChecksPage() {
                           ) : (
                             '—'
                           )}
-                        </TableCell>
-
-                        {/* Produto (Nome + link para /products/edit/:id) */}
-                        <TableCell className="table-sticky-col-cell min-w-[240px] max-w-[320px]">
-                          <div className="flex flex-col min-w-0 pr-2">
-                            {product ? (
-                              <Link
-                                to={`/products/edit/${product.id}`}
-                                onClick={(e) => e.stopPropagation()}
-                                className="font-medium text-foreground text-sm hover:text-primary hover:underline truncate block"
-                                title={product.name}
-                              >
-                                {product.name}
-                              </Link>
-                            ) : (
-                              <span className="font-medium text-foreground text-sm truncate">
-                                Produto {rec.product_id.slice(0, 8)}...
-                              </span>
-                            )}
-                            <div className="flex items-center gap-2 text-[11px] text-muted-foreground mt-0.5">
-                              {product?.sku ? (
-                                <span className="font-mono">{product.sku}</span>
-                              ) : (
-                                <span className="font-mono text-muted-foreground/60">Sem SKU</span>
-                              )}
-                              {product?.is_discontinued && (
-                                <Badge
-                                  variant="destructive"
-                                  className="text-[9px] py-0 px-1 uppercase"
-                                >
-                                  Inativo
-                                </Badge>
-                              )}
-                            </div>
-                          </div>
                         </TableCell>
 
                         {/* Status */}

@@ -993,9 +993,33 @@ Deno.serve(async (req: Request) => {
       scrapedResult.availability,
     )
 
-    // Se estiver descontinuado pelo fabricante na B&H
+    // Se estiver descontinuado pelo fabricante na B&H: atualizar flag products.is_discontinued = true
     if (isDiscontinued) {
       const msg = 'Produto descontinuado pelo fabricante na B&H.'
+
+      // Atualiza o cadastro do produto com is_discontinued = true (se ainda não estiver descontinuado)
+      if (!product.is_discontinued) {
+        const nowIso = new Date().toISOString()
+        console.log(
+          `[check-price-bhphoto] B&H confirmou produto descontinuado. Atualizando products.is_discontinued = true para id ${product.id}`,
+        )
+        const { error: updateDiscErr } = await supabase
+          .from('products')
+          .update({
+            is_discontinued: true,
+            updated_at: nowIso,
+            last_reviewed_at: nowIso,
+          })
+          .eq('id', product.id)
+
+        if (updateDiscErr) {
+          console.warn(
+            '[check-price-bhphoto] Falha ao atualizar is_discontinued = true:',
+            updateDiscErr,
+          )
+        }
+      }
+
       await recordCheck({
         status: 'descontinuado',
         price_db: priceDb,
@@ -1030,6 +1054,30 @@ Deno.serve(async (req: Request) => {
         }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
       )
+    }
+
+    // Se o item no cadastro estava marcado como descontinuado (is_discontinued === true),
+    // mas a página da B&H mostra o item DISPONÍVEL / não-descontinuado, reverter flag para false.
+    if (product.is_discontinued && !isDiscontinued) {
+      const nowIso = new Date().toISOString()
+      console.log(
+        `[check-price-bhphoto] Item ativo/disponível na B&H, revertendo products.is_discontinued = false para id ${product.id}`,
+      )
+      const { error: revertDiscErr } = await supabase
+        .from('products')
+        .update({
+          is_discontinued: false,
+          updated_at: nowIso,
+          last_reviewed_at: nowIso,
+        })
+        .eq('id', product.id)
+
+      if (revertDiscErr) {
+        console.warn(
+          '[check-price-bhphoto] Falha ao reverter is_discontinued = false:',
+          revertDiscErr,
+        )
+      }
     }
 
     if (priceBh == null) {

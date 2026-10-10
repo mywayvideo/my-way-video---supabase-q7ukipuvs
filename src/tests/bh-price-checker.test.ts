@@ -534,4 +534,212 @@ describe('priceCheckService & B&H verification tolerance logic', () => {
       expect(resolution.effectiveMessage).toContain('Preços conferidos com a B&H em ambos os pares')
     })
   })
+
+  describe('is_discontinued flag synchronization logic (check-price-bhphoto)', () => {
+    // Helper reproduzindo fielmente a lógica determinística implementada na edge function check-price-bhphoto
+    interface ProductState {
+      id: string
+      name: string
+      price_usd: number | null
+      is_discontinued: boolean
+      updated_at: string
+      last_reviewed_at: string
+    }
+
+    interface ScrapedCheck {
+      is_discontinued: boolean
+      availability: string | null
+      price: number | null
+    }
+
+    const applyCheckPriceDiscontinuedLogic = (
+      product: ProductState,
+      scraped: ScrapedCheck,
+      nowIso: string,
+    ): {
+      updatedProduct: ProductState
+      status: 'ok' | 'divergente' | 'descontinuado' | 'erro'
+      dbUpdated: boolean
+      revertedToAvailable: boolean
+      confirmedDiscontinued: boolean
+    } => {
+      // 1. Detecção do status de descontinuação
+      const isDiscontinued =
+        scraped.is_discontinued === true ||
+        (scraped.availability != null &&
+          /discontinued/i.test(String(scraped.availability)))
+
+      let dbUpdated = false
+      let revertedToAvailable = false
+      let confirmedDiscontinued = false
+
+      let nextProduct = { ...product }
+
+      if (isDiscontinued) {
+        // Se B&H confirmou descontinuado e produto ainda não estava marcado como true
+        if (!product.is_discontinued) {
+          nextProduct = {
+            ...nextProduct,
+            is_discontinued: true,
+            updated_at: nowIso,
+            last_reviewed_at: nowIso,
+          }
+          dbUpdated = true
+        }
+        confirmedDiscontinued = true
+        return {
+          updatedProduct: nextProduct,
+          status: 'descontinuado',
+          dbUpdated,
+          revertedToAvailable: false,
+          confirmedDiscontinued: true,
+        }
+      }
+
+      // Se produto estava marcado como descontinuado no catálogo, mas B&H indica item DISPONÍVEL
+      if (product.is_discontinued && !isDiscontinued) {
+        nextProduct = {
+          ...nextProduct,
+          is_discontinued: false,
+          updated_at: nowIso,
+          last_reviewed_at: nowIso,
+        }
+        dbUpdated = true
+        revertedToAvailable = true
+      }
+
+      if (scraped.price == null) {
+        return {
+          updatedProduct: nextProduct,
+          status: 'erro',
+          dbUpdated,
+          revertedToAvailable,
+          confirmedDiscontinued: false,
+        }
+      }
+
+      const status =
+        product.price_usd != null && Math.abs(scraped.price - product.price_usd) <= 1.0
+          ? 'ok'
+          : 'divergente'
+
+      return {
+        updatedProduct: nextProduct,
+        status,
+        dbUpdated,
+        revertedToAvailable,
+        confirmedDiscontinued: false,
+      }
+    }
+
+    it('confirma produto descontinuado na B&H: atualiza is_discontinued = true e atualiza ambas as datas', () => {
+      const nowIso = '2026-04-13T15:30:00.000Z'
+      const initialProduct: ProductState = {
+        id: 'prod-1',
+        name: 'Sony Camcorder Legada',
+        price_usd: 1500,
+        is_discontinued: false,
+        updated_at: '2025-01-01T00:00:00.000Z',
+        last_reviewed_at: '2025-01-01T00:00:00.000Z',
+      }
+
+      const scraped: ScrapedCheck = {
+        is_discontinued: true,
+        availability: 'Discontinued',
+        price: null,
+      }
+
+      const result = applyCheckPriceDiscontinuedLogic(initialProduct, scraped, nowIso)
+
+      expect(result.status).toBe('descontinuado')
+      expect(result.confirmedDiscontinued).toBe(true)
+      expect(result.dbUpdated).toBe(true)
+      expect(result.updatedProduct.is_discontinued).toBe(true)
+      // Regra de datas do projeto: alteração real de estado -> updated_at = last_reviewed_at = agora
+      expect(result.updatedProduct.updated_at).toBe(nowIso)
+      expect(result.updatedProduct.last_reviewed_at).toBe(nowIso)
+      // Preço USD preservado intacto
+      expect(result.updatedProduct.price_usd).toBe(1500)
+    })
+
+    it('item flagado como is_discontinued=true verificado como DISPONÍVEL na B&H: reverte para false com datas atualizadas', () => {
+      const nowIso = '2026-04-13T16:00:00.000Z'
+      const initialProduct: ProductState = {
+        id: 'prod-2',
+        name: 'Sony Microfone Retornado ao Estoque',
+        price_usd: 250,
+        is_discontinued: true, // Estava inativo/descontinuado no catálogo
+        updated_at: '2025-01-01T00:00:00.000Z',
+        last_reviewed_at: '2025-01-01T00:00:00.000Z',
+      }
+
+      const scraped: ScrapedCheck = {
+        is_discontinued: false,
+        availability: 'In Stock',
+        price: 250,
+      }
+
+      const result = applyCheckPriceDiscontinuedLogic(initialProduct, scraped, nowIso)
+
+      expect(result.status).toBe('ok')
+      expect(result.revertedToAvailable).toBe(true)
+      expect(result.dbUpdated).toBe(true)
+      expect(result.updatedProduct.is_discontinued).toBe(false)
+      // Ambas as datas atualizadas com o mesmo valor agora
+      expect(result.updatedProduct.updated_at).toBe(nowIso)
+      expect(result.updatedProduct.last_reviewed_at).toBe(nowIso)
+      // price_usd permanece rigorosamente o mesmo
+      expect(result.updatedProduct.price_usd).toBe(250)
+    })
+
+    it('produto já descontinuado e confirmado novamente como descontinuado: não re-grava desnecessariamente no banco', () => {
+      const nowIso = '2026-04-13T16:15:00.000Z'
+      const initialProduct: ProductState = {
+        id: 'prod-3',
+        name: 'Item já descontinuado',
+        price_usd: 120,
+        is_discontinued: true,
+        updated_at: '2026-03-01T10:00:00.000Z',
+        last_reviewed_at: '2026-03-01T10:00:00.000Z',
+      }
+
+      const scraped: ScrapedCheck = {
+        is_discontinued: true,
+        availability: 'Discontinued by manufacturer',
+        price: null,
+      }
+
+      const result = applyCheckPriceDiscontinuedLogic(initialProduct, scraped, nowIso)
+
+      expect(result.status).toBe('descontinuado')
+      expect(result.confirmedDiscontinued).toBe(true)
+      expect(result.dbUpdated).toBe(false) // Já era true, não precisa de update redundante
+      expect(result.updatedProduct.is_discontinued).toBe(true)
+    })
+
+    it('produto ativo e verificado como ativo: mantém is_discontinued=false sem alteração do flag', () => {
+      const nowIso = '2026-04-13T16:30:00.000Z'
+      const initialProduct: ProductState = {
+        id: 'prod-4',
+        name: 'Item Ativo Normal',
+        price_usd: 300,
+        is_discontinued: false,
+        updated_at: '2026-02-01T00:00:00.000Z',
+        last_reviewed_at: '2026-02-01T00:00:00.000Z',
+      }
+
+      const scraped: ScrapedCheck = {
+        is_discontinued: false,
+        availability: 'In Stock',
+        price: 300,
+      }
+
+      const result = applyCheckPriceDiscontinuedLogic(initialProduct, scraped, nowIso)
+
+      expect(result.status).toBe('ok')
+      expect(result.revertedToAvailable).toBe(false)
+      expect(result.dbUpdated).toBe(false)
+      expect(result.updatedProduct.is_discontinued).toBe(false)
+    })
+  })
 })

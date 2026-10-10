@@ -8,6 +8,7 @@
  */
 
 import { supabase } from '@/lib/supabase/client'
+import type { Database } from '@/lib/supabase/types'
 import {
   normalizeSkuKey,
   formatSonyStandardSku,
@@ -26,12 +27,88 @@ export interface SkuProductItem {
   is_discontinued: boolean
   is_special: boolean
   image_url: string | null
+  website_url?: string | null
+  ncm?: string | null
+  description?: string | null
+  technical_info?: string | null
   created_at: string
   updated_at: string
   last_reviewed_at: string
   normalizedSku: string
   hasDash: boolean
   isSony: boolean
+}
+
+export interface MergedFieldDetail {
+  field: string
+  previousValue: any
+  mergedValue: any
+  sourceProductId: string
+  sourceSku: string | null
+}
+
+export interface MergeResultItem {
+  preferredProductId: string
+  preferredSkuBefore: string | null
+  preferredSkuAfter: string | null
+  preferredName: string
+  mergedFields: MergedFieldDetail[]
+  deactivatedProducts: {
+    id: string
+    sku: string | null
+    name: string
+    wasAlreadyDiscontinued: boolean
+  }[]
+  normalizedSku: string
+}
+
+export interface RenamedSkuItem {
+  id: string
+  name: string
+  oldSku: string
+  newSku: string
+  lastReviewedAtBefore?: string
+  lastReviewedAtAfter: string
+  updatedAtAfter: string
+}
+
+export interface SkippedCollisionItem {
+  normalizedSku: string
+  brand: string
+  reason: 'undecided' | 'distinct_products' | 'missing_preferred'
+  productIds: string[]
+  productSkus: (string | null)[]
+}
+
+export interface BackfillPlanPreview {
+  canExecute: boolean
+  missingTableError?: string | null
+  renamesCount: number
+  renamesPreview: { id: string; oldSku: string; newSku: string; name: string }[]
+  mergesCount: number
+  mergesPreview: {
+    normalizedSku: string
+    preferredProduct: { id: string; sku: string | null; name: string }
+    secondaryProducts: { id: string; sku: string | null; name: string }[]
+    fieldsToMerge: string[]
+  }[]
+  skippedCollisionsCount: number
+  skippedCollisions: SkippedCollisionItem[]
+  distinctCollisionsCount: number
+  alreadyStandardizedCount: number
+  totalSonyProducts: number
+}
+
+export interface BackfillExecutionReport {
+  success: boolean
+  startedAt: string
+  finishedAt: string
+  totalSonyRenamed: number
+  renamedItems: RenamedSkuItem[]
+  totalLosersDeactivated: number
+  mergedGroups: MergeResultItem[]
+  skippedCollisions: SkippedCollisionItem[]
+  errors: { id?: string; sku?: string; error: string }[]
 }
 
 export interface SkuCollisionGroup {
@@ -110,6 +187,10 @@ export function analyzeProductsSku(
       is_discontinued: Boolean(p.is_discontinued),
       is_special: Boolean(p.is_special),
       image_url: p.image_url || null,
+      website_url: p.website_url || null,
+      ncm: p.ncm || null,
+      description: p.description || null,
+      technical_info: p.technical_info || null,
       created_at: p.created_at || '',
       updated_at: p.updated_at || '',
       last_reviewed_at: p.last_reviewed_at || '',
@@ -372,7 +453,7 @@ export const skuStandardizationService = {
       const { data, error } = await supabase
         .from('products')
         .select(
-          'id, name, sku, manufacturer_id, price_usd, price_cost, is_discontinued, is_special, image_url, created_at, updated_at, last_reviewed_at',
+          'id, name, sku, manufacturer_id, price_usd, price_cost, is_discontinued, is_special, image_url, website_url, ncm, description, technical_info, created_at, updated_at, last_reviewed_at',
         )
         .range(page * pageSize, (page + 1) * pageSize - 1)
 
@@ -422,6 +503,498 @@ export const skuStandardizationService = {
 
     if (error) {
       throw new Error(`Erro ao salvar decisão de colisão: ${error.message}`)
+    }
+  },
+
+  /**
+   * Verifica se a tabela de apoio sku_collision_decisions existe e está acessível.
+   * Se não existir ou a query falhar por ausência da tabela, retorna mensagem instrutiva.
+   */
+  async checkDecisionsTableAccessible(): Promise<{ accessible: boolean; error?: string }> {
+    try {
+      const { data, error } = await supabase.from('sku_collision_decisions').select('id').limit(1)
+
+      if (error) {
+        return {
+          accessible: false,
+          error: `A tabela "sku_collision_decisions" não está acessível no Supabase (${error.message}). Por favor, execute o script SQL "supabase/migrations/20261009120000_create_sku_collision_decisions.sql" no SQL Editor do painel Supabase e execute "NOTIFY pgrst, 'reload schema';" para prosseguir com a Rodada 2.`,
+        }
+      }
+
+      return { accessible: true }
+    } catch (e: any) {
+      return {
+        accessible: false,
+        error: `Exceção ao verificar "sku_collision_decisions": ${e?.message || String(e)}. Execute a migração no painel Supabase para prosseguir.`,
+      }
+    }
+  },
+
+  /**
+   * Calcula o preview das ações que serão executadas na Rodada 2:
+   * - Produtos Sony a renomear
+   * - Grupos com decisão 'keep_preferred' para mesclar e desativar perdedor
+   * - Colisões pendentes (puladas)
+   * - Colisões distintas (mantidas)
+   */
+  async getBackfillPreview(): Promise<BackfillPlanPreview> {
+    // 1. Verificar tabela de decisões
+    const tableCheck = await this.checkDecisionsTableAccessible()
+    if (!tableCheck.accessible) {
+      return {
+        canExecute: false,
+        missingTableError: tableCheck.error,
+        renamesCount: 0,
+        renamesPreview: [],
+        mergesCount: 0,
+        mergesPreview: [],
+        skippedCollisionsCount: 0,
+        skippedCollisions: [],
+        distinctCollisionsCount: 0,
+        alreadyStandardizedCount: 0,
+        totalSonyProducts: 0,
+      }
+    }
+
+    // 2. Carregar diagnóstico completo
+    const diag = await this.runDryRunDiagnosis()
+
+    const sonyCollisions = diag.sonyCollisions
+    const sonyCollidingProductIds = new Set<string>()
+    sonyCollisions.forEach((g) => {
+      g.products.forEach((p) => sonyCollidingProductIds.add(p.id))
+    })
+
+    const skippedCollisions: SkippedCollisionItem[] = []
+    let distinctCollisionsCount = 0
+
+    // Mapear perdedores que serão desativados
+    const loserProductIds = new Set<string>()
+    const preferredProductIds = new Set<string>()
+
+    const mergesPreview: BackfillPlanPreview['mergesPreview'] = []
+
+    for (const group of sonyCollisions) {
+      const dec = group.decision
+      if (!dec || dec.decision_type === 'undecided') {
+        skippedCollisions.push({
+          normalizedSku: group.normalizedSku,
+          brand: group.brand,
+          reason: 'undecided',
+          productIds: group.products.map((p) => p.id),
+          productSkus: group.products.map((p) => p.sku),
+        })
+        continue
+      }
+
+      if (dec.decision_type === 'distinct_products') {
+        distinctCollisionsCount++
+        skippedCollisions.push({
+          normalizedSku: group.normalizedSku,
+          brand: group.brand,
+          reason: 'distinct_products',
+          productIds: group.products.map((p) => p.id),
+          productSkus: group.products.map((p) => p.sku),
+        })
+        continue
+      }
+
+      if (dec.decision_type === 'keep_preferred') {
+        const prefId = dec.preferred_product_id
+        const preferred = group.products.find((p) => p.id === prefId)
+        if (!preferred) {
+          skippedCollisions.push({
+            normalizedSku: group.normalizedSku,
+            brand: group.brand,
+            reason: 'missing_preferred',
+            productIds: group.products.map((p) => p.id),
+            productSkus: group.products.map((p) => p.sku),
+          })
+          continue
+        }
+
+        preferredProductIds.add(preferred.id)
+        const secondaries = group.products.filter((p) => p.id !== preferred.id)
+        secondaries.forEach((s) => loserProductIds.add(s.id))
+
+        // Determinar campos que podem ser mesclados
+        const fieldsToMerge: string[] = []
+        for (const sec of secondaries) {
+          if (!preferred.website_url && sec.website_url) fieldsToMerge.push('website_url')
+          if (!preferred.image_url && sec.image_url) fieldsToMerge.push('image_url')
+          if (!preferred.ncm && sec.ncm) fieldsToMerge.push('ncm')
+          if (!preferred.description && sec.description) fieldsToMerge.push('description')
+          if (!preferred.technical_info && sec.technical_info) fieldsToMerge.push('technical_info')
+        }
+
+        mergesPreview.push({
+          normalizedSku: group.normalizedSku,
+          preferredProduct: { id: preferred.id, sku: preferred.sku, name: preferred.name },
+          secondaryProducts: secondaries.map((s) => ({ id: s.id, sku: s.sku, name: s.name })),
+          fieldsToMerge: Array.from(new Set(fieldsToMerge)),
+        })
+      }
+    }
+
+    // Produtos Sony a renomear:
+    // Critérios:
+    // 1. isSony = true
+    // 2. hasDash = true ou sku !== formatSonyStandardSku(sku)
+    // 3. NÃO é perdedor de colisão (loserProductIds) — perdedores serão aposentados
+    // 4. Se faz parte de uma colisão, só pode ser renomeado se a colisão estiver decidida como keep_preferred E ele for o preferred
+    // 5. Se a colisão estiver undecided ou distinct_products, fica fora do rename
+    const renamesPreview: BackfillPlanPreview['renamesPreview'] = []
+    let alreadyStandardizedCount = 0
+
+    // Carregar todos os produtos Sony
+    for (const p of diag.sonyDashProducts) {
+      if (loserProductIds.has(p.id)) {
+        // Ignora perdedor, será desativado
+        continue
+      }
+
+      if (sonyCollidingProductIds.has(p.id)) {
+        // Só renomeia se for o preferred de uma colisão keep_preferred
+        if (!preferredProductIds.has(p.id)) {
+          continue
+        }
+      }
+
+      const standardSku = formatSonyStandardSku(p.sku)
+      if (standardSku && standardSku !== p.sku) {
+        renamesPreview.push({
+          id: p.id,
+          oldSku: p.sku || '',
+          newSku: standardSku,
+          name: p.name,
+        })
+      }
+    }
+
+    // Contar já padronizados
+    const totalSony = diag.stats.sony.total
+    alreadyStandardizedCount = diag.stats.sony.alreadyIdenticalAfterNorm
+
+    return {
+      canExecute: true,
+      missingTableError: null,
+      renamesCount: renamesPreview.length,
+      renamesPreview,
+      mergesCount: mergesPreview.length,
+      mergesPreview,
+      skippedCollisionsCount: skippedCollisions.length,
+      skippedCollisions,
+      distinctCollisionsCount,
+      alreadyStandardizedCount,
+      totalSonyProducts: totalSony,
+    }
+  },
+
+  /**
+   * Executa a Rodada 2 completa:
+   * 1. Valida existência da tabela sku_collision_decisions.
+   * 2. Desativação + Mesclagem de perdedores em colisões decididas (keep_preferred).
+   * 3. Backfill em massa de SKUs Sony com traço (SEM alterar price_usd, mantendo regra de datas).
+   * 4. Gera relatório final estruturado.
+   */
+  async executeRound2Backfill(
+    onProgress?: (progress: { stage: string; current: number; total: number }) => void,
+  ): Promise<BackfillExecutionReport> {
+    const startedAt = new Date().toISOString()
+
+    // 1. Salvaguarda: Verificar tabela de decisões
+    const tableCheck = await this.checkDecisionsTableAccessible()
+    if (!tableCheck.accessible) {
+      throw new Error(tableCheck.error)
+    }
+
+    // 2. Carregar diagnósticos e produtos frescos
+    if (onProgress) onProgress({ stage: 'Carregando base e decisões...', current: 0, total: 100 })
+    const diag = await this.runDryRunDiagnosis()
+
+    const sonyCollisions = diag.sonyCollisions
+    const sonyCollidingProductIds = new Set<string>()
+    sonyCollisions.forEach((g) => {
+      g.products.forEach((p) => sonyCollidingProductIds.add(p.id))
+    })
+
+    const skippedCollisions: SkippedCollisionItem[] = []
+    const mergedGroups: MergeResultItem[] = []
+    const renamedItems: RenamedSkuItem[] = []
+    const errors: { id?: string; sku?: string; error: string }[] = []
+
+    const loserProductIds = new Set<string>()
+    const preferredProductIds = new Set<string>()
+
+    // ETAPA 1: Processar Colisões e Mesclagens
+    if (onProgress)
+      onProgress({ stage: 'Processando mesclagens e desativações...', current: 10, total: 100 })
+
+    for (let i = 0; i < sonyCollisions.length; i++) {
+      const group = sonyCollisions[i]
+      const dec = group.decision
+
+      if (!dec || dec.decision_type === 'undecided') {
+        skippedCollisions.push({
+          normalizedSku: group.normalizedSku,
+          brand: group.brand,
+          reason: 'undecided',
+          productIds: group.products.map((p) => p.id),
+          productSkus: group.products.map((p) => p.sku),
+        })
+        continue
+      }
+
+      if (dec.decision_type === 'distinct_products') {
+        skippedCollisions.push({
+          normalizedSku: group.normalizedSku,
+          brand: group.brand,
+          reason: 'distinct_products',
+          productIds: group.products.map((p) => p.id),
+          productSkus: group.products.map((p) => p.sku),
+        })
+        continue
+      }
+
+      if (dec.decision_type === 'keep_preferred') {
+        const prefId = dec.preferred_product_id
+        const preferred = group.products.find((p) => p.id === prefId)
+        if (!preferred) {
+          skippedCollisions.push({
+            normalizedSku: group.normalizedSku,
+            brand: group.brand,
+            reason: 'missing_preferred',
+            productIds: group.products.map((p) => p.id),
+            productSkus: group.products.map((p) => p.sku),
+          })
+          continue
+        }
+
+        preferredProductIds.add(preferred.id)
+        const secondaries = group.products.filter((p) => p.id !== preferred.id)
+        secondaries.forEach((s) => loserProductIds.add(s.id))
+
+        // Comparar dados e preparar mesclagem não destrutiva
+        const mergedFields: MergedFieldDetail[] = []
+        const updatesForPreferred: Database['public']['Tables']['products']['Update'] = {}
+
+        // Campos a comparar e aproveitar do perdedor se o prevalente não tiver
+        const candidateFields: ('website_url' | 'image_url' | 'description' | 'technical_info')[] =
+          ['website_url', 'image_url', 'description', 'technical_info']
+
+        // Também verificar se o perdedor tem conferência mais recente
+        let mostRecentReview = preferred.last_reviewed_at || ''
+
+        for (const sec of secondaries) {
+          for (const f of candidateFields) {
+            const prefVal = (preferred as any)[f]
+            const secVal = (sec as any)[f]
+            const isPrefEmpty = prefVal == null || String(prefVal).trim() === ''
+            const isSecFilled = secVal != null && String(secVal).trim() !== ''
+
+            if (isPrefEmpty && isSecFilled && !(f in updatesForPreferred)) {
+              ;(updatesForPreferred as any)[f] = secVal
+              mergedFields.push({
+                field: f,
+                previousValue: prefVal,
+                mergedValue: secVal,
+                sourceProductId: sec.id,
+                sourceSku: sec.sku,
+              })
+            }
+          }
+
+          // Tratar ncm separadamente por tipagem
+          const prefNcm = preferred.ncm
+          const secNcm = sec.ncm
+          if (
+            (!prefNcm || !String(prefNcm).trim()) &&
+            secNcm &&
+            String(secNcm).trim() &&
+            !updatesForPreferred.ncm
+          ) {
+            updatesForPreferred.ncm = secNcm
+            mergedFields.push({
+              field: 'ncm',
+              previousValue: prefNcm,
+              mergedValue: secNcm,
+              sourceProductId: sec.id,
+              sourceSku: sec.sku,
+            })
+          }
+
+          if (
+            sec.last_reviewed_at &&
+            (!mostRecentReview || new Date(sec.last_reviewed_at) > new Date(mostRecentReview))
+          ) {
+            mostRecentReview = sec.last_reviewed_at
+          }
+        }
+
+        // Se o preferred precisar de SKU padronizado (sem traço), já padroniza junto
+        const standardSku = formatSonyStandardSku(preferred.sku)
+        let newPreferredSku = preferred.sku
+        if (standardSku && standardSku !== preferred.sku) {
+          updatesForPreferred.sku = standardSku
+          newPreferredSku = standardSku
+        }
+
+        // Se houver atualizações para o preferred, executa com regra de datas
+        const nowIso = new Date().toISOString()
+        if (Object.keys(updatesForPreferred).length > 0) {
+          updatesForPreferred.updated_at = nowIso
+          updatesForPreferred.last_reviewed_at = nowIso
+
+          try {
+            const { error: prefErr } = await supabase
+              .from('products')
+              .update(updatesForPreferred)
+              .eq('id', preferred.id)
+
+            if (prefErr) {
+              errors.push({
+                id: preferred.id,
+                sku: preferred.sku,
+                error: `Erro ao atualizar prevalente: ${prefErr.message}`,
+              })
+            }
+          } catch (err: any) {
+            errors.push({
+              id: preferred.id,
+              sku: preferred.sku,
+              error: `Exceção ao atualizar prevalente: ${err.message}`,
+            })
+          }
+        }
+
+        // Desativar secundários (perdedores): is_discontinued = true, com regra de datas
+        const deactivatedList: MergeResultItem['deactivatedProducts'] = []
+        for (const sec of secondaries) {
+          try {
+            const wasDiscontinued = sec.is_discontinued
+            const { error: secErr } = await supabase
+              .from('products')
+              .update({
+                is_discontinued: true,
+                updated_at: nowIso,
+                last_reviewed_at: nowIso,
+              })
+              .eq('id', sec.id)
+
+            if (secErr) {
+              errors.push({
+                id: sec.id,
+                sku: sec.sku,
+                error: `Erro ao desativar produto perdedor: ${secErr.message}`,
+              })
+            } else {
+              deactivatedList.push({
+                id: sec.id,
+                sku: sec.sku,
+                name: sec.name,
+                wasAlreadyDiscontinued: wasDiscontinued,
+              })
+            }
+          } catch (err: any) {
+            errors.push({
+              id: sec.id,
+              sku: sec.sku,
+              error: `Exceção ao desativar perdedor: ${err.message}`,
+            })
+          }
+        }
+
+        mergedGroups.push({
+          preferredProductId: preferred.id,
+          preferredSkuBefore: preferred.sku,
+          preferredSkuAfter: newPreferredSku,
+          preferredName: preferred.name,
+          mergedFields,
+          deactivatedProducts: deactivatedList,
+          normalizedSku: group.normalizedSku,
+        })
+      }
+    }
+
+    // ETAPA 2: Backfill de SKUs Sony com traço (Produtos restantes)
+    if (onProgress)
+      onProgress({ stage: 'Executando renomeação dos SKUs Sony...', current: 40, total: 100 })
+
+    const toRename: SkuProductItem[] = []
+    for (const p of diag.sonyDashProducts) {
+      // Ignorar perdedor já desativado
+      if (loserProductIds.has(p.id)) continue
+
+      // Se fazia parte de colisão
+      if (sonyCollidingProductIds.has(p.id)) {
+        // Se era o preferred, já foi tratado no passo anterior
+        continue
+      }
+
+      const standardSku = formatSonyStandardSku(p.sku)
+      if (standardSku && standardSku !== p.sku) {
+        toRename.push(p)
+      }
+    }
+
+    const totalToRename = toRename.length
+    for (let i = 0; i < totalToRename; i++) {
+      const p = toRename[i]
+      const standardSku = formatSonyStandardSku(p.sku)
+      const nowIso = new Date().toISOString()
+
+      try {
+        const { error: updateErr } = await supabase
+          .from('products')
+          .update({
+            sku: standardSku,
+            updated_at: nowIso,
+            last_reviewed_at: nowIso,
+          })
+          .eq('id', p.id)
+
+        if (updateErr) {
+          errors.push({ id: p.id, sku: p.sku, error: `Erro ao renomear SKU: ${updateErr.message}` })
+        } else {
+          renamedItems.push({
+            id: p.id,
+            name: p.name,
+            oldSku: p.sku || '',
+            newSku: standardSku,
+            lastReviewedAtBefore: p.last_reviewed_at,
+            lastReviewedAtAfter: nowIso,
+            updatedAtAfter: nowIso,
+          })
+        }
+      } catch (err: any) {
+        errors.push({ id: p.id, sku: p.sku, error: `Exceção ao renomear SKU: ${err.message}` })
+      }
+
+      if (onProgress && i % 10 === 0) {
+        const currentPct = 40 + Math.floor(((i + 1) / (totalToRename || 1)) * 55)
+        onProgress({
+          stage: `Renomeando SKUs Sony (${i + 1}/${totalToRename})...`,
+          current: currentPct,
+          total: 100,
+        })
+      }
+    }
+
+    if (onProgress) onProgress({ stage: 'Finalizando execução...', current: 100, total: 100 })
+
+    const finishedAt = new Date().toISOString()
+    const totalLosers = mergedGroups.reduce((acc, g) => acc + g.deactivatedProducts.length, 0)
+
+    return {
+      success: errors.length === 0,
+      startedAt,
+      finishedAt,
+      totalSonyRenamed: renamedItems.length,
+      renamedItems,
+      totalLosersDeactivated: totalLosers,
+      mergedGroups,
+      skippedCollisions,
+      errors,
     }
   },
 }

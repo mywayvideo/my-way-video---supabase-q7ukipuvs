@@ -48,9 +48,12 @@ import {
   SkuDiagnosisResult,
   SkuCollisionGroup,
   SkuProductItem,
+  BackfillPlanPreview,
+  BackfillExecutionReport,
 } from '@/services/skuStandardizationService'
 import { formatUSD } from '@/lib/utils'
 import { ImageWithFallback } from '@/components/ImageWithFallback'
+import { Progress } from '@/components/ui/progress'
 
 export default function AdminSkuStandardizationPage() {
   const { toast } = useToast()
@@ -59,7 +62,7 @@ export default function AdminSkuStandardizationPage() {
   const [searchTerm, setSearchTerm] = useState('')
   const [filterDashOnly, setFilterDashOnly] = useState(false)
   const [activeTab, setActiveTab] = useState<
-    'overview' | 'sony-collisions' | 'other-collisions' | 'sony-dash-list'
+    'overview' | 'sony-collisions' | 'other-collisions' | 'sony-dash-list' | 'round2-report'
   >('overview')
 
   // Estado para modal de decisão de colisão
@@ -70,6 +73,23 @@ export default function AdminSkuStandardizationPage() {
   >('keep_preferred')
   const [decisionNotes, setDecisionNotes] = useState('')
   const [savingDecision, setSavingDecision] = useState(false)
+
+  // Estado da Rodada 2 (Execução e Preview de Backfill)
+  const [previewModalOpen, setPreviewModalOpen] = useState(false)
+  const [loadingPreview, setLoadingPreview] = useState(false)
+  const [backfillPreview, setBackfillPreview] = useState<BackfillPlanPreview | null>(null)
+  const [executingBackfill, setExecutingBackfill] = useState(false)
+  const [executionProgress, setExecutionProgress] = useState<{
+    stage: string
+    current: number
+    total: number
+  }>({
+    stage: '',
+    current: 0,
+    total: 100,
+  })
+  const [executionReport, setExecutionReport] = useState<BackfillExecutionReport | null>(null)
+  const [confirmCheckbox, setConfirmCheckbox] = useState(false)
 
   const loadData = async () => {
     setLoading(true)
@@ -90,6 +110,63 @@ export default function AdminSkuStandardizationPage() {
   useEffect(() => {
     loadData()
   }, [])
+
+  // Carrega a prévia da Rodada 2 e abre o modal de confirmação
+  const handleOpenRound2Preview = async () => {
+    setLoadingPreview(true)
+    setConfirmCheckbox(false)
+    try {
+      const preview = await skuStandardizationService.getBackfillPreview()
+      setBackfillPreview(preview)
+      setPreviewModalOpen(true)
+      if (!preview.canExecute && preview.missingTableError) {
+        toast({
+          title: 'Tabela de apoio ausente',
+          description: preview.missingTableError,
+          variant: 'destructive',
+        })
+      }
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao gerar prévia da Rodada 2',
+        description: err.message,
+        variant: 'destructive',
+      })
+    } finally {
+      setLoadingPreview(false)
+    }
+  }
+
+  // Executa a Rodada 2
+  const handleExecuteRound2 = async () => {
+    if (!backfillPreview?.canExecute) return
+    setExecutingBackfill(true)
+    try {
+      const report = await skuStandardizationService.executeRound2Backfill((p) => {
+        setExecutionProgress(p)
+      })
+
+      setExecutionReport(report)
+      setPreviewModalOpen(false)
+      setActiveTab('round2-report')
+
+      toast({
+        title: 'Rodada 2 executada com sucesso!',
+        description: `${report.totalSonyRenamed} SKUs renomeados e ${report.totalLosersDeactivated} produtos desativados/mesclados.`,
+      })
+
+      // Recarrega diagnóstico para refletir estado novo
+      await loadData()
+    } catch (err: any) {
+      toast({
+        title: 'Erro durante a execução da Rodada 2',
+        description: err.message,
+        variant: 'destructive',
+      })
+    } finally {
+      setExecutingBackfill(false)
+    }
+  }
 
   const handleOpenDecisionModal = (collision: SkuCollisionGroup) => {
     setSelectedCollision(collision)
@@ -231,7 +308,28 @@ export default function AdminSkuStandardizationPage() {
         </div>
 
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={loadData} disabled={loading} className="h-9">
+          <Button
+            variant="default"
+            size="sm"
+            onClick={handleOpenRound2Preview}
+            disabled={loading || executingBackfill || loadingPreview}
+            className="h-9 bg-primary hover:bg-primary/90 text-primary-foreground font-semibold shadow-md"
+          >
+            {loadingPreview ? (
+              <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+            ) : (
+              <Sparkles className="w-4 h-4 mr-2" />
+            )}
+            Executar Rodada 2 (Backfill)
+          </Button>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={loadData}
+            disabled={loading || executingBackfill}
+            className="h-9"
+          >
             <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
             Recarregar Análise
           </Button>
@@ -442,6 +540,15 @@ export default function AdminSkuStandardizationPage() {
                 : 0}
               )
             </TabsTrigger>
+            {executionReport && (
+              <TabsTrigger
+                value="round2-report"
+                className="text-xs relative text-emerald-400 font-semibold"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
+                Relatório Rodada 2
+              </TabsTrigger>
+            )}
           </TabsList>
 
           <div className="relative w-full sm:w-64">
@@ -465,11 +572,41 @@ export default function AdminSkuStandardizationPage() {
 
         {/* TAB 1: VISÃO GERAL */}
         <TabsContent value="overview" className="space-y-4">
+          {/* Card de CTA para Rodada 2 */}
+          <Card className="border-primary/40 bg-gradient-to-r from-primary/10 via-primary/5 to-transparent">
+            <CardContent className="pt-6 pb-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <Badge className="bg-primary text-primary-foreground font-semibold text-xs">
+                    Rodada 2 Disponível
+                  </Badge>
+                  <span className="text-sm font-semibold text-foreground">
+                    Execução do Backfill e Mesclagem Sony
+                  </span>
+                </div>
+                <p className="text-xs text-muted-foreground max-w-2xl leading-relaxed">
+                  Aplica a Opção 3 aprovada: normaliza SKUs Sony removendo traços físicos, desativa
+                  os produtos secundários perdedores (sem deletar) e mescla URLs da B&amp;H, imagens
+                  e NCM no produto prevalente.
+                </p>
+              </div>
+              <Button
+                size="default"
+                onClick={handleOpenRound2Preview}
+                disabled={loading || executingBackfill || loadingPreview}
+                className="bg-primary hover:bg-primary/90 text-primary-foreground shrink-0 shadow-lg"
+              >
+                <Sparkles className="w-4 h-4 mr-2" />
+                Abrir Painel de Execução Rodada 2
+              </Button>
+            </CardContent>
+          </Card>
+
           <Card className="bg-card/40 border-border/50">
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
                 <Layers className="w-4 h-4 text-primary" />
-                Resumo Executivo do Diagnóstico (Rodada 1)
+                Resumo Executivo do Diagnóstico (Rodada 1 &amp; Rodada 2)
               </CardTitle>
               <CardDescription className="text-xs">
                 Visão consolidada da conformidade de SKUs e recomendações para as próximas rodadas
@@ -572,16 +709,25 @@ export default function AdminSkuStandardizationPage() {
 
         {/* TAB 2: COLISÕES SONY */}
         <TabsContent value="sony-collisions" className="space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div>
               <h3 className="text-sm font-semibold text-foreground">
                 Pares de Produtos Sony com Colisão de Chave ({filteredSonyCollisions.length})
               </h3>
               <p className="text-xs text-muted-foreground">
                 Cadastros cujo SKU normalizado (maiúsculas, sem traço e sem espaços) é idêntico.
-                Decida qual produto prevalece.
+                Decida qual produto prevalece para a desativação e mesclagem da Rodada 2.
               </p>
             </div>
+            <Button
+              size="sm"
+              onClick={handleOpenRound2Preview}
+              disabled={loading || executingBackfill || loadingPreview}
+              className="bg-primary hover:bg-primary/90 text-primary-foreground text-xs h-8"
+            >
+              <Sparkles className="w-3.5 h-3.5 mr-1.5" />
+              Executar Rodada 2
+            </Button>
           </div>
 
           {filteredSonyCollisions.length === 0 ? (
@@ -870,6 +1016,177 @@ export default function AdminSkuStandardizationPage() {
           </Card>
         </TabsContent>
 
+        {/* TAB 5: RELATÓRIO PÓS-EXECUÇÃO DA RODADA 2 */}
+        {executionReport && (
+          <TabsContent value="round2-report" className="space-y-4">
+            <Card className="border-emerald-500/40 bg-emerald-500/5">
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                    <CardTitle className="text-base text-emerald-300">
+                      Relatório de Execução — Rodada 2 Concluída
+                    </CardTitle>
+                  </div>
+                  <Badge
+                    variant="outline"
+                    className="border-emerald-500/40 text-emerald-300 text-xs font-mono"
+                  >
+                    {new Date(executionReport.finishedAt).toLocaleTimeString()}
+                  </Badge>
+                </div>
+                <CardDescription className="text-xs text-muted-foreground">
+                  Resumo detalhado das alterações executadas no catálogo com salvaguarda de preços e
+                  invariante de datas.
+                </CardDescription>
+              </CardHeader>
+
+              <CardContent className="space-y-4 text-xs">
+                {/* Métricas do relatório */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div className="p-3 rounded-lg bg-card border border-border/50">
+                    <span className="text-muted-foreground block text-[11px]">
+                      SKUs Sony Renomeados
+                    </span>
+                    <span className="text-xl font-bold text-foreground">
+                      {executionReport.totalSonyRenamed}
+                    </span>
+                  </div>
+                  <div className="p-3 rounded-lg bg-card border border-border/50">
+                    <span className="text-muted-foreground block text-[11px]">
+                      Perdedores Desativados
+                    </span>
+                    <span className="text-xl font-bold text-amber-400">
+                      {executionReport.totalLosersDeactivated}
+                    </span>
+                  </div>
+                  <div className="p-3 rounded-lg bg-card border border-border/50">
+                    <span className="text-muted-foreground block text-[11px]">
+                      Grupos Mesclados
+                    </span>
+                    <span className="text-xl font-bold text-emerald-400">
+                      {executionReport.mergedGroups.length}
+                    </span>
+                  </div>
+                  <div className="p-3 rounded-lg bg-card border border-border/50">
+                    <span className="text-muted-foreground block text-[11px]">
+                      Colisões Puladas (Pendentes)
+                    </span>
+                    <span className="text-xl font-bold text-rose-400">
+                      {executionReport.skippedCollisions.length}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Lista de Grupos Mesclados */}
+                {executionReport.mergedGroups.length > 0 && (
+                  <div className="space-y-2 pt-2">
+                    <h4 className="font-semibold text-foreground text-xs uppercase tracking-wider">
+                      Detalhamento das Mesclagens e Desativações
+                    </h4>
+                    <div className="space-y-3">
+                      {executionReport.mergedGroups.map((group, idx) => (
+                        <div
+                          key={`merged_${group.normalizedSku}_${idx}`}
+                          className="p-3 rounded-lg border border-border/60 bg-card/60 space-y-2"
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <Badge className="font-mono text-xs bg-primary/20 text-primary border-primary/30">
+                                Chave: {group.normalizedSku}
+                              </Badge>
+                              <span className="font-semibold text-foreground">
+                                Prevalente: {group.preferredName}
+                              </span>
+                            </div>
+                            <span className="text-[11px] font-mono text-emerald-400">
+                              SKU Final: {group.preferredSkuAfter}
+                            </span>
+                          </div>
+
+                          {/* Campos Mesclados */}
+                          {group.mergedFields.length > 0 ? (
+                            <div className="bg-muted/30 p-2 rounded text-[11px] space-y-1">
+                              <span className="font-medium text-foreground block">
+                                Campos incorporados do secundário no prevalente:
+                              </span>
+                              <ul className="list-disc list-inside space-y-0.5 text-muted-foreground">
+                                {group.mergedFields.map((mf, mIdx) => (
+                                  <li key={mIdx}>
+                                    <strong>{mf.field}</strong>: incorporado valor &ldquo;
+                                    {String(mf.mergedValue).slice(0, 80)}
+                                    &rdquo; (vindo do SKU {mf.sourceSku || 'sem SKU'})
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          ) : (
+                            <p className="text-[11px] text-muted-foreground italic">
+                              Nenhum campo ausente precisou de mesclagem (o prevalente já possuía os
+                              dados preenchidos).
+                            </p>
+                          )}
+
+                          {/* Perdedores desativados */}
+                          <div className="text-[11px] text-muted-foreground">
+                            <span>Perdedores desativados (is_discontinued = true): </span>
+                            {group.deactivatedProducts.map((d, dIdx) => (
+                              <span key={d.id} className="font-mono text-foreground">
+                                {d.sku || 'Sem SKU'} ({d.name})
+                                {dIdx < group.deactivatedProducts.length - 1 ? ', ' : ''}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Colisões Puladas */}
+                {executionReport.skippedCollisions.length > 0 && (
+                  <div className="space-y-2 pt-2">
+                    <h4 className="font-semibold text-rose-400 text-xs uppercase tracking-wider">
+                      Colisões Puladas (Ficaram Intactas)
+                    </h4>
+                    <div className="border border-rose-500/20 rounded-lg p-3 bg-rose-500/5 space-y-1">
+                      {executionReport.skippedCollisions.map((sc, sIdx) => (
+                        <div key={sIdx} className="flex justify-between items-center text-[11px]">
+                          <span className="font-mono text-foreground font-semibold">
+                            Chave: {sc.normalizedSku} ({sc.brand})
+                          </span>
+                          <span className="text-muted-foreground">
+                            Motivo:{' '}
+                            {sc.reason === 'undecided'
+                              ? 'Pendente de decisão pelo usuário'
+                              : sc.reason === 'distinct_products'
+                                ? 'Decidido como produtos distintos'
+                                : 'Prevalente não identificado'}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Erros */}
+                {executionReport.errors.length > 0 && (
+                  <div className="space-y-2 pt-2">
+                    <h4 className="font-semibold text-rose-500 text-xs uppercase tracking-wider">
+                      Erros Registrados ({executionReport.errors.length})
+                    </h4>
+                    <ul className="text-[11px] text-rose-400 space-y-1 font-mono">
+                      {executionReport.errors.map((err, eIdx) => (
+                        <li key={eIdx}>• {err.error}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
+
         {/* TAB 4: OUTRAS MARCAS */}
         <TabsContent value="other-collisions" className="space-y-4">
           <div>
@@ -1143,6 +1460,225 @@ export default function AdminSkuStandardizationPage() {
                 <>
                   <Check className="w-3.5 h-3.5 mr-1.5" />
                   Confirmar Decisão (Dry-Run)
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal de Execução da Rodada 2 com Prévia e Confirmação */}
+      <Dialog
+        open={previewModalOpen}
+        onOpenChange={(open) => !executingBackfill && setPreviewModalOpen(open)}
+      >
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto bg-card border-border/70">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-lg">
+              <Sparkles className="w-5 h-5 text-primary" />
+              Execução da Rodada 2 — Backfill e Mesclagem Sony
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Confirme a aplicação definitiva do plano de padronização nos produtos da marca Sony.
+            </DialogDescription>
+          </DialogHeader>
+
+          {/* Erro de Tabela Ausente */}
+          {backfillPreview && !backfillPreview.canExecute && (
+            <div className="p-4 rounded-lg bg-rose-500/10 border border-rose-500/30 text-xs text-rose-300 space-y-2">
+              <div className="flex items-center gap-2 font-semibold text-rose-200">
+                <AlertTriangle className="w-4 h-4 text-rose-400" />
+                Operação Bloqueada: Tabela de Decisões Não Encontrada
+              </div>
+              <p className="leading-relaxed">{backfillPreview.missingTableError}</p>
+              <div className="p-2 rounded bg-black/40 font-mono text-[11px] text-muted-foreground select-all">
+                NOTIFY pgrst, 'reload schema';
+              </div>
+            </div>
+          )}
+
+          {backfillPreview && backfillPreview.canExecute && (
+            <div className="space-y-4 py-2 text-xs">
+              {/* Salvaguardas em destaque */}
+              <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/30 text-blue-300 space-y-1">
+                <p className="font-semibold text-blue-200 flex items-center gap-1.5">
+                  <ShieldAlert className="w-4 h-4" />
+                  Garantias e Invariantes desta Execução:
+                </p>
+                <ul className="list-disc list-inside space-y-0.5 text-muted-foreground">
+                  <li>
+                    <strong>Price USD Intacto:</strong> NUNCA toca em price_usd, discounts ou
+                    price_checks.
+                  </li>
+                  <li>
+                    <strong>Regra de Datas:</strong> Em cada produto alterado, updated_at =
+                    last_reviewed_at = agora.
+                  </li>
+                  <li>
+                    <strong>Não Exclusão:</strong> Perdedores são apenas desativados
+                    (is_discontinued = true).
+                  </li>
+                  <li>
+                    <strong>Mesclagem Segura:</strong> Prevalente só recebe campos novos que estejam
+                    vazios nele.
+                  </li>
+                </ul>
+              </div>
+
+              {/* Resumo Numérico da Prévia */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="p-3 rounded bg-muted/20 border border-border/40">
+                  <span className="text-[11px] text-muted-foreground block">SKUs a Renomear</span>
+                  <span className="text-lg font-bold text-foreground">
+                    {backfillPreview.renamesCount}
+                  </span>
+                </div>
+                <div className="p-3 rounded bg-muted/20 border border-border/40">
+                  <span className="text-[11px] text-muted-foreground block">
+                    Colisões p/ Mesclar
+                  </span>
+                  <span className="text-lg font-bold text-emerald-400">
+                    {backfillPreview.mergesCount}
+                  </span>
+                </div>
+                <div className="p-3 rounded bg-muted/20 border border-border/40">
+                  <span className="text-[11px] text-muted-foreground block">Colisões Puladas</span>
+                  <span className="text-lg font-bold text-yellow-400">
+                    {backfillPreview.skippedCollisionsCount}
+                  </span>
+                </div>
+                <div className="p-3 rounded bg-muted/20 border border-border/40">
+                  <span className="text-[11px] text-muted-foreground block">Já Conformes</span>
+                  <span className="text-lg font-bold text-muted-foreground">
+                    {backfillPreview.alreadyStandardizedCount}
+                  </span>
+                </div>
+              </div>
+
+              {/* Prévia dos Grupos que serão Mesclados */}
+              {backfillPreview.mergesPreview.length > 0 && (
+                <div className="space-y-2">
+                  <span className="font-semibold uppercase tracking-wider text-muted-foreground block">
+                    1. Grupos que serão Mesclados e Secundários Desativados (
+                    {backfillPreview.mergesPreview.length})
+                  </span>
+                  <div className="max-h-48 overflow-y-auto space-y-2 border border-border/40 rounded-lg p-2 bg-background/50">
+                    {backfillPreview.mergesPreview.map((m, idx) => (
+                      <div
+                        key={idx}
+                        className="p-2 rounded bg-card/60 border border-border/30 space-y-1"
+                      >
+                        <div className="flex justify-between items-center font-mono">
+                          <span className="font-semibold text-foreground">
+                            Chave: {m.normalizedSku}
+                          </span>
+                          <span className="text-emerald-400 text-[11px]">
+                            Prevalente: {m.preferredProduct.sku} (
+                            {m.preferredProduct.name.slice(0, 35)}...)
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-muted-foreground flex justify-between">
+                          <span>
+                            Perdedor(es) a desativar:{' '}
+                            {m.secondaryProducts.map((s) => s.sku || 'Sem SKU').join(', ')}
+                          </span>
+                          <span>
+                            Campos a mesclar:{' '}
+                            {m.fieldsToMerge.length > 0 ? m.fieldsToMerge.join(', ') : 'Nenhum'}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Prévia dos SKUs a Renomear */}
+              {backfillPreview.renamesPreview.length > 0 && (
+                <div className="space-y-2">
+                  <span className="font-semibold uppercase tracking-wider text-muted-foreground block">
+                    2. Amostra de SKUs Sony a Remover Traço ({backfillPreview.renamesCount} total)
+                  </span>
+                  <div className="max-h-36 overflow-y-auto border border-border/40 rounded-lg p-2 bg-background/50">
+                    <Table>
+                      <TableBody>
+                        {backfillPreview.renamesPreview.slice(0, 8).map((r) => (
+                          <TableRow key={r.id} className="text-xs">
+                            <TableCell className="font-mono text-amber-400 py-1">
+                              {r.oldSku}
+                            </TableCell>
+                            <TableCell className="py-1">➔</TableCell>
+                            <TableCell className="font-mono text-emerald-400 py-1">
+                              {r.newSku}
+                            </TableCell>
+                            <TableCell className="text-muted-foreground py-1 truncate max-w-[280px]">
+                              {r.name}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+              )}
+
+              {/* Barra de Progresso durante a Execução */}
+              {executingBackfill && (
+                <div className="space-y-2 p-4 rounded-lg bg-primary/10 border border-primary/30">
+                  <div className="flex justify-between text-xs font-semibold text-primary">
+                    <span>{executionProgress.stage || 'Processando Rodada 2...'}</span>
+                    <span>{executionProgress.current}%</span>
+                  </div>
+                  <Progress value={executionProgress.current} className="h-2" />
+                </div>
+              )}
+
+              {/* Checkbox de Confirmação Explícita */}
+              {!executingBackfill && (
+                <div className="pt-2 border-t border-border/40">
+                  <label className="flex items-start gap-2.5 cursor-pointer text-xs select-none">
+                    <input
+                      type="checkbox"
+                      checked={confirmCheckbox}
+                      onChange={(e) => setConfirmCheckbox(e.target.checked)}
+                      className="mt-0.5 rounded border-border text-primary focus:ring-primary"
+                    />
+                    <span className="text-foreground leading-relaxed">
+                      Confirmo a execução da <strong>Rodada 2</strong> no banco de produção. Estou
+                      ciente de que os SKUs Sony serão renomeados sem traço, os perdedores das
+                      colisões decididas serão desativados e seus dados ausentes serão mesclados nos
+                      prevalentes.
+                    </span>
+                  </label>
+                </div>
+              )}
+            </div>
+          )}
+
+          <DialogFooter className="gap-2 sm:gap-0 pt-2 border-t border-border/40">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPreviewModalOpen(false)}
+              disabled={executingBackfill}
+            >
+              Cancelar
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleExecuteRound2}
+              disabled={!backfillPreview?.canExecute || !confirmCheckbox || executingBackfill}
+              className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold"
+            >
+              {executingBackfill ? (
+                <>
+                  <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                  Executando Backfill...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4 mr-2" />
+                  Confirmar e Executar Rodada 2
                 </>
               )}
             </Button>

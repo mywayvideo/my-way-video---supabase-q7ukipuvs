@@ -34,6 +34,7 @@ const navigation = [
   { name: 'IA & Inteligência Artificial', href: '/admin/ai', icon: Brain },
   { name: 'Testador de Busca', href: '/admin/search-test', icon: Search },
   { name: 'Catálogo & Produtos', href: '/admin/catalog', icon: Package },
+  { name: 'Padronização SKU Sony', href: '/admin/sku-standardization', icon: Sparkles },
   { name: 'Atualização B&H', href: '/admin/bh-update', icon: RefreshCw },
   { name: 'Verificação de Preços', href: '/admin/price-checks', icon: RefreshCw },
   { name: 'Tabela de Apoio NCM', href: '/admin/ncm-support', icon: BookOpen },

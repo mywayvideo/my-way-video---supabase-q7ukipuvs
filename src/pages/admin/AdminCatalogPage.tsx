@@ -31,6 +31,7 @@ import {
   Star,
   RefreshCw,
   Tag,
+  Sparkles,
 } from 'lucide-react'
 import { Link, Navigate } from 'react-router-dom'
 import { toast } from '@/hooks/use-toast'
@@ -896,6 +897,15 @@ export default function AdminCatalogPage() {
                 onSuccess={fetchData}
                 onAddManufacturer={fetchData}
               />
+              <Button
+                variant="outline"
+                className="shadow-sm bg-amber-500/10 text-amber-400 border-amber-500/30 hover:bg-amber-500/20"
+                asChild
+              >
+                <Link to="/admin/sku-standardization">
+                  <Sparkles className="w-4 h-4 mr-2" /> Padronização SKU Sony (Dry-Run)
+                </Link>
+              </Button>
               <Button
                 variant="outline"
                 className="shadow-sm bg-emerald-500/10 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20"

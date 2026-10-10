@@ -1246,6 +1246,17 @@ export function AdminBhUpdatePage() {
             </div>
 
             <div className="flex items-center gap-2 flex-wrap">
+              <Button
+                variant="outline"
+                size="sm"
+                asChild
+                className="h-9 text-xs border-amber-500/30 text-amber-400 bg-amber-500/10 hover:bg-amber-500/20"
+              >
+                <Link to="/admin/sku-standardization">
+                  <Sparkles className="w-4 h-4 mr-2" />
+                  Padronização SKU Sony (Dry-Run)
+                </Link>
+              </Button>
               <Button variant="outline" size="sm" asChild className="h-9">
                 <Link to="/admin/catalog">Voltar ao Catálogo</Link>
               </Button>

@@ -16,6 +16,7 @@ import AdminAISettings from './pages/admin/ai-settings'
 import AdminAIPage from './pages/admin/AdminAIPage'
 import AdminCatalogPage from './pages/admin/AdminCatalogPage'
 import { AdminBhUpdatePage } from './pages/admin/AdminBhUpdatePage'
+import AdminSkuStandardizationPage from './pages/admin/AdminSkuStandardizationPage'
 import { AdminPriceChecksPage } from './pages/admin/AdminPriceChecksPage'
 import AdminAVProKeywordsPage from './pages/admin/AdminAVProKeywordsPage'
 import AdminNcmSupportPage from './pages/admin/AdminNcmSupportPage'
@@ -153,6 +154,14 @@ const App = () => {
                       element={
                         <ProtectedRoute>
                           <AdminCatalogPage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/admin/sku-standardization"
+                      element={
+                        <ProtectedRoute>
+                          <AdminSkuStandardizationPage />
                         </ProtectedRoute>
                       }
                     />

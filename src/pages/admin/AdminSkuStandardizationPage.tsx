@@ -1136,6 +1136,46 @@ export default function AdminSkuStandardizationPage() {
               </CardHeader>
 
               <CardContent className="space-y-4 text-xs">
+                {/* SEÇÃO EM DESTAQUE NO TOPO: ERROS QUE REQUEREM ATENÇÃO */}
+                {executionReport.errors.length > 0 && (
+                  <div className="p-4 rounded-lg bg-rose-500/15 border-2 border-rose-500/60 text-xs space-y-2">
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0" />
+                      <h4 className="font-bold text-rose-200 text-sm uppercase tracking-wide">
+                        Erros — Requer Atenção ({executionReport.errors.length})
+                      </h4>
+                    </div>
+                    <p className="text-rose-300 text-[11px] leading-relaxed">
+                      Uma ou mais operações falharam durante a execução da Rodada 2. Verifique o
+                      produto afetado, a operação falhada e o detalhe do banco abaixo. Os demais
+                      produtos continuaram normalmente.
+                    </p>
+                    <div className="space-y-2 pt-1">
+                      {executionReport.errors.map((err, eIdx) => (
+                        <div
+                          key={eIdx}
+                          className="p-2.5 rounded bg-black/40 border border-rose-500/30 text-rose-200 space-y-1 font-mono text-[11px]"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-1 text-[10px] text-rose-400">
+                            <span>{err.id ? `Produto ID: ${err.id}` : 'Sem ID informado'}</span>
+                            {err.sku && (
+                              <Badge
+                                variant="outline"
+                                className="border-rose-500/40 text-rose-300 text-[9px] px-1 py-0 font-mono"
+                              >
+                                SKU: {err.sku}
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="text-rose-100 font-sans font-medium break-words">
+                            {err.error}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Botões de Exportação */}
                 <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-muted/20 border border-border/40 rounded-lg">
                   <div className="space-y-0.5">
@@ -1391,20 +1431,6 @@ export default function AdminSkuStandardizationPage() {
                         </div>
                       ))}
                     </div>
-                  </div>
-                )}
-
-                {/* Erros */}
-                {executionReport.errors.length > 0 && (
-                  <div className="space-y-2 pt-2">
-                    <h4 className="font-semibold text-rose-500 text-xs uppercase tracking-wider">
-                      Erros Registrados ({executionReport.errors.length})
-                    </h4>
-                    <ul className="text-[11px] text-rose-400 space-y-1 font-mono">
-                      {executionReport.errors.map((err, eIdx) => (
-                        <li key={eIdx}>• {err.error}</li>
-                      ))}
-                    </ul>
                   </div>
                 )}
               </CardContent>
@@ -1709,7 +1735,7 @@ export default function AdminSkuStandardizationPage() {
           </DialogHeader>
 
           {/* Erro de Tabela Ausente */}
-          {backfillPreview && !backfillPreview.canExecute && (
+          {backfillPreview && !backfillPreview.canExecute && backfillPreview.missingTableError && (
             <div className="p-4 rounded-lg bg-rose-500/10 border border-rose-500/30 text-xs text-rose-300 space-y-2">
               <div className="flex items-center gap-2 font-semibold text-rose-200">
                 <AlertTriangle className="w-4 h-4 text-rose-400" />
@@ -1721,6 +1747,83 @@ export default function AdminSkuStandardizationPage() {
               </div>
             </div>
           )}
+
+          {/* Bloqueio Explícito: Colisões sem decisão gravada */}
+          {backfillPreview &&
+            !backfillPreview.canExecute &&
+            backfillPreview.hasBlockingUndecidedCollisions && (
+              <div className="p-4 rounded-lg bg-amber-500/15 border-2 border-amber-500/50 text-xs space-y-3">
+                <div className="flex items-center gap-2 font-bold text-amber-200 text-sm">
+                  <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0" />
+                  BLOQUEADA — Decisão não gravada ({backfillPreview.blockingCollisions?.length || 0}
+                  )
+                </div>
+                <p className="text-amber-300 text-xs leading-relaxed">
+                  A execução da Rodada 2 está <strong>bloqueada</strong> porque existem colisões
+                  Sony sem decisão gravada. O usuário deve decidir a prevalência na aba{' '}
+                  <strong>&ldquo;Colisões Sony&rdquo;</strong> antes de rodar o backfill, garantindo
+                  que nenhum produto seja excluído ou renomeado por engano.
+                </p>
+                <div className="space-y-2 pt-1">
+                  <span className="font-semibold text-amber-200 uppercase text-[10px] tracking-wider block">
+                    Colisões que exigem definição prévia:
+                  </span>
+                  <div className="space-y-2 max-h-56 overflow-y-auto">
+                    {(backfillPreview.blockingCollisions || []).map((bc, bIdx) => (
+                      <div
+                        key={bIdx}
+                        className="p-3 rounded bg-black/40 border border-amber-500/30 text-amber-100 space-y-1.5"
+                      >
+                        <div className="flex items-center justify-between font-mono text-xs">
+                          <Badge
+                            variant="outline"
+                            className="border-amber-500/40 bg-amber-500/10 text-amber-300 font-bold"
+                          >
+                            Chave: {bc.normalizedSku}
+                          </Badge>
+                          <span className="text-[11px] text-amber-300/80">
+                            {bc.reason === 'missing_preferred'
+                              ? 'Prevalente marcado não encontrado no banco'
+                              : 'Decisão pendente na aba Colisões'}
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-muted-foreground">
+                          <span className="text-foreground font-semibold">
+                            Produtos concorrentes:
+                          </span>
+                          <ul className="list-disc list-inside mt-0.5 space-y-0.5">
+                            {bc.products.map((p) => (
+                              <li key={p.id}>
+                                <span className="font-mono font-semibold text-foreground">
+                                  {p.sku || 'Sem SKU'}
+                                </span>{' '}
+                                — {p.name}{' '}
+                                <span className="text-[10px] text-muted-foreground font-mono">
+                                  (ID: {p.id})
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="pt-2 flex justify-end">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setPreviewModalOpen(false)
+                      setActiveTab('sony-collisions')
+                    }}
+                    className="border-amber-500/50 text-amber-300 hover:bg-amber-500/10 text-xs"
+                  >
+                    Ir para a aba Colisões Sony e Decidir
+                  </Button>
+                </div>
+              </div>
+            )}
 
           {backfillPreview && backfillPreview.canExecute && (
             <div className="space-y-4 py-2 text-xs">

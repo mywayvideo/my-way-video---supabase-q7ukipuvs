@@ -560,12 +560,283 @@ describe('Rodada 2 - Backfill, Mesclagem e Salvaguardas', () => {
     })
 
     const preview = await skuStandardizationService.getBackfillPreview()
+    expect(preview.canExecute).toBe(false)
+    expect(preview.hasBlockingUndecidedCollisions).toBe(true)
+    expect(preview.blockingCollisions?.length).toBe(1)
+    expect(preview.blockingCollisions?.[0].normalizedSku).toBe('CAMU1')
     expect(preview.skippedCollisionsCount).toBe(1)
     expect(preview.skippedCollisions[0].normalizedSku).toBe('CAMU1')
     expect(preview.skippedCollisions[0].reason).toBe('undecided')
 
     // O produto p1 com traço NÃO pode ser renomeado porque está em colisão sem decisão
     expect(preview.renamesCount).toBe(0)
+
+    // Tentar executar enquanto bloqueado deve lançar exceção explícita
+    await expect(skuStandardizationService.executeRound2Backfill()).rejects.toThrow(
+      /bloqueada.*CAMU1/,
+    )
+
+    mockFrom.mockRestore()
+  })
+
+  it('ORDEM DE OPERAÇÕES REAL: colisão ILMEFR7 — perdedor ILME-FR7 é deletado ANTES de renomear prevalente ILMEFR7', async () => {
+    // Caso real relatado pelo usuário:
+    // Produto perdedor: ILME-FR7 (ID ee3f5e2e-5b24-4f43-86d2-65744aa2c906, SKU "ILME-FR7")
+    // Produto prevalente: ILMEFR7 (ID e3fea5c6-f801-44b7-a570-f8642e98a00b, SKU "ILMEFR7")
+    // Se o prevalente tivesse SKU antigo com traço ou dados mesclados, o UPDATE dele não pode ocorrer
+    // enquanto o perdedor existir ocupando o índice (manufacturer_id, sku).
+    // Testamos a sequência estrita de chamadas:
+    // 1. price_checks query (coleta)
+    // 2. delete (perdedor ee3f5e2e)
+    // 3. update (prevalente e3fea5c6)
+    const preferredProduct = {
+      id: 'e3fea5c6-f801-44b7-a570-f8642e98a00b',
+      name: 'Sony FR7 Cinema Line PTZ Camera',
+      sku: 'ILME-FR7-OLD', // para forçar update de SKU ou dados mesclados
+      manufacturer_id: 'mfr-sony-1',
+      price_usd: 11998,
+      price_cost: 9500,
+      is_discontinued: false,
+      is_special: false,
+      image_url: 'https://example.com/fr7.jpg',
+      website_url: null,
+      ncm: null,
+      description: null,
+      technical_info: null,
+      created_at: '2026-04-21T15:21:31Z',
+      updated_at: '2026-04-21T15:21:31Z',
+      last_reviewed_at: '2026-04-21T15:21:31Z',
+    }
+
+    const loserProduct = {
+      id: 'ee3f5e2e-5b24-4f43-86d2-65744aa2c906',
+      name: 'Sony FR7 Cinema Line PTZ Camera',
+      sku: 'ILME-FR7',
+      manufacturer_id: 'mfr-sony-1',
+      price_usd: 11998,
+      price_cost: 9500,
+      is_discontinued: false,
+      is_special: false,
+      image_url: 'https://example.com/fr7.jpg',
+      website_url: 'https://www.bhphotovideo.com/c/product/1726053-REG/sony_ilme_fr7.html',
+      ncm: '85258919',
+      description: 'Camera PTZ Full Frame Sony',
+      technical_info: 'Specs completas',
+      created_at: '2026-04-10T22:46:11Z',
+      updated_at: '2026-04-10T22:46:11Z',
+      last_reviewed_at: '2026-04-10T22:46:11Z',
+    }
+
+    const executionLog: string[] = []
+
+    const mockFrom = vi.spyOn(supabase, 'from').mockImplementation((table: string) => {
+      if (table === 'manufacturers') {
+        return {
+          select: vi.fn().mockResolvedValue({
+            data: [{ id: 'mfr-sony-1', name: 'Sony' }],
+            error: null,
+          }),
+        } as any
+      }
+      if (table === 'sku_collision_decisions') {
+        return {
+          select: vi.fn().mockReturnValue({
+            limit: vi.fn().mockResolvedValue({ data: [{ id: 'dec-ilmefr7' }], error: null }),
+            then: (resolve: any) =>
+              resolve({
+                data: [
+                  {
+                    id: 'dec-ilmefr7',
+                    normalized_sku: 'ILMEFR7',
+                    brand: 'Sony',
+                    is_sony: true,
+                    decision_type: 'keep_preferred',
+                    preferred_product_id: preferredProduct.id,
+                    secondary_product_ids: [loserProduct.id],
+                  },
+                ],
+                error: null,
+              }),
+          }),
+        } as any
+      }
+      if (table === 'price_checks') {
+        return {
+          select: vi.fn().mockReturnValue({
+            eq: vi.fn().mockImplementation((_field: string, id: string) => {
+              executionLog.push(`price_checks.select:${id}`)
+              return {
+                order: vi.fn().mockResolvedValue({
+                  data: [
+                    {
+                      id: 'pc-fr7-1',
+                      checked_at: '2026-04-15T00:00:00Z',
+                      status: 'ok',
+                      price_db: 11998,
+                      price_bh: 11998,
+                      message: null,
+                    },
+                  ],
+                  error: null,
+                }),
+              }
+            }),
+          }),
+        } as any
+      }
+      if (table === 'products') {
+        return {
+          select: vi.fn().mockReturnValue({
+            range: vi.fn().mockResolvedValue({
+              data: [preferredProduct, loserProduct],
+              error: null,
+            }),
+          }),
+          delete: vi.fn().mockReturnValue({
+            eq: vi.fn().mockImplementation((_field: string, id: string) => {
+              executionLog.push(`products.delete:${id}`)
+              return Promise.resolve({ error: null })
+            }),
+          }),
+          update: vi.fn().mockImplementation((payload: any) => {
+            return {
+              eq: vi.fn().mockImplementation((_field: string, id: string) => {
+                executionLog.push(`products.update:${id}:sku=${payload.sku}`)
+                return Promise.resolve({ error: null })
+              }),
+            }
+          }),
+        } as any
+      }
+      return {} as any
+    })
+
+    const report = await skuStandardizationService.executeRound2Backfill()
+
+    expect(report.success).toBe(true)
+    expect(report.totalLosersDeleted).toBe(1)
+    expect(report.deletedLosersSummary.length).toBe(1)
+    expect(report.deletedLosersSummary[0].deletedProductId).toBe(loserProduct.id)
+
+    // VERIFICAÇÃO MANDATÓRIA DA ORDEM:
+    // 1. price_checks.select do perdedor ee3f5e2e
+    // 2. products.delete do perdedor ee3f5e2e
+    // 3. products.update do prevalente e3fea5c6
+    const pcIdx = executionLog.indexOf(`price_checks.select:${loserProduct.id}`)
+    const delIdx = executionLog.indexOf(`products.delete:${loserProduct.id}`)
+    const updIdx = executionLog.findIndex((entry) => entry.startsWith(`products.update:${preferredProduct.id}`))
+
+    expect(pcIdx).toBeGreaterThanOrEqual(0)
+    expect(delIdx).toBeGreaterThanOrEqual(0)
+    expect(updIdx).toBeGreaterThanOrEqual(0)
+
+    // O delete do perdedor DEVE ocorrer ANTES do update do prevalente!
+    expect(pcIdx).toBeLessThan(delIdx)
+    expect(delIdx).toBeLessThan(updIdx)
+
+    mockFrom.mockRestore()
+  })
+
+  it('se o DELETE do perdedor falhar (ex.: Foreign Key constraint), o erro é registrado no relatório sem crash', async () => {
+    const prefProduct = {
+      id: 'e3fea5c6-f801-44b7-a570-f8642e98a00b',
+      name: 'Sony FR7 Cinema Line PTZ Camera',
+      sku: 'ILME-FR7',
+      manufacturer_id: 'mfr-sony-1',
+      price_usd: 11998,
+      is_discontinued: false,
+      created_at: '2026-04-21T15:21:31Z',
+      updated_at: '2026-04-21T15:21:31Z',
+      last_reviewed_at: '2026-04-21T15:21:31Z',
+    }
+    const loserProduct = {
+      id: 'ee3f5e2e-5b24-4f43-86d2-65744aa2c906',
+      name: 'Sony FR7 PTZ Camera Loser',
+      sku: 'ILMEFR7',
+      manufacturer_id: 'mfr-sony-1',
+      price_usd: 11998,
+      is_discontinued: false,
+      created_at: '2026-04-10T22:46:11Z',
+      updated_at: '2026-04-10T22:46:11Z',
+      last_reviewed_at: '2026-04-10T22:46:11Z',
+    }
+
+    const mockFrom = vi.spyOn(supabase, 'from').mockImplementation((table: string) => {
+      if (table === 'manufacturers') {
+        return {
+          select: vi.fn().mockResolvedValue({
+            data: [{ id: 'mfr-sony-1', name: 'Sony' }],
+            error: null,
+          }),
+        } as any
+      }
+      if (table === 'sku_collision_decisions') {
+        return {
+          select: vi.fn().mockReturnValue({
+            limit: vi.fn().mockResolvedValue({ data: [{ id: 'dec-1' }], error: null }),
+            then: (resolve: any) =>
+              resolve({
+                data: [
+                  {
+                    id: 'dec-1',
+                    normalized_sku: 'ILMEFR7',
+                    brand: 'Sony',
+                    is_sony: true,
+                    decision_type: 'keep_preferred',
+                    preferred_product_id: prefProduct.id,
+                    secondary_product_ids: [loserProduct.id],
+                  },
+                ],
+                error: null,
+              }),
+          }),
+        } as any
+      }
+      if (table === 'price_checks') {
+        return {
+          select: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              order: vi.fn().mockResolvedValue({ data: [], error: null }),
+            }),
+          }),
+        } as any
+      }
+      if (table === 'products') {
+        return {
+          select: vi.fn().mockReturnValue({
+            range: vi.fn().mockResolvedValue({
+              data: [prefProduct, loserProduct],
+              error: null,
+            }),
+          }),
+          delete: vi.fn().mockReturnValue({
+            eq: vi.fn().mockResolvedValue({
+              error: {
+                message: 'update or delete on table "products" violates foreign key constraint "order_items_product_id_fkey"',
+                code: '23503',
+                details: 'Key (id)=(ee3f5e2e-5b24-4f43-86d2-65744aa2c906) is still referenced from table "order_items".',
+              },
+            }),
+          }),
+          update: vi.fn().mockReturnValue({
+            eq: vi.fn().mockResolvedValue({ error: null }),
+          }),
+        } as any
+      }
+      return {} as any
+    })
+
+    const report = await skuStandardizationService.executeRound2Backfill()
+
+    expect(report.success).toBe(false)
+    expect(report.errors.length).toBeGreaterThanOrEqual(1)
+    const fkError = report.errors.find((e) => e.id === loserProduct.id)
+    expect(fkError).toBeDefined()
+    expect(fkError?.error).toContain('foreign key constraint')
+    expect(fkError?.error).toContain('23503')
+
+    // No resumo de perdedores, o deleteError também foi gravado
+    expect(report.deletedLosersSummary[0].deleteError).toContain('23503')
 
     mockFrom.mockRestore()
   })

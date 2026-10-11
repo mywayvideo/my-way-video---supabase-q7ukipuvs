@@ -108,11 +108,19 @@ export interface SkippedCollisionItem {
   reason: 'undecided' | 'distinct_products' | 'missing_preferred'
   productIds: string[]
   productSkus: (string | null)[]
+  productsInfo?: { id: string; sku: string | null; name: string }[]
 }
 
 export interface BackfillPlanPreview {
   canExecute: boolean
   missingTableError?: string | null
+  hasBlockingUndecidedCollisions?: boolean
+  blockingCollisions?: {
+    normalizedSku: string
+    brand: string
+    reason: 'undecided' | 'missing_preferred'
+    products: { id: string; sku: string | null; name: string }[]
+  }[]
   renamesCount: number
   renamesPreview: { id: string; oldSku: string; newSku: string; name: string }[]
   mergesCount: number
@@ -587,6 +595,8 @@ export const skuStandardizationService = {
       return {
         canExecute: false,
         missingTableError: tableCheck.error,
+        hasBlockingUndecidedCollisions: false,
+        blockingCollisions: [],
         renamesCount: 0,
         renamesPreview: [],
         mergesCount: 0,
@@ -611,9 +621,10 @@ export const skuStandardizationService = {
     })
 
     const skippedCollisions: SkippedCollisionItem[] = []
+    const blockingCollisions: NonNullable<BackfillPlanPreview['blockingCollisions']> = []
     let distinctCollisionsCount = 0
 
-    // Mapear perdedores que serão desativados
+    // Mapear perdedores que serão deletados
     const loserProductIds = new Set<string>()
     const preferredProductIds = new Set<string>()
 
@@ -621,6 +632,8 @@ export const skuStandardizationService = {
 
     for (const group of sonyCollisions) {
       const dec = group.decision
+      const prodsInfo = group.products.map((p) => ({ id: p.id, sku: p.sku, name: p.name }))
+
       if (!dec || dec.decision_type === 'undecided') {
         skippedCollisions.push({
           normalizedSku: group.normalizedSku,
@@ -628,6 +641,13 @@ export const skuStandardizationService = {
           reason: 'undecided',
           productIds: group.products.map((p) => p.id),
           productSkus: group.products.map((p) => p.sku),
+          productsInfo: prodsInfo,
+        })
+        blockingCollisions.push({
+          normalizedSku: group.normalizedSku,
+          brand: group.brand,
+          reason: 'undecided',
+          products: prodsInfo,
         })
         continue
       }
@@ -640,6 +660,7 @@ export const skuStandardizationService = {
           reason: 'distinct_products',
           productIds: group.products.map((p) => p.id),
           productSkus: group.products.map((p) => p.sku),
+          productsInfo: prodsInfo,
         })
         continue
       }
@@ -654,6 +675,13 @@ export const skuStandardizationService = {
             reason: 'missing_preferred',
             productIds: group.products.map((p) => p.id),
             productSkus: group.products.map((p) => p.sku),
+            productsInfo: prodsInfo,
+          })
+          blockingCollisions.push({
+            normalizedSku: group.normalizedSku,
+            brand: group.brand,
+            reason: 'missing_preferred',
+            products: prodsInfo,
           })
           continue
         }
@@ -710,15 +738,13 @@ export const skuStandardizationService = {
     // Carregar todos os produtos Sony
     for (const p of diag.sonyDashProducts) {
       if (loserProductIds.has(p.id)) {
-        // Ignora perdedor, será desativado
+        // Ignora perdedor, será deletado
         continue
       }
 
       if (sonyCollidingProductIds.has(p.id)) {
-        // Só renomeia se for o preferred de uma colisão keep_preferred
-        if (!preferredProductIds.has(p.id)) {
-          continue
-        }
+        // Se fazia parte de colisão, o rename já é incorporado e exibido no mergePreview do prevalente
+        continue
       }
 
       const standardSku = formatSonyStandardSku(p.sku)
@@ -736,9 +762,13 @@ export const skuStandardizationService = {
     const totalSony = diag.stats.sony.total
     alreadyStandardizedCount = diag.stats.sony.alreadyIdenticalAfterNorm
 
+    const hasBlockingUndecidedCollisions = blockingCollisions.length > 0
+
     return {
-      canExecute: true,
+      canExecute: !hasBlockingUndecidedCollisions,
       missingTableError: null,
+      hasBlockingUndecidedCollisions,
+      blockingCollisions,
       renamesCount: renamesPreview.length,
       renamesPreview,
       mergesCount: mergesPreview.length,
@@ -774,7 +804,26 @@ export const skuStandardizationService = {
       throw new Error(tableCheck.error)
     }
 
-    // 2. Carregar diagnósticos e produtos frescos
+    // 2. Salvaguarda adicional: Verificar se há colisões pendentes (bloqueio nominal)
+    const preview = await this.getBackfillPreview()
+    if (!preview.canExecute) {
+      if (preview.missingTableError) {
+        throw new Error(preview.missingTableError)
+      }
+      if (preview.hasBlockingUndecidedCollisions && preview.blockingCollisions?.length) {
+        const blockingNames = preview.blockingCollisions
+          .map(
+            (b) =>
+              `Chave "${b.normalizedSku}" (${b.products.map((p) => p.sku || p.name).join(' vs ')})`,
+          )
+          .join(', ')
+        throw new Error(
+          `Execução da Rodada 2 bloqueada: existem colisões Sony sem decisão gravada (${blockingNames}). Defina a prevalência na aba Colisões Sony antes de executar.`,
+        )
+      }
+    }
+
+    // 3. Carregar diagnósticos e produtos frescos
     if (onProgress) onProgress({ stage: 'Carregando base e decisões...', current: 0, total: 100 })
     const diag = await this.runDryRunDiagnosis()
 
@@ -841,11 +890,10 @@ export const skuStandardizationService = {
         const secondaries = group.products.filter((p) => p.id !== preferred.id)
         secondaries.forEach((s) => loserProductIds.add(s.id))
 
-        // Comparar dados e preparar mesclagem não destrutiva
+        // PASSO (1): Mesclar os dados do perdedor no prevalente em memória
         const mergedFields: MergedFieldDetail[] = []
         const updatesForPreferred: Database['public']['Tables']['products']['Update'] = {}
 
-        // Campos a comparar e aproveitar do perdedor se o prevalente não tiver
         const candidateFields: ('website_url' | 'image_url' | 'description' | 'technical_info')[] =
           ['website_url', 'image_url', 'description', 'technical_info']
 
@@ -888,7 +936,7 @@ export const skuStandardizationService = {
           }
         }
 
-        // Se o preferred precisar de SKU padronizado (sem traço), já padroniza junto
+        // Se o preferred precisar de SKU padronizado (sem traço), já padroniza no mesmo UPDATE
         const standardSku = formatSonyStandardSku(preferred.sku)
         let newPreferredSku = preferred.sku
         if (standardSku && standardSku !== preferred.sku) {
@@ -896,9 +944,10 @@ export const skuStandardizationService = {
           newPreferredSku = standardSku
         }
 
+        // Regra permanente de datas:
         // Se houver dados mesclados de fato (website_url, image_url, description, technical_info, ncm),
         // isso configura alteração real de conteúdo: updated_at = last_reviewed_at = agora.
-        // Se alterou APENAS o sku (padronização), NUNCA sensibiliza as datas (regra permanente).
+        // Se alterou APENAS o sku (padronização), NUNCA sensibiliza as datas.
         const nowIso = new Date().toISOString()
         const hasRealMergedData = mergedFields.length > 0
 
@@ -907,38 +956,17 @@ export const skuStandardizationService = {
           updatesForPreferred.last_reviewed_at = nowIso
         }
 
-        if (Object.keys(updatesForPreferred).length > 0) {
-          try {
-            const { error: prefErr } = await supabase
-              .from('products')
-              .update(updatesForPreferred)
-              .eq('id', preferred.id)
-
-            if (prefErr) {
-              errors.push({
-                id: preferred.id,
-                sku: preferred.sku,
-                error: `Erro ao atualizar prevalente: ${prefErr.message}`,
-              })
-            }
-          } catch (err: any) {
-            errors.push({
-              id: preferred.id,
-              sku: preferred.sku,
-              error: `Exceção ao atualizar prevalente: ${err.message}`,
-            })
-          }
-        }
-
-        // Opção B: Para cada produto secundário (perdedor):
-        // 1. Buscar histórico de public.price_checks para auditoria e exportação
-        // 2. DELETE definitivo de public.products (sem is_discontinued)
+        // PASSO (2) & (3): Para cada perdedor:
+        // (2) Coletar o histórico de price_checks antes de deletar
+        // (3) Executar o DELETE do perdedor PRIMEIRO
+        // Ordem mandatória para desocupar a constraint única (manufacturer_id, sku) em public.products
         const deletedList: MergeResultItem['deletedProducts'] = []
+        let hasDeleteFailure = false
 
         for (const sec of secondaries) {
           let priceChecksForSec: PriceCheckHistoryItem[] = []
 
-          // 1. Coleta do histórico de price_checks antes de deletar
+          // (2) Coleta do histórico de price_checks antes do DELETE
           try {
             const { data: pcData, error: pcErr } = await supabase
               .from('price_checks')
@@ -957,7 +985,9 @@ export const skuStandardizationService = {
                 source: row.source || 'manual',
               }))
             } else if (pcErr) {
-              console.warn(`Aviso ao coletar price_checks do perdedor ${sec.id}:`, pcErr.message)
+              const warnMsg = `Erro ao coletar price_checks do perdedor (${sec.sku || sec.name}): ${pcErr.message || JSON.stringify(pcErr)}`
+              console.warn(warnMsg)
+              // Não trava a exclusão se for apenas leitura de price_checks, mas registra aviso
             }
           } catch (pcEx: any) {
             console.warn(
@@ -966,17 +996,20 @@ export const skuStandardizationService = {
             )
           }
 
-          // 2. DELETE definitivo do produto perdedor
+          // (3) DELETE do perdedor PRIMEIRO
           let deleteErrorMsg: string | undefined = undefined
           try {
             const { error: delErr } = await supabase.from('products').delete().eq('id', sec.id)
 
             if (delErr) {
-              deleteErrorMsg = delErr.message
+              hasDeleteFailure = true
+              const codeInfo = (delErr as any).code ? ` [Código: ${(delErr as any).code}]` : ''
+              const detailsInfo = (delErr as any).details ? ` - ${(delErr as any).details}` : ''
+              deleteErrorMsg = `${delErr.message || 'Erro desconhecido'}${codeInfo}${detailsInfo}`
               errors.push({
                 id: sec.id,
                 sku: sec.sku,
-                error: `Erro ao excluir produto perdedor (${sec.sku || sec.name}): ${delErr.message}`,
+                error: `Erro ao excluir produto perdedor (${sec.sku || sec.name}): ${deleteErrorMsg}`,
               })
             } else {
               deletedList.push({
@@ -988,6 +1021,7 @@ export const skuStandardizationService = {
               })
             }
           } catch (delEx: any) {
+            hasDeleteFailure = true
             deleteErrorMsg = delEx?.message || String(delEx)
             errors.push({
               id: sec.id,
@@ -1008,6 +1042,35 @@ export const skuStandardizationService = {
             priceChecks: priceChecksForSec,
             deleteError: deleteErrorMsg,
           })
+        }
+
+        // PASSO (4): Só então efetuar o UPDATE do prevalente (SKU padronizado + dados mesclados consolidados)
+        // Se algum perdedor ainda ocupa o SKU destino devido a falha no DELETE, o update falharia por constraint única;
+        // registramos erro claro caso o update falhe.
+        if (Object.keys(updatesForPreferred).length > 0) {
+          try {
+            const { error: prefErr } = await supabase
+              .from('products')
+              .update(updatesForPreferred)
+              .eq('id', preferred.id)
+
+            if (prefErr) {
+              const codeInfo = (prefErr as any).code ? ` [Código: ${(prefErr as any).code}]` : ''
+              const detailsInfo = (prefErr as any).details ? ` - ${(prefErr as any).details}` : ''
+              const fullErrMsg = `${prefErr.message || 'Erro desconhecido'}${codeInfo}${detailsInfo}`
+              errors.push({
+                id: preferred.id,
+                sku: preferred.sku,
+                error: `Erro ao atualizar prevalente (${preferred.sku || preferred.name}) com SKU ${updatesForPreferred.sku || preferred.sku}: ${fullErrMsg}`,
+              })
+            }
+          } catch (err: any) {
+            errors.push({
+              id: preferred.id,
+              sku: preferred.sku,
+              error: `Exceção ao atualizar prevalente (${preferred.sku || preferred.name}): ${err.message || String(err)}`,
+            })
+          }
         }
 
         mergedGroups.push({
@@ -1066,7 +1129,13 @@ export const skuStandardizationService = {
           .eq('id', p.id)
 
         if (updateErr) {
-          errors.push({ id: p.id, sku: p.sku, error: `Erro ao renomear SKU: ${updateErr.message}` })
+          const codeInfo = (updateErr as any).code ? ` [Código: ${(updateErr as any).code}]` : ''
+          const detailsInfo = (updateErr as any).details ? ` - ${(updateErr as any).details}` : ''
+          errors.push({
+            id: p.id,
+            sku: p.sku,
+            error: `Erro ao renomear SKU (${p.sku} ➔ ${standardSku}): ${updateErr.message || 'Erro desconhecido'}${codeInfo}${detailsInfo}`,
+          })
         } else {
           renamedItems.push({
             id: p.id,
@@ -1079,7 +1148,11 @@ export const skuStandardizationService = {
           })
         }
       } catch (err: any) {
-        errors.push({ id: p.id, sku: p.sku, error: `Exceção ao renomear SKU: ${err.message}` })
+        errors.push({
+          id: p.id,
+          sku: p.sku,
+          error: `Exceção ao renomear SKU (${p.sku} ➔ ${standardSku}): ${err.message || String(err)}`,
+        })
       }
 
       if (onProgress && i % 10 === 0) {

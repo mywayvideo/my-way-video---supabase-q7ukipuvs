@@ -737,7 +737,188 @@ describe('Rodada 2 - Backfill, Mesclagem e Salvaguardas', () => {
     mockFrom.mockRestore()
   })
 
-  it('se o DELETE do perdedor falhar (ex.: Foreign Key constraint), o erro é registrado no relatório sem crash', async () => {
+  it('redireciona order_items e price_checks do perdedor (ILME-FR7) para o prevalente (ILMEFR7) antes do DELETE', async () => {
+    // Caso concreto do usuário:
+    // Perdedor: ee3f5e2e-5b24-4f43-86d2-65744aa2c906 (ILME-FR7)
+    // Prevalente: e3fea5c6-f801-44b7-a570-f8642e98a00b (ILMEFR7)
+    const prefProduct = {
+      id: 'e3fea5c6-f801-44b7-a570-f8642e98a00b',
+      name: 'Sony FR7 Cinema Line PTZ Camera',
+      sku: 'ILMEFR7',
+      manufacturer_id: 'mfr-sony-1',
+      price_usd: 11998,
+      is_discontinued: false,
+      created_at: '2026-04-21T18:21:31Z',
+      updated_at: '2026-04-21T18:21:31Z',
+      last_reviewed_at: '2026-04-21T18:21:31Z',
+    }
+    const loserProduct = {
+      id: 'ee3f5e2e-5b24-4f43-86d2-65744aa2c906',
+      name: 'Sony FR7 Cinema Line PTZ Camera',
+      sku: 'ILME-FR7',
+      manufacturer_id: 'mfr-sony-1',
+      price_usd: 11998,
+      is_discontinued: false,
+      created_at: '2026-04-11T01:46:11Z',
+      updated_at: '2026-04-11T01:46:11Z',
+      last_reviewed_at: '2026-04-11T01:46:11Z',
+    }
+
+    const actionOrder: string[] = []
+    const redirectedOrderItems: { fromId: string; toId: string }[] = []
+    const redirectedPriceChecks: { fromId: string; toId: string }[] = []
+
+    const mockFrom = vi.spyOn(supabase, 'from').mockImplementation((table: string) => {
+      if (table === 'manufacturers') {
+        return {
+          select: vi.fn().mockResolvedValue({
+            data: [{ id: 'mfr-sony-1', name: 'Sony' }],
+            error: null,
+          }),
+        } as any
+      }
+      if (table === 'sku_collision_decisions') {
+        return {
+          select: vi.fn().mockReturnValue({
+            limit: vi.fn().mockResolvedValue({ data: [{ id: 'dec-fr7' }], error: null }),
+            then: (resolve: any) =>
+              resolve({
+                data: [
+                  {
+                    id: 'dec-fr7',
+                    normalized_sku: 'ILMEFR7',
+                    brand: 'Sony',
+                    is_sony: true,
+                    decision_type: 'keep_preferred',
+                    preferred_product_id: prefProduct.id,
+                    secondary_product_ids: [loserProduct.id],
+                  },
+                ],
+                error: null,
+              }),
+          }),
+        } as any
+      }
+      if (table === 'order_items') {
+        return {
+          update: vi.fn().mockImplementation((payload: any) => {
+            return {
+              eq: vi.fn().mockImplementation((field: string, val: string) => {
+                if (field === 'product_id') {
+                  actionOrder.push(`order_items.redirect:${val}➔${payload.product_id}`)
+                  redirectedOrderItems.push({ fromId: val, toId: payload.product_id })
+                }
+                return Promise.resolve({ error: null })
+              }),
+            }
+          }),
+        } as any
+      }
+      if (table === 'price_checks') {
+        return {
+          select: vi.fn().mockReturnValue({
+            eq: vi.fn().mockImplementation((_field: string, id: string) => {
+              actionOrder.push(`price_checks.select:${id}`)
+              return {
+                order: vi.fn().mockResolvedValue({
+                  data: [
+                    {
+                      id: 'pc-1',
+                      checked_at: '2026-04-15T00:00:00Z',
+                      status: 'ok',
+                      price_db: 11998,
+                      price_bh: 11998,
+                      message: null,
+                    },
+                  ],
+                  error: null,
+                }),
+              }
+            }),
+          }),
+          update: vi.fn().mockImplementation((payload: any) => {
+            return {
+              eq: vi.fn().mockImplementation((field: string, val: string) => {
+                if (field === 'product_id') {
+                  actionOrder.push(`price_checks.redirect:${val}➔${payload.product_id}`)
+                  redirectedPriceChecks.push({ fromId: val, toId: payload.product_id })
+                }
+                return Promise.resolve({ error: null })
+              }),
+            }
+          }),
+        } as any
+      }
+      if (table === 'products') {
+        return {
+          select: vi.fn().mockReturnValue({
+            range: vi.fn().mockResolvedValue({
+              data: [prefProduct, loserProduct],
+              error: null,
+            }),
+          }),
+          delete: vi.fn().mockReturnValue({
+            eq: vi.fn().mockImplementation((_field: string, id: string) => {
+              actionOrder.push(`products.delete:${id}`)
+              return Promise.resolve({ error: null })
+            }),
+          }),
+          update: vi.fn().mockImplementation((payload: any) => {
+            return {
+              eq: vi.fn().mockImplementation((_field: string, id: string) => {
+                actionOrder.push(`products.update:${id}`)
+                return Promise.resolve({ error: null })
+              }),
+            }
+          }),
+        } as any
+      }
+      if (['cart_items', 'favorites', 'customer_favorites', 'imp_sim_ncm_classification_log', 'image_migration_failures'].includes(table)) {
+        return {
+          update: vi.fn().mockReturnValue({
+            eq: vi.fn().mockImplementation((_field: string, _val: string) => {
+              return Promise.resolve({ error: null })
+            }),
+          }),
+        } as any
+      }
+      return {} as any
+    })
+
+    const report = await skuStandardizationService.executeRound2Backfill()
+
+    expect(report.success).toBe(true)
+    expect(report.errors).toHaveLength(0)
+    expect(report.totalLosersDeleted).toBe(1)
+
+    // Redirecionamento ocorreu para o caso ILME-FR7 → ILMEFR7
+    expect(redirectedOrderItems).toEqual([
+      { fromId: loserProduct.id, toId: prefProduct.id },
+    ])
+    expect(redirectedPriceChecks).toEqual([
+      { fromId: loserProduct.id, toId: prefProduct.id },
+    ])
+
+    // Ordem estrita de execução:
+    // 1. Coleta de histórico de price_checks do perdedor
+    // 2. Redirecionamento de order_items do perdedor para o prevalente
+    // 3. Redirecionamento de price_checks
+    // 4. DELETE do perdedor
+    const pcSelectIdx = actionOrder.indexOf(`price_checks.select:${loserProduct.id}`)
+    const oiRedirectIdx = actionOrder.indexOf(`order_items.redirect:${loserProduct.id}➔${prefProduct.id}`)
+    const deleteIdx = actionOrder.indexOf(`products.delete:${loserProduct.id}`)
+
+    expect(pcSelectIdx).toBeGreaterThanOrEqual(0)
+    expect(oiRedirectIdx).toBeGreaterThanOrEqual(0)
+    expect(deleteIdx).toBeGreaterThanOrEqual(0)
+
+    expect(pcSelectIdx).toBeLessThan(oiRedirectIdx)
+    expect(oiRedirectIdx).toBeLessThan(deleteIdx)
+
+    mockFrom.mockRestore()
+  })
+
+  it('se o DELETE do perdedor falhar mesmo após tentativas, o erro é registrado no relatório sem crash', async () => {
     const prefProduct = {
       id: 'e3fea5c6-f801-44b7-a570-f8642e98a00b',
       name: 'Sony FR7 Cinema Line PTZ Camera',
@@ -792,6 +973,140 @@ describe('Rodada 2 - Backfill, Mesclagem e Salvaguardas', () => {
           }),
         } as any
       }
+      if (table === 'order_items') {
+        return {
+          update: vi.fn().mockReturnValue({
+            eq: vi.fn().mockResolvedValue({ error: null }),
+          }),
+        } as any
+      }
+      if (table === 'price_checks') {
+        return {
+          select: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              order: vi.fn().mockResolvedValue({ data: [], error: null }),
+            }),
+          }),
+          update: vi.fn().mockReturnValue({
+            eq: vi.fn().mockResolvedValue({ error: null }),
+          }),
+        } as any
+      }
+      if (table === 'products') {
+        return {
+          select: vi.fn().mockReturnValue({
+            range: vi.fn().mockResolvedValue({
+              data: [prefProduct, loserProduct],
+              error: null,
+            }),
+          }),
+          delete: vi.fn().mockReturnValue({
+            eq: vi.fn().mockResolvedValue({
+              error: {
+                message: 'database connection error on delete',
+                code: '08006',
+                details: 'Connection lost.',
+              },
+            }),
+          }),
+          update: vi.fn().mockReturnValue({
+            eq: vi.fn().mockResolvedValue({ error: null }),
+          }),
+        } as any
+      }
+      if (['cart_items', 'favorites', 'customer_favorites', 'imp_sim_ncm_classification_log', 'image_migration_failures'].includes(table)) {
+        return {
+          update: vi.fn().mockReturnValue({
+            eq: vi.fn().mockResolvedValue({ error: null }),
+          }),
+        } as any
+      }
+      return {} as any
+    })
+
+    const report = await skuStandardizationService.executeRound2Backfill()
+
+    expect(report.success).toBe(false)
+    expect(report.errors.length).toBeGreaterThanOrEqual(1)
+    const delError = report.errors.find((e) => e.id === loserProduct.id)
+    expect(delError).toBeDefined()
+    expect(delError?.error).toContain('database connection error')
+    expect(delError?.error).toContain('08006')
+
+    // No resumo de perdedores, o deleteError também foi gravado
+    expect(report.deletedLosersSummary[0].deleteError).toContain('08006')
+
+    mockFrom.mockRestore()
+  })
+
+  it('se o redirecionamento de order_items falhar com erro do Postgres, registra erro claro com código e detalhes', async () => {
+    const prefProduct = {
+      id: 'e3fea5c6-f801-44b7-a570-f8642e98a00b',
+      name: 'Sony FR7 Cinema Line PTZ Camera',
+      sku: 'ILME-FR7',
+      manufacturer_id: 'mfr-sony-1',
+      price_usd: 11998,
+      is_discontinued: false,
+      created_at: '2026-04-21T15:21:31Z',
+      updated_at: '2026-04-21T15:21:31Z',
+      last_reviewed_at: '2026-04-21T15:21:31Z',
+    }
+    const loserProduct = {
+      id: 'ee3f5e2e-5b24-4f43-86d2-65744aa2c906',
+      name: 'Sony FR7 PTZ Camera Loser',
+      sku: 'ILMEFR7',
+      manufacturer_id: 'mfr-sony-1',
+      price_usd: 11998,
+      is_discontinued: false,
+      created_at: '2026-04-10T22:46:11Z',
+      updated_at: '2026-04-10T22:46:11Z',
+      last_reviewed_at: '2026-04-10T22:46:11Z',
+    }
+
+    const mockFrom = vi.spyOn(supabase, 'from').mockImplementation((table: string) => {
+      if (table === 'manufacturers') {
+        return {
+          select: vi.fn().mockResolvedValue({
+            data: [{ id: 'mfr-sony-1', name: 'Sony' }],
+            error: null,
+          }),
+        } as any
+      }
+      if (table === 'sku_collision_decisions') {
+        return {
+          select: vi.fn().mockReturnValue({
+            limit: vi.fn().mockResolvedValue({ data: [{ id: 'dec-1' }], error: null }),
+            then: (resolve: any) =>
+              resolve({
+                data: [
+                  {
+                    id: 'dec-1',
+                    normalized_sku: 'ILMEFR7',
+                    brand: 'Sony',
+                    is_sony: true,
+                    decision_type: 'keep_preferred',
+                    preferred_product_id: prefProduct.id,
+                    secondary_product_ids: [loserProduct.id],
+                  },
+                ],
+                error: null,
+              }),
+          }),
+        } as any
+      }
+      if (table === 'order_items') {
+        return {
+          update: vi.fn().mockReturnValue({
+            eq: vi.fn().mockResolvedValue({
+              error: {
+                message: 'permission denied for table order_items',
+                code: '42501',
+                details: 'Must be owner or have update grant.',
+              },
+            }),
+          }),
+        } as any
+      }
       if (table === 'price_checks') {
         return {
           select: vi.fn().mockReturnValue({
@@ -830,13 +1145,9 @@ describe('Rodada 2 - Backfill, Mesclagem e Salvaguardas', () => {
 
     expect(report.success).toBe(false)
     expect(report.errors.length).toBeGreaterThanOrEqual(1)
-    const fkError = report.errors.find((e) => e.id === loserProduct.id)
-    expect(fkError).toBeDefined()
-    expect(fkError?.error).toContain('foreign key constraint')
-    expect(fkError?.error).toContain('23503')
-
-    // No resumo de perdedores, o deleteError também foi gravado
-    expect(report.deletedLosersSummary[0].deleteError).toContain('23503')
+    const oiError = report.errors.find((e) => e.error.includes('order_items'))
+    expect(oiError).toBeDefined()
+    expect(oiError?.error).toContain('42501')
 
     mockFrom.mockRestore()
   })

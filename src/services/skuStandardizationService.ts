@@ -956,9 +956,10 @@ export const skuStandardizationService = {
           updatesForPreferred.last_reviewed_at = nowIso
         }
 
-        // PASSO (2) & (3): Para cada perdedor:
+        // PASSO (2), (2.5) & (3): Para cada perdedor:
         // (2) Coletar o histórico de price_checks antes de deletar
-        // (3) Executar o DELETE do perdedor PRIMEIRO
+        // (2.5) Redirecionar referências de FK do perdedor para o prevalente (order_items, price_checks, etc.)
+        // (3) Executar o DELETE do perdedor
         // Ordem mandatória para desocupar a constraint única (manufacturer_id, sku) em public.products
         const deletedList: MergeResultItem['deletedProducts'] = []
         let hasDeleteFailure = false
@@ -994,6 +995,145 @@ export const skuStandardizationService = {
               `Exceção ao coletar price_checks do perdedor ${sec.id}:`,
               pcEx?.message || pcEx,
             )
+          }
+
+          // (2.5) REDIRECIONAMENTO DE REFERÊNCIAS ANTES DO DELETE:
+          // Semântica Opção B: tudo o que referenciava o perdedor converge para o prevalente,
+          // e o perdedor deixa de existir.
+          // 1) order_items: FK RESTRICT (order_items_product_id_fkey). Se não redirecionar, o DELETE é recusado com erro 23503.
+          //    O histórico de pedidos passa a exibir o produto prevalente sobrevivente.
+          // 2) price_checks: migra o histórico de checagens para o produto prevalente.
+          // 3) cart_items / favorites / customer_favorites / image_migration_failures / imp_sim_ncm_classification_log:
+          //    convergência segura para o prevalente antes da exclusão.
+          let fkRedirectFailed = false
+          let fkRedirectErrorMsg: string | undefined = undefined
+
+          // 1) order_items (crítico — FK RESTRICT)
+          try {
+            const { error: oiErr } = await (supabase as any)
+              .from('order_items')
+              .update({ product_id: preferred.id })
+              .eq('product_id', sec.id)
+
+            if (oiErr) {
+              fkRedirectFailed = true
+              const codeInfo = oiErr.code ? ` [Código: ${oiErr.code}]` : ''
+              const detailsInfo = oiErr.details ? ` - ${oiErr.details}` : ''
+              fkRedirectErrorMsg = `Erro ao redirecionar order_items do perdedor (${sec.sku || sec.name} ➔ ${preferred.sku || preferred.name}): ${oiErr.message || 'Erro desconhecido'}${codeInfo}${detailsInfo}`
+              errors.push({
+                id: sec.id,
+                sku: sec.sku,
+                error: fkRedirectErrorMsg,
+              })
+            }
+          } catch (oiEx: any) {
+            fkRedirectFailed = true
+            fkRedirectErrorMsg = `Exceção ao redirecionar order_items do perdedor (${sec.sku || sec.name}): ${oiEx?.message || String(oiEx)}`
+            errors.push({
+              id: sec.id,
+              sku: sec.sku,
+              error: fkRedirectErrorMsg,
+            })
+          }
+
+          // 2) price_checks (convergência de histórico de checagem de preço para o prevalente)
+          if (!fkRedirectFailed) {
+            try {
+              const { error: pcUpdErr } = await (supabase as any)
+                .from('price_checks')
+                .update({ product_id: preferred.id })
+                .eq('product_id', sec.id)
+
+              if (pcUpdErr) {
+                console.warn(
+                  `Aviso ao redirecionar price_checks do perdedor ${sec.id} para o prevalente ${preferred.id}:`,
+                  pcUpdErr.message || pcUpdErr,
+                )
+              }
+            } catch (pcUpdEx: any) {
+              console.warn(
+                `Exceção ao redirecionar price_checks do perdedor ${sec.id}:`,
+                pcUpdEx?.message || pcUpdEx,
+              )
+            }
+          }
+
+          // 3) cart_items (evitar carrinhos órfãos de sessões ativas)
+          if (!fkRedirectFailed) {
+            try {
+              const { error: cartErr } = await (supabase as any)
+                .from('cart_items')
+                .update({ product_id: preferred.id })
+                .eq('product_id', sec.id)
+
+              if (cartErr) {
+                console.warn(
+                  `Aviso ao redirecionar cart_items do perdedor ${sec.id}:`,
+                  cartErr.message || cartErr,
+                )
+              }
+            } catch (cartEx: any) {
+              console.warn(
+                `Exceção ao redirecionar cart_items do perdedor ${sec.id}:`,
+                cartEx?.message || cartEx,
+              )
+            }
+          }
+
+          // 4) favorites / customer_favorites
+          if (!fkRedirectFailed) {
+            try {
+              await (supabase as any)
+                .from('favorites')
+                .update({ product_id: preferred.id })
+                .eq('product_id', sec.id)
+            } catch (favEx: any) {
+              console.warn(
+                `Aviso ao redirecionar favorites do perdedor ${sec.id}:`,
+                favEx?.message || favEx,
+              )
+            }
+            try {
+              await (supabase as any)
+                .from('customer_favorites')
+                .update({ product_id: preferred.id })
+                .eq('product_id', sec.id)
+            } catch (cfEx: any) {
+              console.warn(
+                `Aviso ao redirecionar customer_favorites do perdedor ${sec.id}:`,
+                cfEx?.message || cfEx,
+              )
+            }
+          }
+
+          // 5) imp_sim_ncm_classification_log (apontar logs NCM para o prevalente)
+          if (!fkRedirectFailed) {
+            try {
+              await (supabase as any)
+                .from('imp_sim_ncm_classification_log')
+                .update({ product_id: preferred.id })
+                .eq('product_id', sec.id)
+            } catch (ncmEx: any) {
+              console.warn(
+                `Aviso ao redirecionar imp_sim_ncm_classification_log do perdedor ${sec.id}:`,
+                ncmEx?.message || ncmEx,
+              )
+            }
+          }
+
+          // 6) image_migration_failures
+          if (!fkRedirectFailed) {
+            try {
+              await (supabase as any)
+                .from('image_migration_failures')
+                .update({ product_id: preferred.id })
+                .eq('product_id', sec.id)
+            } catch (imfEx: any) {
+              console.warn(
+                `Aviso ao redirecionar image_migration_failures do perdedor ${sec.id}:`,
+                imfEx?.message || imfEx,
+              )
+            }
           }
 
           // (3) DELETE do perdedor PRIMEIRO

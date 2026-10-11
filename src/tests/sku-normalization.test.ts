@@ -144,4 +144,22 @@ describe('sku-normalization utility', () => {
       expect(isSonyBrand(null)).toBe(false)
     })
   })
+
+  describe('Casos Multi-Marca Conhecidos (AJA e Blackmagic Design)', () => {
+    it('normalizes AJA SKUs (ROI-HDMI vs MFR # ROI-HDMI) to the same normalized key ROIHDMI', () => {
+      const keyOfficial = normalizeSkuKey('ROI-HDMI')
+      const keyScraped = normalizeSkuKey('MFR # ROI-HDMI')
+      expect(keyOfficial).toBe('ROIHDMI')
+      expect(keyScraped).toBe('ROIHDMI')
+      expect(keyOfficial).toBe(keyScraped)
+    })
+
+    it('normalizes Blackmagic SKUs (BDLKWEB/C/SEDHD vs BDLKWEBCSEDHD) to the same normalized key BDLKWEBCSEDHD', () => {
+      const keyOfficial = normalizeSkuKey('BDLKWEB/C/SEDHD')
+      const keyCompact = normalizeSkuKey('BDLKWEBCSEDHD')
+      expect(keyOfficial).toBe('BDLKWEBCSEDHD')
+      expect(keyCompact).toBe('BDLKWEBCSEDHD')
+      expect(keyOfficial).toBe(keyCompact)
+    })
+  })
 })

@@ -212,6 +212,39 @@ export interface SkuDiagnosisResult {
   decisionsMap: Record<string, any>
 }
 
+export interface ResolveCollisionParams {
+  normalizedSku: string
+  brand: string
+  preferredProductId: string
+  secondaryProductIds: string[]
+  chosenPriceUsd?: number | null
+  chosenPriceCost?: number | null
+  targetSku?: string
+  notes?: string
+}
+
+export interface SingleCollisionResolutionReport {
+  success: boolean
+  normalizedSku: string
+  brand: string
+  preferredProductId: string
+  preferredSkuBefore: string | null
+  preferredSkuAfter: string | null
+  preferredName: string
+  mergedFields: MergedFieldDetail[]
+  deletedProducts: {
+    id: string
+    sku: string | null
+    name: string
+    priceChecksCount: number
+    priceChecks: PriceCheckHistoryItem[]
+  }[]
+  deletedLosersSummary: DeletedLoserSummaryItem[]
+  priceUpdated: boolean
+  datesUpdated: boolean
+  errors: { id?: string; sku?: string; error: string }[]
+}
+
 /**
  * Função pura para processar uma lista de produtos brutos e fabricantes em estatísticas e colisões
  */
@@ -372,11 +405,27 @@ export function analyzeProductsSku(
       const decKey = `${normSku}_${brand}`
       const dec = decisionsMap[decKey]
 
+      // Sugestão de preferred para outras marcas:
+      // 1. SKU oficial que não começa com prefixo de raspagem tipo "MFR #"
+      // 2. Produto ativo > com preço > mais recente
+      const sortedOther = [...list].sort((a, b) => {
+        const aHasMfr = /^mfr\s*#/i.test(a.sku || '')
+        const bHasMfr = /^mfr\s*#/i.test(b.sku || '')
+        if (aHasMfr && !bHasMfr) return 1
+        if (!aHasMfr && bHasMfr) return -1
+        if (!a.is_discontinued && b.is_discontinued) return -1
+        if (a.is_discontinued && !b.is_discontinued) return 1
+        if (a.price_usd != null && b.price_usd == null) return -1
+        if (a.price_usd == null && b.price_usd != null) return 1
+        return new Date(b.updated_at || 0).getTime() - new Date(a.updated_at || 0).getTime()
+      })
+
       otherCollisions.push({
         normalizedSku: normSku,
         brand,
         isSony: false,
         products: list,
+        suggestedPreferredId: sortedOther[0]?.id,
         decision: dec
           ? {
               id: dec.id,
@@ -389,7 +438,6 @@ export function analyzeProductsSku(
       })
     }
   }
-
   // 3. Colisões Cruzadas entre marcas distintas (Cross-Brand)
   const globalByNorm = new Map<string, SkuProductItem[]>()
   for (const item of items) {
@@ -1321,6 +1369,371 @@ export const skuStandardizationService = {
       mergedGroups,
       deletedLosersSummary,
       skippedCollisions,
+      errors,
+    }
+  },
+
+  /**
+   * Resolve uma colisão individual de qualquer marca (multi-marca) de forma consciente e interativa.
+   *
+   * Regras aplicadas (conforme fixado pelo usuário):
+   * 1. Prevalente escolhido pelo usuário; perdedores são DELETADOS de vez de public.products (Opção B).
+   * 2. Mesclagem não-destrutiva de dados do perdedor no prevalente (website_url, image_url, description, technical_info, ncm).
+   * 3. Se chosenPriceUsd for informado explicitamente pelo usuário (caso de preços divergentes como Blackmagic),
+   *    ele atualiza o prevalente e configura REVISÃO REAL DE CONTEÚDO: updated_at = last_reviewed_at = agora.
+   * 4. Se houver dados mesclados reais (website_url, image_url, description, technical_info, ncm), também updated_at = last_reviewed_at = agora.
+   * 5. Se for apenas padronização de SKU sem alteração de preço nem mesclagem, datas ficam intocadas.
+   * 6. Redirecionamento de FKs (order_items, price_checks, cart_items, favorites, etc.) ANTES do DELETE do perdedor.
+   * 7. Padronização do SKU do prevalente:
+   *    - Para Sony: sem hífen (formatSonyStandardSku).
+   *    - Para Outras marcas: preserva hífens e barras originais do produto oficial (ex: "BDLKWEB/C/SEDHD" ou "ROI-HDMI"),
+   *      apenas limpa prefixos residuais tipo "MFR #".
+   * 8. Persiste a decisão na tabela sku_collision_decisions para rastreabilidade contínua.
+   */
+  async resolveSingleCollision(
+    params: ResolveCollisionParams,
+  ): Promise<SingleCollisionResolutionReport> {
+    const {
+      normalizedSku,
+      brand,
+      preferredProductId,
+      secondaryProductIds,
+      chosenPriceUsd,
+      chosenPriceCost,
+      targetSku,
+      notes,
+    } = params
+
+    const errors: { id?: string; sku?: string; error: string }[] = []
+    const isSony = isSonyBrand(brand)
+
+    // 1. Carregar produtos envolvidos frescos do banco
+    const allIds = [preferredProductId, ...secondaryProductIds]
+    const { data: prods, error: pErr } = await supabase
+      .from('products')
+      .select(
+        'id, name, sku, manufacturer_id, price_usd, price_cost, is_discontinued, is_special, image_url, website_url, ncm, description, technical_info, created_at, updated_at, last_reviewed_at',
+      )
+      .in('id', allIds)
+
+    if (pErr) {
+      throw new Error(`Erro ao buscar produtos da colisão: ${pErr.message}`)
+    }
+
+    const preferred = (prods || []).find((p) => p.id === preferredProductId)
+    if (!preferred) {
+      throw new Error(`Produto prevalente com ID ${preferredProductId} não encontrado no banco.`)
+    }
+
+    const secondaries = (prods || []).filter((p) => secondaryProductIds.includes(p.id))
+
+    // 2. Mesclagem em memória dos campos não preenchidos
+    const mergedFields: MergedFieldDetail[] = []
+    const updatesForPreferred: Database['public']['Tables']['products']['Update'] = {}
+
+    const candidateFields: ('website_url' | 'image_url' | 'description' | 'technical_info')[] = [
+      'website_url',
+      'image_url',
+      'description',
+      'technical_info',
+    ]
+
+    for (const sec of secondaries) {
+      for (const f of candidateFields) {
+        const prefVal = (preferred as any)[f]
+        const secVal = (sec as any)[f]
+        const isPrefEmpty = prefVal == null || String(prefVal).trim() === ''
+        const isSecFilled = secVal != null && String(secVal).trim() !== ''
+
+        if (isPrefEmpty && isSecFilled && !(f in updatesForPreferred)) {
+          ;(updatesForPreferred as any)[f] = secVal
+          mergedFields.push({
+            field: f,
+            previousValue: prefVal,
+            mergedValue: secVal,
+            sourceProductId: sec.id,
+            sourceSku: sec.sku,
+          })
+        }
+      }
+
+      // Tratar ncm
+      const prefNcm = preferred.ncm
+      const secNcm = sec.ncm
+      if (
+        (!prefNcm || !String(prefNcm).trim()) &&
+        secNcm &&
+        String(secNcm).trim() &&
+        !updatesForPreferred.ncm
+      ) {
+        updatesForPreferred.ncm = secNcm
+        mergedFields.push({
+          field: 'ncm',
+          previousValue: prefNcm,
+          mergedValue: secNcm,
+          sourceProductId: sec.id,
+          sourceSku: sec.sku,
+        })
+      }
+    }
+
+    // 3. Determinar o SKU final do prevalente
+    let sanitizedSku = preferred.sku || ''
+    if (targetSku && targetSku.trim()) {
+      sanitizedSku = targetSku.trim()
+    } else if (isSony) {
+      sanitizedSku = formatSonyStandardSku(preferred.sku)
+    } else {
+      // Para outras marcas: remove apenas prefixo residual tipo "MFR #" mantendo hífens e barras
+      sanitizedSku = sanitizedSku.replace(/^mfr\s*#\s*/i, '').trim()
+    }
+
+    if (sanitizedSku !== preferred.sku) {
+      updatesForPreferred.sku = sanitizedSku
+    }
+
+    // 4. Edição explícita de preço (quando informada pelo usuário)
+    let priceUpdated = false
+    if (chosenPriceUsd !== undefined && chosenPriceUsd !== null) {
+      const numPrice = Number(chosenPriceUsd)
+      if (Number(preferred.price_usd) !== numPrice) {
+        updatesForPreferred.price_usd = numPrice
+        priceUpdated = true
+      }
+    }
+    if (chosenPriceCost !== undefined && chosenPriceCost !== null) {
+      const numCost = Number(chosenPriceCost)
+      if (Number(preferred.price_cost) !== numCost) {
+        updatesForPreferred.price_cost = numCost
+      }
+    }
+
+    // 5. Regras de datas em products:
+    // Alteração real de conteúdo (dados mesclados de fato OU alteração deliberada de preço):
+    // updated_at = last_reviewed_at = agora (mesmo valor)
+    const hasRealMergedData = mergedFields.length > 0
+    let datesUpdated = false
+    if (priceUpdated || hasRealMergedData) {
+      const nowIso = new Date().toISOString()
+      updatesForPreferred.updated_at = nowIso
+      updatesForPreferred.last_reviewed_at = nowIso
+      datesUpdated = true
+    }
+
+    // 6. Para cada perdedor:
+    // (a) Coletar histórico de price_checks antes de deletar
+    // (b) Redirecionar FKs (order_items, price_checks, cart_items, favorites, etc.)
+    // (c) DELETE definitivo de public.products
+    const deletedProducts: SingleCollisionResolutionReport['deletedProducts'] = []
+    const deletedLosersSummary: DeletedLoserSummaryItem[] = []
+
+    for (const sec of secondaries) {
+      let priceChecksForSec: PriceCheckHistoryItem[] = []
+
+      // Coleta histórico de price_checks
+      try {
+        const { data: pcData, error: pcErr } = await supabase
+          .from('price_checks')
+          .select('id, checked_at, status, price_db, price_bh, message, source')
+          .eq('product_id', sec.id)
+          .order('checked_at', { ascending: false })
+
+        if (!pcErr && pcData) {
+          priceChecksForSec = pcData.map((row: any) => ({
+            id: row.id,
+            checked_at: row.checked_at,
+            status: row.status,
+            price_db: row.price_db != null ? Number(row.price_db) : null,
+            price_bh: row.price_bh != null ? Number(row.price_bh) : null,
+            message: row.message || null,
+            source: row.source || 'manual',
+          }))
+        }
+      } catch (pcEx: any) {
+        console.warn(`Erro ao ler price_checks do perdedor ${sec.id}:`, pcEx)
+      }
+
+      // Redirecionamento de FKs
+      let fkRedirectFailed = false
+
+      // 1) order_items (FK RESTRICT)
+      try {
+        const { error: oiErr } = await (supabase as any)
+          .from('order_items')
+          .update({ product_id: preferred.id })
+          .eq('product_id', sec.id)
+
+        if (oiErr) {
+          fkRedirectFailed = true
+          const msg = `Erro ao redirecionar order_items do perdedor (${sec.sku || sec.name}): ${oiErr.message}`
+          errors.push({ id: sec.id, sku: sec.sku, error: msg })
+        }
+      } catch (oiEx: any) {
+        fkRedirectFailed = true
+        errors.push({
+          id: sec.id,
+          sku: sec.sku,
+          error: `Exceção ao redirecionar order_items do perdedor (${sec.sku || sec.name}): ${oiEx?.message || String(oiEx)}`,
+        })
+      }
+
+      // 2) price_checks
+      if (!fkRedirectFailed) {
+        try {
+          await (supabase as any)
+            .from('price_checks')
+            .update({ product_id: preferred.id })
+            .eq('product_id', sec.id)
+        } catch (pcUpdEx: any) {
+          console.warn(`Erro ao redirecionar price_checks de ${sec.id}:`, pcUpdEx)
+        }
+      }
+
+      // 3) cart_items, favorites, customer_favorites, logs
+      if (!fkRedirectFailed) {
+        try {
+          await (supabase as any)
+            .from('cart_items')
+            .update({ product_id: preferred.id })
+            .eq('product_id', sec.id)
+        } catch {
+          /* intentionally ignored */
+        }
+        try {
+          await (supabase as any)
+            .from('favorites')
+            .update({ product_id: preferred.id })
+            .eq('product_id', sec.id)
+        } catch {
+          /* intentionally ignored */
+        }
+        try {
+          await (supabase as any)
+            .from('customer_favorites')
+            .update({ product_id: preferred.id })
+            .eq('product_id', sec.id)
+        } catch {
+          /* intentionally ignored */
+        }
+        try {
+          await (supabase as any)
+            .from('imp_sim_ncm_classification_log')
+            .update({ product_id: preferred.id })
+            .eq('product_id', sec.id)
+        } catch {
+          /* intentionally ignored */
+        }
+        try {
+          await (supabase as any)
+            .from('image_migration_failures')
+            .update({ product_id: preferred.id })
+            .eq('product_id', sec.id)
+        } catch {
+          /* intentionally ignored */
+        }
+      }
+
+      // 4) DELETE do perdedor (Opção B)
+      let deleteErrorMsg: string | undefined = undefined
+      try {
+        const { error: delErr } = await supabase.from('products').delete().eq('id', sec.id)
+
+        if (delErr) {
+          const codeInfo = (delErr as any).code ? ` [Código: ${(delErr as any).code}]` : ''
+          deleteErrorMsg = `${delErr.message || 'Erro desconhecido'}${codeInfo}`
+          errors.push({
+            id: sec.id,
+            sku: sec.sku,
+            error: `Erro ao excluir produto perdedor (${sec.sku || sec.name}): ${deleteErrorMsg}`,
+          })
+        } else {
+          deletedProducts.push({
+            id: sec.id,
+            sku: sec.sku,
+            name: sec.name,
+            priceChecksCount: priceChecksForSec.length,
+            priceChecks: priceChecksForSec,
+          })
+        }
+      } catch (delEx: any) {
+        deleteErrorMsg = delEx?.message || String(delEx)
+        errors.push({
+          id: sec.id,
+          sku: sec.sku,
+          error: `Exceção ao excluir produto perdedor (${sec.sku || sec.name}): ${deleteErrorMsg}`,
+        })
+      }
+
+      deletedLosersSummary.push({
+        deletedProductId: sec.id,
+        deletedSku: sec.sku,
+        deletedName: sec.name,
+        preferredProductId: preferred.id,
+        preferredSku: sanitizedSku,
+        preferredName: preferred.name,
+        priceChecksCount: priceChecksForSec.length,
+        priceChecks: priceChecksForSec,
+        deleteError: deleteErrorMsg,
+      })
+    }
+
+    // 7. UPDATE do prevalente (SKU padronizado + dados mesclados + preço se escolhido)
+    if (Object.keys(updatesForPreferred).length > 0) {
+      try {
+        const { error: prefErr } = await supabase
+          .from('products')
+          .update(updatesForPreferred)
+          .eq('id', preferred.id)
+
+        if (prefErr) {
+          const codeInfo = (prefErr as any).code ? ` [Código: ${(prefErr as any).code}]` : ''
+          errors.push({
+            id: preferred.id,
+            sku: preferred.sku,
+            error: `Erro ao atualizar prevalente (${preferred.sku || preferred.name}): ${prefErr.message}${codeInfo}`,
+          })
+        }
+      } catch (err: any) {
+        errors.push({
+          id: preferred.id,
+          sku: preferred.sku,
+          error: `Exceção ao atualizar prevalente (${preferred.sku || preferred.name}): ${err.message || String(err)}`,
+        })
+      }
+    }
+
+    // 8. Gravar decisão na tabela sku_collision_decisions para rastreabilidade
+    try {
+      await this.saveCollisionDecision({
+        normalizedSku,
+        brand,
+        isSony,
+        preferredProductId: preferred.id,
+        secondaryProductIds,
+        decisionType: 'keep_preferred',
+        notes:
+          notes ||
+          (priceUpdated
+            ? `Preço unificado para US$ ${chosenPriceUsd}`
+            : 'Mesclado e perdedor excluído'),
+      })
+    } catch (decErr: any) {
+      console.warn('Aviso ao registrar decisão na tabela de apoio:', decErr?.message)
+    }
+
+    return {
+      success: errors.length === 0,
+      normalizedSku,
+      brand,
+      preferredProductId: preferred.id,
+      preferredSkuBefore: preferred.sku,
+      preferredSkuAfter: sanitizedSku,
+      preferredName: preferred.name,
+      mergedFields,
+      deletedProducts,
+      deletedLosersSummary,
+      priceUpdated,
+      datesUpdated,
       errors,
     }
   },

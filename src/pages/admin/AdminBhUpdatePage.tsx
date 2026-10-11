@@ -1254,7 +1254,7 @@ export function AdminBhUpdatePage() {
               >
                 <Link to="/admin/sku-standardization">
                   <Sparkles className="w-4 h-4 mr-2" />
-                  Padronização SKU Sony (Dry-Run)
+                  Central de Duplicidades
                 </Link>
               </Button>
               <Button variant="outline" size="sm" asChild className="h-9">

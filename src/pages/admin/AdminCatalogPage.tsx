@@ -903,7 +903,7 @@ export default function AdminCatalogPage() {
                 asChild
               >
                 <Link to="/admin/sku-standardization">
-                  <Sparkles className="w-4 h-4 mr-2" /> Padronização SKU Sony (Dry-Run)
+                  <Sparkles className="w-4 h-4 mr-2" /> Central de Duplicidades
                 </Link>
               </Button>
               <Button

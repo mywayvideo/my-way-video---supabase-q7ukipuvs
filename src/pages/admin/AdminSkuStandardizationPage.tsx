@@ -52,6 +52,7 @@ import {
   BackfillPlanPreview,
   BackfillExecutionReport,
   DeletedLoserSummaryItem,
+  SingleCollisionResolutionReport,
 } from '@/services/skuStandardizationService'
 import { formatUSD, cn } from '@/lib/utils'
 import { ImageWithFallback } from '@/components/ImageWithFallback'
@@ -75,6 +76,17 @@ export default function AdminSkuStandardizationPage() {
   >('keep_preferred')
   const [decisionNotes, setDecisionNotes] = useState('')
   const [savingDecision, setSavingDecision] = useState(false)
+
+  // Estado para modal de RESOLUÇÃO ativa de colisão (multi-marca)
+  const [resolveModalOpen, setResolveModalOpen] = useState(false)
+  const [collisionToResolve, setCollisionToResolve] = useState<SkuCollisionGroup | null>(null)
+  const [resolvePreferredId, setResolvePreferredId] = useState<string | null>(null)
+  const [chosenPriceUsd, setChosenPriceUsd] = useState<string>('')
+  const [chosenTargetSku, setChosenTargetSku] = useState<string>('')
+  const [resolveConfirmChecked, setResolveConfirmChecked] = useState(false)
+  const [resolvingCollision, setResolvingCollision] = useState(false)
+  const [singleResolutionReport, setSingleResolutionReport] =
+    useState<SingleCollisionResolutionReport | null>(null)
 
   // Estado da Rodada 2 (Execução e Preview de Backfill)
   const [previewModalOpen, setPreviewModalOpen] = useState(false)
@@ -270,6 +282,78 @@ export default function AdminSkuStandardizationPage() {
     setDecisionNotes(collision.decision?.notes || '')
   }
 
+  // Abre o modal de resolução guiada caso a caso para outras marcas
+  const handleOpenResolveModal = (collision: SkuCollisionGroup) => {
+    setCollisionToResolve(collision)
+    // Sugestão inicial: prefere o que não tem prefixo "MFR #", ou ativo com preço
+    const prefId =
+      collision.suggestedPreferredId ||
+      collision.decision?.preferred_product_id ||
+      collision.products[0]?.id ||
+      null
+    setResolvePreferredId(prefId)
+
+    const prefProd = collision.products.find((p) => p.id === prefId) || collision.products[0]
+    setChosenPriceUsd(prefProd?.price_usd != null ? String(prefProd.price_usd) : '')
+
+    // SKU sugerido: limpa prefixo residual MFR #
+    const initialSku = (prefProd?.sku || '').replace(/^mfr\s*#\s*/i, '').trim()
+    setChosenTargetSku(initialSku)
+
+    setResolveConfirmChecked(false)
+    setResolveModalOpen(true)
+  }
+
+  // Executa a resolução do caso individual
+  const handleExecuteSingleResolution = async () => {
+    if (!collisionToResolve || !resolvePreferredId) return
+    setResolvingCollision(true)
+
+    try {
+      const secondaryProductIds = collisionToResolve.products
+        .map((p) => p.id)
+        .filter((id) => id !== resolvePreferredId)
+
+      const numPrice = chosenPriceUsd.trim() !== '' ? Number(chosenPriceUsd) : null
+
+      const report = await skuStandardizationService.resolveSingleCollision({
+        normalizedSku: collisionToResolve.normalizedSku,
+        brand: collisionToResolve.brand,
+        preferredProductId: resolvePreferredId,
+        secondaryProductIds,
+        chosenPriceUsd: numPrice,
+        targetSku: chosenTargetSku.trim() || undefined,
+        notes: `Resolvido via Central de Duplicidades em ${new Date().toLocaleString()}`,
+      })
+
+      setSingleResolutionReport(report)
+
+      if (report.success) {
+        toast({
+          title: 'Colisão resolvida com sucesso!',
+          description: `${report.deletedProducts.length} cadastro(s) perdedor(es) excluído(s) e prevalente atualizado.`,
+        })
+      } else {
+        toast({
+          title: 'Resolução concluída com alertas',
+          description: `Alguns erros ocorreram. Verifique o relatório.`,
+          variant: 'destructive',
+        })
+      }
+
+      // Recarrega diagnóstico completo
+      await loadData()
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao resolver colisão',
+        description: err.message,
+        variant: 'destructive',
+      })
+    } finally {
+      setResolvingCollision(false)
+    }
+  }
+
   const handleSaveDecision = async () => {
     if (!selectedCollision) return
     setSavingDecision(true)
@@ -379,49 +463,41 @@ export default function AdminSkuStandardizationPage() {
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-2">
-              <Sparkles className="w-6 h-6 text-primary" />
-              Padronização de SKU Sony — Diagnóstico Dry-Run
+              <Layers className="w-6 h-6 text-primary" />
+              Central de Duplicidades &amp; Padronização de SKUs
             </h1>
             <Badge
               variant="outline"
-              className="border-amber-500/40 bg-amber-500/10 text-amber-400 font-mono text-xs"
+              className="border-emerald-500/40 bg-emerald-500/10 text-emerald-400 font-mono text-xs flex items-center gap-1"
             >
-              Rodada 1: Modo Dry-Run (Somente Leitura)
+              <CheckCircle2 className="w-3 h-3" />
+              Sony 100% Concluída
+            </Badge>
+            <Badge
+              variant="outline"
+              className="border-blue-500/40 bg-blue-500/10 text-blue-300 font-mono text-xs"
+            >
+              Multi-Marca Ativa
             </Badge>
           </div>
           <p className="text-sm text-muted-foreground mt-1">
-            Análise estrutural da base de produtos: detecção de traços em SKUs Sony, chaves
-            normalizadas e colisão de duplicidades entre cadastros.
+            Gestão de integridade e unicidade de catálogo: resolução orientada de colisões entre
+            marcas, mesclagem segura sem perda de histórico e preparação do índice UNIQUE global.
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          <Button
-            variant="default"
-            size="sm"
-            onClick={handleOpenRound2Preview}
-            disabled={loading || executingBackfill || loadingPreview}
-            className="h-9 bg-primary hover:bg-primary/90 text-primary-foreground font-semibold shadow-md"
-          >
-            {loadingPreview ? (
-              <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-            ) : (
-              <Sparkles className="w-4 h-4 mr-2" />
-            )}
-            Executar Rodada 2 (Backfill)
-          </Button>
-
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             variant="outline"
             size="sm"
             onClick={loadData}
-            disabled={loading || executingBackfill}
+            disabled={loading || executingBackfill || resolvingCollision}
             className="h-9"
           >
             <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-            Recarregar Análise
+            Atualizar Diagnóstico
           </Button>
 
           <Button variant="secondary" size="sm" asChild className="h-9">
@@ -433,23 +509,60 @@ export default function AdminSkuStandardizationPage() {
         </div>
       </div>
 
-      {/* Regra vinculante e alerta visual */}
-      <Card className="border-blue-500/30 bg-blue-500/5">
-        <CardContent className="pt-4 pb-4 text-xs text-blue-300 flex items-start gap-3">
-          <ShieldAlert className="w-5 h-5 text-blue-400 shrink-0 mt-0.5" />
-          <div className="space-y-1">
-            <p className="font-semibold text-blue-200">
-              Salvaguarda da Rodada 1: NENHUM dado do catálogo (products) é alterado nesta etapa.
-            </p>
-            <p className="text-muted-foreground">
-              A padronização física Sony (remover traços) ocorrerá apenas na{' '}
-              <strong>Rodada 2</strong> após sua conferência e aprovação. Todas as decisões de
-              prevalência marcadas abaixo são salvas exclusivamente numa tabela de apoio leve (
-              <code>sku_collision_decisions</code>).
-            </p>
-          </div>
-        </CardContent>
-      </Card>
+      {/* Banner de Estado Global do Catálogo */}
+      {stats &&
+      stats.collisions.otherBrandsSameBrandCount === 0 &&
+      (data?.sonyCollisions.length || 0) === 0 ? (
+        <Card className="border-emerald-500/40 bg-gradient-to-r from-emerald-500/15 via-emerald-500/5 to-transparent">
+          <CardContent className="pt-4 pb-4 text-xs text-emerald-200 flex items-start gap-3">
+            <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+            <div className="space-y-1.5 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-bold text-sm text-foreground">
+                  Catálogo 100% Saneado — Zero Colisões de SKU Restantes!
+                </span>
+                <Badge className="bg-emerald-500 text-black font-semibold text-[10px]">
+                  Pronto para UNIQUE Global
+                </Badge>
+              </div>
+              <p className="text-muted-foreground leading-relaxed">
+                Todas as colisões de produtos foram resolvidas. Para ativar a blindagem definitiva
+                contra duplicidades no banco de dados, execute a migração preparada no SQL Editor do
+                painel Supabase:
+              </p>
+              <div className="p-2.5 rounded bg-black/50 border border-emerald-500/30 font-mono text-[11px] text-emerald-300 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+                <code>supabase/migrations/20261011180000_sku_global_unique_index.sql</code>
+                <span className="text-[10px] text-muted-foreground font-sans">
+                  (Cria o índice UNIQUE global <code>uq_products_manufacturer_norm_sku</code>)
+                </span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card className="border-amber-500/40 bg-amber-500/5">
+          <CardContent className="pt-4 pb-4 text-xs text-amber-200 flex items-start gap-3">
+            <ShieldAlert className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-amber-200">
+                  Fila de Resolução Multi-Marca Ativa (
+                  {stats?.collisions.otherBrandsSameBrandCount || 0} colisão(ões) pendente(s))
+                </span>
+                <Badge variant="outline" className="border-amber-500/30 text-amber-300 text-[10px]">
+                  Ação Recomendada
+                </Badge>
+              </div>
+              <p className="text-muted-foreground leading-relaxed">
+                A marca Sony já está 100% saneada. Resolva os casos pendentes de outras marcas na
+                aba <strong>&ldquo;Colisões Outras Marcas&rdquo;</strong> usando o fluxo guiado caso
+                a caso. Perdedores são deletados de vez após mesclagem de dados e histórico de
+                price_checks, e no caso de preços divergentes você escolhe o valor em vigor.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Cards de Métricas Principais */}
       {stats && (
@@ -1488,132 +1601,591 @@ export default function AdminSkuStandardizationPage() {
 
         {/* TAB 4: OUTRAS MARCAS */}
         <TabsContent value="other-collisions" className="space-y-4">
-          <div>
-            <h3 className="text-sm font-semibold text-foreground">
-              Diagnóstico Preventivo de Colisões — Outras Marcas (
-              {filteredOtherCollisions.length + (data?.crossBrandCollisions.length || 0)})
-            </h3>
-            <p className="text-xs text-muted-foreground">
-              Estes produtos NÃO serão alterados fisicamente na padronização Sony, mas colidem
-              internamente por duplicidade ou equivalência de código.
-            </p>
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div>
+              <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                Fila de Trabalho: Colisões em Outras Marcas ({filteredOtherCollisions.length})
+              </h3>
+              <p className="text-xs text-muted-foreground">
+                Resolução caso a caso orientada pelo administrador. Escolha o prevalente, ajuste o
+                preço em vigor se divergente, e confirme a mesclagem não-destrutiva com exclusão
+                definitiva do perdedor.
+              </p>
+            </div>
+            {filteredOtherCollisions.length === 0 && (
+              <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-500/40 text-xs">
+                Zero Colisões Pendentes
+              </Badge>
+            )}
           </div>
 
-          <div className="space-y-4">
-            {/* Colisões na mesma marca */}
-            {filteredOtherCollisions.map((group, gIdx) => (
-              <Card
-                key={`other_${group.brand}_${group.normalizedSku}_${gIdx}`}
-                className="border-border/60 bg-card/50 overflow-hidden"
-              >
-                <CardHeader className="bg-muted/20 py-3 px-4 border-b border-border/40 flex flex-row items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <Badge variant="outline" className="text-xs">
-                      Marca: {group.brand}
-                    </Badge>
-                    <Badge
-                      variant="outline"
-                      className="font-mono text-xs border-blue-500/40 bg-blue-500/10 text-blue-300"
-                    >
-                      Chave: {group.normalizedSku}
-                    </Badge>
+          {/* Relatório de Resolução da Ação Mais Recente */}
+          {singleResolutionReport && (
+            <Card className="border-emerald-500/40 bg-emerald-500/5">
+              <CardHeader className="py-3 px-4 border-b border-emerald-500/20 flex flex-row items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                  <CardTitle className="text-xs text-emerald-300 font-semibold">
+                    Última Resolução Executada: {singleResolutionReport.brand} — Chave{' '}
+                    {singleResolutionReport.normalizedSku}
+                  </CardTitle>
+                </div>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setSingleResolutionReport(null)}
+                  className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </Button>
+              </CardHeader>
+              <CardContent className="p-4 text-xs space-y-2">
+                {singleResolutionReport.errors.length > 0 && (
+                  <div className="p-3 rounded bg-rose-500/15 border border-rose-500/40 text-rose-200 space-y-1">
+                    <span className="font-bold">Erros registrados:</span>
+                    {singleResolutionReport.errors.map((e, idx) => (
+                      <p key={idx} className="font-mono text-[11px]">
+                        {e.error}
+                      </p>
+                    ))}
                   </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => handleOpenDecisionModal(group)}
-                    className="h-7 text-xs"
-                  >
-                    Registrar Nota
-                  </Button>
-                </CardHeader>
-                <CardContent className="p-0">
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="hover:bg-transparent text-xs">
-                        <TableHead>SKU Original</TableHead>
-                        <TableHead>Nome do Produto</TableHead>
-                        <TableHead>Preço USD</TableHead>
-                        <TableHead>Status</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {group.products.map((p) => (
-                        <TableRow key={p.id}>
-                          <TableCell className="font-mono text-xs font-semibold">{p.sku}</TableCell>
-                          <TableCell className="text-xs max-w-[320px] truncate">{p.name}</TableCell>
-                          <TableCell className="text-xs">
-                            {p.price_usd != null ? formatUSD(p.price_usd) : '-'}
-                          </TableCell>
-                          <TableCell>
-                            {p.is_discontinued ? (
-                              <Badge variant="destructive" className="text-[10px]">
-                                Inativo
-                              </Badge>
-                            ) : (
-                              <Badge
-                                variant="outline"
-                                className="border-green-500/30 text-green-400 text-[10px]"
-                              >
-                                Ativo
-                              </Badge>
-                            )}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
-            ))}
-
-            {/* Colisões entre marcas diferentes */}
-            {data && data.crossBrandCollisions.length > 0 && (
-              <div className="pt-4 space-y-2">
-                <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Colisões Entre Marcas Distintas ({data.crossBrandCollisions.length})
-                </h4>
-                <p className="text-xs text-muted-foreground">
-                  Marcas distintas que utilizam o mesmo código alfanumérico (ex.: código de
-                  cabo/adaptador genérico).
-                </p>
-
-                {data.crossBrandCollisions.map((group, cIdx) => (
-                  <Card
-                    key={`cross_${group.normalizedSku}_${cIdx}`}
-                    className="border-border/40 bg-card/30"
-                  >
-                    <CardHeader className="py-2.5 px-4 bg-muted/10 border-b border-border/30 flex flex-row items-center justify-between">
-                      <span className="font-mono text-xs font-semibold">
-                        Chave: {group.normalizedSku}
+                )}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-muted-foreground">
+                  <div>
+                    <span className="text-foreground font-semibold">Prevalente mantido:</span>{' '}
+                    <code className="text-emerald-400">
+                      {singleResolutionReport.preferredSkuAfter}
+                    </code>
+                    <p className="text-[11px] truncate">{singleResolutionReport.preferredName}</p>
+                  </div>
+                  <div>
+                    <span className="text-foreground font-semibold">Perdedores excluídos:</span>{' '}
+                    <span className="text-rose-400 font-bold">
+                      {singleResolutionReport.deletedProducts.length}
+                    </span>
+                    <p className="text-[11px]">
+                      {singleResolutionReport.deletedProducts
+                        .map((p) => p.sku || 'Sem SKU')
+                        .join(', ')}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-foreground font-semibold">Campos mesclados:</span>{' '}
+                    {singleResolutionReport.mergedFields.length > 0 ? (
+                      <span className="text-emerald-300 font-mono">
+                        {singleResolutionReport.mergedFields.map((f) => f.field).join(', ')}
                       </span>
-                      <span className="text-xs text-muted-foreground">{group.brand}</span>
+                    ) : (
+                      <span>Nenhum campo vazio preenchido</span>
+                    )}
+                    <p className="text-[11px]">
+                      Datas atualizadas:{' '}
+                      {singleResolutionReport.datesUpdated ? 'Sim (revisão real)' : 'Não'}
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {filteredOtherCollisions.length === 0 ? (
+            <Card className="border-border/50 bg-card/30 p-8 text-center space-y-3">
+              <CheckCircle2 className="w-10 h-10 text-emerald-400 mx-auto" />
+              <div className="space-y-1">
+                <p className="text-base font-semibold text-foreground">
+                  Nenhuma colisão pendente em outras marcas!
+                </p>
+                <p className="text-xs text-muted-foreground max-w-lg mx-auto leading-relaxed">
+                  Todos os produtos de marcas não-Sony agora possuem chaves normalizadas exclusivas
+                  por fabricante. A base está apta para ativar o índice UNIQUE global no banco.
+                </p>
+              </div>
+              <div className="pt-2">
+                <div className="inline-block p-3 rounded-lg bg-black/50 border border-emerald-500/30 text-left text-xs font-mono text-emerald-300">
+                  <span className="text-[10px] text-muted-foreground block font-sans">
+                    Arquivo pronto para rodar no SQL Editor:
+                  </span>
+                  <code>supabase/migrations/20261011180000_sku_global_unique_index.sql</code>
+                </div>
+              </div>
+            </Card>
+          ) : (
+            <div className="space-y-4">
+              {filteredOtherCollisions.map((group, gIdx) => {
+                // Análise dos produtos do grupo
+                const prices = group.products
+                  .map((p) => p.price_usd)
+                  .filter((p) => p != null) as number[]
+                const hasPriceDivergence = prices.length > 1 && new Set(prices).size > 1
+                const hasMfrPrefix = group.products.some((p) => /^mfr\s*#/i.test(p.sku || ''))
+                const isPureScrapeDuplicate = !hasPriceDivergence && hasMfrPrefix
+
+                return (
+                  <Card
+                    key={`other_${group.brand}_${group.normalizedSku}_${gIdx}`}
+                    className="border-border/60 bg-card/50 overflow-hidden shadow-sm"
+                  >
+                    <CardHeader className="bg-muted/20 py-3 px-4 border-b border-border/40 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant="outline" className="text-xs font-semibold">
+                          Marca: {group.brand}
+                        </Badge>
+                        <Badge
+                          variant="outline"
+                          className="font-mono text-xs border-blue-500/40 bg-blue-500/10 text-blue-300 font-bold"
+                        >
+                          Chave: {group.normalizedSku}
+                        </Badge>
+                        {hasPriceDivergence ? (
+                          <Badge className="bg-amber-500/20 text-amber-300 border-amber-500/40 text-[10px] font-semibold">
+                            ⚠️ Preços Divergentes ({prices.map((p) => formatUSD(p)).join(' vs ')})
+                          </Badge>
+                        ) : isPureScrapeDuplicate ? (
+                          <Badge className="bg-blue-500/20 text-blue-300 border-blue-500/40 text-[10px]">
+                            Duplicado Puro (Prefixo MFR #) — Mesmo Preço
+                          </Badge>
+                        ) : (
+                          <Badge variant="secondary" className="text-[10px]">
+                            Mesmo Preço ({prices[0] != null ? formatUSD(prices[0]) : 'Sem preço'})
+                          </Badge>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        <Button
+                          size="sm"
+                          variant="default"
+                          onClick={() => handleOpenResolveModal(group)}
+                          className="h-8 text-xs bg-primary hover:bg-primary/90 text-primary-foreground font-semibold shadow"
+                        >
+                          <Sparkles className="w-3.5 h-3.5 mr-1.5" />
+                          Resolver Colisão
+                        </Button>
+                      </div>
                     </CardHeader>
                     <CardContent className="p-0">
                       <Table>
+                        <TableHeader>
+                          <TableRow className="hover:bg-transparent text-xs">
+                            <TableHead className="w-12">Foto</TableHead>
+                            <TableHead>SKU Cadastrado</TableHead>
+                            <TableHead>Nome do Produto</TableHead>
+                            <TableHead>Preço USD</TableHead>
+                            <TableHead>Status</TableHead>
+                            <TableHead>Diagnóstico do Item</TableHead>
+                          </TableRow>
+                        </TableHeader>
                         <TableBody>
-                          {group.products.map((p) => (
-                            <TableRow key={p.id}>
-                              <TableCell className="text-xs font-medium w-48">
-                                {p.manufacturer_name}
-                              </TableCell>
-                              <TableCell className="font-mono text-xs w-36">{p.sku}</TableCell>
-                              <TableCell className="text-xs">{p.name}</TableCell>
-                              <TableCell className="text-xs text-right w-24">
-                                {p.price_usd != null ? formatUSD(p.price_usd) : '-'}
-                              </TableCell>
-                            </TableRow>
-                          ))}
+                          {group.products.map((p) => {
+                            const isMfr = /^mfr\s*#/i.test(p.sku || '')
+                            const isSuggested = group.suggestedPreferredId === p.id
+
+                            return (
+                              <TableRow
+                                key={p.id}
+                                className={cn(isSuggested && 'bg-primary/5', isMfr && 'opacity-85')}
+                              >
+                                <TableCell>
+                                  <div className="w-8 h-8 rounded bg-white/5 border border-white/10 overflow-hidden flex items-center justify-center">
+                                    {p.image_url ? (
+                                      <ImageWithFallback
+                                        src={p.image_url}
+                                        alt={p.name}
+                                        className="w-full h-full object-contain"
+                                      />
+                                    ) : (
+                                      <span className="text-[9px] text-muted-foreground">-</span>
+                                    )}
+                                  </div>
+                                </TableCell>
+                                <TableCell className="font-mono text-xs font-semibold">
+                                  <span
+                                    className={cn(isMfr ? 'text-amber-300' : 'text-foreground')}
+                                  >
+                                    {p.sku}
+                                  </span>
+                                  {isMfr && (
+                                    <Badge
+                                      variant="outline"
+                                      className="ml-2 text-[9px] px-1 py-0 border-amber-500/30 text-amber-400"
+                                    >
+                                      prefixo raspagem
+                                    </Badge>
+                                  )}
+                                </TableCell>
+                                <TableCell
+                                  className="text-xs max-w-[320px] truncate"
+                                  title={p.name}
+                                >
+                                  {p.name}
+                                  <div className="text-[10px] text-muted-foreground font-mono">
+                                    ID: {p.id}
+                                  </div>
+                                </TableCell>
+                                <TableCell className="text-xs font-medium">
+                                  {p.price_usd != null ? (
+                                    <span className="font-mono text-emerald-400 font-semibold">
+                                      {formatUSD(p.price_usd)}
+                                    </span>
+                                  ) : (
+                                    <span className="text-muted-foreground">-</span>
+                                  )}
+                                </TableCell>
+                                <TableCell>
+                                  {p.is_discontinued ? (
+                                    <Badge variant="destructive" className="text-[10px]">
+                                      Inativo
+                                    </Badge>
+                                  ) : (
+                                    <Badge
+                                      variant="outline"
+                                      className="border-green-500/30 text-green-400 text-[10px]"
+                                    >
+                                      Ativo
+                                    </Badge>
+                                  )}
+                                </TableCell>
+                                <TableCell className="text-xs">
+                                  {isSuggested ? (
+                                    <Badge className="bg-primary/20 text-primary border-primary/40 text-[10px]">
+                                      Sugerido como Prevalente
+                                    </Badge>
+                                  ) : isMfr ? (
+                                    <span className="text-[11px] text-amber-300/80">
+                                      Candidato a exclusão (duplicado)
+                                    </span>
+                                  ) : (
+                                    <span className="text-[11px] text-muted-foreground">
+                                      Cadastro concorrente
+                                    </span>
+                                  )}
+                                </TableCell>
+                              </TableRow>
+                            )
+                          })}
                         </TableBody>
                       </Table>
                     </CardContent>
                   </Card>
-                ))}
-              </div>
-            )}
-          </div>
+                )
+              })}
+
+              {/* Colisões entre marcas diferentes */}
+              {data && data.crossBrandCollisions.length > 0 && (
+                <div className="pt-4 space-y-2">
+                  <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Colisões Entre Marcas Distintas ({data.crossBrandCollisions.length})
+                  </h4>
+                  <p className="text-xs text-muted-foreground">
+                    Marcas distintas que utilizam o mesmo código alfanumérico (ex.: código de
+                    cabo/adaptador genérico). O índice UNIQUE por fabricante permite essa
+                    coexistência legítima.
+                  </p>
+
+                  {data.crossBrandCollisions.map((group, cIdx) => (
+                    <Card
+                      key={`cross_${group.normalizedSku}_${cIdx}`}
+                      className="border-border/40 bg-card/30"
+                    >
+                      <CardHeader className="py-2.5 px-4 bg-muted/10 border-b border-border/30 flex flex-row items-center justify-between">
+                        <span className="font-mono text-xs font-semibold">
+                          Chave: {group.normalizedSku}
+                        </span>
+                        <span className="text-xs text-muted-foreground">{group.brand}</span>
+                      </CardHeader>
+                      <CardContent className="p-0">
+                        <Table>
+                          <TableBody>
+                            {group.products.map((p) => (
+                              <TableRow key={p.id}>
+                                <TableCell className="text-xs font-medium w-48">
+                                  {p.manufacturer_name}
+                                </TableCell>
+                                <TableCell className="font-mono text-xs w-36">{p.sku}</TableCell>
+                                <TableCell className="text-xs">{p.name}</TableCell>
+                                <TableCell className="text-xs text-right w-24">
+                                  {p.price_usd != null ? formatUSD(p.price_usd) : '-'}
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </TabsContent>
       </Tabs>
+
+      {/* Modal Guiado de RESOLUÇÃO de Colisão Multi-Marca (Execução Real no Banco) */}
+      <Dialog
+        open={resolveModalOpen}
+        onOpenChange={(open) => !resolvingCollision && setResolveModalOpen(open)}
+      >
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto bg-card border-border/70">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <Sparkles className="w-5 h-5 text-primary" />
+              Resolução de Colisão — {collisionToResolve?.brand} (Chave{' '}
+              {collisionToResolve?.normalizedSku})
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Escolha qual cadastro prevalecerá. Os cadastros perdedores terão dados não preenchidos
+              mesclados no prevalente, suas referências externas (pedidos, cotações e price_checks)
+              redirecionadas, e serão excluídos definitivamente (Opção B).
+            </DialogDescription>
+          </DialogHeader>
+
+          {collisionToResolve && (
+            <div className="space-y-4 py-2 text-xs">
+              {/* Etapa 1: Selecionar Prevalente */}
+              <div className="space-y-2">
+                <label className="text-xs font-semibold text-foreground flex items-center justify-between">
+                  <span>1. Selecione o Produto Prevalente (oficial que será mantido):</span>
+                  <span className="text-[11px] text-muted-foreground font-normal">
+                    {collisionToResolve.products.length} cadastros concorrentes
+                  </span>
+                </label>
+
+                <div className="space-y-2">
+                  {collisionToResolve.products.map((p) => {
+                    const isSelected = resolvePreferredId === p.id
+                    const isMfr = /^mfr\s*#/i.test(p.sku || '')
+
+                    return (
+                      <div
+                        key={p.id}
+                        onClick={() => {
+                          setResolvePreferredId(p.id)
+                          if (p.price_usd != null) {
+                            setChosenPriceUsd(String(p.price_usd))
+                          }
+                          const cleanSku = (p.sku || '').replace(/^mfr\s*#\s*/i, '').trim()
+                          setChosenTargetSku(cleanSku)
+                        }}
+                        className={cn(
+                          'p-3 rounded-lg border cursor-pointer transition-all flex items-start justify-between gap-3',
+                          isSelected
+                            ? 'border-primary bg-primary/10 shadow-sm'
+                            : 'border-border/50 hover:bg-muted/30',
+                        )}
+                      >
+                        <div className="flex items-start gap-3 min-w-0">
+                          <input
+                            type="radio"
+                            name="resolve-preferred-selection"
+                            checked={isSelected}
+                            onChange={() => {
+                              setResolvePreferredId(p.id)
+                              if (p.price_usd != null) {
+                                setChosenPriceUsd(String(p.price_usd))
+                              }
+                              const cleanSku = (p.sku || '').replace(/^mfr\s*#\s*/i, '').trim()
+                              setChosenTargetSku(cleanSku)
+                            }}
+                            className="text-primary focus:ring-primary mt-1"
+                          />
+                          <div className="min-w-0 space-y-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="font-mono font-bold text-xs text-foreground">
+                                {p.sku}
+                              </span>
+                              {isMfr && (
+                                <Badge
+                                  variant="outline"
+                                  className="border-amber-500/30 text-amber-300 text-[9px] px-1 py-0"
+                                >
+                                  prefixo raspagem
+                                </Badge>
+                              )}
+                              {p.price_usd != null ? (
+                                <span className="font-mono font-semibold text-emerald-400 text-xs">
+                                  {formatUSD(p.price_usd)}
+                                </span>
+                              ) : (
+                                <span className="text-muted-foreground text-xs">Sem preço</span>
+                              )}
+                              {p.is_discontinued ? (
+                                <Badge variant="destructive" className="text-[9px] px-1 py-0">
+                                  Descontinuado
+                                </Badge>
+                              ) : (
+                                <Badge
+                                  variant="outline"
+                                  className="border-green-500/30 text-green-400 text-[9px] px-1 py-0"
+                                >
+                                  Ativo
+                                </Badge>
+                              )}
+                            </div>
+                            <p className="text-xs text-foreground/90 truncate" title={p.name}>
+                              {p.name}
+                            </p>
+                            <div className="text-[10px] text-muted-foreground font-mono flex flex-wrap gap-2">
+                              <span>ID: {p.id.slice(0, 8)}...</span>
+                              <span>
+                                Atualizado:{' '}
+                                {p.updated_at ? new Date(p.updated_at).toLocaleDateString() : '-'}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="shrink-0 flex flex-col items-end gap-1">
+                          {isSelected ? (
+                            <Badge className="bg-primary text-primary-foreground text-[10px]">
+                              Prevalente Selecionado
+                            </Badge>
+                          ) : (
+                            <Badge
+                              variant="outline"
+                              className="border-rose-500/30 text-rose-300 text-[10px]"
+                            >
+                              Será Deletado
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* Etapa 2: Preço em Vigor & SKU Padronizado */}
+              <div className="p-3.5 rounded-lg bg-muted/20 border border-border/50 space-y-3">
+                <span className="font-semibold text-foreground block">
+                  2. Configuração do Prevalente: Preço em Vigor e SKU Final
+                </span>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-[11px] text-muted-foreground font-medium">
+                      Preço FOB USD em Vigor:
+                    </label>
+                    <div className="relative">
+                      <DollarSign className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        type="number"
+                        step="0.01"
+                        placeholder="Ex: 585.00"
+                        value={chosenPriceUsd}
+                        onChange={(e) => setChosenPriceUsd(e.target.value)}
+                        className="pl-8 h-8 text-xs font-mono bg-background"
+                      />
+                    </div>
+                    <p className="text-[10px] text-muted-foreground">
+                      No caso Blackmagic ou preços divergentes, digite o valor que passará a valer.
+                    </p>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[11px] text-muted-foreground font-medium">
+                      SKU Final do Prevalente:
+                    </label>
+                    <Input
+                      type="text"
+                      placeholder="Ex: BDLKWEB/C/SEDHD"
+                      value={chosenTargetSku}
+                      onChange={(e) => setChosenTargetSku(e.target.value)}
+                      className="h-8 text-xs font-mono bg-background"
+                    />
+                    <p className="text-[10px] text-muted-foreground">
+                      Mantém barras e hífens da marca, limpando prefixos residuais de raspagem.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Etapa 3: Prévia Nominal do que será feito */}
+              <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/30 text-blue-200 space-y-1.5">
+                <div className="flex items-center gap-1.5 font-semibold text-xs text-blue-100">
+                  <ShieldAlert className="w-4 h-4 text-blue-400" />
+                  Salvaguarda Aplicada (Opção B):
+                </div>
+                <ul className="list-disc list-inside space-y-1 text-muted-foreground text-[11px]">
+                  <li>
+                    <strong>Prevalente mantido:</strong>{' '}
+                    <span className="text-foreground font-mono font-semibold">
+                      {chosenTargetSku || '—'}
+                    </span>{' '}
+                    (ID: {resolvePreferredId})
+                  </li>
+                  <li>
+                    <strong>Perdedor(es) a excluir definitivamente:</strong>{' '}
+                    <span className="text-rose-300 font-mono">
+                      {collisionToResolve.products
+                        .filter((p) => p.id !== resolvePreferredId)
+                        .map((p) => p.sku || 'Sem SKU')
+                        .join(', ')}
+                    </span>
+                  </li>
+                  <li>
+                    <strong>Redirecionamento de FKs:</strong> order_items, price_checks, carrinhos e
+                    favoritos serão transferidos para o prevalente ANTES da exclusão.
+                  </li>
+                  <li>
+                    <strong>Regra de datas:</strong> alteração deliberada de preço ou mesclagem de
+                    novos dados marca <code>updated_at = last_reviewed_at = agora</code> (mesmo
+                    valor).
+                  </li>
+                </ul>
+              </div>
+
+              {/* Checkbox de Confirmação Obrigatória */}
+              <div className="pt-2 border-t border-border/40">
+                <label className="flex items-start gap-2.5 cursor-pointer text-xs select-none">
+                  <input
+                    type="checkbox"
+                    checked={resolveConfirmChecked}
+                    onChange={(e) => setResolveConfirmChecked(e.target.checked)}
+                    className="mt-0.5 rounded border-border text-primary focus:ring-primary"
+                  />
+                  <span className="text-foreground leading-relaxed">
+                    Confirmo que verifiquei os dados, aprovei a mesclagem e autorizo a{' '}
+                    <strong>exclusão definitiva</strong> do(s) produto(s) perdedor(es) desta colisão
+                    no banco de dados.
+                  </span>
+                </label>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="gap-2 sm:gap-0 pt-2 border-t border-border/40">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setResolveModalOpen(false)}
+              disabled={resolvingCollision}
+            >
+              Cancelar
+            </Button>
+            <Button
+              size="sm"
+              onClick={async () => {
+                await handleExecuteSingleResolution()
+                setResolveModalOpen(false)
+              }}
+              disabled={!resolveConfirmChecked || !resolvePreferredId || resolvingCollision}
+              className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold"
+            >
+              {resolvingCollision ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                  Resolvendo e Mesclando...
+                </>
+              ) : (
+                <>
+                  <Check className="w-3.5 h-3.5 mr-1.5" />
+                  Confirmar Resolução Definitiva
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Modal para Marcação de Decisão / Prevalência */}
       <Dialog

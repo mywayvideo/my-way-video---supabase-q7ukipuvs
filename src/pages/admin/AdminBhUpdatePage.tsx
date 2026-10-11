@@ -52,13 +52,18 @@ import {
 } from '@/components/ui/select'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { toast } from '@/hooks/use-toast'
-import { bhBatchUpdateService, ProductBatchItem } from '@/services/bhBatchUpdateService'
+import {
+  bhBatchUpdateService,
+  ProductBatchItem,
+  BhBatchJobRecord,
+} from '@/services/bhBatchUpdateService'
 import { priceCheckService } from '@/services/priceCheckService'
 import { rebateDiscountService, ExistingRebateRule } from '@/services/rebateDiscountService'
 import { RebateDiscountModal } from '@/components/admin/RebateDiscountModal'
 import { cn } from '@/lib/utils'
 
 const STORAGE_KEY = 'bh_batch_update_session_v1'
+const MAX_BATCH_SELECTION = 100
 
 /**
  * Retorna true se last_reviewed_at existe, é da data de HOJE (dia civil local),
@@ -120,6 +125,14 @@ export function AdminBhUpdatePage() {
   const stopSignalRef = useRef<boolean>(false)
   const cooldownIntervalRef = useRef<any>(null)
 
+  // Job persistido em banco (bh_batch_jobs)
+  const [activeJob, setActiveJob] = useState<BhBatchJobRecord | null>(null)
+  const [loadingActiveJob, setLoadingActiveJob] = useState<boolean>(true)
+
+  // Filtros de seleção rápida por grupo
+  const [selectedManufacturerId, setSelectedManufacturerId] = useState<string>('all')
+  const [selectedCategory, setSelectedCategory] = useState<string>('all')
+
   // Estado do modal de Rebate Fabricante
   const [rebateModalOpen, setRebateModalOpen] = useState<boolean>(false)
   const [rebateModalProduct, setRebateModalProduct] = useState<ProductBatchItem | null>(null)
@@ -128,39 +141,74 @@ export function AdminBhUpdatePage() {
   const [isBulkReviewing, setIsBulkReviewing] = useState<boolean>(false)
   const [isMigratingRebates, setIsMigratingRebates] = useState<boolean>(false)
 
-  // 1. Carregar produtos iniciais
+  // 1. Carregar produtos iniciais e checar jobs ativos no banco
   const loadInitialProducts = useCallback(async () => {
     setLoading(true)
     try {
       const data = await bhBatchUpdateService.fetchProductsForBatch(2000)
 
-      // Se houver estado em localStorage da sessão atual, mescla para persistir status e url draft
+      // Busca se há um job ativo ou pausado persistido em bh_batch_jobs
+      let dbJob: BhBatchJobRecord | null = null
+      try {
+        dbJob = await bhBatchUpdateService.getActiveBatchJob()
+        if (dbJob) {
+          setActiveJob(dbJob)
+          if (dbJob.metadata?.cooldownSeconds) {
+            setCooldownSeconds(dbJob.metadata.cooldownSeconds)
+          }
+          if (dbJob.metadata?.batchSize) {
+            setBatchSize(dbJob.metadata.batchSize)
+          }
+          // Pré-seleciona os produtos do job persistido
+          setSelectedIds(new Set(dbJob.product_ids || []))
+        }
+      } catch (e) {
+        console.warn('Falha ao checar jobs ativos:', e)
+      }
+
+      // Se houver job com resultados ou estado em localStorage, mescla
       const cached = localStorage.getItem(STORAGE_KEY)
+      let parsedCache: Record<string, Partial<ProductBatchItem>> = {}
       if (cached) {
         try {
-          const parsedCache: Record<string, Partial<ProductBatchItem>> = JSON.parse(cached)
-          const merged = data.map((item) => {
-            const saved = parsedCache[item.id]
-            if (saved) {
-              return {
-                ...item,
-                batchStatus: saved.batchStatus || item.batchStatus,
-                checkResult: saved.checkResult || item.checkResult,
-                errorMessage: saved.errorMessage || item.errorMessage,
-                manualUrlDraft: saved.manualUrlDraft ?? item.manualUrlDraft,
-                website_url: saved.website_url ?? item.website_url,
-                price_usd: saved.price_usd ?? item.price_usd,
-              }
-            }
-            return item
-          })
-          setProducts(merged)
+          parsedCache = JSON.parse(cached)
         } catch {
-          setProducts(data)
+          parsedCache = {}
         }
-      } else {
-        setProducts(data)
       }
+
+      const merged = data.map((item) => {
+        // Prioridade 1: resultado gravado no job ativo do banco
+        if (dbJob?.results && dbJob.results[item.id]) {
+          const dbItem = dbJob.results[item.id]
+          return {
+            ...item,
+            batchStatus: dbItem.batchStatus || 'done',
+            checkResult: dbItem.checkResult || null,
+            errorMessage: dbItem.errorMessage || null,
+            website_url: dbItem.website_url ?? item.website_url,
+            price_usd: dbItem.price_usd ?? item.price_usd,
+            manualUrlDraft: dbItem.website_url ?? item.website_url,
+          }
+        }
+
+        // Prioridade 2: cache local
+        const saved = parsedCache[item.id]
+        if (saved) {
+          return {
+            ...item,
+            batchStatus: saved.batchStatus || item.batchStatus,
+            checkResult: saved.checkResult || item.checkResult,
+            errorMessage: saved.errorMessage || item.errorMessage,
+            manualUrlDraft: saved.manualUrlDraft ?? item.manualUrlDraft,
+            website_url: saved.website_url ?? item.website_url,
+            price_usd: saved.price_usd ?? item.price_usd,
+          }
+        }
+        return item
+      })
+
+      setProducts(merged)
     } catch (err: any) {
       toast({
         title: 'Erro ao carregar catálogo',
@@ -169,6 +217,7 @@ export function AdminBhUpdatePage() {
       })
     } finally {
       setLoading(false)
+      setLoadingActiveJob(false)
     }
   }, [])
 
@@ -268,6 +317,29 @@ export function AdminBhUpdatePage() {
     })
   }, [getTableScrollElement])
 
+  // Lista única de fabricantes e categorias para os selects de filtro por grupo
+  const availableManufacturers = useMemo(() => {
+    const map = new Map<string, string>()
+    products.forEach((p) => {
+      if (p.manufacturer?.id && p.manufacturer?.name) {
+        map.set(p.manufacturer.id, p.manufacturer.name)
+      }
+    })
+    return Array.from(map.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name))
+  }, [products])
+
+  const availableCategories = useMemo(() => {
+    const set = new Set<string>()
+    products.forEach((p) => {
+      if (p.category && p.category.trim()) {
+        set.add(p.category.trim())
+      }
+    })
+    return Array.from(set).sort((a, b) => a.localeCompare(b))
+  }, [products])
+
   // 2. Filtragem e ordenação dos produtos
   const filteredProducts = useMemo(() => {
     return products
@@ -281,6 +353,16 @@ export function AdminBhUpdatePage() {
           if (!hasUrl) return false
         } else if (filterType === 'discontinued') {
           if (!item.is_discontinued && item.checkResult?.status !== 'descontinuado') return false
+        }
+
+        // Filtro por fabricante
+        if (selectedManufacturerId !== 'all') {
+          if (item.manufacturer?.id !== selectedManufacturerId) return false
+        }
+
+        // Filtro por categoria
+        if (selectedCategory !== 'all') {
+          if (item.category !== selectedCategory) return false
         }
 
         // Filtro de busca por nome, SKU ou fabricante
@@ -522,13 +604,21 @@ export function AdminBhUpdatePage() {
     return selectedProducts.filter((p) => p.batchStatus !== 'done' && p.batchStatus !== 'error')
   }, [selectedProducts])
 
-  // Manipuladores de Seleção
+  // Manipuladores de Seleção com teto rígido de MAX_BATCH_SELECTION (100 itens)
   const toggleSelect = (id: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev)
       if (next.has(id)) {
         next.delete(id)
       } else {
+        if (next.size >= MAX_BATCH_SELECTION) {
+          toast({
+            title: `Limite máximo atingido (${MAX_BATCH_SELECTION})`,
+            description: `O teto máximo por lote é de ${MAX_BATCH_SELECTION} produtos. Remova itens antes de adicionar outros.`,
+            variant: 'destructive',
+          })
+          return next
+        }
         next.add(id)
       }
       return next
@@ -537,36 +627,95 @@ export function AdminBhUpdatePage() {
 
   const toggleSelectAllFiltered = () => {
     const allFilteredIds = filteredProducts.map((p) => p.id)
-    const allSelected = allFilteredIds.every((id) => selectedIds.has(id))
+    const allSelected =
+      allFilteredIds.length > 0 && allFilteredIds.every((id) => selectedIds.has(id))
 
+    if (allSelected) {
+      setSelectedIds((prev) => {
+        const next = new Set(prev)
+        allFilteredIds.forEach((id) => next.delete(id))
+        return next
+      })
+      return
+    }
+
+    // Adiciona respeitando o teto de 100
     setSelectedIds((prev) => {
       const next = new Set(prev)
-      if (allSelected) {
-        allFilteredIds.forEach((id) => next.delete(id))
-      } else {
-        allFilteredIds.forEach((id) => next.add(id))
+      let added = 0
+      let hitCap = false
+
+      for (const id of allFilteredIds) {
+        if (!next.has(id)) {
+          if (next.size >= MAX_BATCH_SELECTION) {
+            hitCap = true
+            break
+          }
+          next.add(id)
+          added++
+        }
       }
+
+      if (hitCap) {
+        toast({
+          title: `Teto de ${MAX_BATCH_SELECTION} produtos respeitado`,
+          description: `Foram adicionados ${added} produtos até atingir o limite máximo de ${MAX_BATCH_SELECTION} por lote.`,
+        })
+      }
+
       return next
     })
   }
 
   const selectTopUnprocessed = (count: number) => {
+    const effectiveTarget = Math.min(count, MAX_BATCH_SELECTION)
     const idsToSelect: string[] = []
+
     for (const p of filteredProducts) {
-      if (idsToSelect.length >= count) break
+      if (idsToSelect.length >= effectiveTarget) break
       idsToSelect.push(p.id)
     }
 
-    setSelectedIds((prev) => {
-      const next = new Set(prev)
-      idsToSelect.forEach((id) => next.add(id))
-      return next
-    })
+    setSelectedIds(new Set(idsToSelect))
 
-    toast({
-      title: `${idsToSelect.length} produtos selecionados`,
-      description: `Primeiros ${idsToSelect.length} itens da lista filtrada adicionados à seleção.`,
-    })
+    if (count > MAX_BATCH_SELECTION) {
+      toast({
+        title: `Teto de ${MAX_BATCH_SELECTION} produtos`,
+        description: `O limite máximo por lote é de ${MAX_BATCH_SELECTION}. Selecionados os primeiros ${idsToSelect.length} itens.`,
+      })
+    } else {
+      toast({
+        title: `${idsToSelect.length} produtos selecionados`,
+        description: `Primeiros ${idsToSelect.length} itens da lista filtrada selecionados para o lote.`,
+      })
+    }
+  }
+
+  // Seleção rápida por grupo (Fabricante atual ou Categoria atual) com respeito ao teto
+  const selectGroupFiltered = (type: 'manufacturer' | 'category') => {
+    const idsToSelect: string[] = []
+    let totalInGroup = 0
+
+    for (const p of filteredProducts) {
+      totalInGroup++
+      if (idsToSelect.length < MAX_BATCH_SELECTION) {
+        idsToSelect.push(p.id)
+      }
+    }
+
+    setSelectedIds(new Set(idsToSelect))
+
+    if (totalInGroup > MAX_BATCH_SELECTION) {
+      toast({
+        title: `Teto de ${MAX_BATCH_SELECTION} produtos aplicado`,
+        description: `O grupo possui ${totalInGroup} produtos. Selecionamos os primeiros ${MAX_BATCH_SELECTION} (máximo por lote).`,
+      })
+    } else {
+      toast({
+        title: `${idsToSelect.length} produtos selecionados`,
+        description: `Todos os ${idsToSelect.length} produtos do grupo foram selecionados.`,
+      })
+    }
   }
 
   const clearSelection = () => {
@@ -625,22 +774,27 @@ export function AdminBhUpdatePage() {
     }
   }
 
-  // 3. Execução do lote seguro
+  // 3. Execução contínua e autônoma do lote de até 100 produtos
+  // Quebra em chunks fixos de 10 em 10 (ou batchSize configurado) com cooldown automático
+  // Grava checkpoint persistido em bh_batch_jobs a cada item concluído.
   const executeBatch = async () => {
-    if (pendingSelectedItems.length === 0) {
+    if (selectedProducts.length === 0) {
       toast({
-        title: 'Nenhum item pendente',
-        description: 'Selecione produtos que ainda não foram processados nesta rodada.',
+        title: 'Nenhum produto selecionado',
+        description: 'Selecione até 100 produtos para iniciar a verificação de preços.',
         variant: 'destructive',
       })
       return
     }
 
-    if (remainingCooldown > 0) {
+    const pendingItems = selectedProducts.filter(
+      (p) => p.batchStatus !== 'done' && p.batchStatus !== 'error',
+    )
+
+    if (pendingItems.length === 0) {
       toast({
-        title: 'Aguarde a refrigeração',
-        description: `O temporizador de segurança está ativo (${remainingCooldown}s restantes).`,
-        variant: 'destructive',
+        title: 'Todos os produtos já foram processados',
+        description: 'Os itens selecionados já concluíram a verificação nesta rodada.',
       })
       return
     }
@@ -649,88 +803,254 @@ export function AdminBhUpdatePage() {
     setBatchPauseRequested(false)
     stopSignalRef.current = false
 
-    // Pega o próximo pedaço conforme o batchSize configurado
-    const currentChunk = pendingSelectedItems.slice(0, batchSize)
-    let processedInThisBatch = 0
+    // Criação ou reutilização do job em bh_batch_jobs
+    let currentJob = activeJob
+    if (!currentJob || currentJob.status === 'completed' || currentJob.status === 'cancelled') {
+      try {
+        currentJob = await bhBatchUpdateService.createBatchJob({
+          productIds: selectedProducts.map((p) => p.id),
+          batchSize,
+          cooldownSeconds,
+        })
+        if (currentJob) {
+          setActiveJob(currentJob)
+        }
+      } catch (jobErr) {
+        console.warn('Falha ao inicializar bh_batch_jobs:', jobErr)
+      }
+    } else {
+      // Atualiza status do job existente para in_progress
+      try {
+        await bhBatchUpdateService.updateJobStatus(currentJob.id, 'in_progress')
+        setActiveJob((prev) => (prev ? { ...prev, status: 'in_progress' } : null))
+      } catch (e) {
+        console.warn('Falha ao reativar job:', e)
+      }
+    }
 
-    for (let i = 0; i < currentChunk.length; i++) {
-      if (stopSignalRef.current) {
+    const effectiveChunkSize = Math.max(1, batchSize || 10)
+    let processedTotalInRun = 0
+
+    // Loop contínuo que processa os itens em chunks automáticos até o fim do lote
+    while (!stopSignalRef.current) {
+      // Reavalia pendentes atuais do array de produtos selecionados
+      // Precisamos pegar o estado mais recente usando a referência de produtos
+      let currentPendings: ProductBatchItem[] = []
+      setProducts((currentProds) => {
+        currentPendings = currentProds.filter(
+          (p) => selectedIds.has(p.id) && p.batchStatus !== 'done' && p.batchStatus !== 'error',
+        )
+        return currentProds
+      })
+
+      if (currentPendings.length === 0 || stopSignalRef.current) {
         break
       }
 
-      const item = currentChunk[i]
-      setCurrentProcessingId(item.id)
+      const chunk = currentPendings.slice(0, effectiveChunkSize)
 
-      // Atualiza status para processing
-      setProducts((prev) =>
-        prev.map((p) =>
-          p.id === item.id ? { ...p, batchStatus: 'processing', errorMessage: null } : p,
-        ),
-      )
+      // Processa cada item do chunk individualmente com gravação de checkpoint
+      for (let i = 0; i < chunk.length; i++) {
+        if (stopSignalRef.current) break
 
-      try {
-        const result = await bhBatchUpdateService.processSingleItem(item.id)
+        const item = chunk[i]
+        setCurrentProcessingId(item.id)
 
-        // Se uma nova URL foi descoberta e gravada no banco pelo edge function, atualiza o item
-        const newWebsiteUrl =
-          result.url_discovered && result.url_used ? result.url_used : item.website_url
+        // Marca item como 'processing'
+        setProducts((prev) =>
+          prev.map((p) =>
+            p.id === item.id ? { ...p, batchStatus: 'processing', errorMessage: null } : p,
+          ),
+        )
 
+        let checkResult: any = null
+        let isSuccess = false
+        let errMsg: string | null = null
+        let newWebsiteUrl = item.website_url
+
+        try {
+          checkResult = await bhBatchUpdateService.processSingleItem(item.id)
+          isSuccess = true
+          if (checkResult?.url_discovered && checkResult?.url_used) {
+            newWebsiteUrl = checkResult.url_used
+          }
+        } catch (itemErr: any) {
+          isSuccess = false
+          errMsg = itemErr?.message || 'Falha na verificação B&H'
+          checkResult = {
+            status: 'erro',
+            message: errMsg,
+            error: errMsg,
+          }
+        }
+
+        // Atualiza estado local do produto
         setProducts((prev) =>
           prev.map((p) =>
             p.id === item.id
               ? {
                   ...p,
-                  batchStatus: 'done',
-                  checkResult: result,
+                  batchStatus: isSuccess ? 'done' : 'error',
+                  checkResult,
+                  errorMessage: errMsg,
                   website_url: newWebsiteUrl,
                   manualUrlDraft: newWebsiteUrl || p.manualUrlDraft,
                 }
               : p,
           ),
         )
-        processedInThisBatch++
-      } catch (itemErr: any) {
-        const errMsg = itemErr?.message || 'Falha na verificação B&H'
-        setProducts((prev) =>
-          prev.map((p) =>
-            p.id === item.id
-              ? {
-                  ...p,
-                  batchStatus: 'error',
-                  errorMessage: errMsg,
-                  checkResult: {
-                    status: 'erro',
-                    message: errMsg,
-                    error: errMsg,
-                  },
-                }
-              : p,
-          ),
-        )
+
+        processedTotalInRun++
+
+        // Persiste checkpoint no banco bh_batch_jobs
+        if (currentJob?.id) {
+          try {
+            // Calcula estatísticas acumuladas
+            const currentDoneItems: ProductBatchItem[] = []
+            setProducts((curr) => {
+              currentDoneItems.push(
+                ...curr.filter(
+                  (p) =>
+                    selectedIds.has(p.id) &&
+                    (p.batchStatus === 'done' || p.batchStatus === 'error'),
+                ),
+              )
+              return curr
+            })
+
+            const statsSnapshot = bhBatchUpdateService.calculateStats(currentDoneItems)
+            statsSnapshot.totalSelected = selectedIds.size
+
+            const existingResultsSnapshot = currentJob.results || {}
+
+            await bhBatchUpdateService.recordItemCheckpoint({
+              jobId: currentJob.id,
+              productId: item.id,
+              batchStatus: isSuccess ? 'done' : 'error',
+              checkResult,
+              errorMessage: errMsg,
+              websiteUrl: newWebsiteUrl,
+              priceUsd: item.price_usd,
+              currentStats: statsSnapshot,
+              existingResults: existingResultsSnapshot,
+              isLastItem: currentPendings.length <= 1,
+            })
+
+            // Atualiza cópia local de activeJob
+            setActiveJob((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    processed_items: (prev.processed_items || 0) + 1,
+                    current_product_id: item.id,
+                    stats: statsSnapshot,
+                    results: {
+                      ...prev.results,
+                      [item.id]: {
+                        checkResult,
+                        batchStatus: isSuccess ? 'done' : 'error',
+                        errorMessage: errMsg,
+                        website_url: newWebsiteUrl,
+                        price_usd: item.price_usd,
+                      },
+                    },
+                  }
+                : null,
+            )
+          } catch (ckErr) {
+            console.warn('Erro ao gravar checkpoint do item:', ckErr)
+          }
+        }
+
+        // Pausa suave de 350ms entre itens de um mesmo chunk
+        if (i < chunk.length - 1 && !stopSignalRef.current) {
+          await new Promise((res) => setTimeout(res, 350))
+        }
       }
 
-      // Pequena pausa natural de 300ms entre itens do mesmo lote para suavizar o render
-      if (i < currentChunk.length - 1 && !stopSignalRef.current) {
-        await new Promise((res) => setTimeout(res, 350))
+      // Verifica se restam itens após este chunk
+      let remainingAfterChunk: ProductBatchItem[] = []
+      setProducts((currentProds) => {
+        remainingAfterChunk = currentProds.filter(
+          (p) => selectedIds.has(p.id) && p.batchStatus !== 'done' && p.batchStatus !== 'error',
+        )
+        return currentProds
+      })
+
+      // Se ainda restam itens e não houve pedido de pausa, executa o cooldown automático
+      if (remainingAfterChunk.length > 0 && !stopSignalRef.current) {
+        if (cooldownSeconds > 0) {
+          setRemainingCooldown(cooldownSeconds)
+
+          // Aguarda o cooldown segundo a segundo respeitando stopSignalRef
+          for (let sec = cooldownSeconds; sec > 0; sec--) {
+            if (stopSignalRef.current) break
+            await new Promise((res) => setTimeout(res, 1000))
+          }
+          setRemainingCooldown(0)
+        }
       }
     }
 
     setCurrentProcessingId(null)
     setIsProcessingBatch(false)
 
-    // Aciona o temporizador de refrigeração obrigatório entre lotes
-    if (processedInThisBatch > 0) {
-      setRemainingCooldown(cooldownSeconds)
+    // Se foi pausado pelo usuário, atualiza o job para 'paused'
+    if (stopSignalRef.current && currentJob?.id) {
+      try {
+        await bhBatchUpdateService.updateJobStatus(currentJob.id, 'paused')
+        setActiveJob((prev) => (prev ? { ...prev, status: 'paused' } : null))
+      } catch (e) {
+        console.warn('Falha ao pausar job:', e)
+      }
       toast({
-        title: `Lote de ${processedInThisBatch} produtos concluído!`,
-        description: `Temporizador de segurança ativado (${cooldownSeconds}s). O próximo lote poderá ser iniciado após a contagem.`,
+        title: 'Lote pausado',
+        description: 'O progresso foi salvo. Você pode retomar a qualquer momento.',
       })
+    } else {
+      // Concluído com sucesso
+      if (currentJob?.id) {
+        try {
+          await bhBatchUpdateService.updateJobStatus(currentJob.id, 'completed')
+          setActiveJob((prev) => (prev ? { ...prev, status: 'completed' } : null))
+        } catch (e) {
+          console.warn('Falha ao concluir job:', e)
+        }
+      }
+      if (processedTotalInRun > 0) {
+        toast({
+          title: 'Processamento de lote finalizado!',
+          description: `Total de ${processedTotalInRun} produtos processados nesta rodada. Verifique os resultados abaixo.`,
+        })
+      }
     }
   }
 
   const handleStopBatch = () => {
     stopSignalRef.current = true
     setBatchPauseRequested(true)
+    if (activeJob?.id) {
+      bhBatchUpdateService.updateJobStatus(activeJob.id, 'paused').catch(() => {})
+      setActiveJob((prev) => (prev ? { ...prev, status: 'paused' } : null))
+    }
+  }
+
+  // Descartar/concluir job ativo para liberar início de um novo lote limpo
+  const handleDiscardActiveJob = async () => {
+    if (activeJob?.id) {
+      try {
+        await bhBatchUpdateService.updateJobStatus(activeJob.id, 'cancelled')
+      } catch (e) {
+        console.warn(e)
+      }
+    }
+    setActiveJob(null)
+    clearSelection()
+    resetAllStatuses()
+    toast({
+      title: 'Lote anterior finalizado',
+      description: 'Você pode selecionar novos produtos para uma nova rodada.',
+    })
   }
 
   // 4. Ações Manuais por Linha
@@ -1313,6 +1633,59 @@ export function AdminBhUpdatePage() {
             </div>
           </div>
 
+          {/* Alerta de Lote em Andamento Persistido em Banco */}
+          {activeJob && (activeJob.status === 'in_progress' || activeJob.status === 'paused') && (
+            <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-lg bg-blue-500/20 border border-blue-500/40 flex items-center justify-center text-blue-400 font-bold shrink-0">
+                  <RotateCcw className="w-5 h-5 animate-pulse" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h4 className="font-semibold text-sm text-blue-200">
+                      Lote em andamento persistido: {activeJob.processed_items}/
+                      {activeJob.total_items}
+                    </h4>
+                    <Badge
+                      variant="outline"
+                      className="border-blue-400/40 text-blue-300 text-[10px] uppercase"
+                    >
+                      {activeJob.status === 'paused' ? 'Pausado' : 'Em Execução'}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-blue-300/80 mt-0.5">
+                    Checkpoint gravado a cada item concluído. Retome da posição seguinte sem
+                    reprocessar nenhum item e economizando créditos.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                {!isProcessingBatch && (
+                  <>
+                    <Button
+                      size="sm"
+                      onClick={executeBatch}
+                      disabled={pendingSelectedItems.length === 0}
+                      className="bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs h-9 px-4 shadow-sm"
+                    >
+                      <Play className="w-3.5 h-3.5 mr-1.5" />
+                      Retomar ({pendingSelectedItems.length} restantes)
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleDiscardActiveJob}
+                      className="text-xs h-9 border-border/60 text-muted-foreground hover:text-destructive"
+                    >
+                      Descartar Lote
+                    </Button>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Painel de Controle de Lotes e Temporizador */}
           <div className="bg-card border border-border/60 rounded-xl p-5 shadow-sm space-y-5">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-border/40">
@@ -1331,8 +1704,20 @@ export function AdminBhUpdatePage() {
                 </div>
               </div>
 
-              {/* Botão de Disparo / Pausa do Lote */}
-              <div className="flex items-center gap-3">
+              {/* Botão de Disparo / Pausa / Retomada do Lote */}
+              <div className="flex items-center gap-2">
+                {activeJob && activeJob.status === 'paused' && !isProcessingBatch && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleDiscardActiveJob}
+                    className="h-10 text-xs text-muted-foreground border-border/60 hover:text-destructive"
+                    title="Descarta o job salvo para permitir novo lote limpo"
+                  >
+                    Descartar Lote
+                  </Button>
+                )}
+
                 {isProcessingBatch ? (
                   <Button
                     onClick={handleStopBatch}
@@ -1345,27 +1730,30 @@ export function AdminBhUpdatePage() {
                 ) : (
                   <Button
                     onClick={executeBatch}
-                    disabled={
-                      selectedIds.size === 0 ||
-                      pendingSelectedItems.length === 0 ||
-                      remainingCooldown > 0
-                    }
+                    disabled={selectedIds.size === 0 || pendingSelectedItems.length === 0}
                     className={cn(
                       'h-10 px-5 font-semibold text-white shadow-md transition-all',
                       remainingCooldown > 0
                         ? 'bg-amber-600/60 cursor-not-allowed hover:bg-amber-600/60'
-                        : 'bg-emerald-600 hover:bg-emerald-700',
+                        : activeJob && activeJob.status === 'paused'
+                          ? 'bg-blue-600 hover:bg-blue-700'
+                          : 'bg-emerald-600 hover:bg-emerald-700',
                     )}
                   >
                     {remainingCooldown > 0 ? (
                       <>
                         <Clock className="w-4 h-4 mr-2 animate-pulse" />
-                        Refrigeração: {remainingCooldown}s
+                        Espera entre chunks: {remainingCooldown}s
+                      </>
+                    ) : activeJob && activeJob.status === 'paused' ? (
+                      <>
+                        <Play className="w-4 h-4 mr-2" />
+                        Retomar Lote ({pendingSelectedItems.length} restantes)
                       </>
                     ) : (
                       <>
                         <Play className="w-4 h-4 mr-2" />
-                        Processar Próximo Lote ({Math.min(batchSize, pendingSelectedItems.length)})
+                        Iniciar Lote ({selectedIds.size} selecionados)
                       </>
                     )}
                   </Button>
@@ -1373,18 +1761,18 @@ export function AdminBhUpdatePage() {
               </div>
             </div>
 
-            {/* Configurações de Lote: Tamanho e Refrigeração */}
+            {/* Configurações de Lote: Chunks de 10 e Cooldown Automático */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
-                  <span>Tamanho do Lote</span>
+                  <span>Chunk de Processamento</span>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Info className="w-3.5 h-3.5 cursor-help" />
                     </TooltipTrigger>
                     <TooltipContent>
-                      Quantidade de produtos auditados sequencialmente antes da pausa de
-                      refrigeração.
+                      Lote de até 100 processado em chunks de 10 em 10 com cooldown automático entre
+                      blocos.
                     </TooltipContent>
                   </Tooltip>
                 </label>
@@ -1394,27 +1782,27 @@ export function AdminBhUpdatePage() {
                   disabled={isProcessingBatch}
                 >
                   <SelectTrigger className="h-9 text-xs">
-                    <SelectValue placeholder="Tamanho do lote" />
+                    <SelectValue placeholder="Chunk" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="5">5 produtos por lote</SelectItem>
-                    <SelectItem value="10">10 produtos (padrão seguro)</SelectItem>
-                    <SelectItem value="15">15 produtos por lote</SelectItem>
-                    <SelectItem value="20">20 produtos por lote</SelectItem>
+                    <SelectItem value="5">5 em 5 itens</SelectItem>
+                    <SelectItem value="10">10 em 10 itens (padrão)</SelectItem>
+                    <SelectItem value="15">15 em 15 itens</SelectItem>
+                    <SelectItem value="20">20 em 20 itens</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
-                  <span>Tempo de Refrigeração</span>
+                  <span>Espera entre Chunks (Cooldown)</span>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Info className="w-3.5 h-3.5 cursor-help" />
                     </TooltipTrigger>
                     <TooltipContent>
-                      Intervalo de descanso do bot entre a conclusão de um lote e a liberação do
-                      próximo.
+                      Cooldown automático entre cada bloco de 10 itens para não sobrecarregar os
+                      servidores de busca e B&H.
                     </TooltipContent>
                   </Tooltip>
                 </label>
@@ -1427,19 +1815,31 @@ export function AdminBhUpdatePage() {
                     <SelectValue placeholder="Tempo de refrigeração" />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="15">15 segundos (rápido)</SelectItem>
                     <SelectItem value="30">30 segundos</SelectItem>
                     <SelectItem value="45">45 segundos</SelectItem>
-                    <SelectItem value="60">60 segundos (padrão recomendado)</SelectItem>
+                    <SelectItem value="60">60 segundos (padrão seguro)</SelectItem>
                     <SelectItem value="90">90 segundos</SelectItem>
-                    <SelectItem value="120">120 segundos (alta cautela)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
               <div className="space-y-1.5 sm:col-span-2">
-                <label className="text-xs font-medium text-muted-foreground block">
-                  Seleção Rápida no Catálogo
-                </label>
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-medium text-muted-foreground block">
+                    Seleção no Catálogo (Teto rígido: {MAX_BATCH_SELECTION})
+                  </label>
+                  <span
+                    className={cn(
+                      'text-xs font-semibold font-mono px-2 py-0.5 rounded border',
+                      selectedIds.size >= MAX_BATCH_SELECTION
+                        ? 'bg-amber-500/20 text-amber-400 border-amber-500/40 font-bold'
+                        : 'bg-muted/60 text-foreground border-border/40',
+                    )}
+                  >
+                    {selectedIds.size}/{MAX_BATCH_SELECTION} selecionados
+                  </span>
+                </div>
                 <div className="flex items-center gap-2 flex-wrap">
                   <Button
                     variant="outline"
@@ -1448,16 +1848,25 @@ export function AdminBhUpdatePage() {
                     disabled={isProcessingBatch || isBulkReviewing}
                     className="h-9 text-xs"
                   >
-                    +10 Mais Antigos
+                    +10 Antigos
                   </Button>
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => selectTopUnprocessed(30)}
+                    onClick={() => selectTopUnprocessed(50)}
                     disabled={isProcessingBatch || isBulkReviewing}
                     className="h-9 text-xs"
                   >
-                    +30 Mais Antigos
+                    +50 Antigos
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => selectTopUnprocessed(100)}
+                    disabled={isProcessingBatch || isBulkReviewing}
+                    className="h-9 text-xs font-semibold border-primary/40 bg-primary/5 hover:bg-primary/10"
+                  >
+                    Preencher Lote (100)
                   </Button>
                   <Button
                     variant="outline"
@@ -1466,7 +1875,9 @@ export function AdminBhUpdatePage() {
                     disabled={isProcessingBatch || isBulkReviewing || filteredProducts.length === 0}
                     className="h-9 text-xs"
                   >
-                    {isAllFilteredSelected ? 'Desmarcar Visíveis' : 'Selecionar Todos Filtrados'}
+                    {isAllFilteredSelected
+                      ? 'Desmarcar Visíveis'
+                      : `Selecionar Filtrados (até ${MAX_BATCH_SELECTION})`}
                   </Button>
 
                   {/* Ações em Lote para Selecionados */}
@@ -1691,68 +2102,138 @@ export function AdminBhUpdatePage() {
             </div>
           </div>
 
-          {/* Barra de Filtros e Busca */}
-          <div className="bg-card border border-border/50 rounded-xl p-4 flex flex-col md:flex-row items-center justify-between gap-3 shadow-sm">
-            <div className="flex items-center gap-2 w-full md:w-auto flex-wrap">
-              <span className="text-xs font-medium text-muted-foreground flex items-center gap-1 mr-1">
-                <Filter className="w-3.5 h-3.5" /> Filtrar:
-              </span>
+          {/* Barra de Filtros, Seleção por Grupo e Busca */}
+          <div className="bg-card border border-border/50 rounded-xl p-4 flex flex-col gap-3 shadow-sm">
+            <div className="flex flex-col md:flex-row items-center justify-between gap-3">
+              <div className="flex items-center gap-2 w-full md:w-auto flex-wrap">
+                <span className="text-xs font-medium text-muted-foreground flex items-center gap-1 mr-1">
+                  <Filter className="w-3.5 h-3.5" /> Filtrar:
+                </span>
 
-              <Button
-                size="sm"
-                variant={filterType === 'all' ? 'secondary' : 'outline'}
-                onClick={() => setFilterType('all')}
-                className="h-8 text-xs"
-              >
-                Todos ({products.length})
-              </Button>
-              <Button
-                size="sm"
-                variant={filterType === 'without_link' ? 'secondary' : 'outline'}
-                onClick={() => setFilterType('without_link')}
-                className="h-8 text-xs"
-              >
-                Sem link B&H
-              </Button>
-              <Button
-                size="sm"
-                variant={filterType === 'with_link' ? 'secondary' : 'outline'}
-                onClick={() => setFilterType('with_link')}
-                className="h-8 text-xs"
-              >
-                Com link B&H
-              </Button>
-              <Button
-                size="sm"
-                variant={filterType === 'discontinued' ? 'secondary' : 'outline'}
-                onClick={() => setFilterType('discontinued')}
-                className="h-8 text-xs"
-              >
-                Descontinuados
-              </Button>
+                <Button
+                  size="sm"
+                  variant={filterType === 'all' ? 'secondary' : 'outline'}
+                  onClick={() => setFilterType('all')}
+                  className="h-8 text-xs"
+                >
+                  Todos ({products.length})
+                </Button>
+                <Button
+                  size="sm"
+                  variant={filterType === 'without_link' ? 'secondary' : 'outline'}
+                  onClick={() => setFilterType('without_link')}
+                  className="h-8 text-xs"
+                >
+                  Sem link B&H
+                </Button>
+                <Button
+                  size="sm"
+                  variant={filterType === 'with_link' ? 'secondary' : 'outline'}
+                  onClick={() => setFilterType('with_link')}
+                  className="h-8 text-xs"
+                >
+                  Com link B&H
+                </Button>
+                <Button
+                  size="sm"
+                  variant={filterType === 'discontinued' ? 'secondary' : 'outline'}
+                  onClick={() => setFilterType('discontinued')}
+                  className="h-8 text-xs"
+                >
+                  Descontinuados
+                </Button>
+              </div>
+
+              <div className="flex items-center gap-3 w-full md:w-auto justify-end">
+                <Select value={sortBy} onValueChange={(val: any) => setSortBy(val)}>
+                  <SelectTrigger className="h-8 text-xs w-[200px]">
+                    <SelectValue placeholder="Ordenação" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="updated_at_asc">Mais desatualizados primeiro</SelectItem>
+                    <SelectItem value="updated_at_desc">Mais recentes primeiro</SelectItem>
+                    <SelectItem value="name_asc">Nome alfabético (A-Z)</SelectItem>
+                    <SelectItem value="price_desc">Maior valor FOB</SelectItem>
+                  </SelectContent>
+                </Select>
+
+                <div className="relative w-full md:w-64">
+                  <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    placeholder="Buscar produto, SKU..."
+                    className="pl-9 h-8 text-xs bg-background/50"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                  />
+                </div>
+              </div>
             </div>
 
-            <div className="flex items-center gap-3 w-full md:w-auto justify-end">
-              <Select value={sortBy} onValueChange={(val: any) => setSortBy(val)}>
-                <SelectTrigger className="h-8 text-xs w-[200px]">
-                  <SelectValue placeholder="Ordenação" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="updated_at_asc">Mais desatualizados primeiro</SelectItem>
-                  <SelectItem value="updated_at_desc">Mais recentes primeiro</SelectItem>
-                  <SelectItem value="name_asc">Nome alfabético (A-Z)</SelectItem>
-                  <SelectItem value="price_desc">Maior valor FOB</SelectItem>
-                </SelectContent>
-              </Select>
+            {/* Linha de Seleção por Grupo: Fabricante e Categoria */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2 border-t border-border/40">
+              <div className="flex items-center gap-2 w-full sm:w-auto flex-wrap">
+                <span className="text-xs font-medium text-muted-foreground">Grupos:</span>
 
-              <div className="relative w-full md:w-64">
-                <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  placeholder="Buscar produto, SKU..."
-                  className="pl-9 h-8 text-xs bg-background/50"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                />
+                {/* Filtro Fabricante */}
+                <Select
+                  value={selectedManufacturerId}
+                  onValueChange={(val) => setSelectedManufacturerId(val)}
+                >
+                  <SelectTrigger className="h-8 text-xs w-[180px]">
+                    <SelectValue placeholder="Fabricante" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos Fabricantes</SelectItem>
+                    {availableManufacturers.map((m) => (
+                      <SelectItem key={m.id} value={m.id}>
+                        {m.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                {/* Filtro Categoria */}
+                <Select value={selectedCategory} onValueChange={(val) => setSelectedCategory(val)}>
+                  <SelectTrigger className="h-8 text-xs w-[180px]">
+                    <SelectValue placeholder="Categoria" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todas Categorias</SelectItem>
+                    {availableCategories.map((cat) => (
+                      <SelectItem key={cat} value={cat}>
+                        {cat}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                {(selectedManufacturerId !== 'all' || selectedCategory !== 'all') && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      setSelectedManufacturerId('all')
+                      setSelectedCategory('all')
+                    }}
+                    className="h-8 text-xs text-muted-foreground hover:text-foreground"
+                  >
+                    Limpar Grupos
+                  </Button>
+                )}
+              </div>
+
+              {/* Botão para carregar grupo no lote até o teto de 100 */}
+              <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => selectGroupFiltered('manufacturer')}
+                  disabled={filteredProducts.length === 0 || isProcessingBatch}
+                  className="h-8 text-xs"
+                  title="Seleciona os produtos da listagem atual até o teto de 100"
+                >
+                  Selecionar este Grupo (até {MAX_BATCH_SELECTION})
+                </Button>
               </div>
             </div>
           </div>

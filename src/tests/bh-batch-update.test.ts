@@ -556,4 +556,95 @@ describe('B&H Batch Update Service & Business Rules', () => {
       supabase.from = originalFrom
     }
   })
+
+  it('bhBatchUpdateService createBatchJob, recordItemCheckpoint and updateJobStatus persist job state correctly', async () => {
+    const { supabase } = await import('@/lib/supabase/client')
+    const originalFrom = supabase.from
+    let insertedJob: any = null
+    let updatedJobPayload: any = null
+
+    supabase.from = vi.fn((table: any) => {
+      if (table === 'bh_batch_jobs') {
+        return {
+          insert: vi.fn((payload) => {
+            insertedJob = { id: 'job-uuid-123', ...payload }
+            return {
+              select: vi.fn(() => ({
+                single: vi.fn().mockResolvedValue({ data: insertedJob, error: null }),
+              })),
+            }
+          }),
+          update: vi.fn((payload) => {
+            updatedJobPayload = payload
+            return {
+              eq: vi.fn().mockResolvedValue({ error: null }),
+            }
+          }),
+          select: vi.fn(() => ({
+            in: vi.fn(() => ({
+              order: vi.fn(() => ({
+                limit: vi.fn(() => ({
+                  maybeSingle: vi.fn().mockResolvedValue({ data: insertedJob, error: null }),
+                })),
+              })),
+            })),
+          })),
+        } as any
+      }
+      return originalFrom(table)
+    }) as any
+
+    try {
+      // 1. Criar novo job
+      const job = await bhBatchUpdateService.createBatchJob({
+        productIds: ['p-1', 'p-2', 'p-3'],
+        batchSize: 10,
+        cooldownSeconds: 60,
+      })
+
+      expect(job).toBeDefined()
+      expect(job?.id).toBe('job-uuid-123')
+      expect(insertedJob.total_items).toBe(3)
+      expect(insertedJob.status).toBe('in_progress')
+      expect(insertedJob.metadata.batchSize).toBe(10)
+      expect(insertedJob.metadata.cooldownSeconds).toBe(60)
+
+      // 2. Registrar checkpoint de item
+      const stats = {
+        totalSelected: 3,
+        processedCount: 1,
+        okCount: 1,
+        divergenceCount: 0,
+        urlDiscoveredCount: 0,
+        doubtfulLinkCount: 0,
+        discontinuedCount: 0,
+        errorCount: 0,
+        rebateDetectedCount: 0,
+      }
+
+      await bhBatchUpdateService.recordItemCheckpoint({
+        jobId: 'job-uuid-123',
+        productId: 'p-1',
+        batchStatus: 'done',
+        checkResult: { status: 'ok', price_bh: 1200 },
+        priceUsd: 1200,
+        currentStats: stats,
+        existingResults: {},
+        isLastItem: false,
+      })
+
+      expect(updatedJobPayload).toBeDefined()
+      expect(updatedJobPayload.processed_items).toBe(1)
+      expect(updatedJobPayload.current_product_id).toBe('p-1')
+      expect(updatedJobPayload.results['p-1']).toBeDefined()
+      expect(updatedJobPayload.results['p-1'].batchStatus).toBe('done')
+      expect(updatedJobPayload.results['p-1'].checkResult.price_bh).toBe(1200)
+
+      // 3. Atualizar status para paused
+      await bhBatchUpdateService.updateJobStatus('job-uuid-123', 'paused')
+      expect(updatedJobPayload.status).toBe('paused')
+    } finally {
+      supabase.from = originalFrom
+    }
+  })
 })

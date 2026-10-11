@@ -12,6 +12,7 @@ export interface ProductBatchItem {
   id: string
   name: string
   sku: string | null
+  category?: string | null
   price_usd: number | null
   price_cost?: number | null
   price_usa_rebate?: number | null
@@ -53,6 +54,36 @@ export interface BatchFilterOptions {
   filterType: 'all' | 'without_link' | 'with_link' | 'discontinued'
   searchQuery: string
   sortBy: 'updated_at_asc' | 'updated_at_desc' | 'name_asc' | 'price_desc'
+}
+
+export interface BhBatchJobRecord {
+  id: string
+  user_id?: string | null
+  status: 'in_progress' | 'paused' | 'completed' | 'cancelled' | 'error'
+  total_items: number
+  processed_items: number
+  current_product_id?: string | null
+  product_ids: string[]
+  processed_ids: string[]
+  stats: BatchProcessingStats
+  results: Record<
+    string,
+    {
+      checkResult?: PriceCheckResult | null
+      batchStatus: 'idle' | 'processing' | 'done' | 'error'
+      errorMessage?: string | null
+      website_url?: string | null
+      price_usd?: number | null
+    }
+  >
+  metadata?: {
+    cooldownSeconds?: number
+    batchSize?: number
+    started_at?: string
+  }
+  created_at?: string
+  updated_at?: string
+  completed_at?: string | null
 }
 
 export const bhBatchUpdateService = {
@@ -247,7 +278,7 @@ export const bhBatchUpdateService = {
     const { data, error } = await supabase
       .from('products')
       .select(
-        'id, name, sku, price_usd, price_cost, price_usa_rebate, price_cost_rebate, date_rebate, website_url, is_discontinued, updated_at, last_reviewed_at, manufacturer:manufacturers(id, name)',
+        'id, name, sku, category, price_usd, price_cost, price_usa_rebate, price_cost_rebate, date_rebate, website_url, is_discontinued, updated_at, last_reviewed_at, manufacturer:manufacturers(id, name)',
       )
       .order('updated_at', { ascending: true }) // Mais desatualizados primeiro como padrão do banco
       .limit(limit)
@@ -260,6 +291,7 @@ export const bhBatchUpdateService = {
       id: row.id,
       name: row.name,
       sku: row.sku || null,
+      category: row.category || null,
       price_usd: row.price_usd != null ? Number(row.price_usd) : null,
       price_cost: row.price_cost != null ? Number(row.price_cost) : null,
       price_usa_rebate: row.price_usa_rebate != null ? Number(row.price_usa_rebate) : null,
@@ -408,6 +440,190 @@ export const bhBatchUpdateService = {
           variant: 'outline',
           className: 'border-border/50 text-muted-foreground',
         }
+    }
+  },
+
+  /**
+   * -------------------------------------------------------------------------
+   * PERSISTÊNCIA DE JOBS EM BANCO (bh_batch_jobs)
+   * Checkpoints a cada item processado, permitindo retomar de onde parou
+   * mesmo recarregando ou trocando de navegador.
+   * -------------------------------------------------------------------------
+   */
+
+  /**
+   * Busca o job mais recente ativo ou pausado (não completado/cancelado)
+   */
+  async getActiveBatchJob(): Promise<BhBatchJobRecord | null> {
+    try {
+      const { data, error } = await supabase
+        .from('bh_batch_jobs' as any)
+        .select('*')
+        .in('status', ['in_progress', 'paused'])
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      if (error) {
+        // Se a tabela ainda não foi criada no banco remoto, degrada suavemente sem quebrar
+        console.warn('bhBatchUpdateService.getActiveBatchJob:', error.message)
+        return null
+      }
+
+      return data as unknown as BhBatchJobRecord | null
+    } catch (err: any) {
+      console.warn('bhBatchUpdateService.getActiveBatchJob unexpected error:', err?.message)
+      return null
+    }
+  },
+
+  /**
+   * Cria um novo registro de batch job no banco
+   */
+  async createBatchJob(params: {
+    productIds: string[]
+    batchSize?: number
+    cooldownSeconds?: number
+  }): Promise<BhBatchJobRecord | null> {
+    try {
+      const { data: authData } = await supabase.auth.getUser()
+      const userId = authData?.user?.id || null
+
+      const initialStats: BatchProcessingStats = {
+        totalSelected: params.productIds.length,
+        processedCount: 0,
+        okCount: 0,
+        divergenceCount: 0,
+        urlDiscoveredCount: 0,
+        doubtfulLinkCount: 0,
+        discontinuedCount: 0,
+        errorCount: 0,
+        rebateDetectedCount: 0,
+      }
+
+      const payload = {
+        user_id: userId,
+        status: 'in_progress',
+        total_items: params.productIds.length,
+        processed_items: 0,
+        current_product_id: null,
+        product_ids: params.productIds,
+        processed_ids: [],
+        stats: initialStats,
+        results: {},
+        metadata: {
+          batchSize: params.batchSize || 10,
+          cooldownSeconds: params.cooldownSeconds || 60,
+          started_at: new Date().toISOString(),
+        },
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }
+
+      const { data, error } = await supabase
+        .from('bh_batch_jobs' as any)
+        .insert(payload)
+        .select('*')
+        .single()
+
+      if (error) {
+        console.warn('bhBatchUpdateService.createBatchJob:', error.message)
+        return null
+      }
+
+      return data as unknown as BhBatchJobRecord
+    } catch (err: any) {
+      console.warn('bhBatchUpdateService.createBatchJob unexpected error:', err?.message)
+      return null
+    }
+  },
+
+  /**
+   * Registra checkpoint no banco a cada item concluído (ou com erro), atualizando
+   * processed_items, processed_ids, stats e results.
+   */
+  async recordItemCheckpoint(params: {
+    jobId: string
+    productId: string
+    batchStatus: 'done' | 'error'
+    checkResult?: PriceCheckResult | null
+    errorMessage?: string | null
+    websiteUrl?: string | null
+    priceUsd?: number | null
+    currentStats: BatchProcessingStats
+    existingResults: Record<string, any>
+    isLastItem?: boolean
+  }): Promise<void> {
+    try {
+      const now = new Date().toISOString()
+      const updatedResults = {
+        ...params.existingResults,
+        [params.productId]: {
+          checkResult: params.checkResult || null,
+          batchStatus: params.batchStatus,
+          errorMessage: params.errorMessage || null,
+          website_url: params.websiteUrl || null,
+          price_usd: params.priceUsd ?? null,
+        },
+      }
+
+      const processedIds = Object.keys(updatedResults)
+      const isComplete =
+        params.isLastItem || processedIds.length >= params.currentStats.totalSelected
+
+      const updatePayload: Record<string, any> = {
+        processed_items: processedIds.length,
+        current_product_id: params.productId,
+        processed_ids: processedIds,
+        stats: params.currentStats,
+        results: updatedResults,
+        updated_at: now,
+      }
+
+      if (isComplete) {
+        updatePayload.status = 'completed'
+        updatePayload.completed_at = now
+      }
+
+      const { error } = await supabase
+        .from('bh_batch_jobs' as any)
+        .update(updatePayload)
+        .eq('id', params.jobId)
+
+      if (error) {
+        console.warn('bhBatchUpdateService.recordItemCheckpoint:', error.message)
+      }
+    } catch (err: any) {
+      console.warn('bhBatchUpdateService.recordItemCheckpoint unexpected error:', err?.message)
+    }
+  },
+
+  /**
+   * Atualiza o status do lote (ex: 'paused', 'completed', 'cancelled')
+   */
+  async updateJobStatus(
+    jobId: string,
+    status: 'in_progress' | 'paused' | 'completed' | 'cancelled' | 'error',
+  ): Promise<void> {
+    try {
+      const updatePayload: Record<string, any> = {
+        status,
+        updated_at: new Date().toISOString(),
+      }
+      if (status === 'completed') {
+        updatePayload.completed_at = new Date().toISOString()
+      }
+
+      const { error } = await supabase
+        .from('bh_batch_jobs' as any)
+        .update(updatePayload)
+        .eq('id', jobId)
+
+      if (error) {
+        console.warn('bhBatchUpdateService.updateJobStatus:', error.message)
+      }
+    } catch (err: any) {
+      console.warn('bhBatchUpdateService.updateJobStatus unexpected error:', err?.message)
     }
   },
 }

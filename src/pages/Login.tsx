@@ -11,6 +11,7 @@ import { useToast } from '@/hooks/use-toast'
 import HCaptcha from '@hcaptcha/react-hcaptcha'
 import { Mail, Lock, Eye, EyeOff, Loader2, User, Phone, Building2 } from 'lucide-react'
 import logoImg from '../assets/mw_logo_horiz_1200x318_fundo_escuro-037e3.png'
+import { resolveDashboardRouteForUserId, getDashboardPathForRole } from '@/utils/auth-redirect'
 
 const siteKey = import.meta.env.VITE_HCAPTCHA_SITE_KEY || '896c88d8-9782-485a-9d94-2d6eceae30ba'
 
@@ -98,23 +99,10 @@ export default function Login() {
     const handleSession = async (session: any) => {
       if (flowMode === 'migrate' || flowMode === 'processing' || isMigrating) return
 
-      if (session) {
+      if (session?.user) {
         await supabase.rpc('sync_current_user_profile')
-        const { data: customer } = await supabase
-          .from('customers')
-          .select('role')
-          .eq('user_id', session.user.id)
-          .maybeSingle()
-
-        if (customer) {
-          if (customer.role === 'admin') {
-            nav('/dashboard', { replace: true })
-          } else {
-            nav('/', { replace: true })
-          }
-        } else {
-          nav('/', { replace: true })
-        }
+        const targetPath = await resolveDashboardRouteForUserId(session.user.id)
+        nav(targetPath, { replace: true })
       }
     }
 
@@ -137,14 +125,11 @@ export default function Login() {
   useEffect(() => {
     let timeout: NodeJS.Timeout
     if (isLoadingUserData && flowMode !== 'migrate' && flowMode !== 'processing' && !isMigrating) {
-      if (userRole && userMetadata) {
+      if (userRole || userMetadata) {
         setIsLoadingUserData(false)
         setLoading(false)
-        if (userRole === 'admin') {
-          nav('/dashboard', { replace: true })
-        } else {
-          nav('/', { replace: true })
-        }
+        const targetPath = getDashboardPathForRole(userRole)
+        nav(targetPath, { replace: true })
       } else {
         timeout = setTimeout(() => {
           setIsLoadingUserData(false)
@@ -225,20 +210,9 @@ export default function Login() {
         } = await supabase.auth.getSession()
 
         if (session) {
-          const { data: customer } = await supabase
-            .from('customers')
-            .select('role')
-            .eq('user_id', session.user.id)
-            .maybeSingle()
-
-          if (customer) {
-            if (customer.role === 'admin') {
-              nav('/dashboard', { replace: true })
-            } else {
-              nav('/', { replace: true })
-            }
-            return
-          }
+          const targetPath = await resolveDashboardRouteForUserId(session.user.id)
+          nav(targetPath, { replace: true })
+          return
         }
 
         setIsLoadingUserData(true)

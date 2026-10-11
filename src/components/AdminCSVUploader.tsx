@@ -1,6 +1,7 @@
 import { useState, useRef, DragEvent } from 'react'
 import { supabase } from '@/lib/supabase/client'
 import { persistExternalProductImage } from '@/services/productService'
+import { normalizeSkuForBrand, isSonyBrand } from '@/utils/sku-normalize'
 import { Button } from '@/components/ui/button'
 import { Upload, Plus, CheckCircle2 } from 'lucide-react'
 import { toast } from '@/hooks/use-toast'
@@ -136,6 +137,10 @@ export function AdminCSVUploader({ manufacturers, onSuccess, onAddManufacturer }
           )
         }
 
+        const selectedMfg = manufacturers.find((m) => m.id === mfgId)
+        const mfgName = selectedMfg?.name || ''
+        const isSony = isSonyBrand(mfgName)
+
         const { data: existingProducts, error: dbError } = await supabase
           .from('products')
           .select('id, sku')
@@ -175,6 +180,15 @@ export function AdminCSVUploader({ manufacturers, onSuccess, onAddManufacturer }
           if (!rowSku) {
             invalidRows.push({ row: i + 1, sku: 'VAZIO', reason: 'SKU ausente' })
             continue
+          }
+
+          // Se marca for Sony, normaliza o SKU da linha (remove traço/hífen, uppercase, trim)
+          if (isSony) {
+            const normalizedSony = normalizeSkuForBrand(rowSku, mfgName)
+            if (normalizedSony) {
+              rowSku = normalizedSony
+              rowData.sku = normalizedSony
+            }
           }
 
           const hasDiscontinued = 'discontinued' in rowData

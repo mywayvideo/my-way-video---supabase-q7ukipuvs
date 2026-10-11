@@ -4,10 +4,11 @@ import { isStorageImageUrl } from '@/lib/image-proxy'
 import { sanitizeSku } from '@/utils/sku-sanitizer'
 import {
   normalizeSkuKey,
-  normalizeSonySku,
+  normalizeBhSkuKey,
+  matchBhSkuWithDatabase,
   formatSonyStandardSku,
-  isSonyBrand,
 } from '@/utils/sku-normalization'
+import { normalizeSkuForBrand, isSonyBrand } from '@/utils/sku-normalize'
 
 export async function persistExternalProductImage(
   imageUrl: string | null | undefined,
@@ -194,20 +195,26 @@ export const productService = {
       return exactMatch
     }
 
-    // 3. Se for Sony ou o SKU normalizado for diferente do original (ex: continha hífen como BRU-SF10 vs BRUSF10):
-    // Busca candidatos pelo SKU sem hífens ou com ilike
+    // 3. Busca inteligente considerando casamentos B&H e variações com/sem hífen
+    // (ex.: B&H # SOBRUSF10 vs MFR BRU-SF10 vs DB BRUSF10):
+    const isSony =
+      (options?.manufacturerName && isSonyBrand(options.manufacturerName)) ||
+      normKey.startsWith('SO')
+    const strippedKey = normalizeBhSkuKey(normKey, isSony)
+
+    // Busca candidatos com ilike usando a raiz do SKU (strippedKey ou normKey)
+    const searchRoot = strippedKey && strippedKey.length >= 3 ? strippedKey : normKey
     const { data: candidates, error: candErr } = await supabase
       .from('products')
       .select('id, sku, name')
-      .ilike('sku', `%${normKey.slice(0, 10)}%`)
+      .ilike('sku', `%${searchRoot.slice(0, 10)}%`)
       .limit(50)
 
     if (!candErr && candidates && candidates.length > 0) {
-      const collision = candidates.find(
-        (c) =>
-          (!options?.excludeProductId || c.id !== options.excludeProductId) &&
-          normalizeSkuKey(c.sku) === normKey,
-      )
+      const collision = candidates.find((c) => {
+        if (options?.excludeProductId && c.id === options.excludeProductId) return false
+        return matchBhSkuWithDatabase(rawSku, c.sku, isSony)
+      })
       if (collision) {
         return { id: collision.id, sku: collision.sku || '', name: collision.name || '' }
       }
@@ -277,7 +284,7 @@ export const productService = {
       }
     }
 
-    const finalSku = normalizeSonySku(productData.sku, brandName)
+    const finalSku = normalizeSkuForBrand(productData.sku, brandName)
     if (finalImageUrl) {
       try {
         finalImageUrl = await persistExternalProductImage(finalImageUrl)
@@ -353,7 +360,7 @@ export const productService = {
     }
 
     const finalSku =
-      productData.sku !== undefined ? normalizeSonySku(productData.sku, brandName) : undefined
+      productData.sku !== undefined ? normalizeSkuForBrand(productData.sku, brandName) : undefined
     if (finalImageUrl) {
       try {
         finalImageUrl = await persistExternalProductImage(finalImageUrl, id)

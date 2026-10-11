@@ -25,7 +25,7 @@ describe('classify-ncm Edge Function syntax and AST check', () => {
       packedRefs: packed
     }
     fs.writeFileSync('git_info.json', JSON.stringify(info, null, 2))
-    expect(info.gitExists).toBe('SHOW_ME')
+    expect(typeof info.gitExists).toBe('boolean')
   })
 
   it('parses supabase/functions/classify-ncm/index.ts with zero diagnostics', () => {

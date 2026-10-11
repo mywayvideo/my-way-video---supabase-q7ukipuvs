@@ -8,7 +8,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase/client'
 import { calculateTotalUSDFromValues } from '@/utils/pricing-engine'
 import { sanitizeSku } from '@/utils/sku-sanitizer'
-import { normalizeSonySku, isSonyBrand } from '@/utils/sku-normalization'
+import { normalizeSkuForBrand, isSonyBrand } from '@/utils/sku-normalize'
 
 const productSchema = z.object({
   name: z.string().min(1, 'Nome é obrigatório'),
@@ -339,7 +339,9 @@ export function useProductForm(props?: UseProductFormProps) {
           (data.manufacturer_id &&
             categories &&
             manufacturers.some((m) => m.id === data.manufacturer_id && isSonyBrand(m.name)))
-        const normalizedSku = isSony ? normalizeSonySku(data.sku, 'Sony') : sanitizeSku(data.sku)
+        const normalizedSku = isSony
+          ? normalizeSkuForBrand(data.sku, 'Sony')
+          : sanitizeSku(data.sku)
         form.setValue('sku', normalizedSku, { shouldDirty: true })
       }
       if (data.description) {
@@ -466,7 +468,7 @@ export function useProductForm(props?: UseProductFormProps) {
       const isSony = isSonyBrand(mfgName)
 
       // Normaliza SKU antes de salvar (remover traço, uppercase, trim se Sony)
-      const normalizedSku = normalizeSonySku(data.sku, mfgName)
+      const normalizedSku = normalizeSkuForBrand(data.sku, mfgName)
 
       const payload = {
         ...data,
@@ -544,6 +546,7 @@ export function useProductForm(props?: UseProductFormProps) {
     handleAddManufacturer,
     productDates,
     handleMarkAsReviewed,
+    isMarkingReviewed,
     checkSkuExists: async (sku: string) => {
       if (!sku) return false
       try {
@@ -561,4 +564,4 @@ export function useProductForm(props?: UseProductFormProps) {
       }
     },
   }
-}}
+}

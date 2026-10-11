@@ -159,19 +159,18 @@ export const productService = {
     const normKey = normalizeSkuKey(rawSku)
     if (!normKey) return null
 
-    // 1. Tenta correspondência exata ou normalizada simples
-    let query = supabase.from('products').select('id, sku, name, manufacturer_id')
-
-    if (options?.excludeProductId) {
-      query = query.neq('id', options.excludeProductId)
-    }
-
-    // Se temos manufacturerId, podemos filtrar os produtos do mesmo fabricante primeiro para performance
+    // 1. Checagem direta no mesmo fabricante (se fornecido) comparando chave normalizada
     if (options?.manufacturerId) {
-      const { data: mfgProducts, error: mfgErr } = await query.eq(
-        'manufacturer_id',
-        options.manufacturerId,
-      )
+      let mfgQuery = supabase
+        .from('products')
+        .select('id, sku, name, manufacturer_id')
+        .eq('manufacturer_id', options.manufacturerId)
+
+      if (options.excludeProductId) {
+        mfgQuery = mfgQuery.neq('id', options.excludeProductId)
+      }
+
+      const { data: mfgProducts, error: mfgErr } = await mfgQuery
       if (!mfgErr && mfgProducts && mfgProducts.length > 0) {
         const found = mfgProducts.find((p) => normalizeSkuKey(p.sku) === normKey)
         if (found) {
@@ -180,18 +179,15 @@ export const productService = {
       }
     }
 
-    // 2. Busca ampla: busca direta por igualdade ou busca produtos cujo SKU contenha os caracteres
-    const { data: exactMatch, error: exactErr } = await supabase
-      .from('products')
-      .select('id, sku, name')
-      .eq('sku', rawSku.trim())
-      .maybeSingle()
+    // 2. Correspondência exata de SKU (geral ou excluindo produto atual)
+    let exactQuery = supabase.from('products').select('id, sku, name').eq('sku', rawSku.trim())
 
-    if (
-      !exactErr &&
-      exactMatch &&
-      (!options?.excludeProductId || exactMatch.id !== options.excludeProductId)
-    ) {
+    if (options?.excludeProductId) {
+      exactQuery = exactQuery.neq('id', options.excludeProductId)
+    }
+
+    const { data: exactMatch, error: exactErr } = await exactQuery.maybeSingle()
+    if (!exactErr && exactMatch) {
       return exactMatch
     }
 
@@ -293,6 +289,19 @@ export const productService = {
       }
     }
 
+    // Validação preventiva de unicidade por chave normalizada antes de tentar o insert
+    if (finalSku) {
+      const duplicate = await this.findDuplicateProductByNormalizedSku(finalSku, {
+        manufacturerId: productData.manufacturer_id || null,
+        manufacturerName: brandName || null,
+      })
+      if (duplicate) {
+        throw new Error(
+          `Não foi possível criar o produto: SKU "${finalSku}" colide com produto já cadastrado "${duplicate.sku}" (${duplicate.name}).`,
+        )
+      }
+    }
+
     const payload = {
       name: productData.name,
       sku: finalSku,
@@ -366,6 +375,21 @@ export const productService = {
         finalImageUrl = await persistExternalProductImage(finalImageUrl, id)
       } catch (_imgErr) {
         // Fallback para URL original caso erro inesperado
+      }
+    }
+
+    // Validação preventiva de unicidade por chave normalizada na alteração de SKU
+    const effectiveSku = finalSku !== undefined ? finalSku : productData.sku
+    if (effectiveSku) {
+      const duplicate = await this.findDuplicateProductByNormalizedSku(effectiveSku, {
+        manufacturerId: productData.manufacturer_id || null,
+        manufacturerName: brandName || null,
+        excludeProductId: id,
+      })
+      if (duplicate) {
+        throw new Error(
+          `Não foi possível atualizar o produto: SKU "${effectiveSku}" colide com produto já cadastrado "${duplicate.sku}" (${duplicate.name}).`,
+        )
       }
     }
 

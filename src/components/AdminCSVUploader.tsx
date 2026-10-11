@@ -2,6 +2,7 @@ import { useState, useRef, DragEvent } from 'react'
 import { supabase } from '@/lib/supabase/client'
 import { persistExternalProductImage } from '@/services/productService'
 import { normalizeSkuForBrand, isSonyBrand } from '@/utils/sku-normalize'
+import { normalizeSkuKey } from '@/utils/sku-normalization'
 import { Button } from '@/components/ui/button'
 import { Upload, Plus, CheckCircle2 } from 'lucide-react'
 import { toast } from '@/hooks/use-toast'
@@ -42,7 +43,7 @@ interface ReportData {
 }
 
 const normalizeSkuForComparison = (sku: string) => {
-  return sku.replace(/[^a-zA-Z0-9]/g, '').toUpperCase()
+  return normalizeSkuKey(sku)
 }
 
 export function AdminCSVUploader({ manufacturers, onSuccess, onAddManufacturer }: Props) {

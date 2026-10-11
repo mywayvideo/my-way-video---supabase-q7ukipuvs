@@ -132,10 +132,17 @@ export default function ProductsPage() {
           is_discontinued: item.is_discontinued === 'true' || item.is_discontinued === true,
         }
 
-        const exists = await productService.checkSkuExists(payload.sku)
-        if (!exists) {
+        const duplicate = await productService.findDuplicateProductByNormalizedSku(payload.sku, {
+          manufacturerId: payload.manufacturer_id,
+          manufacturerName: item.extracted_brand || null,
+        })
+        if (!duplicate) {
           await productService.createProduct(payload)
           savedCount++
+        } else {
+          console.warn(
+            `[ProductsPage Import] SKU ${payload.sku} ignorado por colisão normalizada com ${duplicate.sku}`,
+          )
         }
       } catch (err) {
         console.error('Error saving imported product:', err)

@@ -53,7 +53,7 @@ import {
   BackfillExecutionReport,
   DeletedLoserSummaryItem,
 } from '@/services/skuStandardizationService'
-import { formatUSD } from '@/lib/utils'
+import { formatUSD, cn } from '@/lib/utils'
 import { ImageWithFallback } from '@/components/ImageWithFallback'
 import { Progress } from '@/components/ui/progress'
 
@@ -662,34 +662,82 @@ export default function AdminSkuStandardizationPage() {
 
         {/* TAB 1: VISÃO GERAL */}
         <TabsContent value="overview" className="space-y-4">
-          {/* Card de CTA para Rodada 2 */}
-          <Card className="border-primary/40 bg-gradient-to-r from-primary/10 via-primary/5 to-transparent">
+          {/* Card de Status da Rodada 4 / Conclusão Sony */}
+          <Card
+            className={cn(
+              'border-border/50',
+              stats && stats.sony.withDash === 0 && (data?.sonyCollisions.length || 0) === 0
+                ? 'border-emerald-500/40 bg-gradient-to-r from-emerald-500/10 via-emerald-500/5 to-transparent'
+                : 'border-primary/40 bg-gradient-to-r from-primary/10 via-primary/5 to-transparent',
+            )}
+          >
             <CardContent className="pt-6 pb-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
               <div className="space-y-1.5">
                 <div className="flex items-center gap-2">
-                  <Badge className="bg-primary text-primary-foreground font-semibold text-xs">
-                    Rodada 2 Disponível
-                  </Badge>
-                  <span className="text-sm font-semibold text-foreground">
-                    Execução do Backfill e Mesclagem Sony
-                  </span>
+                  {stats &&
+                  stats.sony.withDash === 0 &&
+                  (data?.sonyCollisions.length || 0) === 0 ? (
+                    <>
+                      <Badge className="bg-emerald-500 text-black font-semibold text-xs flex items-center gap-1">
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        Rodada 4: Sony 100% Concluída
+                      </Badge>
+                      <span className="text-sm font-semibold text-foreground">
+                        Índice UNIQUE Ativo &amp; Catálogo Saneado
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <Badge className="bg-primary text-primary-foreground font-semibold text-xs">
+                        Rodada 2 / 4
+                      </Badge>
+                      <span className="text-sm font-semibold text-foreground">
+                        Execução do Backfill e Mesclagem Sony
+                      </span>
+                    </>
+                  )}
                 </div>
                 <p className="text-xs text-muted-foreground max-w-2xl leading-relaxed">
-                  Aplica a Opção B (exclusão definitiva): normaliza SKUs Sony removendo traços
-                  físicos, mescla URLs da B&amp;H, imagens e NCM no produto prevalente, arquiva
-                  histórico de price_checks e realiza a exclusão definitiva dos produtos perdedores
-                  de
-                  <code>public.products</code>.
+                  {stats &&
+                  stats.sony.withDash === 0 &&
+                  (data?.sonyCollisions.length || 0) === 0 ? (
+                    <>
+                      Todos os <strong>{stats.sony.total} produtos Sony</strong> estão padronizados
+                      sem traço e com 0 colisões remanescentes. A proteção de unicidade de SKU por
+                      chave normalizada está ativa no banco via índice UNIQUE, e as 3 entradas
+                      (cadastro manual, B&amp;H e importador CSV) validam duplicidades em tempo
+                      real.
+                    </>
+                  ) : (
+                    <>
+                      Aplica a Opção B (exclusão definitiva): normaliza SKUs Sony removendo traços
+                      físicos, mescla URLs da B&amp;H, imagens e NCM no produto prevalente, arquiva
+                      histórico de price_checks e realiza a exclusão definitiva dos produtos
+                      perdedores de <code>public.products</code>.
+                    </>
+                  )}
                 </p>
               </div>
               <Button
                 size="default"
                 onClick={handleOpenRound2Preview}
                 disabled={loading || executingBackfill || loadingPreview}
-                className="bg-primary hover:bg-primary/90 text-primary-foreground shrink-0 shadow-lg"
+                variant={
+                  stats && stats.sony.withDash === 0 && (data?.sonyCollisions.length || 0) === 0
+                    ? 'outline'
+                    : 'default'
+                }
+                className={cn(
+                  'shrink-0 shadow-lg text-xs',
+                  stats && stats.sony.withDash === 0 && (data?.sonyCollisions.length || 0) === 0
+                    ? 'border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/10'
+                    : 'bg-primary hover:bg-primary/90 text-primary-foreground',
+                )}
               >
                 <Sparkles className="w-4 h-4 mr-2" />
-                Abrir Painel de Execução Rodada 2
+                {stats && stats.sony.withDash === 0 && (data?.sonyCollisions.length || 0) === 0
+                  ? 'Rever Histórico de Execução'
+                  : 'Abrir Painel de Execução Rodada 2'}
               </Button>
             </CardContent>
           </Card>

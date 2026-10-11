@@ -33,6 +33,17 @@ describe('sku-normalization utility', () => {
       expect(normalizeSkuKey('DV/RESFB/BRNK')).toBe('DVRESFBBRNK')
     })
 
+    it('matches Rodada 4 SQL normalize_sku_key rules on real collisions (AJA & Blackmagic)', () => {
+      // Caso 1: AJA (MFR # ROI-HDMI vs ROI-HDMI)
+      expect(normalizeSkuKey('ROI-HDMI')).toBe('ROIHDMI')
+      expect(normalizeSkuKey('MFR # ROI-HDMI')).toBe('ROIHDMI')
+      expect(normalizeSkuKey('mfr # ROI-HDMI')).toBe('ROIHDMI')
+      expect(normalizeSkuKey('MFR#ROI-HDMI')).toBe('ROIHDMI')
+      // Caso 2: Blackmagic Design (BDLKWEB/C/SEDHD vs BDLKWEBCSEDHD)
+      expect(normalizeSkuKey('BDLKWEB/C/SEDHD')).toBe('BDLKWEBCSEDHD')
+      expect(normalizeSkuKey('BDLKWEBCSEDHD')).toBe('BDLKWEBCSEDHD')
+    })
+
     it('returns empty string on empty or non-string input', () => {
       expect(normalizeSkuKey('')).toBe('')
       expect(normalizeSkuKey(null)).toBe('')

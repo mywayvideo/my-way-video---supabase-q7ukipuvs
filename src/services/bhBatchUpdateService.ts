@@ -626,4 +626,225 @@ export const bhBatchUpdateService = {
       console.warn('bhBatchUpdateService.updateJobStatus unexpected error:', err?.message)
     }
   },
+
+  /**
+   * Busca o job mais recente no banco (independente do status: in_progress, paused, completed, etc.)
+   */
+  async getLatestBatchJob(): Promise<BhBatchJobRecord | null> {
+    try {
+      const { data, error } = await supabase
+        .from('bh_batch_jobs' as any)
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      if (error) {
+        console.warn('bhBatchUpdateService.getLatestBatchJob:', error.message)
+        return null
+      }
+
+      return data as unknown as BhBatchJobRecord | null
+    } catch (err: any) {
+      console.warn('bhBatchUpdateService.getLatestBatchJob unexpected error:', err?.message)
+      return null
+    }
+  },
+
+  /**
+   * Constrói a lista completa de resultados de um job a partir de bh_batch_jobs + price_checks.
+   * Se o job foi executado sem gravar todos os results no JSONB, reconstrói lendo os registros
+   * de price_checks da janela temporal do job para os product_ids envolvidos.
+   */
+  async reconstructJobResults(job: BhBatchJobRecord): Promise<{
+    results: Record<
+      string,
+      {
+        checkResult: PriceCheckResult | null
+        batchStatus: 'idle' | 'processing' | 'done' | 'error'
+        errorMessage?: string | null
+        website_url?: string | null
+        price_usd?: number | null
+      }
+    >
+    stats: BatchProcessingStats
+    sourceUrls: Record<string, string>
+  }> {
+    const combinedResults: Record<
+      string,
+      {
+        checkResult: PriceCheckResult | null
+        batchStatus: 'idle' | 'processing' | 'done' | 'error'
+        errorMessage?: string | null
+        website_url?: string | null
+        price_usd?: number | null
+      }
+    > = {}
+    const sourceUrls: Record<string, string> = {}
+
+    // 1. Popula com os results já existentes no JSONB do job
+    if (job.results && typeof job.results === 'object') {
+      for (const [pId, item] of Object.entries(job.results)) {
+        combinedResults[pId] = {
+          checkResult: item.checkResult || null,
+          batchStatus: item.batchStatus || 'done',
+          errorMessage: item.errorMessage || null,
+          website_url: item.website_url || null,
+          price_usd: item.price_usd ?? null,
+        }
+        if (item.website_url) {
+          sourceUrls[pId] = item.website_url
+        }
+      }
+    }
+
+    // 2. Se houver product_ids no job, busca os price_checks associados na janela temporal
+    const productIds = job.product_ids || []
+    if (productIds.length > 0) {
+      try {
+        // Janela de busca: do created_at (com margem de 10 min antes) até completed_at/updated_at (+10 min)
+        const jobStart = job.created_at ? new Date(job.created_at) : new Date(0)
+        const windowStart = new Date(jobStart.getTime() - 10 * 60 * 1000).toISOString()
+
+        const jobEnd = job.completed_at
+          ? new Date(job.completed_at)
+          : job.updated_at
+            ? new Date(job.updated_at)
+            : new Date()
+        const windowEnd = new Date(jobEnd.getTime() + 10 * 60 * 1000).toISOString()
+
+        // Faz queries em chunks de até 100 IDs caso haja muitos
+        const chunkSize = 100
+        for (let i = 0; i < productIds.length; i += chunkSize) {
+          const chunkIds = productIds.slice(i, i + chunkSize)
+          const { data: checks, error } = await supabase
+            .from('price_checks')
+            .select('*')
+            .in('product_id', chunkIds)
+            .gte('checked_at', windowStart)
+            .lte('checked_at', windowEnd)
+            .order('checked_at', { ascending: true })
+
+          if (error) {
+            console.warn(
+              'bhBatchUpdateService.reconstructJobResults price_checks error:',
+              error.message,
+            )
+            continue
+          }
+
+          if (checks && checks.length > 0) {
+            for (const row of checks as any[]) {
+              const pId = row.product_id
+              const rawData = row.raw || {}
+              const rebateInfo = rawData.rebate_info || {}
+
+              const isRebateActive = Boolean(
+                rawData.rebate_active ?? rebateInfo.rebate_active ?? false,
+              )
+              const priceFull =
+                row.price_bh != null
+                  ? Number(row.price_bh)
+                  : rebateInfo.price_full != null
+                    ? Number(rebateInfo.price_full)
+                    : null
+              const priceWithRebate =
+                rebateInfo.price_with_rebate != null ? Number(rebateInfo.price_with_rebate) : null
+              const rebateEndDate = rawData.rebate_end_date ?? rebateInfo.rebate_end_date ?? null
+
+              const checkResult: PriceCheckResult = {
+                status: row.status as PriceCheckStatus,
+                price_usd_cadastrado: row.price_db != null ? Number(row.price_db) : null,
+                price_bh: row.price_bh != null ? Number(row.price_bh) : null,
+                diff_usd: row.diff_usd != null ? Number(row.diff_usd) : null,
+                diff_pct: row.diff_pct != null ? Number(row.diff_pct) : null,
+                is_discontinued: row.status === 'descontinuado' || Boolean(rawData.is_discontinued),
+                url_used: row.url_used || null,
+                url_discovered: Boolean(row.url_discovered),
+                message: row.message || null,
+                checked_at: row.checked_at || new Date().toISOString(),
+                error: row.status === 'erro' ? row.message : undefined,
+                rebate_active: isRebateActive,
+                price_full: priceFull,
+                price_with_rebate: priceWithRebate,
+                rebate_savings: rebateInfo.rebate_savings ?? null,
+                rebate_end_date: rebateEndDate,
+                rebate_end_date_iso: null,
+                sku_matched: true,
+                mfr_number_found: rawData.mfr_number || null,
+              }
+
+              // Preenche ou sobrepõe com a checagem mais recente do período
+              combinedResults[pId] = {
+                checkResult,
+                batchStatus: row.status === 'erro' ? 'error' : 'done',
+                errorMessage: row.status === 'erro' ? row.message : null,
+                website_url: row.url_used || combinedResults[pId]?.website_url || null,
+                price_usd:
+                  row.price_db != null
+                    ? Number(row.price_db)
+                    : (combinedResults[pId]?.price_usd ?? null),
+              }
+
+              if (row.url_used) {
+                sourceUrls[pId] = row.url_used
+              }
+            }
+          }
+        }
+      } catch (err: any) {
+        console.warn('bhBatchUpdateService.reconstructJobResults fallback error:', err?.message)
+      }
+    }
+
+    // Calcula estatísticas consolidadas
+    let okCount = 0
+    let divergenceCount = 0
+    let discontinuedCount = 0
+    let doubtfulLinkCount = 0
+    let errorCount = 0
+    let urlDiscoveredCount = 0
+    let rebateDetectedCount = 0
+    let processedCount = 0
+
+    for (const item of Object.values(combinedResults)) {
+      if (item.batchStatus === 'done' || item.batchStatus === 'error') {
+        processedCount++
+      }
+      if (item.checkResult) {
+        const s = item.checkResult.status
+        if (s === 'ok') okCount++
+        else if (s === 'divergente') divergenceCount++
+        else if (s === 'descontinuado') discontinuedCount++
+        else if (s === 'sem_url_confirmada') doubtfulLinkCount++
+        else if (s === 'erro') errorCount++
+
+        if (item.checkResult.url_discovered) urlDiscoveredCount++
+        if (item.checkResult.rebate_active) rebateDetectedCount++
+      } else if (item.batchStatus === 'error') {
+        errorCount++
+      }
+    }
+
+    // Se o job original já tinha stats computadas com valores maiores (ex.: stats completas no job),
+    // preserva ou mescla com sabedoria
+    const baseStats: Partial<BatchProcessingStats> = job.stats || {}
+    const consolidatedStats: BatchProcessingStats = {
+      totalSelected: job.total_items || productIds.length || Object.keys(combinedResults).length,
+      processedCount: Math.max(processedCount, baseStats.processedCount || 0),
+      okCount: Math.max(okCount, baseStats.okCount || 0),
+      divergenceCount: Math.max(divergenceCount, baseStats.divergenceCount || 0),
+      discontinuedCount: Math.max(discontinuedCount, baseStats.discontinuedCount || 0),
+      doubtfulLinkCount: Math.max(doubtfulLinkCount, baseStats.doubtfulLinkCount || 0),
+      errorCount: Math.max(errorCount, baseStats.errorCount || 0),
+      urlDiscoveredCount: Math.max(urlDiscoveredCount, baseStats.urlDiscoveredCount || 0),
+      rebateDetectedCount: Math.max(rebateDetectedCount, baseStats.rebateDetectedCount || 0),
+    }
+
+    return {
+      results: combinedResults,
+      stats: consolidatedStats,
+      sourceUrls,
+    }
+  },
 }

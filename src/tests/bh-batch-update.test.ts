@@ -2,8 +2,10 @@ import { describe, it, expect, vi } from 'vitest'
 import {
   bhBatchUpdateService,
   ProductBatchItem,
+  BhBatchJobRecord,
 } from '@/services/bhBatchUpdateService'
 import { priceCheckService } from '@/services/priceCheckService'
+import { supabase } from '@/lib/supabase/client'
 
 describe('B&H Batch Update Service & Business Rules', () => {
   it('estimates Firecrawl credits: 1 credit with link, 3 credits without link (search 2 + scrape 1)', () => {
@@ -643,6 +645,141 @@ describe('B&H Batch Update Service & Business Rules', () => {
       // 3. Atualizar status para paused
       await bhBatchUpdateService.updateJobStatus('job-uuid-123', 'paused')
       expect(updatedJobPayload.status).toBe('paused')
+    } finally {
+      supabase.from = originalFrom
+    }
+  })
+
+  it('deve buscar o lote mais recente e reconstruir resultados completos a partir de bh_batch_jobs + price_checks', async () => {
+    const originalFrom = supabase.from
+    try {
+      const mockJob: BhBatchJobRecord = {
+        id: '86efc79f-2ff9-45e0-80ff-c15e769b01d9',
+        user_id: 'user-admin',
+        status: 'completed',
+        total_items: 50,
+        processed_items: 50,
+        current_product_id: 'prod-50',
+        product_ids: ['prod-1', 'prod-2', 'prod-3'],
+        processed_ids: ['prod-1', 'prod-2', 'prod-3'],
+        stats: {
+          totalSelected: 50,
+          processedCount: 50,
+          okCount: 11,
+          divergenceCount: 14,
+          discontinuedCount: 6,
+          doubtfulLinkCount: 17,
+          errorCount: 2,
+          urlDiscoveredCount: 1,
+          rebateDetectedCount: 0,
+        },
+        results: {
+          // Apenas um item estava salvo diretamente em results
+          'prod-1': {
+            checkResult: { status: 'ok', price_bh: 1500, price_usd_cadastrado: 1500 },
+            batchStatus: 'done',
+            errorMessage: null,
+            website_url: 'https://bhphotovideo.com/c/product/1-prod-1.html',
+            price_usd: 1500,
+          },
+        },
+        metadata: { batchSize: 10, cooldownSeconds: 60 },
+        created_at: '2026-10-11T19:21:00.000Z',
+        completed_at: '2026-10-11T19:38:00.000Z',
+        updated_at: '2026-10-11T19:38:00.000Z',
+      }
+
+      const mockPriceChecks = [
+        {
+          id: 'check-1',
+          product_id: 'prod-2',
+          price_db: 19999,
+          price_bh: 18362.5,
+          diff_usd: -1636.5,
+          diff_pct: -8.18,
+          status: 'divergente',
+          url_used: 'https://bhphotovideo.com/c/product/2-bzdm8560.html',
+          url_discovered: true,
+          checked_at: '2026-10-11T19:25:00.000Z',
+          message: 'Divergência de preço encontrada',
+          raw: { mfr_number: 'BZDM8560' },
+        },
+        {
+          id: 'check-2',
+          product_id: 'prod-3',
+          price_db: 5900,
+          price_bh: 5300,
+          diff_usd: -600,
+          diff_pct: -10.17,
+          status: 'divergente',
+          url_used: 'https://bhphotovideo.com/c/product/3-brcx400uc.html',
+          url_discovered: false,
+          checked_at: '2026-10-11T19:28:00.000Z',
+          message: 'Divergência detectada',
+          raw: { mfr_number: 'BRCX400UC' },
+        },
+      ]
+
+      ;(supabase as any).from = (table: string) => {
+        if (table === 'bh_batch_jobs') {
+          return {
+            select: () => ({
+              order: () => ({
+                limit: () => ({
+                  maybeSingle: async () => ({ data: mockJob, error: null }),
+                }),
+              }),
+            }),
+          }
+        }
+        if (table === 'price_checks') {
+          return {
+            select: () => ({
+              in: () => ({
+                gte: () => ({
+                  lte: () => ({
+                    order: async () => ({ data: mockPriceChecks, error: null }),
+                  }),
+                }),
+              }),
+            }),
+          }
+        }
+        return originalFrom.call(supabase, table)
+      }
+
+      // 1. Testa getLatestBatchJob
+      const latestJob = await bhBatchUpdateService.getLatestBatchJob()
+      expect(latestJob).toBeDefined()
+      expect(latestJob?.id).toBe('86efc79f-2ff9-45e0-80ff-c15e769b01d9')
+      expect(latestJob?.status).toBe('completed')
+
+      // 2. Testa reconstrução a partir do banco (job + price_checks)
+      const reconstructed = await bhBatchUpdateService.reconstructJobResults(latestJob!)
+      expect(reconstructed).toBeDefined()
+      expect(Object.keys(reconstructed.results).length).toBe(3)
+
+      // prod-1 veio do results do job
+      expect(reconstructed.results['prod-1'].checkResult?.status).toBe('ok')
+      expect(reconstructed.results['prod-1'].price_usd).toBe(1500)
+
+      // prod-2 reconstruído de price_checks (BZDM8560)
+      expect(reconstructed.results['prod-2'].checkResult?.status).toBe('divergente')
+      expect(reconstructed.results['prod-2'].checkResult?.price_bh).toBe(18362.5)
+      expect(reconstructed.results['prod-2'].checkResult?.diff_usd).toBe(-1636.5)
+      expect(reconstructed.results['prod-2'].website_url).toBe(
+        'https://bhphotovideo.com/c/product/2-bzdm8560.html',
+      )
+      expect(reconstructed.results['prod-2'].checkResult?.url_discovered).toBe(true)
+
+      // prod-3 reconstruído de price_checks (BRCX400UC)
+      expect(reconstructed.results['prod-3'].checkResult?.status).toBe('divergente')
+      expect(reconstructed.results['prod-3'].checkResult?.price_bh).toBe(5300)
+
+      // Stats consolidadas
+      expect(reconstructed.stats.totalSelected).toBe(50)
+      expect(reconstructed.stats.okCount).toBe(11)
+      expect(reconstructed.stats.divergenceCount).toBe(14)
     } finally {
       supabase.from = originalFrom
     }

@@ -56,6 +56,7 @@ import {
   bhBatchUpdateService,
   ProductBatchItem,
   BhBatchJobRecord,
+  BatchProcessingStats,
 } from '@/services/bhBatchUpdateService'
 import { priceCheckService } from '@/services/priceCheckService'
 import { rebateDiscountService, ExistingRebateRule } from '@/services/rebateDiscountService'
@@ -147,16 +148,22 @@ export function AdminBhUpdatePage() {
   const [isBulkReviewing, setIsBulkReviewing] = useState<boolean>(false)
   const [isMigratingRebates, setIsMigratingRebates] = useState<boolean>(false)
 
-  // 1. Carregar produtos iniciais e checar jobs ativos no banco
+  // 1. Carregar produtos iniciais e checar jobs ativos ou último lote concluído no banco
   const loadInitialProducts = useCallback(async () => {
     setLoading(true)
     try {
       const data = await bhBatchUpdateService.fetchProductsForBatch(2000)
 
-      // Busca se há um job ativo ou pausado persistido em bh_batch_jobs
+      // Busca o job mais recente no banco (independente de status)
       let dbJob: BhBatchJobRecord | null = null
+      let reconstructed: {
+        results: Record<string, any>
+        stats: BatchProcessingStats
+        sourceUrls: Record<string, string>
+      } | null = null
+
       try {
-        dbJob = await bhBatchUpdateService.getActiveBatchJob()
+        dbJob = await bhBatchUpdateService.getLatestBatchJob()
         if (dbJob) {
           setActiveJob(dbJob)
           if (dbJob.metadata?.cooldownSeconds) {
@@ -165,14 +172,21 @@ export function AdminBhUpdatePage() {
           if (dbJob.metadata?.batchSize) {
             setBatchSize(dbJob.metadata.batchSize)
           }
-          // Pré-seleciona os produtos do job persistido
-          setSelectedIds(new Set(dbJob.product_ids || []))
+
+          // Se for job ativo ou pausado, ou se for completed e não houver seleção prévia,
+          // pré-seleciona os produtos do job para exibir a lista completa reconstruída
+          if (dbJob.product_ids && dbJob.product_ids.length > 0) {
+            setSelectedIds(new Set(dbJob.product_ids))
+          }
+
+          // Reconstrói sempre a visão do lote cruzando com price_checks da janela de execução
+          reconstructed = await bhBatchUpdateService.reconstructJobResults(dbJob)
         }
       } catch (e) {
-        console.warn('Falha ao checar jobs ativos:', e)
+        console.warn('Falha ao checar jobs no banco:', e)
       }
 
-      // Se houver job com resultados ou estado em localStorage, mescla
+      // Se houver estado em localStorage, mescla como apoio secundário
       const cached = localStorage.getItem(STORAGE_KEY)
       let parsedCache: Record<string, Partial<ProductBatchItem>> = {}
       if (cached) {
@@ -184,21 +198,38 @@ export function AdminBhUpdatePage() {
       }
 
       const merged = data.map((item) => {
-        // Prioridade 1: resultado gravado no job ativo do banco
+        // Prioridade 1: resultado reconstruído do banco (job + price_checks)
+        if (reconstructed?.results && reconstructed.results[item.id]) {
+          const recItem = reconstructed.results[item.id]
+          const finalUrl =
+            recItem.website_url || reconstructed.sourceUrls[item.id] || item.website_url
+          return {
+            ...item,
+            batchStatus: recItem.batchStatus || 'done',
+            checkResult: recItem.checkResult || null,
+            errorMessage: recItem.errorMessage || null,
+            website_url: finalUrl,
+            price_usd: recItem.price_usd ?? item.price_usd,
+            manualUrlDraft: finalUrl || item.manualUrlDraft,
+          }
+        }
+
+        // Prioridade 2: resultado direto gravado no results do job
         if (dbJob?.results && dbJob.results[item.id]) {
           const dbItem = dbJob.results[item.id]
+          const finalUrl = dbItem.website_url || item.website_url
           return {
             ...item,
             batchStatus: dbItem.batchStatus || 'done',
             checkResult: dbItem.checkResult || null,
             errorMessage: dbItem.errorMessage || null,
-            website_url: dbItem.website_url ?? item.website_url,
+            website_url: finalUrl,
             price_usd: dbItem.price_usd ?? item.price_usd,
-            manualUrlDraft: dbItem.website_url ?? item.website_url,
+            manualUrlDraft: finalUrl || item.manualUrlDraft,
           }
         }
 
-        // Prioridade 2: cache local
+        // Prioridade 3: cache local de sessão
         const saved = parsedCache[item.id]
         if (saved) {
           return {
@@ -617,7 +648,8 @@ export function AdminBhUpdatePage() {
       if (next.has(id)) {
         next.delete(id)
       } else {
-        if (next.size >= MAX_BATCH_SELECTION) {
+        // Permite manter a seleção dos itens reconstruídos do lote anterior ou adicionar até o teto
+        if (next.size >= MAX_BATCH_SELECTION && !next.has(id)) {
           toast({
             title: `Limite máximo atingido (${MAX_BATCH_SELECTION})`,
             description: `O teto máximo por lote é de ${MAX_BATCH_SELECTION} produtos. Remova itens antes de adicionar outros.`,
@@ -1652,8 +1684,7 @@ export function AdminBhUpdatePage() {
                 <div>
                   <div className="flex items-center gap-2">
                     <h4 className="font-semibold text-sm text-blue-200">
-                      Lote em andamento persistido: {activeJob.processed_items}/
-                      {activeJob.total_items}
+                      Lote em andamento: {activeJob.processed_items}/{activeJob.total_items}
                     </h4>
                     <Badge
                       variant="outline"
@@ -1694,6 +1725,59 @@ export function AdminBhUpdatePage() {
               </div>
             </div>
           )}
+
+          {/* Banner de Lote Concluído Anterior Reconstruído do Banco */}
+          {activeJob &&
+            activeJob.status === 'completed' &&
+            !isProcessingBatch &&
+            selectedIds.size > 0 && (
+              <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-lg bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 font-bold shrink-0">
+                    <CheckCircle2 className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h4 className="font-semibold text-sm text-emerald-200">
+                        Lote anterior — concluído às{' '}
+                        {activeJob.completed_at || activeJob.updated_at
+                          ? new Date(
+                              activeJob.completed_at || activeJob.updated_at!,
+                            ).toLocaleTimeString('pt-BR', {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })
+                          : 'HH:MM'}
+                        {activeJob.completed_at || activeJob.updated_at
+                          ? ` (${new Date(activeJob.completed_at || activeJob.updated_at!).toLocaleDateString('pt-BR')})`
+                          : ''}
+                      </h4>
+                      <Badge
+                        variant="outline"
+                        className="border-emerald-400/40 text-emerald-300 text-[10px] uppercase font-mono"
+                      >
+                        {activeJob.total_items} itens auditados
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-emerald-300/80 mt-0.5">
+                      Visão completa reconstruída do banco (tabelas bh_batch_jobs + price_checks).
+                      Todas as ações de ajuste permanecem 100% funcionais.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={clearSelection}
+                    className="text-xs h-9 border-border/60 text-muted-foreground hover:text-foreground"
+                  >
+                    Limpar Visão
+                  </Button>
+                </div>
+              </div>
+            )}
 
           {/* Painel de Controle de Lotes e Temporizador */}
           <div className="bg-card border border-border/60 rounded-xl p-5 shadow-sm space-y-5">

@@ -8,6 +8,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase/client'
 import { calculateTotalUSDFromValues } from '@/utils/pricing-engine'
 import { sanitizeSku } from '@/utils/sku-sanitizer'
+import { normalizeSonySku, isSonyBrand } from '@/utils/sku-normalization'
 
 const productSchema = z.object({
   name: z.string().min(1, 'Nome é obrigatório'),
@@ -331,7 +332,16 @@ export function useProductForm(props?: UseProductFormProps) {
       }
 
       if (data.name) form.setValue('name', data.name, { shouldDirty: true })
-      if (data.sku) form.setValue('sku', sanitizeSku(data.sku), { shouldDirty: true })
+      if (data.sku) {
+        const isSony =
+          isSonyBrand(data.extracted_brand) ||
+          isSonyBrand(data.manufacturer) ||
+          (data.manufacturer_id &&
+            categories &&
+            manufacturers.some((m) => m.id === data.manufacturer_id && isSonyBrand(m.name)))
+        const normalizedSku = isSony ? normalizeSonySku(data.sku, 'Sony') : sanitizeSku(data.sku)
+        form.setValue('sku', normalizedSku, { shouldDirty: true })
+      }
       if (data.description) {
         const descStr =
           typeof data.description === 'string'
@@ -451,8 +461,16 @@ export function useProductForm(props?: UseProductFormProps) {
   const onSubmit = async (data: any) => {
     setIsSaving(true)
     try {
+      const selectedMfg = manufacturers.find((m) => m.id === data.manufacturer_id)
+      const mfgName = selectedMfg?.name || ''
+      const isSony = isSonyBrand(mfgName)
+
+      // Normaliza SKU antes de salvar (remover traço, uppercase, trim se Sony)
+      const normalizedSku = normalizeSonySku(data.sku, mfgName)
+
       const payload = {
         ...data,
+        sku: normalizedSku,
         category_id: data.category_id && data.category_id.trim() !== '' ? data.category_id : null,
         manufacturer_id:
           data.manufacturer_id && data.manufacturer_id.trim() !== '' ? data.manufacturer_id : null,
@@ -462,13 +480,31 @@ export function useProductForm(props?: UseProductFormProps) {
         website_url: data.website_url ? String(data.website_url).trim() : null,
       }
 
+      // Se SKU mudou ou foi normalizado no formulário, reflete o valor no form
+      if (normalizedSku !== data.sku) {
+        form.setValue('sku', normalizedSku)
+      }
+
+      // Checagem de duplicidade comparando pela chave normalizada (em criação ou edição)
+      const duplicateProduct = await productService.findDuplicateProductByNormalizedSku(
+        payload.sku,
+        {
+          manufacturerId: payload.manufacturer_id,
+          manufacturerName: mfgName,
+          excludeProductId: isEditMode ? id : null,
+        },
+      )
+
+      if (duplicateProduct) {
+        form.setError('sku', {
+          type: 'manual',
+          message: `Este SKU já existe (colide com "${duplicateProduct.sku}")`,
+        })
+        setIsSaving(false)
+        return
+      }
+
       if (!isEditMode) {
-        const exists = await productService.checkSkuExists(payload.sku)
-        if (exists) {
-          form.setError('sku', { type: 'manual', message: 'Este SKU já existe' })
-          setIsSaving(false)
-          return
-        }
         await productService.createProduct(payload)
         toast({ description: 'Produto e Rebates salvos com sucesso!' })
       } else {
@@ -508,6 +544,21 @@ export function useProductForm(props?: UseProductFormProps) {
     handleAddManufacturer,
     productDates,
     handleMarkAsReviewed,
-    isMarkingReviewed,
+    checkSkuExists: async (sku: string) => {
+      if (!sku) return false
+      try {
+        const mfgId = form.getValues('manufacturer_id')
+        const mfg = manufacturers.find((m) => m.id === mfgId)
+        const duplicate = await productService.findDuplicateProductByNormalizedSku(sku, {
+          manufacturerId: mfgId || null,
+          manufacturerName: mfg?.name || null,
+          excludeProductId: isEditMode ? id : null,
+        })
+        return !!duplicate
+      } catch (error) {
+        console.error('Erro ao verificar SKU:', error)
+        return false
+      }
+    },
   }
-}
+}}

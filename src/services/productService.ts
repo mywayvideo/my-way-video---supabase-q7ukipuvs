@@ -2,6 +2,12 @@ import { supabase } from '@/lib/supabase/client'
 import { ProductFormData } from '@/types/product'
 import { isStorageImageUrl } from '@/lib/image-proxy'
 import { sanitizeSku } from '@/utils/sku-sanitizer'
+import {
+  normalizeSkuKey,
+  normalizeSonySku,
+  formatSonyStandardSku,
+  isSonyBrand,
+} from '@/utils/sku-normalization'
 
 export async function persistExternalProductImage(
   imageUrl: string | null | undefined,
@@ -119,14 +125,95 @@ export const productService = {
     return data || []
   },
 
-  async checkSkuExists(sku: string) {
-    const { data, error } = await supabase
+  async checkSkuExists(
+    sku: string,
+    options?: {
+      manufacturerId?: string | null
+      manufacturerName?: string | null
+      excludeProductId?: string | null
+    },
+  ): Promise<boolean> {
+    const candidateProduct = await this.findDuplicateProductByNormalizedSku(sku, options)
+    return !!candidateProduct
+  },
+
+  /**
+   * Encontra se já existe no banco um produto que colide com o SKU fornecido,
+   * comparando pela CHAVE NORMALIZADA (uppercase, sem traço, sem espaço).
+   * Se for Sony (ou se manufacturerId/Name indicar Sony), a colisão é restrita ou prioritária para produtos Sony,
+   * mas de forma geral a chave normalizada protege contra colisões exatas e normalizadas.
+   */
+  async findDuplicateProductByNormalizedSku(
+    rawSku: string,
+    options?: {
+      manufacturerId?: string | null
+      manufacturerName?: string | null
+      excludeProductId?: string | null
+    },
+  ): Promise<{ id: string; sku: string; name: string } | null> {
+    if (!rawSku || typeof rawSku !== 'string' || !rawSku.trim()) {
+      return null
+    }
+
+    const normKey = normalizeSkuKey(rawSku)
+    if (!normKey) return null
+
+    // 1. Tenta correspondência exata ou normalizada simples
+    let query = supabase.from('products').select('id, sku, name, manufacturer_id')
+
+    if (options?.excludeProductId) {
+      query = query.neq('id', options.excludeProductId)
+    }
+
+    // Se temos manufacturerId, podemos filtrar os produtos do mesmo fabricante primeiro para performance
+    if (options?.manufacturerId) {
+      const { data: mfgProducts, error: mfgErr } = await query.eq(
+        'manufacturer_id',
+        options.manufacturerId,
+      )
+      if (!mfgErr && mfgProducts && mfgProducts.length > 0) {
+        const found = mfgProducts.find((p) => normalizeSkuKey(p.sku) === normKey)
+        if (found) {
+          return { id: found.id, sku: found.sku || '', name: found.name || '' }
+        }
+      }
+    }
+
+    // 2. Busca ampla: busca direta por igualdade ou busca produtos cujo SKU contenha os caracteres
+    const { data: exactMatch, error: exactErr } = await supabase
       .from('products')
-      .select('id')
-      .eq('sku', sku)
+      .select('id, sku, name')
+      .eq('sku', rawSku.trim())
       .maybeSingle()
-    if (error && error.code !== 'PGRST116') throw error
-    return !!data
+
+    if (
+      !exactErr &&
+      exactMatch &&
+      (!options?.excludeProductId || exactMatch.id !== options.excludeProductId)
+    ) {
+      return exactMatch
+    }
+
+    // 3. Se for Sony ou o SKU normalizado for diferente do original (ex: continha hífen como BRU-SF10 vs BRUSF10):
+    // Busca candidatos pelo SKU sem hífens ou com ilike
+    const { data: candidates, error: candErr } = await supabase
+      .from('products')
+      .select('id, sku, name')
+      .ilike('sku', `%${normKey.slice(0, 10)}%`)
+      .limit(50)
+
+    if (!candErr && candidates && candidates.length > 0) {
+      const collision = candidates.find(
+        (c) =>
+          (!options?.excludeProductId || c.id !== options.excludeProductId) &&
+          normalizeSkuKey(c.sku) === normKey,
+      )
+      if (collision) {
+        return { id: collision.id, sku: collision.sku || '', name: collision.name || '' }
+      }
+    }
+
+    return null
   },
 
   async extractFromUrl(url: string) {
@@ -136,7 +223,8 @@ export const productService = {
     if (error) throw error
     if (data?.error) throw new Error(data.error)
     if (data && typeof data.sku === 'string') {
-      data.sku = sanitizeSku(data.sku)
+      const isSony = isSonyBrand(data.extracted_brand) || isSonyBrand(data.manufacturer)
+      data.sku = isSony ? formatSonyStandardSku(data.sku) : sanitizeSku(data.sku)
     }
     // Garante que source_url esteja sempre preenchido com a URL enviada caso não retornado
     if (data && !data.source_url) {
@@ -175,6 +263,21 @@ export const productService = {
 
   async createProduct(productData: any) {
     let finalImageUrl = productData.image_url || null
+    let brandName = productData.brand || productData.manufacturer_name || ''
+    if (!brandName && productData.manufacturer_id) {
+      try {
+        const { data: mfg } = await supabase
+          .from('manufacturers')
+          .select('name')
+          .eq('id', productData.manufacturer_id)
+          .maybeSingle()
+        if (mfg?.name) brandName = mfg.name
+      } catch {
+        /* intentionally ignored */
+      }
+    }
+
+    const finalSku = normalizeSonySku(productData.sku, brandName)
     if (finalImageUrl) {
       try {
         finalImageUrl = await persistExternalProductImage(finalImageUrl)
@@ -185,7 +288,7 @@ export const productService = {
 
     const payload = {
       name: productData.name,
-      sku: productData.sku,
+      sku: finalSku,
       manufacturer_id: productData.manufacturer_id || null,
       price_usd: productData.price_usa || 0,
       price_cost: productData.price_cost || 0,
@@ -235,6 +338,22 @@ export const productService = {
 
   async updateProduct(id: string, productData: any) {
     let finalImageUrl = productData.image_url !== undefined ? productData.image_url : undefined
+    let brandName = productData.brand || productData.manufacturer_name || ''
+    if (!brandName && productData.manufacturer_id) {
+      try {
+        const { data: mfg } = await supabase
+          .from('manufacturers')
+          .select('name')
+          .eq('id', productData.manufacturer_id)
+          .maybeSingle()
+        if (mfg?.name) brandName = mfg.name
+      } catch {
+        /* intentionally ignored */
+      }
+    }
+
+    const finalSku =
+      productData.sku !== undefined ? normalizeSonySku(productData.sku, brandName) : undefined
     if (finalImageUrl) {
       try {
         finalImageUrl = await persistExternalProductImage(finalImageUrl, id)
@@ -245,7 +364,7 @@ export const productService = {
 
     const payload: any = {
       name: productData.name,
-      sku: productData.sku,
+      sku: finalSku !== undefined ? finalSku : productData.sku,
       manufacturer_id: productData.manufacturer_id || null,
       price_usd: productData.price_usa || 0,
       price_cost: productData.price_cost || 0,

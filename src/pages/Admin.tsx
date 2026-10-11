@@ -1,6 +1,5 @@
 import { AdminLayout } from '@/components/admin/AdminLayout'
 import { Card, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
-import { FirecrawlCreditsWidget } from '@/components/admin/FirecrawlCreditsWidget'
 import { Link } from 'react-router-dom'
 import {
   Users,
@@ -102,9 +101,6 @@ export default function Admin() {
             Bem-vindo ao painel de controle. Selecione um módulo abaixo para gerenciar.
           </p>
         </div>
-
-        {/* Indicador de Créditos da API Firecrawl */}
-        <FirecrawlCreditsWidget variant="card" />
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {cards.map((card) => (

@@ -106,6 +106,10 @@ export function AdminProductForm({ initialData, onSuccess, onAddManufacturer }: 
             {isExtracting ? 'Extraindo...' : 'Extrair'}
           </Button>
         </div>
+        <p className="text-[11px] text-muted-foreground -mt-3 px-1">
+          API Firecrawl: consome 1 crédito por importação de URL. Renovação mensal no dia 27 de cada
+          mês.
+        </p>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-5">
           <FormField

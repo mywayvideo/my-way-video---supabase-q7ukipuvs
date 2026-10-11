@@ -359,6 +359,12 @@ export default function NewProductPage() {
               Dados
             </Button>
           </div>
+          <div className="mt-2.5 flex items-center justify-between gap-2 text-xs text-muted-foreground">
+            <span className="text-[11px] text-muted-foreground/90">
+              API Firecrawl: consome 1 crédito por importação direta. Créditos renovados mensalmente
+              no dia 27 de cada mês.
+            </span>
+          </div>
           {websiteUrl && (
             <div className="mt-3 pt-3 border-t border-border/40 text-xs text-muted-foreground flex items-center justify-between gap-2">
               <span className="truncate">

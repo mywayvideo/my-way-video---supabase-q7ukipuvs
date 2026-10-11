@@ -121,6 +121,12 @@ export function AdminBhUpdatePage() {
   const [remainingCooldown, setRemainingCooldown] = useState<number>(0)
   const [batchPauseRequested, setBatchPauseRequested] = useState<boolean>(false)
 
+  // Referência síncrona do catálogo de produtos para evitar leituras defasadas no React 18
+  const productsRef = useRef<ProductBatchItem[]>(products)
+  useEffect(() => {
+    productsRef.current = products
+  }, [products])
+
   // Referência para interromper de forma limpa o loop assíncrono
   const stopSignalRef = useRef<boolean>(false)
   const cooldownIntervalRef = useRef<any>(null)
@@ -834,14 +840,10 @@ export function AdminBhUpdatePage() {
     // Loop contínuo que processa os itens em chunks automáticos até o fim do lote
     while (!stopSignalRef.current) {
       // Reavalia pendentes atuais do array de produtos selecionados
-      // Precisamos pegar o estado mais recente usando a referência de produtos
-      let currentPendings: ProductBatchItem[] = []
-      setProducts((currentProds) => {
-        currentPendings = currentProds.filter(
-          (p) => selectedIds.has(p.id) && p.batchStatus !== 'done' && p.batchStatus !== 'error',
-        )
-        return currentProds
-      })
+      // Leitura síncrona e confiável via productsRef.current (evita captura assíncrona do React 18)
+      const currentPendings: ProductBatchItem[] = (productsRef.current || []).filter(
+        (p) => selectedIds.has(p.id) && p.batchStatus !== 'done' && p.batchStatus !== 'error',
+      )
 
       if (currentPendings.length === 0 || stopSignalRef.current) {
         break
@@ -856,12 +858,11 @@ export function AdminBhUpdatePage() {
         const item = chunk[i]
         setCurrentProcessingId(item.id)
 
-        // Marca item como 'processing'
-        setProducts((prev) =>
-          prev.map((p) =>
-            p.id === item.id ? { ...p, batchStatus: 'processing', errorMessage: null } : p,
-          ),
+        // Marca item como 'processing' no estado e no ref sincronizado
+        productsRef.current = productsRef.current.map((p) =>
+          p.id === item.id ? { ...p, batchStatus: 'processing', errorMessage: null } : p,
         )
+        setProducts(productsRef.current)
 
         let checkResult: any = null
         let isSuccess = false
@@ -884,39 +885,31 @@ export function AdminBhUpdatePage() {
           }
         }
 
-        // Atualiza estado local do produto
-        setProducts((prev) =>
-          prev.map((p) =>
-            p.id === item.id
-              ? {
-                  ...p,
-                  batchStatus: isSuccess ? 'done' : 'error',
-                  checkResult,
-                  errorMessage: errMsg,
-                  website_url: newWebsiteUrl,
-                  manualUrlDraft: newWebsiteUrl || p.manualUrlDraft,
-                }
-              : p,
-          ),
+        // Atualiza estado local e ref síncrono do produto
+        productsRef.current = productsRef.current.map((p) =>
+          p.id === item.id
+            ? {
+                ...p,
+                batchStatus: isSuccess ? 'done' : 'error',
+                checkResult,
+                errorMessage: errMsg,
+                website_url: newWebsiteUrl,
+                manualUrlDraft: newWebsiteUrl || p.manualUrlDraft,
+              }
+            : p,
         )
+        setProducts(productsRef.current)
 
         processedTotalInRun++
 
         // Persiste checkpoint no banco bh_batch_jobs
         if (currentJob?.id) {
           try {
-            // Calcula estatísticas acumuladas
-            const currentDoneItems: ProductBatchItem[] = []
-            setProducts((curr) => {
-              currentDoneItems.push(
-                ...curr.filter(
-                  (p) =>
-                    selectedIds.has(p.id) &&
-                    (p.batchStatus === 'done' || p.batchStatus === 'error'),
-                ),
-              )
-              return curr
-            })
+            // Calcula estatísticas acumuladas a partir do ref síncrono atualizado
+            const currentDoneItems = (productsRef.current || []).filter(
+              (p) =>
+                selectedIds.has(p.id) && (p.batchStatus === 'done' || p.batchStatus === 'error'),
+            )
 
             const statsSnapshot = bhBatchUpdateService.calculateStats(currentDoneItems)
             statsSnapshot.totalSelected = selectedIds.size
@@ -968,14 +961,10 @@ export function AdminBhUpdatePage() {
         }
       }
 
-      // Verifica se restam itens após este chunk
-      let remainingAfterChunk: ProductBatchItem[] = []
-      setProducts((currentProds) => {
-        remainingAfterChunk = currentProds.filter(
-          (p) => selectedIds.has(p.id) && p.batchStatus !== 'done' && p.batchStatus !== 'error',
-        )
-        return currentProds
-      })
+      // Verifica se restam itens após este chunk lendo productsRef.current de forma síncrona
+      const remainingAfterChunk = (productsRef.current || []).filter(
+        (p) => selectedIds.has(p.id) && p.batchStatus !== 'done' && p.batchStatus !== 'error',
+      )
 
       // Se ainda restam itens e não houve pedido de pausa, executa o cooldown automático
       if (remainingAfterChunk.length > 0 && !stopSignalRef.current) {
@@ -1007,8 +996,25 @@ export function AdminBhUpdatePage() {
         title: 'Lote pausado',
         description: 'O progresso foi salvo. Você pode retomar a qualquer momento.',
       })
+    } else if (selectedIds.size > 0 && processedTotalInRun === 0) {
+      // GUARDA DE SEGURANÇA: se havia produtos selecionados mas nada foi processado,
+      // NUNCA marcar o job como "completed". Marca como erro ('error') no banco e alerta o usuário.
+      if (currentJob?.id) {
+        try {
+          await bhBatchUpdateService.updateJobStatus(currentJob.id, 'error')
+          setActiveJob((prev) => (prev ? { ...prev, status: 'error' } : null))
+        } catch (e) {
+          console.warn('Falha ao atualizar job para error:', e)
+        }
+      }
+      toast({
+        title: 'Nenhum item processado',
+        description:
+          'O lote foi interrompido antes do início ou nenhum item pendente pôde ser iniciado. O lote foi marcado como erro.',
+        variant: 'destructive',
+      })
     } else {
-      // Concluído com sucesso
+      // Concluído com sucesso (ao menos 1 item foi processado ou nenhum estava pendente)
       if (currentJob?.id) {
         try {
           await bhBatchUpdateService.updateJobStatus(currentJob.id, 'completed')
@@ -1618,6 +1624,9 @@ export function AdminBhUpdatePage() {
                   <strong>Custos Firecrawl pós-otimização:</strong> 1 crédito para link validado
                   (scrape direto markdown); 3 créditos sem link (2 da busca + 1 do scrape do 1º
                   candidato, parando no match). Fallback JSON por IA = 5 créditos.
+                  <span className="ml-1 text-foreground/80 font-medium">
+                    (Renovação mensal no dia 27 de cada mês)
+                  </span>
                 </span>
               </div>
               <div className="font-mono text-[11px] bg-background/60 px-2.5 py-1 rounded border border-border/40 shrink-0 flex items-center gap-1.5">

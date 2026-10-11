@@ -495,21 +495,22 @@ export const FirecrawlCreditsWidget: React.FC<FirecrawlCreditsWidgetProps> = ({
             </div>
           </div>
 
-          {/* Detalhes do Ciclo de Faturamento se presentes */}
-          {(data.billingPeriodStart || data.billingPeriodEnd) && (
-            <div className="text-[11px] text-muted-foreground flex flex-wrap items-center gap-x-4 gap-y-1 pt-1 font-mono">
-              {data.billingPeriodStart && (
-                <span>
-                  Início do ciclo: {new Date(data.billingPeriodStart).toLocaleDateString('pt-BR')}
-                </span>
-              )}
-              {data.billingPeriodEnd && (
-                <span>
-                  Renovação: {new Date(data.billingPeriodEnd).toLocaleDateString('pt-BR')}
-                </span>
-              )}
-            </div>
-          )}
+          {/* Detalhes do Ciclo de Faturamento e Renovação Mensal */}
+          <div className="text-[11px] text-muted-foreground flex flex-wrap items-center gap-x-4 gap-y-1 pt-1 font-mono">
+            <span className="text-foreground/90 font-medium">
+              Renovação mensal no dia 27 de cada mês
+            </span>
+            {data.billingPeriodStart && (
+              <span>
+                Início do ciclo: {new Date(data.billingPeriodStart).toLocaleDateString('pt-BR')}
+              </span>
+            )}
+            {data.billingPeriodEnd && (
+              <span>
+                Próxima renovação: {new Date(data.billingPeriodEnd).toLocaleDateString('pt-BR')}
+              </span>
+            )}
+          </div>
         </div>
       )}
     </div>

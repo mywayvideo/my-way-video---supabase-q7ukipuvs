@@ -315,6 +315,64 @@ export const bhBatchUpdateService = {
   },
 
   /**
+   * Busca produtos específicos por IDs (usado para garantir que todos os produtos
+   * de um lote estejam carregados na tela, mesmo além do limite da listagem padrão)
+   */
+  async fetchProductsByIds(productIds: string[]): Promise<ProductBatchItem[]> {
+    if (!productIds || productIds.length === 0) return []
+
+    const items: ProductBatchItem[] = []
+    const chunkSize = 100
+
+    for (let i = 0; i < productIds.length; i += chunkSize) {
+      const chunk = productIds.slice(i, i + chunkSize)
+      const { data, error } = await supabase
+        .from('products')
+        .select(
+          'id, name, sku, category, price_usd, price_cost, price_usa_rebate, price_cost_rebate, date_rebate, website_url, is_discontinued, updated_at, last_reviewed_at, manufacturer:manufacturers(id, name)',
+        )
+        .in('id', chunk)
+
+      if (error) {
+        console.warn('bhBatchUpdateService.fetchProductsByIds error:', error.message)
+        continue
+      }
+
+      if (data) {
+        for (const row of data as any[]) {
+          items.push({
+            id: row.id,
+            name: row.name,
+            sku: row.sku || null,
+            category: row.category || null,
+            price_usd: row.price_usd != null ? Number(row.price_usd) : null,
+            price_cost: row.price_cost != null ? Number(row.price_cost) : null,
+            price_usa_rebate: row.price_usa_rebate != null ? Number(row.price_usa_rebate) : null,
+            price_cost_rebate: row.price_cost_rebate != null ? Number(row.price_cost_rebate) : null,
+            date_rebate: row.date_rebate || null,
+            website_url: row.website_url || null,
+            is_discontinued: Boolean(row.is_discontinued),
+            updated_at: row.updated_at || '',
+            last_reviewed_at: row.last_reviewed_at || '',
+            manufacturer: row.manufacturer
+              ? {
+                  id: row.manufacturer.id,
+                  name: row.manufacturer.name,
+                }
+              : null,
+            batchStatus: 'idle',
+            checkResult: null,
+            errorMessage: null,
+            manualUrlDraft: row.website_url || '',
+          })
+        }
+      }
+    }
+
+    return items
+  },
+
+  /**
    * Processa uma única unidade no contexto do lote via edge function
    */
   async processSingleItem(productId: string): Promise<PriceCheckResult> {
@@ -682,23 +740,7 @@ export const bhBatchUpdateService = {
     > = {}
     const sourceUrls: Record<string, string> = {}
 
-    // 1. Popula com os results já existentes no JSONB do job
-    if (job.results && typeof job.results === 'object') {
-      for (const [pId, item] of Object.entries(job.results)) {
-        combinedResults[pId] = {
-          checkResult: item.checkResult || null,
-          batchStatus: item.batchStatus || 'done',
-          errorMessage: item.errorMessage || null,
-          website_url: item.website_url || null,
-          price_usd: item.price_usd ?? null,
-        }
-        if (item.website_url) {
-          sourceUrls[pId] = item.website_url
-        }
-      }
-    }
-
-    // 2. Se houver product_ids no job, busca os price_checks associados na janela temporal
+    // 1. PRIMÁRIO: Monta a partir dos registros de price_checks da janela de execução do job
     const productIds = job.product_ids || []
     if (productIds.length > 0) {
       try {
@@ -774,16 +816,13 @@ export const bhBatchUpdateService = {
                 mfr_number_found: rawData.mfr_number || null,
               }
 
-              // Preenche ou sobrepõe com a checagem mais recente do período
+              // Salva o registro mais recente do período para este produto
               combinedResults[pId] = {
                 checkResult,
                 batchStatus: row.status === 'erro' ? 'error' : 'done',
                 errorMessage: row.status === 'erro' ? row.message : null,
-                website_url: row.url_used || combinedResults[pId]?.website_url || null,
-                price_usd:
-                  row.price_db != null
-                    ? Number(row.price_db)
-                    : (combinedResults[pId]?.price_usd ?? null),
+                website_url: row.url_used || null,
+                price_usd: row.price_db != null ? Number(row.price_db) : null,
               }
 
               if (row.url_used) {
@@ -793,7 +832,42 @@ export const bhBatchUpdateService = {
           }
         }
       } catch (err: any) {
-        console.warn('bhBatchUpdateService.reconstructJobResults fallback error:', err?.message)
+        console.warn('bhBatchUpdateService.reconstructJobResults price_checks error:', err?.message)
+      }
+    }
+
+    // 2. SECUNDÁRIO / ENRIQUECIMENTO: Usa job.results apenas para complementar itens faltantes ou enriquecer
+    if (job.results && typeof job.results === 'object') {
+      for (const [pId, item] of Object.entries(job.results)) {
+        if (!combinedResults[pId]) {
+          // Se o produto não tinha registro em price_checks na janela, adiciona a partir de job.results
+          combinedResults[pId] = {
+            checkResult: item.checkResult || null,
+            batchStatus: item.batchStatus || 'done',
+            errorMessage: item.errorMessage || null,
+            website_url: item.website_url || null,
+            price_usd: item.price_usd ?? null,
+          }
+        } else {
+          // Se já veio de price_checks, enriquece apenas campos que estiverem nulos/vazios
+          const existing = combinedResults[pId]
+          if (!existing.website_url && item.website_url) {
+            existing.website_url = item.website_url
+          }
+          if (existing.price_usd == null && item.price_usd != null) {
+            existing.price_usd = item.price_usd
+          }
+          if (!existing.checkResult && item.checkResult) {
+            existing.checkResult = item.checkResult
+          }
+          if (!existing.errorMessage && item.errorMessage) {
+            existing.errorMessage = item.errorMessage
+          }
+        }
+
+        if (item.website_url && !sourceUrls[pId]) {
+          sourceUrls[pId] = item.website_url
+        }
       }
     }
 

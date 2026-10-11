@@ -39,6 +39,28 @@ export interface SkuProductItem {
   isSony: boolean
 }
 
+export interface PriceCheckHistoryItem {
+  id: string
+  checked_at: string
+  status: string
+  price_db: number | null
+  price_bh: number | null
+  message: string | null
+  source?: string | null
+}
+
+export interface DeletedLoserSummaryItem {
+  deletedProductId: string
+  deletedSku: string | null
+  deletedName: string
+  preferredProductId: string
+  preferredSku: string | null
+  preferredName: string
+  priceChecksCount: number
+  priceChecks: PriceCheckHistoryItem[]
+  deleteError?: string
+}
+
 export interface MergedFieldDetail {
   field: string
   previousValue: any
@@ -53,7 +75,15 @@ export interface MergeResultItem {
   preferredSkuAfter: string | null
   preferredName: string
   mergedFields: MergedFieldDetail[]
-  deactivatedProducts: {
+  deletedProducts: {
+    id: string
+    sku: string | null
+    name: string
+    priceChecksCount: number
+    priceChecks: PriceCheckHistoryItem[]
+  }[]
+  /** @deprecated mantido para retrocompatibilidade opcional */
+  deactivatedProducts?: {
     id: string
     sku: string | null
     name: string
@@ -92,6 +122,16 @@ export interface BackfillPlanPreview {
     secondaryProducts: { id: string; sku: string | null; name: string }[]
     fieldsToMerge: string[]
   }[]
+  totalLosersToDelete: number
+  losersToDeleteList: {
+    id: string
+    sku: string | null
+    name: string
+    mergeIntoPreferredId: string
+    mergeIntoPreferredSku: string | null
+    mergeIntoPreferredName: string
+    normalizedSku: string
+  }[]
   skippedCollisionsCount: number
   skippedCollisions: SkippedCollisionItem[]
   distinctCollisionsCount: number
@@ -105,8 +145,11 @@ export interface BackfillExecutionReport {
   finishedAt: string
   totalSonyRenamed: number
   renamedItems: RenamedSkuItem[]
-  totalLosersDeactivated: number
+  totalLosersDeleted: number
+  /** @deprecated Mantido para compatibilidade */
+  totalLosersDeactivated?: number
   mergedGroups: MergeResultItem[]
+  deletedLosersSummary: DeletedLoserSummaryItem[]
   skippedCollisions: SkippedCollisionItem[]
   errors: { id?: string; sku?: string; error: string }[]
 }
@@ -548,6 +591,8 @@ export const skuStandardizationService = {
         renamesPreview: [],
         mergesCount: 0,
         mergesPreview: [],
+        totalLosersToDelete: 0,
+        losersToDeleteList: [],
         skippedCollisionsCount: 0,
         skippedCollisions: [],
         distinctCollisionsCount: 0,
@@ -636,6 +681,22 @@ export const skuStandardizationService = {
       }
     }
 
+    // Lista nominal detalhada de cada perdedor que será DELETADO
+    const losersToDeleteList: BackfillPlanPreview['losersToDeleteList'] = []
+    for (const m of mergesPreview) {
+      for (const sec of m.secondaryProducts) {
+        losersToDeleteList.push({
+          id: sec.id,
+          sku: sec.sku,
+          name: sec.name,
+          mergeIntoPreferredId: m.preferredProduct.id,
+          mergeIntoPreferredSku: m.preferredProduct.sku,
+          mergeIntoPreferredName: m.preferredProduct.name,
+          normalizedSku: m.normalizedSku,
+        })
+      }
+    }
+
     // Produtos Sony a renomear:
     // Critérios:
     // 1. isSony = true
@@ -682,6 +743,8 @@ export const skuStandardizationService = {
       renamesPreview,
       mergesCount: mergesPreview.length,
       mergesPreview,
+      totalLosersToDelete: losersToDeleteList.length,
+      losersToDeleteList,
       skippedCollisionsCount: skippedCollisions.length,
       skippedCollisions,
       distinctCollisionsCount,
@@ -691,11 +754,14 @@ export const skuStandardizationService = {
   },
 
   /**
-   * Executa a Rodada 2 completa:
+   * Executa a Rodada 2 completa — Opção B (exclusão definitiva):
    * 1. Valida existência da tabela sku_collision_decisions.
-   * 2. Desativação + Mesclagem de perdedores em colisões decididas (keep_preferred).
-   * 3. Backfill em massa de SKUs Sony com traço (SEM alterar price_usd, mantendo regra de datas).
-   * 4. Gera relatório final estruturado.
+   * 2. Mesclagem não destrutiva no prevalente (website_url, image_url, description, technical_info, ncm).
+   *    Regra de datas: updated_at = last_reviewed_at = agora SOMENTE se houver dados mesclados reais.
+   * 3. Busca de histórico em public.price_checks para cada perdedor antes do DELETE.
+   * 4. DELETE definitivo de cada produto perdedor de public.products (NÃO usa mais is_discontinued).
+   * 5. Backfill em massa de SKUs Sony com traço (SEM alterar price_usd, sem alterar datas).
+   * 6. Retorna relatório completo com resumo exportável de price_checks dos produtos deletados.
    */
   async executeRound2Backfill(
     onProgress?: (progress: { stage: string; current: number; total: number }) => void,
@@ -721,14 +787,15 @@ export const skuStandardizationService = {
     const skippedCollisions: SkippedCollisionItem[] = []
     const mergedGroups: MergeResultItem[] = []
     const renamedItems: RenamedSkuItem[] = []
+    const deletedLosersSummary: DeletedLoserSummaryItem[] = []
     const errors: { id?: string; sku?: string; error: string }[] = []
 
     const loserProductIds = new Set<string>()
     const preferredProductIds = new Set<string>()
 
-    // ETAPA 1: Processar Colisões e Mesclagens
+    // ETAPA 1: Processar Colisões, Mesclagens e Exclusão Definitiva (Opção B)
     if (onProgress)
-      onProgress({ stage: 'Processando mesclagens e desativações...', current: 10, total: 100 })
+      onProgress({ stage: 'Processando mesclagens e histórico...', current: 10, total: 100 })
 
     for (let i = 0; i < sonyCollisions.length; i++) {
       const group = sonyCollisions[i]
@@ -782,9 +849,6 @@ export const skuStandardizationService = {
         const candidateFields: ('website_url' | 'image_url' | 'description' | 'technical_info')[] =
           ['website_url', 'image_url', 'description', 'technical_info']
 
-        // Também verificar se o perdedor tem conferência mais recente
-        let mostRecentReview = preferred.last_reviewed_at || ''
-
         for (const sec of secondaries) {
           for (const f of candidateFields) {
             const prefVal = (preferred as any)[f]
@@ -821,13 +885,6 @@ export const skuStandardizationService = {
               sourceProductId: sec.id,
               sourceSku: sec.sku,
             })
-          }
-
-          if (
-            sec.last_reviewed_at &&
-            (!mostRecentReview || new Date(sec.last_reviewed_at) > new Date(mostRecentReview))
-          ) {
-            mostRecentReview = sec.last_reviewed_at
           }
         }
 
@@ -873,40 +930,84 @@ export const skuStandardizationService = {
           }
         }
 
-        // Desativar secundários (perdedores): is_discontinued = true.
-        // O produto perdedor desativado NÃO recebe marcação de datas (updated_at/last_reviewed_at permanecem intactos).
-        const deactivatedList: MergeResultItem['deactivatedProducts'] = []
-        for (const sec of secondaries) {
-          try {
-            const wasDiscontinued = sec.is_discontinued
-            const { error: secErr } = await supabase
-              .from('products')
-              .update({
-                is_discontinued: true,
-              })
-              .eq('id', sec.id)
+        // Opção B: Para cada produto secundário (perdedor):
+        // 1. Buscar histórico de public.price_checks para auditoria e exportação
+        // 2. DELETE definitivo de public.products (sem is_discontinued)
+        const deletedList: MergeResultItem['deletedProducts'] = []
 
-            if (secErr) {
+        for (const sec of secondaries) {
+          let priceChecksForSec: PriceCheckHistoryItem[] = []
+
+          // 1. Coleta do histórico de price_checks antes de deletar
+          try {
+            const { data: pcData, error: pcErr } = await supabase
+              .from('price_checks')
+              .select('id, checked_at, status, price_db, price_bh, message, source')
+              .eq('product_id', sec.id)
+              .order('checked_at', { ascending: false })
+
+            if (!pcErr && pcData) {
+              priceChecksForSec = pcData.map((row: any) => ({
+                id: row.id,
+                checked_at: row.checked_at,
+                status: row.status,
+                price_db: row.price_db != null ? Number(row.price_db) : null,
+                price_bh: row.price_bh != null ? Number(row.price_bh) : null,
+                message: row.message || null,
+                source: row.source || 'manual',
+              }))
+            } else if (pcErr) {
+              console.warn(`Aviso ao coletar price_checks do perdedor ${sec.id}:`, pcErr.message)
+            }
+          } catch (pcEx: any) {
+            console.warn(
+              `Exceção ao coletar price_checks do perdedor ${sec.id}:`,
+              pcEx?.message || pcEx,
+            )
+          }
+
+          // 2. DELETE definitivo do produto perdedor
+          let deleteErrorMsg: string | undefined = undefined
+          try {
+            const { error: delErr } = await supabase.from('products').delete().eq('id', sec.id)
+
+            if (delErr) {
+              deleteErrorMsg = delErr.message
               errors.push({
                 id: sec.id,
                 sku: sec.sku,
-                error: `Erro ao desativar produto perdedor: ${secErr.message}`,
+                error: `Erro ao excluir produto perdedor (${sec.sku || sec.name}): ${delErr.message}`,
               })
             } else {
-              deactivatedList.push({
+              deletedList.push({
                 id: sec.id,
                 sku: sec.sku,
                 name: sec.name,
-                wasAlreadyDiscontinued: wasDiscontinued,
+                priceChecksCount: priceChecksForSec.length,
+                priceChecks: priceChecksForSec,
               })
             }
-          } catch (err: any) {
+          } catch (delEx: any) {
+            deleteErrorMsg = delEx?.message || String(delEx)
             errors.push({
               id: sec.id,
               sku: sec.sku,
-              error: `Exceção ao desativar perdedor: ${err.message}`,
+              error: `Exceção ao excluir produto perdedor (${sec.sku || sec.name}): ${deleteErrorMsg}`,
             })
           }
+
+          // Resumo unificado exportável para auditoria do usuário
+          deletedLosersSummary.push({
+            deletedProductId: sec.id,
+            deletedSku: sec.sku,
+            deletedName: sec.name,
+            preferredProductId: preferred.id,
+            preferredSku: newPreferredSku,
+            preferredName: preferred.name,
+            priceChecksCount: priceChecksForSec.length,
+            priceChecks: priceChecksForSec,
+            deleteError: deleteErrorMsg,
+          })
         }
 
         mergedGroups.push({
@@ -915,7 +1016,13 @@ export const skuStandardizationService = {
           preferredSkuAfter: newPreferredSku,
           preferredName: preferred.name,
           mergedFields,
-          deactivatedProducts: deactivatedList,
+          deletedProducts: deletedList,
+          deactivatedProducts: deletedList.map((d) => ({
+            id: d.id,
+            sku: d.sku,
+            name: d.name,
+            wasAlreadyDiscontinued: false,
+          })),
           normalizedSku: group.normalizedSku,
         })
       }
@@ -988,7 +1095,7 @@ export const skuStandardizationService = {
     if (onProgress) onProgress({ stage: 'Finalizando execução...', current: 100, total: 100 })
 
     const finishedAt = new Date().toISOString()
-    const totalLosers = mergedGroups.reduce((acc, g) => acc + g.deactivatedProducts.length, 0)
+    const totalLosersDeleted = mergedGroups.reduce((acc, g) => acc + g.deletedProducts.length, 0)
 
     return {
       success: errors.length === 0,
@@ -996,8 +1103,10 @@ export const skuStandardizationService = {
       finishedAt,
       totalSonyRenamed: renamedItems.length,
       renamedItems,
-      totalLosersDeactivated: totalLosers,
+      totalLosersDeleted,
+      totalLosersDeactivated: totalLosersDeleted,
       mergedGroups,
+      deletedLosersSummary,
       skippedCollisions,
       errors,
     }

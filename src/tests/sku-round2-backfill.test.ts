@@ -80,7 +80,20 @@ describe('Rodada 2 - Backfill, Mesclagem e Salvaguardas', () => {
     }
 
     const updatesCaptured: Record<string, any> = {}
-    const deactivatedCaptured: Record<string, any>[] = []
+    const deletedCaptured: string[] = []
+    const priceChecksQueried: string[] = []
+
+    const mockPriceChecks = [
+      {
+        id: 'pc-1',
+        checked_at: '2026-03-01T12:00:00Z',
+        status: 'ok',
+        price_db: 9698,
+        price_bh: 9698,
+        message: 'Preço idêntico ao da B&H',
+        source: 'manual',
+      },
+    ]
 
     const mockFrom = vi.spyOn(supabase, 'from').mockImplementation((table: string) => {
       if (table === 'manufacturers') {
@@ -113,6 +126,21 @@ describe('Rodada 2 - Backfill, Mesclagem e Salvaguardas', () => {
           }),
         } as any
       }
+      if (table === 'price_checks') {
+        return {
+          select: vi.fn().mockReturnValue({
+            eq: vi.fn().mockImplementation((_field: string, prodId: string) => {
+              priceChecksQueried.push(prodId)
+              return {
+                order: vi.fn().mockResolvedValue({
+                  data: prodId === secondaryProduct.id ? mockPriceChecks : [],
+                  error: null,
+                }),
+              }
+            }),
+          }),
+        } as any
+      }
       if (table === 'products') {
         return {
           select: vi.fn().mockReturnValue({
@@ -126,12 +154,16 @@ describe('Rodada 2 - Backfill, Mesclagem e Salvaguardas', () => {
               eq: vi.fn().mockImplementation((field: string, id: string) => {
                 if (id === preferredProduct.id) {
                   Object.assign(updatesCaptured, payload)
-                } else if (id === secondaryProduct.id) {
-                  deactivatedCaptured.push({ id, payload })
                 }
                 return Promise.resolve({ error: null })
               }),
             }
+          }),
+          delete: vi.fn().mockReturnValue({
+            eq: vi.fn().mockImplementation((_field: string, id: string) => {
+              deletedCaptured.push(id)
+              return Promise.resolve({ error: null })
+            }),
           }),
         } as any
       }
@@ -166,13 +198,20 @@ describe('Rodada 2 - Backfill, Mesclagem e Salvaguardas', () => {
     // NUNCA tocar em price_usd
     expect(updatesCaptured.price_usd).toBeUndefined()
 
-    // O secundário foi desativado (is_discontinued = true) sem DELETE
-    // O perdedor desativado NÃO recebe marcação de datas (updated_at e last_reviewed_at NÃO devem estar no payload)
-    expect(deactivatedCaptured.length).toBe(1)
-    expect(deactivatedCaptured[0].id).toBe(secondaryProduct.id)
-    expect(deactivatedCaptured[0].payload.is_discontinued).toBe(true)
-    expect(deactivatedCaptured[0].payload.updated_at).toBeUndefined()
-    expect(deactivatedCaptured[0].payload.last_reviewed_at).toBeUndefined()
+    // Opção B: O perdedor é DELETADO em definitivo de public.products (sem is_discontinued)
+    expect(deletedCaptured).toContain(secondaryProduct.id)
+    expect(report.totalLosersDeleted).toBe(1)
+    expect(mergeResult.deletedProducts.length).toBe(1)
+    expect(mergeResult.deletedProducts[0].id).toBe(secondaryProduct.id)
+
+    // Rastreabilidade: price_checks do perdedor foram consultados antes do delete e incluídos no resumo
+    expect(priceChecksQueried).toContain(secondaryProduct.id)
+    expect(report.deletedLosersSummary.length).toBe(1)
+    const summaryItem = report.deletedLosersSummary[0]
+    expect(summaryItem.deletedProductId).toBe(secondaryProduct.id)
+    expect(summaryItem.preferredProductId).toBe(preferredProduct.id)
+    expect(summaryItem.priceChecksCount).toBe(1)
+    expect(summaryItem.priceChecks[0].price_bh).toBe(9698)
 
     mockFrom.mockRestore()
   })
@@ -282,7 +321,7 @@ describe('Rodada 2 - Backfill, Mesclagem e Salvaguardas', () => {
     }
 
     const updatesCaptured: Record<string, any> = {}
-    const deactivatedCaptured: Record<string, any>[] = []
+    const deletedCaptured: string[] = []
 
     const mockFrom = vi.spyOn(supabase, 'from').mockImplementation((table: string) => {
       if (table === 'manufacturers') {
@@ -315,6 +354,15 @@ describe('Rodada 2 - Backfill, Mesclagem e Salvaguardas', () => {
           }),
         } as any
       }
+      if (table === 'price_checks') {
+        return {
+          select: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              order: vi.fn().mockResolvedValue({ data: [], error: null }),
+            }),
+          }),
+        } as any
+      }
       if (table === 'products') {
         return {
           select: vi.fn().mockReturnValue({
@@ -328,12 +376,16 @@ describe('Rodada 2 - Backfill, Mesclagem e Salvaguardas', () => {
               eq: vi.fn().mockImplementation((field: string, id: string) => {
                 if (id === prefProduct.id) {
                   Object.assign(updatesCaptured, payload)
-                } else if (id === secProduct.id) {
-                  deactivatedCaptured.push({ id, payload })
                 }
                 return Promise.resolve({ error: null })
               }),
             }
+          }),
+          delete: vi.fn().mockReturnValue({
+            eq: vi.fn().mockImplementation((_field: string, id: string) => {
+              deletedCaptured.push(id)
+              return Promise.resolve({ error: null })
+            }),
           }),
         } as any
       }
@@ -353,9 +405,9 @@ describe('Rodada 2 - Backfill, Mesclagem e Salvaguardas', () => {
     expect(updatesCaptured.updated_at).toBeUndefined()
     expect(updatesCaptured.last_reviewed_at).toBeUndefined()
 
-    // O perdedor secundário é desativado sem marcação de datas
-    expect(deactivatedCaptured.length).toBe(1)
-    expect(deactivatedCaptured[0].payload).toEqual({ is_discontinued: true })
+    // O perdedor secundário é DELETADO em definitivo
+    expect(deletedCaptured).toContain(secProduct.id)
+    expect(report.totalLosersDeleted).toBe(1)
 
     mockFrom.mockRestore()
   })
@@ -451,6 +503,9 @@ describe('Rodada 2 - Backfill, Mesclagem e Salvaguardas', () => {
     const preview = await skuStandardizationService.getBackfillPreview()
     expect(preview.renamesCount).toBe(0) // Nenhum rename novo necessário
     expect(preview.mergesPreview[0]?.fieldsToMerge.length).toBe(0) // Nenhum campo novo a mesclar
+    expect(preview.totalLosersToDelete).toBe(1)
+    expect(preview.losersToDeleteList[0].id).toBe(treatedSecondary.id)
+    expect(preview.losersToDeleteList[0].mergeIntoPreferredId).toBe(treatedPreferred.id)
 
     mockFrom.mockRestore()
   })

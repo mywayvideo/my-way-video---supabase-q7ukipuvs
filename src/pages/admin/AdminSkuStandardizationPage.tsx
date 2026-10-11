@@ -19,6 +19,8 @@ import {
   Check,
   X,
   Sparkles,
+  Download,
+  Trash2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card'
@@ -47,9 +49,9 @@ import {
   skuStandardizationService,
   SkuDiagnosisResult,
   SkuCollisionGroup,
-  SkuProductItem,
   BackfillPlanPreview,
   BackfillExecutionReport,
+  DeletedLoserSummaryItem,
 } from '@/services/skuStandardizationService'
 import { formatUSD } from '@/lib/utils'
 import { ImageWithFallback } from '@/components/ImageWithFallback'
@@ -152,7 +154,7 @@ export default function AdminSkuStandardizationPage() {
 
       toast({
         title: 'Rodada 2 executada com sucesso!',
-        description: `${report.totalSonyRenamed} SKUs renomeados e ${report.totalLosersDeactivated} produtos desativados/mesclados.`,
+        description: `${report.totalSonyRenamed} SKUs renomeados e ${report.totalLosersDeleted} produtos deletados (dados mesclados no prevalente).`,
       })
 
       // Recarrega diagnóstico para refletir estado novo
@@ -166,6 +168,94 @@ export default function AdminSkuStandardizationPage() {
     } finally {
       setExecutingBackfill(false)
     }
+  }
+
+  // Funções de exportação do resumo (JSON e CSV)
+  const handleExportJson = () => {
+    if (!executionReport) return
+    const blob = new Blob([JSON.stringify(executionReport, null, 2)], {
+      type: 'application/json',
+    })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `relatorio-rodada2-sony-${new Date().toISOString().slice(0, 10)}.json`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
+
+  const handleExportCsv = () => {
+    if (!executionReport || !executionReport.deletedLosersSummary.length) return
+
+    // Gerar linhas CSV detalhadas por verificação de preço
+    const headers = [
+      'Produto Deletado ID',
+      'SKU Deletado',
+      'Nome Deletado',
+      'Prevalente ID',
+      'SKU Prevalente',
+      'Nome Prevalente',
+      'PriceCheck ID',
+      'Data Verificação',
+      'Status Verificação',
+      'Preço DB (USD)',
+      'Preço B&H (USD)',
+      'Mensagem B&H',
+      'Status Deleção',
+    ]
+
+    const rows: string[][] = []
+
+    for (const item of executionReport.deletedLosersSummary) {
+      if (item.priceChecks.length === 0) {
+        rows.push([
+          item.deletedProductId,
+          item.deletedSku || '',
+          `"${(item.deletedName || '').replace(/"/g, '""')}"`,
+          item.preferredProductId,
+          item.preferredSku || '',
+          `"${(item.preferredName || '').replace(/"/g, '""')}"`,
+          'SEM_REGISTRO',
+          '',
+          '',
+          '',
+          '',
+          '',
+          item.deleteError ? `ERRO: ${item.deleteError}` : 'DELETADO_OK',
+        ])
+      } else {
+        for (const pc of item.priceChecks) {
+          rows.push([
+            item.deletedProductId,
+            item.deletedSku || '',
+            `"${(item.deletedName || '').replace(/"/g, '""')}"`,
+            item.preferredProductId,
+            item.preferredSku || '',
+            `"${(item.preferredName || '').replace(/"/g, '""')}"`,
+            pc.id,
+            pc.checked_at,
+            pc.status,
+            pc.price_db != null ? String(pc.price_db) : '',
+            pc.price_bh != null ? String(pc.price_bh) : '',
+            `"${(pc.message || '').replace(/"/g, '""')}"`,
+            item.deleteError ? `ERRO: ${item.deleteError}` : 'DELETADO_OK',
+          ])
+        }
+      }
+    }
+
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\n')
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `price-checks-deletados-rodada2-${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
   }
 
   const handleOpenDecisionModal = (collision: SkuCollisionGroup) => {
@@ -585,9 +675,11 @@ export default function AdminSkuStandardizationPage() {
                   </span>
                 </div>
                 <p className="text-xs text-muted-foreground max-w-2xl leading-relaxed">
-                  Aplica a Opção 3 aprovada: normaliza SKUs Sony removendo traços físicos, desativa
-                  os produtos secundários perdedores (sem deletar) e mescla URLs da B&amp;H, imagens
-                  e NCM no produto prevalente.
+                  Aplica a Opção B (exclusão definitiva): normaliza SKUs Sony removendo traços
+                  físicos, mescla URLs da B&amp;H, imagens e NCM no produto prevalente, arquiva
+                  histórico de price_checks e realiza a exclusão definitiva dos produtos perdedores
+                  de
+                  <code>public.products</code>.
                 </p>
               </div>
               <Button
@@ -1037,12 +1129,45 @@ export default function AdminSkuStandardizationPage() {
                 </div>
                 <CardDescription className="text-xs text-muted-foreground">
                   Resumo detalhado das alterações executadas no catálogo com salvaguarda de preços e
-                  preservação de datas (renames e desativações não sensibilizam datas; apenas
-                  prevalentes com dados mesclados recebem novas datas).
+                  preservação de datas (renames não sensibilizam datas; prevalentes com dados
+                  mesclados recebem novas datas; perdedores deletados em definitivo com histórico de
+                  price_checks arquivado).
                 </CardDescription>
               </CardHeader>
 
               <CardContent className="space-y-4 text-xs">
+                {/* Botões de Exportação */}
+                <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-muted/20 border border-border/40 rounded-lg">
+                  <div className="space-y-0.5">
+                    <p className="font-semibold text-foreground text-xs">
+                      Exportação do Histórico de Price Checks dos Deletados
+                    </p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Baixe o relatório completo em formato JSON ou CSV para auditoria e controle.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleExportCsv}
+                      className="h-8 text-xs border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/10"
+                    >
+                      <Download className="w-3.5 h-3.5 mr-1.5" />
+                      Baixar CSV (Price Checks)
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleExportJson}
+                      className="h-8 text-xs border-primary/40 text-primary hover:bg-primary/10"
+                    >
+                      <Download className="w-3.5 h-3.5 mr-1.5" />
+                      Baixar JSON Completo
+                    </Button>
+                  </div>
+                </div>
+
                 {/* Métricas do relatório */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   <div className="p-3 rounded-lg bg-card border border-border/50">
@@ -1055,10 +1180,11 @@ export default function AdminSkuStandardizationPage() {
                   </div>
                   <div className="p-3 rounded-lg bg-card border border-border/50">
                     <span className="text-muted-foreground block text-[11px]">
-                      Perdedores Desativados
+                      Perdedores Deletados (Opção B)
                     </span>
-                    <span className="text-xl font-bold text-amber-400">
-                      {executionReport.totalLosersDeactivated}
+                    <span className="text-xl font-bold text-rose-400 flex items-center gap-1.5">
+                      <Trash2 className="w-4 h-4" />
+                      {executionReport.totalLosersDeleted}
                     </span>
                   </div>
                   <div className="p-3 rounded-lg bg-card border border-border/50">
@@ -1073,17 +1199,16 @@ export default function AdminSkuStandardizationPage() {
                     <span className="text-muted-foreground block text-[11px]">
                       Colisões Puladas (Pendentes)
                     </span>
-                    <span className="text-xl font-bold text-rose-400">
+                    <span className="text-xl font-bold text-amber-400">
                       {executionReport.skippedCollisions.length}
                     </span>
                   </div>
                 </div>
-
                 {/* Lista de Grupos Mesclados */}
                 {executionReport.mergedGroups.length > 0 && (
                   <div className="space-y-2 pt-2">
                     <h4 className="font-semibold text-foreground text-xs uppercase tracking-wider">
-                      Detalhamento das Mesclagens e Desativações
+                      Detalhamento das Mesclagens e Produtos Deletados (Opção B)
                     </h4>
                     <div className="space-y-3">
                       {executionReport.mergedGroups.map((group, idx) => (
@@ -1128,13 +1253,16 @@ export default function AdminSkuStandardizationPage() {
                             </p>
                           )}
 
-                          {/* Perdedores desativados */}
+                          {/* Perdedores deletados em definitivo */}
                           <div className="text-[11px] text-muted-foreground">
-                            <span>Perdedores desativados (is_discontinued = true): </span>
-                            {group.deactivatedProducts.map((d, dIdx) => (
+                            <span className="text-rose-400 font-medium">
+                              Perdedores excluídos em definitivo de products (Opção B):{' '}
+                            </span>
+                            {group.deletedProducts.map((d, dIdx) => (
                               <span key={d.id} className="font-mono text-foreground">
-                                {d.sku || 'Sem SKU'} ({d.name})
-                                {dIdx < group.deactivatedProducts.length - 1 ? ', ' : ''}
+                                {d.sku || 'Sem SKU'} ({d.name}) — {d.priceChecksCount}{' '}
+                                price_check(s) arquivado(s)
+                                {dIdx < group.deletedProducts.length - 1 ? '; ' : ''}
                               </span>
                             ))}
                           </div>
@@ -1144,6 +1272,102 @@ export default function AdminSkuStandardizationPage() {
                   </div>
                 )}
 
+                {/* Tabela de Histórico de Price Checks Deletados */}
+                {executionReport.deletedLosersSummary &&
+                  executionReport.deletedLosersSummary.length > 0 && (
+                    <div className="space-y-2 pt-2">
+                      <div className="flex items-center justify-between">
+                        <h4 className="font-semibold text-foreground text-xs uppercase tracking-wider flex items-center gap-2">
+                          <Trash2 className="w-4 h-4 text-rose-400" />
+                          Histórico Arquivado de Price Checks dos Produtos Deletados
+                        </h4>
+                        <span className="text-[11px] text-muted-foreground">
+                          Total de produtos deletados: {executionReport.deletedLosersSummary.length}
+                        </span>
+                      </div>
+
+                      <div className="space-y-3">
+                        {executionReport.deletedLosersSummary.map((item, itmIdx) => (
+                          <div
+                            key={itmIdx}
+                            className="rounded-lg border border-border/50 bg-background/50 p-3 space-y-2"
+                          >
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-xs">
+                              <div>
+                                <span className="font-semibold text-rose-300">
+                                  Produto Excluído: {item.deletedSku || 'Sem SKU'} —{' '}
+                                  {item.deletedName}
+                                </span>
+                                <div className="text-[10px] text-muted-foreground font-mono">
+                                  ID: {item.deletedProductId} ➔ Mesclado no Prevalente:{' '}
+                                  {item.preferredSku} ({item.preferredName}) [ID:{' '}
+                                  {item.preferredProductId}]
+                                </div>
+                              </div>
+                              <Badge
+                                variant="outline"
+                                className="w-fit text-[10px] border-border/50 text-muted-foreground"
+                              >
+                                {item.priceChecksCount} registro(s) de price_check
+                              </Badge>
+                            </div>
+
+                            {item.priceChecks.length === 0 ? (
+                              <p className="text-[11px] text-muted-foreground italic pl-2">
+                                Nenhuma verificação de preço (price_check) encontrada para este
+                                produto.
+                              </p>
+                            ) : (
+                              <div className="max-h-40 overflow-y-auto border border-border/30 rounded bg-card/60">
+                                <Table>
+                                  <TableHeader>
+                                    <TableRow className="text-[10px] hover:bg-transparent">
+                                      <TableHead className="py-1">Data</TableHead>
+                                      <TableHead className="py-1">Status</TableHead>
+                                      <TableHead className="py-1">Preço DB</TableHead>
+                                      <TableHead className="py-1">Preço B&amp;H</TableHead>
+                                      <TableHead className="py-1">Mensagem</TableHead>
+                                    </TableRow>
+                                  </TableHeader>
+                                  <TableBody>
+                                    {item.priceChecks.map((pc) => (
+                                      <TableRow key={pc.id} className="text-[11px]">
+                                        <TableCell className="py-1 text-muted-foreground font-mono">
+                                          {pc.checked_at
+                                            ? new Date(pc.checked_at).toLocaleString()
+                                            : '-'}
+                                        </TableCell>
+                                        <TableCell className="py-1">
+                                          <Badge
+                                            variant="outline"
+                                            className="text-[9px] px-1 py-0 uppercase"
+                                          >
+                                            {pc.status}
+                                          </Badge>
+                                        </TableCell>
+                                        <TableCell className="py-1 font-mono">
+                                          {pc.price_db != null ? formatUSD(pc.price_db) : '-'}
+                                        </TableCell>
+                                        <TableCell className="py-1 font-mono">
+                                          {pc.price_bh != null ? formatUSD(pc.price_bh) : '-'}
+                                        </TableCell>
+                                        <TableCell
+                                          className="py-1 text-muted-foreground truncate max-w-[200px]"
+                                          title={pc.message || ''}
+                                        >
+                                          {pc.message || '-'}
+                                        </TableCell>
+                                      </TableRow>
+                                    ))}
+                                  </TableBody>
+                                </Table>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 {/* Colisões Puladas */}
                 {executionReport.skippedCollisions.length > 0 && (
                   <div className="space-y-2 pt-2">
@@ -1504,28 +1728,30 @@ export default function AdminSkuStandardizationPage() {
               <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/30 text-blue-300 space-y-1">
                 <p className="font-semibold text-blue-200 flex items-center gap-1.5">
                   <ShieldAlert className="w-4 h-4" />
-                  Garantias e Invariantes desta Execução:
+                  Opção B Decidida — Garantias e Invariantes desta Execução:
                 </p>
                 <ul className="list-disc list-inside space-y-0.5 text-muted-foreground">
                   <li>
-                    <strong>Price USD Intacto:</strong> NUNCA toca em price_usd, discounts ou
-                    price_checks.
+                    <strong>Exclusão Definitiva (Opção B):</strong> Produtos perdedores de colisão
+                    terão seus dados mesclados no prevalente e serão{' '}
+                    <strong>deletados de vez</strong> de <code>public.products</code> (sem usar
+                    is_discontinued).
+                  </li>
+                  <li>
+                    <strong>Rastreabilidade de Price Checks:</strong> Antes de apagar cada perdedor,
+                    seus registros em <code>public.price_checks</code> são arquivados para
+                    visualização e exportação (JSON/CSV) na aba Relatório.
+                  </li>
+                  <li>
+                    <strong>Price USD Intacto:</strong> NUNCA toca em price_usd, discounts ou marcas
+                    de terceiros.
                   </li>
                   <li>
                     <strong>Regra de Datas:</strong> Renames de SKU não alteram datas (apenas o
-                    campo
-                    <code>sku</code> é atualizado). Produtos prevalentes recebem{' '}
+                    campo <code>sku</code> é atualizado). Produtos prevalentes recebem{' '}
                     <code>updated_at = last_reviewed_at = agora</code>
-                    apenas se receberem dados mesclados reais. Perdedores desativados não recebem
-                    marcação de datas.
-                  </li>
-                  <li>
-                    <strong>Não Exclusão:</strong> Perdedores são apenas desativados
-                    (is_discontinued = true).
-                  </li>
-                  <li>
-                    <strong>Mesclagem Segura:</strong> Prevalente só recebe campos novos que estejam
-                    vazios nele.
+                    SOMENTE se receberem dados mesclados reais (não sobrescreve dado preenchido com
+                    vazio).
                   </li>
                 </ul>
               </div>
@@ -1540,10 +1766,10 @@ export default function AdminSkuStandardizationPage() {
                 </div>
                 <div className="p-3 rounded bg-muted/20 border border-border/40">
                   <span className="text-[11px] text-muted-foreground block">
-                    Colisões p/ Mesclar
+                    Perdedores a Deletar
                   </span>
-                  <span className="text-lg font-bold text-emerald-400">
-                    {backfillPreview.mergesCount}
+                  <span className="text-lg font-bold text-rose-400">
+                    {backfillPreview.totalLosersToDelete}
                   </span>
                 </div>
                 <div className="p-3 rounded bg-muted/20 border border-border/40">
@@ -1560,14 +1786,70 @@ export default function AdminSkuStandardizationPage() {
                 </div>
               </div>
 
+              {/* LISTAGEM NOMINAL DOS PRODUTOS PERDEDORES QUE SERÃO DELETADOS */}
+              {backfillPreview.losersToDeleteList &&
+                backfillPreview.losersToDeleteList.length > 0 && (
+                  <div className="space-y-2">
+                    <span className="font-semibold uppercase tracking-wider text-rose-400 flex items-center gap-1.5 block">
+                      <Trash2 className="w-4 h-4" />
+                      1. Listagem Nominal: Produtos Perdedores que serão EXCLUÍDOS DEFINITIVAMENTE (
+                      {backfillPreview.losersToDeleteList.length})
+                    </span>
+                    <div className="border border-rose-500/30 rounded-lg overflow-hidden bg-rose-500/5">
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="hover:bg-transparent text-[11px]">
+                            <TableHead className="text-rose-300 font-semibold">
+                              SKU a Deletar
+                            </TableHead>
+                            <TableHead className="text-rose-300 font-semibold">
+                              Nome do Produto Deletado
+                            </TableHead>
+                            <TableHead className="text-rose-300 font-semibold">
+                              ID a Deletar
+                            </TableHead>
+                            <TableHead className="text-emerald-400 font-semibold">
+                              Será Mesclado No Prevalente
+                            </TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {backfillPreview.losersToDeleteList.map((loser) => (
+                            <TableRow key={loser.id} className="text-xs">
+                              <TableCell className="font-mono text-rose-300 font-bold py-1.5">
+                                {loser.sku || 'Sem SKU'}
+                              </TableCell>
+                              <TableCell
+                                className="py-1.5 max-w-[200px] truncate"
+                                title={loser.name}
+                              >
+                                {loser.name}
+                              </TableCell>
+                              <TableCell className="font-mono text-[10px] text-muted-foreground py-1.5">
+                                {loser.id}
+                              </TableCell>
+                              <TableCell className="py-1.5 text-emerald-400">
+                                <span className="font-mono font-semibold">
+                                  {loser.mergeIntoPreferredSku || 'Sem SKU'}
+                                </span>{' '}
+                                ({loser.mergeIntoPreferredName.slice(0, 25)}...)
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </div>
+                )}
+
               {/* Prévia dos Grupos que serão Mesclados */}
               {backfillPreview.mergesPreview.length > 0 && (
                 <div className="space-y-2">
                   <span className="font-semibold uppercase tracking-wider text-muted-foreground block">
-                    1. Grupos que serão Mesclados e Secundários Desativados (
+                    2. Detalhe das Colisões e Campos que serão Mesclados (
                     {backfillPreview.mergesPreview.length})
                   </span>
-                  <div className="max-h-48 overflow-y-auto space-y-2 border border-border/40 rounded-lg p-2 bg-background/50">
+                  <div className="max-h-40 overflow-y-auto space-y-2 border border-border/40 rounded-lg p-2 bg-background/50">
                     {backfillPreview.mergesPreview.map((m, idx) => (
                       <div
                         key={idx}
@@ -1584,7 +1866,7 @@ export default function AdminSkuStandardizationPage() {
                         </div>
                         <div className="text-[11px] text-muted-foreground flex justify-between">
                           <span>
-                            Perdedor(es) a desativar:{' '}
+                            Perdedor(es) a deletar:{' '}
                             {m.secondaryProducts.map((s) => s.sku || 'Sem SKU').join(', ')}
                           </span>
                           <span>
@@ -1602,7 +1884,7 @@ export default function AdminSkuStandardizationPage() {
               {backfillPreview.renamesPreview.length > 0 && (
                 <div className="space-y-2">
                   <span className="font-semibold uppercase tracking-wider text-muted-foreground block">
-                    2. Amostra de SKUs Sony a Remover Traço ({backfillPreview.renamesCount} total)
+                    3. Amostra de SKUs Sony a Remover Traço ({backfillPreview.renamesCount} total)
                   </span>
                   <div className="max-h-36 overflow-y-auto border border-border/40 rounded-lg p-2 bg-background/50">
                     <Table>
@@ -1623,6 +1905,33 @@ export default function AdminSkuStandardizationPage() {
                         ))}
                       </TableBody>
                     </Table>
+                  </div>
+                </div>
+              )}
+
+              {/* Colisões Puladas (sem decisão ou distintas) */}
+              {backfillPreview.skippedCollisions.length > 0 && (
+                <div className="space-y-2">
+                  <span className="font-semibold uppercase tracking-wider text-amber-400 block">
+                    4. Colisões Puladas — Mantidas Intactas (
+                    {backfillPreview.skippedCollisions.length})
+                  </span>
+                  <div className="max-h-28 overflow-y-auto space-y-1 border border-amber-500/30 rounded-lg p-2 bg-amber-500/5 text-[11px]">
+                    {backfillPreview.skippedCollisions.map((sc, scIdx) => (
+                      <div key={scIdx} className="flex justify-between items-center">
+                        <span className="font-mono font-semibold text-foreground">
+                          Chave: {sc.normalizedSku} ({sc.brand}) — SKUs:{' '}
+                          {sc.productSkus.filter(Boolean).join(', ')}
+                        </span>
+                        <span className="text-muted-foreground">
+                          {sc.reason === 'undecided'
+                            ? 'Pendente de decisão'
+                            : sc.reason === 'distinct_products'
+                              ? 'Marcado como produtos distintos'
+                              : 'Prevalente não encontrado'}
+                        </span>
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}
@@ -1649,10 +1958,12 @@ export default function AdminSkuStandardizationPage() {
                       className="mt-0.5 rounded border-border text-primary focus:ring-primary"
                     />
                     <span className="text-foreground leading-relaxed">
-                      Confirmo a execução da <strong>Rodada 2</strong> no banco de produção. Estou
-                      ciente de que os SKUs Sony serão renomeados sem traço, os perdedores das
-                      colisões decididas serão desativados e seus dados ausentes serão mesclados nos
-                      prevalentes.
+                      Confirmo a execução da <strong>Rodada 2 (Opção B)</strong> no banco de
+                      produção. Estou ciente de que os SKUs Sony serão renomeados sem traço, os
+                      produtos perdedores listados acima serão{' '}
+                      <strong>excluídos definitivamente</strong> do banco de dados após a mesclagem
+                      de seus dados mais completos no produto prevalente, e o histórico de price
+                      checks será arquivado para auditoria.
                     </span>
                   </label>
                 </div>

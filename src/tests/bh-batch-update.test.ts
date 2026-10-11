@@ -784,4 +784,53 @@ describe('B&H Batch Update Service & Business Rules', () => {
       supabase.from = originalFrom
     }
   })
+
+  it('fetchProductsByIds busca produtos específicos em chunks e preserva formato ProductBatchItem', async () => {
+    const originalFrom = supabase.from
+    try {
+      const mockProductRows = [
+        {
+          id: 'prod-extra-1',
+          name: 'Sony Extra Camera 4K',
+          sku: 'SE-4K',
+          category: 'Câmeras',
+          price_usd: 2500,
+          price_cost: 2000,
+          price_usa_rebate: null,
+          price_cost_rebate: null,
+          date_rebate: null,
+          website_url: 'https://bhphotovideo.com/c/product/extra1.html',
+          is_discontinued: false,
+          updated_at: '2026-03-20T10:00:00.000Z',
+          last_reviewed_at: '2026-03-20T10:00:00.000Z',
+          manufacturer: { id: 'mfr-1', name: 'Sony' },
+        },
+      ]
+
+      ;(supabase as any).from = (table: string) => {
+        if (table === 'products') {
+          return {
+            select: () => ({
+              in: async (col: string, ids: string[]) => ({
+                data: mockProductRows.filter((r) => ids.includes(r.id)),
+                error: null,
+              }),
+            }),
+          }
+        }
+        return originalFrom.call(supabase, table)
+      }
+
+      const items = await bhBatchUpdateService.fetchProductsByIds(['prod-extra-1'])
+      expect(items.length).toBe(1)
+      expect(items[0].id).toBe('prod-extra-1')
+      expect(items[0].name).toBe('Sony Extra Camera 4K')
+      expect(items[0].price_usd).toBe(2500)
+      expect(items[0].batchStatus).toBe('idle')
+      expect(items[0].checkResult).toBeNull()
+      expect(items[0].manualUrlDraft).toBe('https://bhphotovideo.com/c/product/extra1.html')
+    } finally {
+      supabase.from = originalFrom
+    }
+  })
 })

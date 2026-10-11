@@ -186,6 +186,30 @@ export function AdminBhUpdatePage() {
         console.warn('Falha ao checar jobs no banco:', e)
       }
 
+      // Se houver um lote detectado (dbJob), busca os produtos específicos do lote via fetchProductsByIds
+      // para garantir que mesmo produtos ausentes dos 2000 da listagem inicial apareçam na tela
+      const loadedProductMap = new Map<string, ProductBatchItem>()
+      for (const item of data) {
+        loadedProductMap.set(item.id, item)
+      }
+
+      if (dbJob && dbJob.product_ids && dbJob.product_ids.length > 0) {
+        const missingIds = dbJob.product_ids.filter((id) => !loadedProductMap.has(id))
+        if (missingIds.length > 0) {
+          try {
+            const extraProducts = await bhBatchUpdateService.fetchProductsByIds(missingIds)
+            for (const extra of extraProducts) {
+              loadedProductMap.set(extra.id, extra)
+            }
+          } catch (extraErr) {
+            console.warn('Falha ao carregar produtos específicos do lote:', extraErr)
+          }
+        }
+      }
+
+      // Converte o mapa consolidado em lista para mesclagem
+      const allLoadedProducts = Array.from(loadedProductMap.values())
+
       // Se houver estado em localStorage, mescla como apoio secundário
       const cached = localStorage.getItem(STORAGE_KEY)
       let parsedCache: Record<string, Partial<ProductBatchItem>> = {}
@@ -197,7 +221,7 @@ export function AdminBhUpdatePage() {
         }
       }
 
-      const merged = data.map((item) => {
+      const merged = allLoadedProducts.map((item) => {
         // Prioridade 1: resultado reconstruído do banco (job + price_checks)
         if (reconstructed?.results && reconstructed.results[item.id]) {
           const recItem = reconstructed.results[item.id]

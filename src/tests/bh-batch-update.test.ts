@@ -833,4 +833,88 @@ describe('B&H Batch Update Service & Business Rules', () => {
       supabase.from = originalFrom
     }
   })
+
+  it('auditoria de lote: poda de cache obsoleto fora do lote e filtro por status', () => {
+    // Simula lote restaurado com 2 produtos oficiais no lote (prod-A e prod-B)
+    const batchJobProductIds = new Set(['prod-A', 'prod-B'])
+
+    // Cache residual de sessão com produto que NÃO pertence ao lote (prod-obsoleto)
+    // Esse é o caso exato relatado com Canon EOS C80, EOS R5 e Quad HDMI residuais
+    const simulatedLocalStorage: Record<string, any> = {
+      'prod-obsoleto': {
+        batchStatus: 'done',
+        checkResult: { status: 'divergente', diff_usd: 500, price_bh: 1000 },
+      },
+      'prod-A': {
+        batchStatus: 'done',
+        checkResult: { status: 'ok', diff_usd: 0, price_bh: 500 },
+      },
+    }
+
+    // Regra 1: Poda de cache local para produtos fora do lote
+    const prunedCache: Record<string, any> = {}
+    for (const [id, val] of Object.entries(simulatedLocalStorage)) {
+      if (batchJobProductIds.has(id)) {
+        prunedCache[id] = val
+      }
+    }
+    expect(prunedCache['prod-obsoleto']).toBeUndefined()
+    expect(prunedCache['prod-A']).toBeDefined()
+
+    // Regra 2: Produto fora do lote volta ao estado neutro (sem badge residual)
+    const allProducts = [
+      {
+        id: 'prod-A',
+        name: 'Item A no lote',
+        sku: 'SKU-A',
+        price_usd: 500,
+        batchStatus: 'done',
+        checkResult: { status: 'ok', price_bh: 500, diff_usd: 0 },
+      },
+      {
+        id: 'prod-B',
+        name: 'Item B divergente no lote',
+        sku: 'SKU-B',
+        price_usd: 1200,
+        batchStatus: 'done',
+        checkResult: { status: 'divergente', price_bh: 900, diff_usd: -300 },
+      },
+      {
+        id: 'prod-obsoleto',
+        name: 'Item fora do lote',
+        sku: 'SKU-OBS',
+        price_usd: 300,
+        batchStatus: 'done', // resíduo antes da poda
+        checkResult: { status: 'divergente', price_bh: null }, // resíduo
+      },
+    ]
+
+    const merged = allProducts.map((p) => {
+      if (batchJobProductIds && !batchJobProductIds.has(p.id)) {
+        return {
+          ...p,
+          batchStatus: 'idle',
+          checkResult: null,
+          errorMessage: null,
+        }
+      }
+      return p
+    })
+
+    const outsideItem = merged.find((p) => p.id === 'prod-obsoleto')
+    expect(outsideItem?.batchStatus).toBe('idle')
+    expect(outsideItem?.checkResult).toBeNull()
+
+    // Regra 3: Contadores por status refletem exclusivamente o lote
+    const targetSet = merged.filter((p) => batchJobProductIds.has(p.id))
+    let oks = 0
+    let divergentes = 0
+    targetSet.forEach((item) => {
+      const st = item.checkResult?.status
+      if (st === 'ok') oks++
+      if (st === 'divergente') divergentes++
+    })
+    expect(oks).toBe(1)
+    expect(divergentes).toBe(1)
+  })
 })

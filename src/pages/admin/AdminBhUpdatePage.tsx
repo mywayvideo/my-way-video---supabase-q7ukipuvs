@@ -111,6 +111,9 @@ export function AdminBhUpdatePage() {
   const [filterType, setFilterType] = useState<
     'all' | 'without_link' | 'with_link' | 'discontinued'
   >('all')
+  const [statusFilter, setStatusFilter] = useState<
+    'all' | 'divergente' | 'descontinuado' | 'sem_url_confirmada' | 'ok' | 'erro'
+  >('all')
   const [searchQuery, setSearchQuery] = useState<string>('')
   const [sortBy, setSortBy] = useState<
     'updated_at_asc' | 'updated_at_desc' | 'name_asc' | 'price_desc'
@@ -221,6 +224,37 @@ export function AdminBhUpdatePage() {
         }
       }
 
+      // Se há um lote no banco (dbJob com product_ids), esse lote é a autoridade EXCLUSIVA.
+      // Qualquer cache local de sessões antigas de produtos fora do lote atual deve ser descartado,
+      // limpando resíduos enganosos de auditoria (ex.: divergências fictícias com preço '—').
+      const batchJobProductIds =
+        dbJob && Array.isArray(dbJob.product_ids) && dbJob.product_ids.length > 0
+          ? new Set(dbJob.product_ids)
+          : null
+
+      // Poda proativa do próprio localStorage: se há lote ativo/restaurado, remove entradas
+      // de produtos que não pertencem ao lote, mantendo apenas itens do lote se houver
+      if (batchJobProductIds && cached) {
+        const prunedLocalCache: Record<string, Partial<ProductBatchItem>> = {}
+        let hasPrunedKeys = false
+        for (const [pId, savedVal] of Object.entries(parsedCache)) {
+          if (batchJobProductIds.has(pId)) {
+            prunedLocalCache[pId] = savedVal
+            hasPrunedKeys = true
+          }
+        }
+        try {
+          if (hasPrunedKeys) {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(prunedLocalCache))
+          } else {
+            localStorage.removeItem(STORAGE_KEY)
+          }
+        } catch {
+          // ignora quota/desativado
+        }
+        parsedCache = prunedLocalCache
+      }
+
       const merged = allLoadedProducts.map((item) => {
         // Prioridade 1: resultado reconstruído do banco (job + price_checks)
         if (reconstructed?.results && reconstructed.results[item.id]) {
@@ -253,7 +287,18 @@ export function AdminBhUpdatePage() {
           }
         }
 
-        // Prioridade 3: cache local de sessão
+        // Se há um lote no banco, produtos fora do lote NÃO recebem dados de localStorage:
+        // voltam estritamente ao estado neutro (sem auditoria residual).
+        if (batchJobProductIds && !batchJobProductIds.has(item.id)) {
+          return {
+            ...item,
+            batchStatus: 'idle' as const,
+            checkResult: null,
+            errorMessage: null,
+          }
+        }
+
+        // Prioridade 3: cache local de sessão (apenas para itens do lote atual se existir lote)
         const saved = parsedCache[item.id]
         if (saved) {
           return {
@@ -405,7 +450,7 @@ export function AdminBhUpdatePage() {
   const filteredProducts = useMemo(() => {
     return products
       .filter((item) => {
-        // Filtro de status/link
+        // Filtro de status/link da listagem
         if (filterType === 'without_link') {
           const hasUrl = Boolean(item.website_url && item.website_url.trim().startsWith('http'))
           if (hasUrl) return false
@@ -414,6 +459,24 @@ export function AdminBhUpdatePage() {
           if (!hasUrl) return false
         } else if (filterType === 'discontinued') {
           if (!item.is_discontinued && item.checkResult?.status !== 'descontinuado') return false
+        }
+
+        // Filtro por status de auditoria do lote (com pareamento consistente de rebate)
+        if (statusFilter !== 'all') {
+          const paired = bhBatchUpdateService.resolveItemPairedEvaluation(item)
+          const itemEffectiveStatus =
+            paired.effectiveStatus ||
+            item.checkResult?.status ||
+            (item.batchStatus === 'error' ? 'erro' : null)
+
+          if (statusFilter === 'descontinuado') {
+            const isDesc = item.is_discontinued || itemEffectiveStatus === 'descontinuado'
+            if (!isDesc) return false
+          } else if (statusFilter === 'erro') {
+            if (itemEffectiveStatus !== 'erro' && item.batchStatus !== 'error') return false
+          } else {
+            if (itemEffectiveStatus !== statusFilter) return false
+          }
         }
 
         // Filtro por fabricante
@@ -457,7 +520,15 @@ export function AdminBhUpdatePage() {
         }
         return 0
       })
-  }, [products, filterType, searchQuery, sortBy])
+  }, [
+    products,
+    filterType,
+    statusFilter,
+    selectedManufacturerId,
+    selectedCategory,
+    searchQuery,
+    sortBy,
+  ])
 
   // Atualizar as métricas de rolagem e sincronizar listeners no elemento de tabela real
   useEffect(() => {
@@ -659,6 +730,42 @@ export function AdminBhUpdatePage() {
   const stats = useMemo(() => {
     return bhBatchUpdateService.calculateStats(selectedProducts)
   }, [selectedProducts])
+
+  // Contadores para os filtros rápidos por status de auditoria
+  // Se houver produtos selecionados no lote, reflete a verdade do lote selecionado/restaurado
+  // Caso contrário, calcula sobre o conjunto completo de produtos com verificação
+  const auditFilterCounts = useMemo(() => {
+    const targetSet = selectedProducts.length > 0 ? selectedProducts : products
+    let total = targetSet.length
+    let divergentes = 0
+    let descontinuados = 0
+    let duvidosos = 0
+    let oks = 0
+    let erros = 0
+
+    targetSet.forEach((item) => {
+      const paired = bhBatchUpdateService.resolveItemPairedEvaluation(item)
+      const st =
+        paired.effectiveStatus ||
+        item.checkResult?.status ||
+        (item.batchStatus === 'error' ? 'erro' : null)
+
+      if (st === 'divergente') divergentes++
+      if (item.is_discontinued || st === 'descontinuado') descontinuados++
+      if (st === 'sem_url_confirmada') duvidosos++
+      if (st === 'ok') oks++
+      if (st === 'erro' || item.batchStatus === 'error') erros++
+    })
+
+    return {
+      total,
+      divergentes,
+      descontinuados,
+      duvidosos,
+      oks,
+      erros,
+    }
+  }, [selectedProducts, products])
 
   // Itens selecionados que ainda não foram processados (pendentes no lote)
   const pendingSelectedItems = useMemo(() => {
@@ -2221,10 +2328,124 @@ export function AdminBhUpdatePage() {
 
           {/* Barra de Filtros, Seleção por Grupo e Busca */}
           <div className="bg-card border border-border/50 rounded-xl p-4 flex flex-col gap-3 shadow-sm">
-            <div className="flex flex-col md:flex-row items-center justify-between gap-3">
+            {/* Linha 1: Abas/Filtros Rápidos por Status de Auditoria do Lote com Contadores Ao Vivo */}
+            <div className="flex items-center gap-2 w-full flex-wrap">
+              <span className="text-xs font-medium text-muted-foreground flex items-center gap-1 mr-1">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" /> Status:
+              </span>
+
+              <Button
+                size="sm"
+                variant={statusFilter === 'all' ? 'default' : 'outline'}
+                onClick={() => setStatusFilter('all')}
+                className={cn(
+                  'h-8 text-xs font-medium transition-colors',
+                  statusFilter === 'all' && 'bg-primary text-primary-foreground shadow-sm',
+                )}
+              >
+                Todos ({auditFilterCounts.total})
+              </Button>
+
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() =>
+                  setStatusFilter(statusFilter === 'divergente' ? 'all' : 'divergente')
+                }
+                className={cn(
+                  'h-8 text-xs font-medium transition-colors border-amber-500/30',
+                  statusFilter === 'divergente'
+                    ? 'bg-amber-500 text-black font-semibold shadow-sm hover:bg-amber-600'
+                    : 'bg-amber-500/10 text-amber-300 hover:bg-amber-500/20',
+                )}
+              >
+                <AlertTriangle className="w-3 h-3 mr-1" />
+                Divergentes ({auditFilterCounts.divergentes})
+              </Button>
+
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() =>
+                  setStatusFilter(statusFilter === 'descontinuado' ? 'all' : 'descontinuado')
+                }
+                className={cn(
+                  'h-8 text-xs font-medium transition-colors border-red-500/30',
+                  statusFilter === 'descontinuado'
+                    ? 'bg-red-500 text-white font-semibold shadow-sm hover:bg-red-600'
+                    : 'bg-red-500/10 text-red-300 hover:bg-red-500/20',
+                )}
+              >
+                <AlertOctagon className="w-3 h-3 mr-1" />
+                Descontinuados ({auditFilterCounts.descontinuados})
+              </Button>
+
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() =>
+                  setStatusFilter(
+                    statusFilter === 'sem_url_confirmada' ? 'all' : 'sem_url_confirmada',
+                  )
+                }
+                className={cn(
+                  'h-8 text-xs font-medium transition-colors border-yellow-500/30',
+                  statusFilter === 'sem_url_confirmada'
+                    ? 'bg-yellow-500 text-black font-semibold shadow-sm hover:bg-yellow-600'
+                    : 'bg-yellow-500/10 text-yellow-300 hover:bg-yellow-500/20',
+                )}
+              >
+                <HelpCircle className="w-3 h-3 mr-1" />
+                Link Duvidoso ({auditFilterCounts.duvidosos})
+              </Button>
+
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setStatusFilter(statusFilter === 'ok' ? 'all' : 'ok')}
+                className={cn(
+                  'h-8 text-xs font-medium transition-colors border-emerald-500/30',
+                  statusFilter === 'ok'
+                    ? 'bg-emerald-500 text-white font-semibold shadow-sm hover:bg-emerald-600'
+                    : 'bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20',
+                )}
+              >
+                <CheckCircle2 className="w-3 h-3 mr-1" />
+                OK ({auditFilterCounts.oks})
+              </Button>
+
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setStatusFilter(statusFilter === 'erro' ? 'all' : 'erro')}
+                className={cn(
+                  'h-8 text-xs font-medium transition-colors border-rose-500/30',
+                  statusFilter === 'erro'
+                    ? 'bg-rose-500 text-white font-semibold shadow-sm hover:bg-rose-600'
+                    : 'bg-rose-500/10 text-rose-300 hover:bg-rose-500/20',
+                )}
+              >
+                <XCircle className="w-3 h-3 mr-1" />
+                Erro ({auditFilterCounts.erros})
+              </Button>
+
+              {statusFilter !== 'all' && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setStatusFilter('all')}
+                  className="h-8 text-xs text-muted-foreground hover:text-foreground"
+                >
+                  Limpar Status
+                </Button>
+              )}
+            </div>
+
+            {/* Linha 2: Filtros de Link/Catálogo, Ordenação e Busca */}
+            <div className="flex flex-col md:flex-row items-center justify-between gap-3 pt-2 border-t border-border/40">
               <div className="flex items-center gap-2 w-full md:w-auto flex-wrap">
                 <span className="text-xs font-medium text-muted-foreground flex items-center gap-1 mr-1">
-                  <Filter className="w-3.5 h-3.5" /> Filtrar:
+                  <Filter className="w-3.5 h-3.5" /> Link / Catálogo:
                 </span>
 
                 <Button
@@ -2233,7 +2454,7 @@ export function AdminBhUpdatePage() {
                   onClick={() => setFilterType('all')}
                   className="h-8 text-xs"
                 >
-                  Todos ({products.length})
+                  Todos
                 </Button>
                 <Button
                   size="sm"
@@ -2286,7 +2507,7 @@ export function AdminBhUpdatePage() {
               </div>
             </div>
 
-            {/* Linha de Seleção por Grupo: Fabricante e Categoria */}
+            {/* Linha 3: Linha de Seleção por Grupo: Fabricante e Categoria */}
             <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2 border-t border-border/40">
               <div className="flex items-center gap-2 w-full sm:w-auto flex-wrap">
                 <span className="text-xs font-medium text-muted-foreground">Grupos:</span>

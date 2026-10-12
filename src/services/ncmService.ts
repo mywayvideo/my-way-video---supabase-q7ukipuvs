@@ -343,9 +343,210 @@ export async function classifyNcm(params: ClassifyNcmParams): Promise<ClassifyNc
   return data as ClassifyNcmResponse
 }
 
+export interface NcmAutocompleteOption {
+  ncm: string // 8 dígitos puros: "90071000"
+  ncm_formatted: string // "9007.10.00"
+  ncm_descricao_full: string
+  ii_rate?: number | null
+  ipi_rate?: number | null
+  pis_rate?: number | null
+  cofins_rate?: number | null
+}
+
+/** Formata código NCM para exibição legível 0000.00.00 */
+export function formatNcmCode(code?: string | null): string {
+  if (!code) return ''
+  const digits = String(code).replace(/\D/g, '')
+  if (digits.length === 8) {
+    return `${digits.slice(0, 4)}.${digits.slice(4, 6)}.${digits.slice(6, 8)}`
+  }
+  return code
+}
+
+/**
+ * Remove acentos de uma string para permitir comparações case/accent-insensitive
+ */
+export function normalizeTextSearch(text: string): string {
+  return text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+}
+
+/**
+ * Busca opções de NCM na base imp_sim_tax_rates para o autocomplete.
+ * Critérios combinados:
+ * (a) início do código ignorando pontuação (ex.: "900710" ou "9007.10" casa com "90071000")
+ * (b) palavra na descrição ncm_descricao_full (case/accent-insensitive)
+ * Limita a ~10-15 resultados para performance.
+ */
+export async function searchNcmAutocomplete(
+  query: string,
+  limit = 15,
+): Promise<NcmAutocompleteOption[]> {
+  const trimmed = (query || '').trim()
+  if (!trimmed) return []
+
+  const digits = trimmed.replace(/\D/g, '')
+  const normalizedQuery = normalizeTextSearch(trimmed)
+  const queryTokens = normalizedQuery
+    .split(/\s+/)
+    .map((t) => t.trim())
+    .filter((t) => t.length >= 2)
+
+  const resultsMap = new Map<string, NcmAutocompleteOption>()
+
+  try {
+    // 1. Busca por código de início se houver ao menos 2 dígitos
+    if (digits.length >= 2) {
+      const { data: codeMatches, error: codeErr } = await (
+        supabase.from('imp_sim_tax_rates') as any
+      )
+        .select('ncm, ncm_descricao_full, ii_rate, ipi_rate, pis_rate, cofins_rate')
+        .ilike('ncm', `${digits}%`)
+        .order('ncm', { ascending: true })
+        .limit(limit)
+
+      if (!codeErr && Array.isArray(codeMatches)) {
+        for (const row of codeMatches) {
+          if (!row.ncm) continue
+          const clean = row.ncm.replace(/\D/g, '')
+          if (!resultsMap.has(clean)) {
+            resultsMap.set(clean, {
+              ncm: clean,
+              ncm_formatted: formatNcmCode(clean),
+              ncm_descricao_full: row.ncm_descricao_full || '',
+              ii_rate: row.ii_rate !== null ? Number(row.ii_rate) : null,
+              ipi_rate: row.ipi_rate !== null ? Number(row.ipi_rate) : null,
+              pis_rate: row.pis_rate !== null ? Number(row.pis_rate) : null,
+              cofins_rate: row.cofins_rate !== null ? Number(row.cofins_rate) : null,
+            })
+          }
+          if (resultsMap.size >= limit) break
+        }
+      }
+    }
+
+    // 2. Busca por palavra na descrição (se ainda tiver espaço no limite)
+    if (resultsMap.size < limit && queryTokens.length > 0) {
+      // Prioriza buscar pelo primeiro token na descrição
+      const firstToken = queryTokens[0]
+      let queryBuilder = (supabase.from('imp_sim_tax_rates') as any)
+        .select('ncm, ncm_descricao_full, ii_rate, ipi_rate, pis_rate, cofins_rate')
+        .ilike('ncm_descricao_full', `%${firstToken}%`)
+        .limit(limit * 2)
+
+      const { data: descMatches, error: descErr } = await queryBuilder
+
+      if (!descErr && Array.isArray(descMatches)) {
+        for (const row of descMatches) {
+          if (!row.ncm) continue
+          const clean = row.ncm.replace(/\D/g, '')
+          if (resultsMap.has(clean)) continue
+
+          // Verifica se TODOS os tokens estão na descrição (accent-insensitive)
+          const normDesc = normalizeTextSearch(row.ncm_descricao_full || '')
+          const matchesAllTokens = queryTokens.every((t) => normDesc.includes(t))
+
+          if (matchesAllTokens) {
+            resultsMap.set(clean, {
+              ncm: clean,
+              ncm_formatted: formatNcmCode(clean),
+              ncm_descricao_full: row.ncm_descricao_full || '',
+              ii_rate: row.ii_rate !== null ? Number(row.ii_rate) : null,
+              ipi_rate: row.ipi_rate !== null ? Number(row.ipi_rate) : null,
+              pis_rate: row.pis_rate !== null ? Number(row.pis_rate) : null,
+              cofins_rate: row.cofins_rate !== null ? Number(row.cofins_rate) : null,
+            })
+          }
+          if (resultsMap.size >= limit) break
+        }
+      }
+    }
+
+    // 3. Se ainda tiver espaço e tokens forem acentuados (ou a busca ilike falhou por acento),
+    // podemos tentar busca via RPC search_ncm_candidates como fallback
+    if (resultsMap.size < limit && trimmed.length >= 3) {
+      try {
+        const { data: rpcMatches } = await supabase.rpc('search_ncm_candidates', {
+          query: trimmed,
+          top_n: limit,
+          match_threshold: 0.05,
+        })
+        if (Array.isArray(rpcMatches)) {
+          for (const row of rpcMatches) {
+            const clean = (row.ncm || '').replace(/\D/g, '')
+            if (clean && !resultsMap.has(clean)) {
+              resultsMap.set(clean, {
+                ncm: clean,
+                ncm_formatted: formatNcmCode(clean),
+                ncm_descricao_full: row.ncm_descricao_full || '',
+                ii_rate: row.ii_rate !== null ? Number(row.ii_rate) : null,
+                ipi_rate: row.ipi_rate !== null ? Number(row.ipi_rate) : null,
+                pis_rate: row.pis_rate !== null ? Number(row.pis_rate) : null,
+                cofins_rate: row.cofins_rate !== null ? Number(row.cofins_rate) : null,
+              })
+            }
+            if (resultsMap.size >= limit) break
+          }
+        }
+      } catch {
+        // Fallback silencioso
+      }
+    }
+
+    return Array.from(resultsMap.values()).slice(0, limit)
+  } catch (err) {
+    console.error('Erro na busca de NCM para autocomplete:', err)
+    return []
+  }
+}
+
+/** Cache de validação de NCM para evitar round-trips repetidos */
+const ncmValidationCache = new Map<string, boolean>()
+
+/**
+ * Valida se um código NCM existe na tabela imp_sim_tax_rates (ou é a exceção "0000.00.00" / "00000000").
+ * Retorna true se válido, false se não existir.
+ */
+export async function validateNcmExists(code: string | null | undefined): Promise<boolean> {
+  if (!code) return false
+  const digits = String(code).replace(/\D/g, '')
+
+  // Exceção oficial: 0000.00.00 é sempre aceito sem verificação na base
+  if (digits === '00000000' || digits === '0000000') {
+    return true
+  }
+
+  if (digits.length !== 8) {
+    return false
+  }
+
+  if (ncmValidationCache.has(digits)) {
+    return ncmValidationCache.get(digits)!
+  }
+
+  try {
+    const { data, error } = await (supabase.from('imp_sim_tax_rates') as any)
+      .select('ncm')
+      .eq('ncm', digits)
+      .limit(1)
+      .maybeSingle()
+
+    const exists = !error && !!data
+    ncmValidationCache.set(digits, exists)
+    return exists
+  } catch (err) {
+    console.warn('Erro ao validar existência de NCM:', err)
+    return false
+  }
+}
+
 export const ncmService = {
   generateQueryEmbedding,
   searchCandidates: searchNcmCandidates,
+  searchAutocomplete: searchNcmAutocomplete,
+  validateExists: validateNcmExists,
   logClassification: logNcmClassification,
   updateDecision: updateNcmClassificationDecision,
   classifyNcm,

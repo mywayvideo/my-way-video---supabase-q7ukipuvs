@@ -23,6 +23,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Checkbox } from '@/components/ui/checkbox'
 import ReactMarkdown from 'react-markdown'
 import { useProductForm } from '@/hooks/useProductForm'
+import { NcmAutocompleteField } from '@/components/admin/NcmAutocompleteField'
 import {
   Form,
   FormControl,
@@ -273,11 +274,24 @@ export function AdminProductForm({ initialData, onSuccess, onAddManufacturer }: 
           <FormField
             control={form.control}
             name="ncm"
-            render={({ field }) => (
+            render={({ field, fieldState }) => (
               <FormItem className="col-span-2 md:col-span-4">
                 <FormLabel>NCM</FormLabel>
                 <FormControl>
-                  <Input {...field} className="bg-background/50" placeholder="0000.00.00" />
+                  <NcmAutocompleteField
+                    value={field.value}
+                    onChange={(val) => field.onChange(val)}
+                    onBlur={field.onBlur}
+                    error={fieldState.error?.message}
+                    onValidationChange={(isValid, errorMsg) => {
+                      if (!isValid && errorMsg) {
+                        form.setError('ncm', { type: 'manual', message: errorMsg })
+                      } else {
+                        form.clearErrors('ncm')
+                      }
+                    }}
+                    className="bg-background/50"
+                  />
                 </FormControl>
                 <FormMessage />
               </FormItem>

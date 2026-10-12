@@ -44,6 +44,7 @@ import {
   formatNcmDisplay,
   cleanNcmDigits,
 } from '@/components/admin/NcmSuggestDialog'
+import { NcmAutocompleteField } from '@/components/admin/NcmAutocompleteField'
 import { useToast } from '@/hooks/use-toast'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -1097,21 +1098,11 @@ export default function NewProductPage() {
                     )}
                   />
 
-                  {/* NCM */}
+                  {/* NCM com Autocomplete e Validação Estrita */}
                   <FormField
                     control={form.control}
                     name="ncm"
-                    render={({ field }) => {
-                      const displayValue = field.value ? formatNcmDisplay(field.value) : ''
-
-                      const handleNcmInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-                        const raw = e.target.value
-                        // Remove tudo que não for dígito e limita a 8 dígitos
-                        const digits = cleanNcmDigits(raw)
-                        // Armazena 8 dígitos limpos no formulário/banco
-                        field.onChange(digits)
-                      }
-
+                    render={({ field, fieldState }) => {
                       return (
                         <FormItem>
                           <FormLabel className="flex justify-between items-center">
@@ -1135,13 +1126,21 @@ export default function NewProductPage() {
                             </Button>
                           </FormLabel>
                           <FormControl>
-                            <Input
-                              value={displayValue}
-                              onChange={handleNcmInputChange}
-                              placeholder="0000.00.00"
-                              maxLength={10}
+                            <NcmAutocompleteField
+                              value={field.value}
+                              onChange={(val) => {
+                                field.onChange(val)
+                              }}
+                              onBlur={field.onBlur}
                               disabled={isBusy}
-                              className="font-mono"
+                              error={fieldState.error?.message}
+                              onValidationChange={(isValid, errorMsg) => {
+                                if (!isValid && errorMsg) {
+                                  form.setError('ncm', { type: 'manual', message: errorMsg })
+                                } else {
+                                  form.clearErrors('ncm')
+                                }
+                              }}
                             />
                           </FormControl>
                           {ncmSuggestions.length > 0 && (

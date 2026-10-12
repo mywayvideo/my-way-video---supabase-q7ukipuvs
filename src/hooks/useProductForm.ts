@@ -9,6 +9,7 @@ import { supabase } from '@/lib/supabase/client'
 import { calculateTotalUSDFromValues } from '@/utils/pricing-engine'
 import { sanitizeSku } from '@/utils/sku-sanitizer'
 import { normalizeSkuForBrand, isSonyBrand } from '@/utils/sku-normalize'
+import { validateNcmExists } from '@/services/ncmService'
 
 const productSchema = z.object({
   name: z.string().min(1, 'Nome é obrigatório'),
@@ -463,6 +464,24 @@ export function useProductForm(props?: UseProductFormProps) {
   const onSubmit = async (data: any) => {
     setIsSaving(true)
     try {
+      // Validação estrita do NCM: só grava se corresponder a código em imp_sim_tax_rates (ou for 0000.00.00)
+      if (data.ncm && data.ncm.trim() !== '') {
+        const isNcmValid = await validateNcmExists(data.ncm)
+        if (!isNcmValid) {
+          form.setError('ncm', {
+            type: 'manual',
+            message: 'Selecione um NCM da lista — o código digitado não existe na base.',
+          })
+          toast({
+            title: 'NCM Inválido',
+            description: 'Selecione um NCM da lista — o código digitado não existe na base.',
+            variant: 'destructive',
+          })
+          setIsSaving(false)
+          return
+        }
+      }
+
       const selectedMfg = manufacturers.find((m) => m.id === data.manufacturer_id)
       const mfgName = selectedMfg?.name || ''
       const isSony = isSonyBrand(mfgName)

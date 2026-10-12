@@ -566,6 +566,7 @@ export function useProductForm(props?: UseProductFormProps) {
     handleAddCategory,
     handleAddManufacturer,
     productDates,
+    setProductDates,
     handleMarkAsReviewed,
     isMarkingReviewed,
     checkSkuExists: async (sku: string) => {

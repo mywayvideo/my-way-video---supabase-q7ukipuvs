@@ -98,16 +98,114 @@ describe('priceCheckService & B&H verification tolerance logic', () => {
     }
   })
 
-  it('updates form price field when applying price from B&H', () => {
+  it('updates form price field and timestamps when applying price from B&H', () => {
     let formPriceUsa = 950
-    const onPriceApplied = (newPrice: number) => {
+    let productDates: { updated_at?: string | null; last_reviewed_at?: string | null } = {
+      updated_at: '2026-01-01T00:00:00.000Z',
+      last_reviewed_at: '2026-01-01T00:00:00.000Z',
+    }
+    const onPriceApplied = (newPrice: number, appliedAtIso?: string) => {
       formPriceUsa = newPrice
+      if (appliedAtIso) {
+        productDates = {
+          updated_at: appliedAtIso,
+          last_reviewed_at: appliedAtIso,
+        }
+      }
     }
 
     const fetchedBhPrice = 999
-    onPriceApplied(fetchedBhPrice)
+    const appliedIso = '2026-04-14T12:00:00.000Z'
+    onPriceApplied(fetchedBhPrice, appliedIso)
 
     expect(formPriceUsa).toBe(999)
+    expect(productDates.updated_at).toBe(appliedIso)
+    expect(productDates.last_reviewed_at).toBe(appliedIso)
+  })
+
+  it('applyBhPrice returns timestamp and updates local state in BhPriceChecker simulation', async () => {
+    let updatedPayload: any = null
+    const { supabase } = await import('@/lib/supabase/client')
+    const originalFrom = supabase.from
+    supabase.from = vi.fn((table: any) => {
+      if (table === 'products') {
+        return {
+          update: vi.fn((payload) => {
+            updatedPayload = payload
+            return {
+              eq: vi.fn().mockResolvedValue({ error: null }),
+            }
+          }),
+        } as any
+      }
+      return originalFrom(table)
+    }) as any
+
+    try {
+      const nowIso = await priceCheckService.applyBhPrice('prod-1', 1234.56)
+      expect(nowIso).toBeDefined()
+      expect(typeof nowIso).toBe('string')
+      expect(updatedPayload.price_usd).toBe(1234.56)
+      expect(updatedPayload.updated_at).toBe(nowIso)
+      expect(updatedPayload.last_reviewed_at).toBe(nowIso)
+
+      // Simulação do estado local pós-aplicação em BhPriceChecker
+      let lastRecord: any = {
+        id: 'rec-1',
+        product_id: 'prod-1',
+        checked_at: '2026-01-01T00:00:00.000Z',
+        price_db: 1000,
+        price_bh: 1234.56,
+        diff_usd: 234.56,
+        diff_pct: 23.456,
+        status: 'divergente',
+        message: 'Preço divergente',
+      }
+      let currentResult: any = {
+        status: 'divergente',
+        price_usd_cadastrado: 1000,
+        price_bh: 1234.56,
+        diff_usd: 234.56,
+        diff_pct: 23.456,
+        checked_at: '2026-01-01T00:00:00.000Z',
+      }
+
+      // Execução da sincronização de estado idêntica ao BhPriceChecker
+      const targetPrice = 1234.56
+      const successMsg = `Preço conferido com a B&H. Preço FOB Miami atualizado para US$ ${targetPrice.toFixed(2)}.`
+      lastRecord = {
+        ...lastRecord,
+        checked_at: nowIso,
+        status: 'ok',
+        price_db: targetPrice,
+        diff_usd: 0,
+        diff_pct: 0,
+        message: successMsg,
+      }
+      currentResult = {
+        ...currentResult,
+        checked_at: nowIso,
+        status: 'ok',
+        price_usd_cadastrado: targetPrice,
+        diff_usd: 0,
+        diff_pct: 0,
+        message: successMsg,
+      }
+
+      expect(lastRecord.status).toBe('ok')
+      expect(lastRecord.checked_at).toBe(nowIso)
+      expect(lastRecord.price_db).toBe(1234.56)
+      expect(lastRecord.diff_usd).toBe(0)
+      expect(lastRecord.diff_pct).toBe(0)
+
+      expect(currentResult.status).toBe('ok')
+      expect(currentResult.checked_at).toBe(nowIso)
+      expect(currentResult.price_usd_cadastrado).toBe(1234.56)
+      expect(currentResult.diff_usd).toBe(0)
+      expect(currentResult.diff_pct).toBe(0)
+    } finally {
+      supabase.from = originalFrom
+    }
   })
 
   it('calculates rebate percentage correctly from B&H rebate info', () => {

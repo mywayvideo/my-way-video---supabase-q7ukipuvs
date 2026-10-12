@@ -95,6 +95,7 @@ export default function NewProductPage() {
     handleAddCategory,
     handleAddManufacturer,
     productDates,
+    setProductDates,
     handleMarkAsReviewed,
     isMarkingReviewed,
   } = useProductForm()
@@ -630,11 +631,18 @@ export default function NewProductPage() {
                             shouldValidate: true,
                           })
                         }}
-                        onPriceApplied={(newPrice) => {
+                        onPriceApplied={(newPrice, appliedAtIso) => {
                           form.setValue('price_usa', newPrice, {
                             shouldDirty: true,
                             shouldValidate: true,
                           })
+                          if (appliedAtIso) {
+                            setProductDates((prev) => ({
+                              ...prev,
+                              updated_at: appliedAtIso,
+                              last_reviewed_at: appliedAtIso,
+                            }))
+                          }
                         }}
                         onUrlDiscovered={(newUrl) => {
                           form.setValue('website_url', newUrl, {

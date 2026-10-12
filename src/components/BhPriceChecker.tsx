@@ -39,7 +39,7 @@ interface BhPriceCheckerProps {
   isDiscontinued?: boolean
   onDiscontinuedConfirmed?: (isDiscontinued: boolean) => void
   onPriceUpdated?: () => void
-  onPriceApplied?: (appliedPrice: number) => void
+  onPriceApplied?: (appliedPrice: number, appliedAtIso?: string) => void
   onUrlDiscovered?: (newUrl: string) => void
   onRebateSaved?: () => void
 }
@@ -260,7 +260,7 @@ export const BhPriceChecker: React.FC<BhPriceCheckerProps> = ({
       }
 
       if (onPriceApplied) {
-        onPriceApplied(targetPrice)
+        onPriceApplied(targetPrice, nowIso)
       }
 
       if (onPriceUpdated) {

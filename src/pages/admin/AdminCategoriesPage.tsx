@@ -1116,7 +1116,7 @@ export function AdminCategoriesPage() {
               <Table className="min-w-[1050px]">
                 <TableHeader>
                   <TableRow className="bg-muted/40">
-                    <TableHead className="w-[44px]">
+                    <TableHead className="w-[44px] sticky left-0 z-20 bg-muted/95 backdrop-blur-xs">
                       <Checkbox
                         checked={
                           products.length > 0 && selectedProductIds.length === products.length
@@ -1125,7 +1125,9 @@ export function AdminCategoriesPage() {
                         aria-label="Selecionar todos os produtos da página"
                       />
                     </TableHead>
-                    <TableHead className="min-w-[300px]">Produto & SKU</TableHead>
+                    <TableHead className="min-w-[300px] sticky left-[44px] z-20 bg-muted/95 backdrop-blur-xs border-r border-border/60 shadow-[4px_0_8px_-3px_rgba(0,0,0,0.06)] dark:shadow-[4px_0_8px_-3px_rgba(0,0,0,0.3)]">
+                      Produto & SKU
+                    </TableHead>
                     <TableHead className="w-[140px]">Fabricante</TableHead>
                     <TableHead className="w-[140px]">NCM Atual</TableHead>
                     <TableHead className="w-[170px]">Rótulo Legado</TableHead>
@@ -1212,7 +1214,13 @@ export function AdminCategoriesPage() {
                           )}
                         >
                           {/* Checkbox de Seleção Múltipla */}
-                          <TableCell>
+                          <TableCell
+                            className={cn(
+                              'sticky left-0 z-10 bg-card transition-colors',
+                              isSelected && 'bg-primary/5',
+                              isOutOfStandard && 'bg-amber-500/[0.03]',
+                            )}
+                          >
                             <Checkbox
                               checked={isSelected}
                               onCheckedChange={() => handleToggleProduct(product.id)}
@@ -1221,14 +1229,20 @@ export function AdminCategoriesPage() {
                           </TableCell>
 
                           {/* Produto: Imagem, Nome (Link clicável) e SKU */}
-                          <TableCell>
+                          <TableCell
+                            className={cn(
+                              'sticky left-[44px] z-10 bg-card border-r border-border/60 shadow-[4px_0_8px_-3px_rgba(0,0,0,0.06)] dark:shadow-[4px_0_8px_-3px_rgba(0,0,0,0.3)] transition-colors',
+                              isSelected && 'bg-primary/5',
+                              isOutOfStandard && 'bg-amber-500/[0.03]',
+                            )}
+                          >
                             <div className="flex items-start gap-3">
                               <Link
-                                to={`/product/${product.id}`}
+                                to={`/products/edit/${product.id}`}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="group/img shrink-0"
-                                title="Abrir cadastro admin do produto (/product/:id)"
+                                title="Abrir cadastro admin do produto (/products/edit/:id)"
                               >
                                 {product.image_url ? (
                                   <img
@@ -1246,9 +1260,9 @@ export function AdminCategoriesPage() {
                                 )}
                               </Link>
                               <div className="min-w-0">
-                                {/* Link para ir direto ao cadastro admin /product/:id */}
+                                {/* Link para ir direto ao cadastro admin /products/edit/:id */}
                                 <Link
-                                  to={`/product/${product.id}`}
+                                  to={`/products/edit/${product.id}`}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className="text-xs font-semibold text-foreground hover:text-primary hover:underline line-clamp-2 leading-snug inline-flex items-center gap-1 group/title"
@@ -1293,7 +1307,7 @@ export function AdminCategoriesPage() {
                                   <Tooltip>
                                     <TooltipTrigger asChild>
                                       <Link
-                                        to={`/product/${product.id}`}
+                                        to={`/products/edit/${product.id}`}
                                         target="_blank"
                                         rel="noopener noreferrer"
                                         className="inline-block"

@@ -464,7 +464,9 @@ export function useProductForm(props?: UseProductFormProps) {
   const onSubmit = async (data: any) => {
     setIsSaving(true)
     try {
-      // Validação estrita do NCM: só grava se corresponder a código em imp_sim_tax_rates (ou for 0000.00.00)
+      // Validação estrita do NCM no submit: só grava se corresponder a código em
+      // imp_sim_tax_rates (ou for 0000.00.00). validateNcmExists usa cache em memória,
+      // então código já validado no campo autocomplete não gera nova query.
       if (data.ncm && data.ncm.trim() !== '') {
         const isNcmValid = await validateNcmExists(data.ncm)
         if (!isNcmValid) {

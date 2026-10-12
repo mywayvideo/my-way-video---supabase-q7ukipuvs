@@ -68,6 +68,11 @@ export function NcmAutocompleteField({
   const inputRef = useRef<HTMLInputElement>(null)
   const debounceTimerRef = useRef<any>(null)
   const validationTimerRef = useRef<any>(null)
+  // Guard de sequência: apenas a última tecla/buscada aplica resultado (cancela obsoletas)
+  const searchSeqRef = useRef(0)
+  const validationSeqRef = useRef(0)
+  // Cache local da última origem de validação (lista do autocomplete vs digitação manual)
+  const lastValidationSourceRef = useRef<'list' | 'manual' | 'initial'>('initial')
 
   // Atualiza inputValue se a prop externa `value` mudar (ex.: carregamento do produto, sugestão de IA ou reset)
   useEffect(() => {
@@ -94,7 +99,7 @@ export function NcmAutocompleteField({
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  // Executa busca com debounce (~250-300ms)
+  // Executa busca com debounce (~250-300ms) — cancela requisições obsoletas por sequência
   const triggerSearch = (query: string) => {
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current)
@@ -105,29 +110,40 @@ export function NcmAutocompleteField({
 
     // Se a query for muito curta (menos de 2 dígitos e menos de 2 letras), limpa
     if (digits.length < 2 && trimmed.length < 2) {
+      searchSeqRef.current += 1 // invalida buscas em voo
       setSuggestions([])
       setIsLoading(false)
       return
     }
 
     setIsLoading(true)
+    const seqAtSchedule = ++searchSeqRef.current
     debounceTimerRef.current = setTimeout(async () => {
       try {
         const results = await searchNcmAutocomplete(trimmed, 15)
+        // Só aplica se ainda for a busca mais recente (teclas subsequentes cancelam esta)
+        if (seqAtSchedule !== searchSeqRef.current) return
         setSuggestions(results)
         setIsOpen(true)
         setHighlightedIndex(-1)
       } catch (err) {
+        if (seqAtSchedule !== searchSeqRef.current) return
         console.warn('Erro ao buscar NCM:', err)
         setSuggestions([])
       } finally {
-        setIsLoading(false)
+        if (seqAtSchedule === searchSeqRef.current) {
+          setIsLoading(false)
+        }
       }
     }, 280)
   }
 
   // Validação estrita: o código digitado DEVE existir na base imp_sim_tax_rates, exceto 0000.00.00
-  const triggerValidation = (raw: string) => {
+  // Só dispara query de validação para digitação manual de código completo de 8 dígitos que
+  // NÃO veio da lista do autocomplete (seleção da lista já é válida por definição).
+  const triggerValidation = (raw: string, source: 'list' | 'manual' | 'initial' = 'manual') => {
+    lastValidationSourceRef.current = source
+
     if (validationTimerRef.current) {
       clearTimeout(validationTimerRef.current)
     }
@@ -159,11 +175,22 @@ export function NcmAutocompleteField({
       return
     }
 
-    // Com 8 dígitos, valida se existe no banco
+    // Código completo vindo da lista do autocomplete: válido sem segunda query (veio do banco)
+    if (source === 'list') {
+      setValidationError(null)
+      setIsValidNcm(true)
+      onValidationChange?.(true, null)
+      return
+    }
+
+    // Digitação manual de 8 dígitos: valida existência no banco (com cache no serviço)
     setIsValidating(true)
+    const seqAtSchedule = ++validationSeqRef.current
     validationTimerRef.current = setTimeout(async () => {
       try {
+        // Apenas a última validação agendada aplica resultado
         const exists = await validateNcmExists(digits)
+        if (seqAtSchedule !== validationSeqRef.current) return
         if (exists) {
           setValidationError(null)
           setIsValidNcm(true)
@@ -176,11 +203,14 @@ export function NcmAutocompleteField({
         }
       } catch {
         // Fallback em caso de erro de rede
+        if (seqAtSchedule !== validationSeqRef.current) return
         setValidationError(null)
         setIsValidNcm(true)
         onValidationChange?.(true, null)
       } finally {
-        setIsValidating(false)
+        if (seqAtSchedule === validationSeqRef.current) {
+          setIsValidating(false)
+        }
       }
     }, 250)
   }
@@ -207,17 +237,28 @@ export function NcmAutocompleteField({
     // Dispara busca para abrir o dropdown
     triggerSearch(raw)
 
-    // Dispara validação
-    triggerValidation(raw)
+    // Dispara validação: se o usuário acabou de escolher da lista e depois editou o código,
+    // volta a considerar digitação manual (a lista deixou de ser a origem atual)
+    triggerValidation(raw, 'manual')
   }
 
   const handleSelectOption = (option: NcmAutocompleteOption) => {
+    // Cancela buscas/validações em voo — o código veio do banco e já é válido
+    searchSeqRef.current += 1
+    validationSeqRef.current += 1
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current)
+    if (validationTimerRef.current) clearTimeout(validationTimerRef.current)
+
     const formatted = formatNcmCode(option.ncm)
     setInputValue(formatted)
     onChange?.(option.ncm)
 
+    // Seleção da lista valida o NCM SEM segunda query: o código veio do banco
     setValidationError(null)
     setIsValidNcm(true)
+    setIsValidating(false)
+    setIsLoading(false)
+    lastValidationSourceRef.current = 'list'
     onValidationChange?.(true, null)
 
     setIsOpen(false)
@@ -255,9 +296,10 @@ export function NcmAutocompleteField({
     // Pequeno timeout para permitir o clique nas opções do dropdown antes de fechar
     setTimeout(() => {
       setIsOpen(false)
-      // Validação final ao sair do campo
-      if (isTouched) {
-        triggerValidation(inputValue)
+      // Validação final ao sair do campo: revalida apenas digitação manual
+      // (código escolhido na lista permanece válido sem nova query)
+      if (isTouched && lastValidationSourceRef.current !== 'list') {
+        triggerValidation(inputValue, 'manual')
       }
     }, 200)
   }

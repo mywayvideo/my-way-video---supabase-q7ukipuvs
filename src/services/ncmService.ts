@@ -1,3 +1,16 @@
+/**
+ * Autocomplete de NCM — camada de serviço (v2, otimizada).
+ *
+ * Fluxo de busca:
+ * 1. RPC única `search_ncm_autocomplete` no servidor (prefixo do código + descrição,
+ *    com ranking, unaccent e LIMIT no servidor) — cacheada em memória por sessão;
+ * 2. Fallback TEMPORÁRIO (uma única query PostgREST simples por prefixo de código) caso a RPC
+ *    ainda não tenha sido aplicada no banco (o usuário roda a migration manualmente no painel).
+ *    NÃO existe mais fallback à RPC pesada search_ncm_candidates (embeddings) no autocomplete.
+ *
+ * A validação de NCM digitado manualmente continua via `validateNcmExists` (com cache),
+ * usada pelo NcmAutocompleteField e pelo submit do useProductForm.
+ */
 import { supabase } from '@/lib/supabase/client'
 
 export interface NcmCandidate {
@@ -79,6 +92,9 @@ export async function generateQueryEmbedding(text: string): Promise<number[] | n
  * Busca candidatos NCM na base imp_sim_tax_rates via RPC search_ncm_candidates.
  * Suporta busca híbrida completa (com query_embedding) ou fallback textual automático.
  * A busca abrange TODA a tabela imp_sim_tax_rates (capítulos 84, 85, 90 etc.), sem restrição de capítulo.
+ *
+ * NOTE: usada pelo fluxo de classificação IA (NcmSuggestDialog/classify-ncm),
+ * NÃO pelo autocomplete do formulário de produto.
  */
 export async function searchNcmCandidates(params: SearchNcmParams): Promise<NcmCandidate[]> {
   const query = params.query?.trim() || ''
@@ -373,12 +389,87 @@ export function normalizeTextSearch(text: string): string {
     .toLowerCase()
 }
 
+/* ------------------------------------------------------------------ */
+/* Autocomplete otimizado: RPC única + cache em memória + fallback     */
+/* ------------------------------------------------------------------ */
+
+/** Cache de resultados de busca do autocomplete em memória (por sessão) */
+const ncmAutocompleteCache = new Map<string, NcmAutocompleteOption[]>()
+const AUTOCOMPLETE_CACHE_MAX = 80
+
+/** Cache da existência da RPC search_ncm_autocomplete (evita tentativa repetida após 404/PGRST202) */
+let rpcAvailability: boolean | null = null
+
+/** Limpa o cache do autocomplete (útil para testes e para refresh manual) */
+export function clearNcmAutocompleteCache() {
+  ncmAutocompleteCache.clear()
+  rpcAvailability = null
+}
+
+function setCacheEntry(key: string, value: NcmAutocompleteOption[]) {
+  if (ncmAutocompleteCache.size >= AUTOCOMPLETE_CACHE_MAX) {
+    // Evict o mais antigo (primeira chave inserida)
+    const firstKey = ncmAutocompleteCache.keys().next().value
+    if (firstKey !== undefined) {
+      ncmAutocompleteCache.delete(firstKey)
+    }
+  }
+  ncmAutocompleteCache.set(key, value)
+}
+
+function toAutocompleteOption(row: any): NcmAutocompleteOption {
+  const clean = String(row?.ncm ?? '').replace(/\D/g, '')
+  return {
+    ncm: clean,
+    ncm_formatted: formatNcmCode(clean),
+    ncm_descricao_full: row?.ncm_descricao_full || '',
+    ii_rate: row?.ii_rate !== null && row?.ii_rate !== undefined ? Number(row.ii_rate) : null,
+    ipi_rate: row?.ipi_rate !== null && row?.ipi_rate !== undefined ? Number(row.ipi_rate) : null,
+    pis_rate: row?.pis_rate !== null && row?.pis_rate !== undefined ? Number(row.pis_rate) : null,
+    cofins_rate:
+      row?.cofins_rate !== null && row?.cofins_rate !== undefined ? Number(row.cofins_rate) : null,
+  }
+}
+
 /**
- * Busca opções de NCM na base imp_sim_tax_rates para o autocomplete.
- * Critérios combinados:
- * (a) início do código ignorando pontuação (ex.: "900710" ou "9007.10" casa com "90071000")
- * (b) palavra na descrição ncm_descricao_full (case/accent-insensitive)
- * Limita a ~10-15 resultados para performance.
+ * Fallback TEMPORÁRIO enquanto a RPC search_ncm_autocomplete não é aplicada no banco:
+ * UMA query simples por prefixo de código (ou ILIKE na descrição), sem embeddings e sem
+ * chamadas pesadas. Mantém o autocomplete funcionando até o usuário rodar a migration.
+ */
+async function searchNcmAutocompleteFallback(
+  query: string,
+  limit: number,
+): Promise<NcmAutocompleteOption[]> {
+  const digits = query.replace(/\D/g, '')
+  let builder = (supabase.from('imp_sim_tax_rates') as any).select(
+    'ncm, ncm_descricao_full, ii_rate, ipi_rate, pis_rate, cofins_rate',
+  )
+
+  if (digits.length >= 2) {
+    builder = builder.ilike('ncm', `${digits}%`)
+  } else {
+    const firstToken = normalizeTextSearch(query)
+      .split(/\s+/)
+      .filter((t) => t.length >= 2)[0]
+    if (!firstToken) return []
+    builder = builder.ilike('ncm_descricao_full', `%${firstToken}%`)
+  }
+
+  const { data, error } = await builder.order('ncm', { ascending: true }).limit(limit)
+
+  if (error) {
+    console.warn('Erro no fallback de autocomplete NCM:', error)
+    return []
+  }
+
+  return (Array.isArray(data) ? data : []).slice(0, limit).map(toAutocompleteOption)
+}
+
+/**
+ * Busca opções de NCM na base imp_sim_tax_rates para o autocomplete — chamada ÚNICA.
+ * Usa a RPC `search_ncm_autocomplete` (ranking, unaccent e LIMIT no servidor) com cache
+ * em memória da sessão. Se a RPC ainda não existir no banco (migration não aplicada),
+ * degrada graciosamente para uma query PostgREST simples (sem embeddings).
  */
 export async function searchNcmAutocomplete(
   query: string,
@@ -387,123 +478,66 @@ export async function searchNcmAutocomplete(
   const trimmed = (query || '').trim()
   if (!trimmed) return []
 
-  const digits = trimmed.replace(/\D/g, '')
-  const normalizedQuery = normalizeTextSearch(trimmed)
-  const queryTokens = normalizedQuery
-    .split(/\s+/)
-    .map((t) => t.trim())
-    .filter((t) => t.length >= 2)
+  const digitsOnly = trimmed.replace(/\D/g, '')
+  const hasText = normalizeTextSearch(trimmed).length >= 2
+  if (digitsOnly.length < 2 && !hasText) return []
 
-  const resultsMap = new Map<string, NcmAutocompleteOption>()
-
-  try {
-    // 1. Busca por código de início se houver ao menos 2 dígitos
-    if (digits.length >= 2) {
-      const { data: codeMatches, error: codeErr } = await (
-        supabase.from('imp_sim_tax_rates') as any
-      )
-        .select('ncm, ncm_descricao_full, ii_rate, ipi_rate, pis_rate, cofins_rate')
-        .ilike('ncm', `${digits}%`)
-        .order('ncm', { ascending: true })
-        .limit(limit)
-
-      if (!codeErr && Array.isArray(codeMatches)) {
-        for (const row of codeMatches) {
-          if (!row.ncm) continue
-          const clean = row.ncm.replace(/\D/g, '')
-          if (!resultsMap.has(clean)) {
-            resultsMap.set(clean, {
-              ncm: clean,
-              ncm_formatted: formatNcmCode(clean),
-              ncm_descricao_full: row.ncm_descricao_full || '',
-              ii_rate: row.ii_rate !== null ? Number(row.ii_rate) : null,
-              ipi_rate: row.ipi_rate !== null ? Number(row.ipi_rate) : null,
-              pis_rate: row.pis_rate !== null ? Number(row.pis_rate) : null,
-              cofins_rate: row.cofins_rate !== null ? Number(row.cofins_rate) : null,
-            })
-          }
-          if (resultsMap.size >= limit) break
-        }
-      }
-    }
-
-    // 2. Busca por palavra na descrição (se ainda tiver espaço no limite)
-    if (resultsMap.size < limit && queryTokens.length > 0) {
-      // Prioriza buscar pelo primeiro token na descrição
-      const firstToken = queryTokens[0]
-      let queryBuilder = (supabase.from('imp_sim_tax_rates') as any)
-        .select('ncm, ncm_descricao_full, ii_rate, ipi_rate, pis_rate, cofins_rate')
-        .ilike('ncm_descricao_full', `%${firstToken}%`)
-        .limit(limit * 2)
-
-      const { data: descMatches, error: descErr } = await queryBuilder
-
-      if (!descErr && Array.isArray(descMatches)) {
-        for (const row of descMatches) {
-          if (!row.ncm) continue
-          const clean = row.ncm.replace(/\D/g, '')
-          if (resultsMap.has(clean)) continue
-
-          // Verifica se TODOS os tokens estão na descrição (accent-insensitive)
-          const normDesc = normalizeTextSearch(row.ncm_descricao_full || '')
-          const matchesAllTokens = queryTokens.every((t) => normDesc.includes(t))
-
-          if (matchesAllTokens) {
-            resultsMap.set(clean, {
-              ncm: clean,
-              ncm_formatted: formatNcmCode(clean),
-              ncm_descricao_full: row.ncm_descricao_full || '',
-              ii_rate: row.ii_rate !== null ? Number(row.ii_rate) : null,
-              ipi_rate: row.ipi_rate !== null ? Number(row.ipi_rate) : null,
-              pis_rate: row.pis_rate !== null ? Number(row.pis_rate) : null,
-              cofins_rate: row.cofins_rate !== null ? Number(row.cofins_rate) : null,
-            })
-          }
-          if (resultsMap.size >= limit) break
-        }
-      }
-    }
-
-    // 3. Se ainda tiver espaço e tokens forem acentuados (ou a busca ilike falhou por acento),
-    // podemos tentar busca via RPC search_ncm_candidates como fallback
-    if (resultsMap.size < limit && trimmed.length >= 3) {
-      try {
-        const { data: rpcMatches } = await supabase.rpc('search_ncm_candidates', {
-          query: trimmed,
-          top_n: limit,
-          match_threshold: 0.05,
-        })
-        if (Array.isArray(rpcMatches)) {
-          for (const row of rpcMatches) {
-            const clean = (row.ncm || '').replace(/\D/g, '')
-            if (clean && !resultsMap.has(clean)) {
-              resultsMap.set(clean, {
-                ncm: clean,
-                ncm_formatted: formatNcmCode(clean),
-                ncm_descricao_full: row.ncm_descricao_full || '',
-                ii_rate: row.ii_rate !== null ? Number(row.ii_rate) : null,
-                ipi_rate: row.ipi_rate !== null ? Number(row.ipi_rate) : null,
-                pis_rate: row.pis_rate !== null ? Number(row.pis_rate) : null,
-                cofins_rate: row.cofins_rate !== null ? Number(row.cofins_rate) : null,
-              })
-            }
-            if (resultsMap.size >= limit) break
-          }
-        }
-      } catch {
-        // Fallback silencioso
-      }
-    }
-
-    return Array.from(resultsMap.values()).slice(0, limit)
-  } catch (err) {
-    console.error('Erro na busca de NCM para autocomplete:', err)
-    return []
+  const cacheKey = `${trimmed.toLowerCase()}::${limit}`
+  const cached = ncmAutocompleteCache.get(cacheKey)
+  if (cached) {
+    return cached
   }
+
+  let results: NcmAutocompleteOption[] = []
+
+  if (rpcAvailability !== false) {
+    try {
+      // RPC gerada pela migration (ainda não catalogada em types.ts) — chamada com cast
+      const { data, error } = await (supabase.rpc as any)('search_ncm_autocomplete', {
+        query: trimmed,
+        limit,
+      })
+
+      if (error) {
+        // PGRST202 = função não encontrada no schema cache (migration ainda não aplicada)
+        const errCode = (error as any)?.code || (error as any)?.details || ''
+        if (rpcAvailability === null && /PGRST202|not found|schema cache/i.test(String(errCode))) {
+          rpcAvailability = false
+          console.warn(
+            'RPC search_ncm_autocomplete indisponível — usando fallback simples (rode a migration no painel).',
+          )
+          results = await searchNcmAutocompleteFallback(trimmed, limit)
+        } else {
+          throw error
+        }
+      } else {
+        rpcAvailability = true
+        results = (Array.isArray(data) ? data : []).slice(0, limit).map(toAutocompleteOption)
+      }
+    } catch (err) {
+      // Fallback silencioso para a query simples em qualquer outro erro pontual da RPC
+      console.warn('Erro na RPC search_ncm_autocomplete, tentando fallback simples:', err)
+      try {
+        results = await searchNcmAutocompleteFallback(trimmed, limit)
+      } catch {
+        results = []
+      }
+    }
+  } else {
+    results = await searchNcmAutocompleteFallback(trimmed, limit)
+  }
+
+  setCacheEntry(cacheKey, results)
+  return results
 }
 
 /** Cache de validação de NCM para evitar round-trips repetidos */
 const ncmValidationCache = new Map<string, boolean>()
+
+/** Invalida o cache de validação (ex.: quando a base tarifária é atualizada) */
+export function clearNcmValidationCache() {
+  ncmValidationCache.clear()
+}
 
 /**
  * Valida se um código NCM existe na tabela imp_sim_tax_rates (ou é a exceção "0000.00.00" / "00000000").
@@ -542,12 +576,23 @@ export async function validateNcmExists(code: string | null | undefined): Promis
   }
 }
 
+/**
+ * Valida um NCM vindo diretamente da lista do autocomplete (o código já veio do banco,
+ * portanto é válido sem segunda query de rede). Retorna true se a origem é confiável.
+ */
+export function isNcmValidFromList(option: NcmAutocompleteOption | null | undefined): boolean {
+  return !!option && /^\d{8}$/.test(option.ncm)
+}
+
 export const ncmService = {
   generateQueryEmbedding,
   searchCandidates: searchNcmCandidates,
   searchAutocomplete: searchNcmAutocomplete,
   validateExists: validateNcmExists,
+  isValidFromList: isNcmValidFromList,
   logClassification: logNcmClassification,
   updateDecision: updateNcmClassificationDecision,
   classifyNcm,
+  clearAutocompleteCache: clearNcmAutocompleteCache,
+  clearValidationCache: clearNcmValidationCache,
 }

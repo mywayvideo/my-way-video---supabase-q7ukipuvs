@@ -1237,6 +1237,7 @@ export function AdminCategoriesPage() {
                             )}
                           >
                             <div className="flex items-start gap-3">
+                              {/* Navegação na mesma aba para manter a sessão no builder */}
                               <Link
                                 to={`/products/edit/${product.id}`}
                                 className="group/img shrink-0"
@@ -1304,6 +1305,7 @@ export function AdminCategoriesPage() {
                                       <Link
                                         to={`/products/edit/${product.id}`}
                                         className="inline-block"
+                                        title="Abrir cadastro admin do produto (/products/edit/:id)"
                                       >
                                         <Badge
                                           variant="outline"

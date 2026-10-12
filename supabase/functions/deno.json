@@ -7,8 +7,8 @@
     "strict": false
   },
   "_versions": {
-    "apply-discount-coupon": 1052,
-    "calculate-price-brl": 1057,
+    "apply-discount-coupon": 1053,
+    "calculate-price-brl": 1058,
     "calculate-shipping": 64,
     "call-ai-agent": 65,
     "cancel-stripe-charge": 1055,
@@ -19,7 +19,7 @@
     "create-discount-coupon": 1053,
     "create-payment-intent": 1056,
     "create-paypal-payment-intent": 61,
-    "ai-search": 1166,
+    "ai-search": 1167,
     "update-exchange-rate": 1043,
     "execute_ai_search_v2_pp": 52,
     "lookup-address": 1044,
@@ -65,7 +65,7 @@
     "ai-search-product-page": 12,
     "classify-ncm": 216,
     "sync-ncm-support-vigencia": 404,
-    "analyze-edital": 271,
+    "analyze-edital": 272,
     "update-icms-st-rates": 113,
     "check-price-bhphoto": 7,
     "firecrawl-credits": 2

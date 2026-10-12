@@ -211,30 +211,51 @@ export const BhPriceChecker: React.FC<BhPriceCheckerProps> = ({
 
     setIsApplying(true)
     try {
-      await priceCheckService.applyBhPrice(productId, targetPrice)
+      const nowIso = await priceCheckService.applyBhPrice(productId, targetPrice)
+      const successMsg = `Preço conferido com a B&H. Preço FOB Miami atualizado para US$ ${targetPrice.toFixed(2)}.`
+
       toast({
         title: 'Preço B&H aplicado com sucesso!',
         description: `Preço FOB Miami atualizado para US$ ${targetPrice.toFixed(2)}. O preço BRL foi recalculado.`,
       })
 
-      // Atualiza estado local
+      // Atualiza estado local sincronizando carimbo de horário e zerando divergência
       if (lastRecord) {
         setLastRecord({
           ...lastRecord,
+          checked_at: nowIso,
           status: 'ok',
           price_db: targetPrice,
           diff_usd: 0,
           diff_pct: 0,
-          message: 'Preço atualizado a partir da B&H.',
+          message: successMsg,
+        })
+      } else {
+        setLastRecord({
+          id: 'applied-' + Date.now(),
+          product_id: productId,
+          checked_at: nowIso,
+          price_db: targetPrice,
+          price_bh: targetPrice,
+          diff_usd: 0,
+          diff_pct: 0,
+          status: 'ok',
+          source: 'manual',
+          url_used: displayUrl,
+          url_discovered: isDiscovered,
+          message: successMsg,
         })
       }
+
       if (currentResult) {
         setCurrentResult({
           ...currentResult,
+          checked_at: nowIso,
           status: 'ok',
           price_usd_cadastrado: targetPrice,
           diff_usd: 0,
           diff_pct: 0,
+          message: successMsg,
         })
       }
 

@@ -608,7 +608,7 @@ export const priceCheckService = {
    * Atualiza price_usd no cadastro de produtos.
    * O banco de dados recalcula automaticamente price_brl via trigger trg_calculate_product_price_brl.
    */
-  async applyBhPrice(productId: string, newPriceUsd: number): Promise<void> {
+  async applyBhPrice(productId: string, newPriceUsd: number): Promise<string> {
     if (!newPriceUsd || newPriceUsd <= 0) {
       throw new Error('Preço B&H inválido para aplicação.')
     }
@@ -626,6 +626,8 @@ export const priceCheckService = {
     if (error) {
       throw new Error(error.message || 'Erro ao atualizar o preço do produto.')
     }
+
+    return now
   },
 
   /**

@@ -41,8 +41,15 @@ export const useAuth = () => {
 
   const signIn = async (email: string, password: string) => {
     try {
-      await context.signIn(email, password)
-      await supabase.rpc('sync_current_user_profile')
+      const res = await context.signIn(email, password)
+      if (res?.error) {
+        return { error: res.error }
+      }
+      try {
+        await supabase.rpc('sync_current_user_profile')
+      } catch (syncErr) {
+        console.warn('Erro ao sincronizar perfil do usuário pós-login:', syncErr)
+      }
       return { error: null }
     } catch (error) {
       return { error }

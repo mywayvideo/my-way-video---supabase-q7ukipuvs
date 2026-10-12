@@ -8,10 +8,17 @@ export function useUserRole() {
   useEffect(() => {
     const fetchRole = async () => {
       try {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession()
-        if (!session?.user) {
+        const timeoutPromise = new Promise<{ user: any }>((resolve) => {
+          setTimeout(() => resolve({ user: null }), 10000)
+        })
+        const getUserPromise = supabase.auth
+          .getUser()
+          .then(({ data }) => ({ user: data?.user ?? null }))
+          .catch(() => ({ user: null }))
+
+        const { user } = await Promise.race([getUserPromise, timeoutPromise])
+
+        if (!user) {
           setRole(null)
           setLoading(false)
           return
@@ -20,7 +27,7 @@ export function useUserRole() {
         const { data, error } = await supabase
           .from('customers')
           .select('role')
-          .eq('user_id', session.user.id)
+          .eq('user_id', user.id)
           .maybeSingle()
 
         if (!error && data) {

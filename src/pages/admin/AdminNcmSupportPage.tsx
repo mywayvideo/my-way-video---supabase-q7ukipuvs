@@ -58,6 +58,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { format } from 'date-fns'
+import { NcmTaxTooltip } from '@/components/NcmTaxTooltip'
 
 export interface NcmAlternativaItem {
   ncm: string
@@ -736,7 +737,11 @@ export default function AdminNcmSupportPage() {
                     </TableCell>
 
                     <TableCell className="align-top font-mono font-bold text-primary">
-                      {formatNcm(row.ncm_principal)}
+                      <NcmTaxTooltip ncm={row.ncm_principal} showIcon side="right" align="start">
+                        <span className="hover:text-orange-400">
+                          {formatNcm(row.ncm_principal)}
+                        </span>
+                      </NcmTaxTooltip>
                       {row.alertas && (
                         <div className="flex items-center gap-1 text-[10px] text-amber-600 dark:text-amber-400 mt-1 font-sans">
                           <AlertTriangle className="w-3 h-3 shrink-0" />
@@ -750,9 +755,11 @@ export default function AdminNcmSupportPage() {
                         <div className="space-y-1">
                           {row.ncm_alternativas.map((alt, idx) => (
                             <div key={idx} className="flex items-start gap-1">
-                              <span className="font-mono font-semibold text-foreground">
-                                {formatNcm(alt.ncm)}
-                              </span>
+                              <NcmTaxTooltip ncm={alt.ncm} side="right" align="start">
+                                <span className="font-mono font-semibold text-foreground hover:text-orange-400">
+                                  {formatNcm(alt.ncm)}
+                                </span>
+                              </NcmTaxTooltip>
                               {alt.rgi && (
                                 <Badge variant="outline" className="text-[9px] px-1 py-0 h-4">
                                   {alt.rgi}

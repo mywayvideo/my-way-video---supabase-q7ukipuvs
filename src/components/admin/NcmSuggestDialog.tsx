@@ -31,6 +31,7 @@ import {
 } from '@/services/ncmService'
 import { useAuth } from '@/hooks/use-auth'
 import { useToast } from '@/hooks/use-toast'
+import { NcmTaxTooltip } from '@/components/NcmTaxTooltip'
 
 interface NcmSuggestDialogProps {
   open: boolean
@@ -247,6 +248,11 @@ export function NcmSuggestDialog({
               <span className="font-mono font-semibold text-foreground">
                 {cleanCurrent ? formatNcmDisplay(cleanCurrent) : 'Nenhum'}
               </span>
+              {cleanCurrent && cleanCurrent.length === 8 && (
+                <span className="ml-1.5 inline-flex items-center">
+                  <NcmTaxTooltip ncm={cleanCurrent} showIcon side="right" align="center" />
+                </span>
+              )}
             </div>
           </div>
         </DialogHeader>
@@ -524,7 +530,11 @@ export function NcmSuggestDialog({
                                   </div>
                                 </td>
                                 <td className="py-2.5 px-3 font-mono font-semibold">
-                                  {formatNcmDisplay(alt.ncm)}
+                                  <NcmTaxTooltip ncm={alt.ncm} side="right" align="center">
+                                    <span className="hover:text-orange-400 cursor-pointer">
+                                      {formatNcmDisplay(alt.ncm)}
+                                    </span>
+                                  </NcmTaxTooltip>
                                 </td>
                                 <td className="py-2.5 px-3 font-mono text-muted-foreground">
                                   {alt.ex ? (

@@ -16,19 +16,35 @@ export function useAuthState() {
       setIsLoading(false)
     })
 
-    supabase.auth
-      .getSession()
-      .then(({ data: { session }, error }) => {
-        if (!mounted) return
+    const timeoutPromise = new Promise<{ user: User | null }>((resolve) => {
+      setTimeout(() => resolve({ user: null }), 10000)
+    })
+
+    const getUserPromise = supabase.auth
+      .getUser()
+      .then(({ data, error }) => {
         if (error) {
           console.warn('Silent auth error:', error.message)
+          return { user: null }
         }
-        setUser(session?.user ?? null)
-        setIsLoading(false)
+        return { user: data?.user ?? null }
       })
       .catch((err) => {
+        console.warn('Silent auth error:', err?.message || err)
+        return { user: null }
+      })
+
+    Promise.race([getUserPromise, timeoutPromise])
+      .then((res) => {
         if (!mounted) return
-        console.warn('Silent auth error:', err.message)
+        setUser(res.user)
+      })
+      .catch(() => {
+        if (!mounted) return
+        setUser(null)
+      })
+      .finally(() => {
+        if (!mounted) return
         setIsLoading(false)
       })
 

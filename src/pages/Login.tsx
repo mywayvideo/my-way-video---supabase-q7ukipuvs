@@ -12,6 +12,12 @@ import HCaptcha from '@hcaptcha/react-hcaptcha'
 import { Mail, Lock, Eye, EyeOff, Loader2, User, Phone, Building2 } from 'lucide-react'
 import logoImg from '../assets/mw_logo_horiz_1200x318_fundo_escuro-037e3.png'
 import { resolveDashboardRouteForUserId, getDashboardPathForRole } from '@/utils/auth-redirect'
+import {
+  clearOrphanSession,
+  validateServerUser,
+  consumeSessionExpiredNotice,
+  SESSION_EXPIRED_MESSAGE,
+} from '@/utils/session-utils'
 
 const siteKey = import.meta.env.VITE_HCAPTCHA_SITE_KEY || '896c88d8-9782-485a-9d94-2d6eceae30ba'
 
@@ -73,6 +79,17 @@ export default function Login() {
   }, [])
 
   useEffect(() => {
+    if (consumeSessionExpiredNotice()) {
+      setError(SESSION_EXPIRED_MESSAGE)
+      toast({
+        title: 'Sessão expirada',
+        description: SESSION_EXPIRED_MESSAGE,
+        variant: 'destructive',
+      })
+    }
+  }, [toast])
+
+  useEffect(() => {
     const searchParams = new URLSearchParams(location.search)
     if (searchParams.get('activated') === 'true') {
       setEmail('')
@@ -96,28 +113,56 @@ export default function Login() {
   }, [location.search, toast])
 
   useEffect(() => {
-    const handleSession = async (session: any) => {
-      if (flowMode === 'migrate' || flowMode === 'processing' || isMigrating) return
+    let isCancelled = false
 
-      if (session?.user) {
-        await supabase.rpc('sync_current_user_profile')
-        const targetPath = await resolveDashboardRouteForUserId(session.user.id)
-        nav(targetPath, { replace: true })
+    const handleValidUser = async (user: any) => {
+      if (flowMode === 'migrate' || flowMode === 'processing' || isMigrating || isCancelled) return
+
+      if (user) {
+        try {
+          await supabase.rpc('sync_current_user_profile')
+        } catch (syncErr) {
+          console.warn('Erro ao sincronizar perfil do usuário na inicialização:', syncErr)
+        }
+        if (isCancelled) return
+        try {
+          const targetPath = await resolveDashboardRouteForUserId(user.id)
+          if (!isCancelled) {
+            nav(targetPath, { replace: true })
+          }
+        } catch (routeErr) {
+          console.warn('Erro ao resolver rota de dashboard:', routeErr)
+        }
       }
     }
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      handleSession(session)
+    // Validação estrita via getUser com timeout contra sessões órfãs
+    validateServerUser(8000).then(({ user, error, timedOut }) => {
+      if (isCancelled) return
+      if (timedOut || error) {
+        if (error) {
+          console.warn('Sessão inicial invalidada:', error.message)
+        }
+        return
+      }
+      if (user) {
+        handleValidUser(user)
+      }
     })
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
-      if (flowMode === 'migrate' || flowMode === 'processing' || isMigrating) return
-      handleSession(session)
+      if (flowMode === 'migrate' || flowMode === 'processing' || isMigrating || isCancelled) return
+      if (event === 'SIGNED_IN' && session?.user) {
+        handleValidUser(session.user)
+      } else if (event === 'SIGNED_OUT') {
+        // Nada a redirecionar
+      }
     })
 
     return () => {
+      isCancelled = true
       subscription.unsubscribe()
     }
   }, [nav, flowMode, isMigrating])
@@ -203,22 +248,47 @@ export default function Login() {
 
     if (loginSuccess) {
       try {
-        await supabase.rpc('sync_current_user_profile')
+        // 1. Sincronizar perfil do usuário
+        try {
+          await supabase.rpc('sync_current_user_profile')
+        } catch (syncErr) {
+          console.warn('Erro ao sincronizar perfil pós-login:', syncErr)
+        }
 
-        const {
-          data: { session },
-        } = await supabase.auth.getSession()
+        // 2. Validar usuário no servidor com timeout (nunca confiar cegamente em getSession)
+        const validation = await validateServerUser(10000)
 
-        if (session) {
-          const targetPath = await resolveDashboardRouteForUserId(session.user.id)
-          nav(targetPath, { replace: true })
+        if (validation.timedOut || validation.error || !validation.user) {
+          await clearOrphanSession()
+          setError(SESSION_EXPIRED_MESSAGE)
+          toast({
+            title: 'Sessão inválida',
+            description: SESSION_EXPIRED_MESSAGE,
+            variant: 'destructive',
+          })
+          captchaRefL.current?.resetCaptcha()
+          setCaptchaL(null)
           return
         }
 
-        setIsLoadingUserData(true)
-        setFlowMode('login')
+        // 3. Resolução da rota de destino
+        const targetPath = await resolveDashboardRouteForUserId(validation.user.id)
+        nav(targetPath, { replace: true })
+        return
       } catch (err: any) {
+        console.error('Erro na etapa pós-login:', err)
+        await clearOrphanSession()
+        setError(SESSION_EXPIRED_MESSAGE)
+        toast({
+          title: 'Erro de autenticação',
+          description: SESSION_EXPIRED_MESSAGE,
+          variant: 'destructive',
+        })
+        captchaRefL.current?.resetCaptcha()
+        setCaptchaL(null)
+      } finally {
         setLoading(false)
+        setIsLoadingUserData(false)
         setFlowMode('login')
       }
     }

@@ -38,22 +38,55 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setLoading(false)
     })
 
-    supabase.auth
-      .getSession()
-      .then(({ data: { session }, error }) => {
-        if (!mounted) return
-        if (error) {
-          console.warn('Silent auth error:', error.message)
+    // Validação com servidor e timeout para evitar sessões órfãs presas no cliente
+    let isCancelled = false
+    const checkUser = async () => {
+      try {
+        const timeoutPromise = new Promise<{ user: User | null; error: any }>((resolve) => {
+          setTimeout(() => {
+            resolve({ user: null, error: new Error('Auth validation timeout') })
+          }, 10000)
+        })
+
+        const getUserPromise = supabase.auth
+          .getUser()
+          .then(({ data, error }) => ({ user: data?.user ?? null, error }))
+          .catch((err) => ({ user: null, error: err }))
+
+        const result = await Promise.race([getUserPromise, timeoutPromise])
+
+        if (!mounted || isCancelled) return
+
+        if (result.error || !result.user) {
+          // Sessão ausente ou rejeitada pelo servidor
+          if (result.error) {
+            console.warn('Sessão rejeitada ou expirada:', result.error.message || result.error)
+          }
+          setSession(null)
+          setCurrentUser(null)
+        } else {
+          // Usuário validado no servidor
+          const { data: sessionData } = await supabase.auth
+            .getSession()
+            .catch(() => ({ data: { session: null } }))
+          if (mounted && !isCancelled) {
+            setSession(sessionData.session)
+            setCurrentUser(result.user)
+          }
         }
-        setSession(session)
-        setCurrentUser(session?.user ?? null)
-        setLoading(false)
-      })
-      .catch((err) => {
-        if (!mounted) return
-        console.warn('Silent auth error:', err.message)
-        setLoading(false)
-      })
+      } catch (err: any) {
+        if (!mounted || isCancelled) return
+        console.warn('Erro ao validar usuário no servidor:', err?.message || err)
+        setSession(null)
+        setCurrentUser(null)
+      } finally {
+        if (mounted && !isCancelled) {
+          setLoading(false)
+        }
+      }
+    }
+
+    checkUser()
 
     return () => {
       mounted = false

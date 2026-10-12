@@ -69,6 +69,7 @@ import { isStorageImageUrl } from '@/lib/image-proxy'
 import { FirecrawlCreditsWidget } from '@/components/admin/FirecrawlCreditsWidget'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { formatOrderDate, formatOrderDateTime } from '@/utils/formatters'
+import { NcmTaxTooltip } from '@/components/NcmTaxTooltip'
 import {
   Select,
   SelectContent,
@@ -1230,6 +1231,15 @@ export default function AdminCatalogPage() {
                             <span className="text-xs text-muted-foreground font-mono truncate">
                               {p.sku || '-'}
                             </span>
+                            {p.ncm && (
+                              <div className="mt-0.5">
+                                <NcmTaxTooltip ncm={p.ncm} side="right" align="start">
+                                  <span className="text-[10px] text-zinc-400 hover:text-orange-400 font-mono">
+                                    NCM: {formatNCM(p.ncm)}
+                                  </span>
+                                </NcmTaxTooltip>
+                              </div>
+                            )}
                           </div>
                         </div>
                       </TableCell>

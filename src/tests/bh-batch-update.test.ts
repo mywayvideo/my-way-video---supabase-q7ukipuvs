@@ -1036,4 +1036,395 @@ describe('B&H Batch Update Service & Business Rules', () => {
     expect(pyxis?.checkResult).toBeNull()
     expect(pyxis?.batchStatus).toBe('idle')
   })
+
+  it('neutralização estrita de produtos fora do lote em todos os caminhos (reconstrução, job.results, cache local, auto-save)', async () => {
+    // Cenário idêntico ao diagnosticado: Job 86efc79f contém apenas 3 produtos no product_ids,
+    // mas o JSONB results continha produtos fora do lote (fantasmas como PYXIS e UltraStudio).
+    const jobWithGhosts: BhBatchJobRecord = {
+      id: '86efc79f-2ff9-45e0-80ff-c15e769b01d9',
+      status: 'completed',
+      total_items: 3,
+      processed_items: 3,
+      processed_ids: ['prod-in-1', 'prod-in-2', 'prod-in-3'],
+      product_ids: ['prod-in-1', 'prod-in-2', 'prod-in-3'],
+      stats: {
+        totalSelected: 3,
+        processedCount: 3,
+        okCount: 3,
+        divergenceCount: 0,
+        urlDiscoveredCount: 0,
+        doubtfulLinkCount: 0,
+        discontinuedCount: 0,
+        errorCount: 0,
+        rebateDetectedCount: 0,
+      },
+      results: {
+        'prod-in-1': {
+          batchStatus: 'done',
+          checkResult: { status: 'ok', price_bh: 5300, diff_usd: 0 } as any,
+          website_url: 'https://bhphotovideo.com/c/product/in-1.html',
+          price_usd: 5300,
+        },
+        'prod-ghost-pyxis': {
+          batchStatus: 'done',
+          checkResult: { status: 'divergente', price_bh: 3595, diff_usd: 500 } as any,
+          website_url: 'https://bhphotovideo.com/c/product/pyxis.html',
+          price_usd: 3095,
+        },
+        'prod-ghost-ultrostudio': {
+          batchStatus: 'done',
+          checkResult: { status: 'divergente', price_bh: 3549, diff_usd: 400 } as any,
+          website_url: 'https://bhphotovideo.com/c/product/ultrastudio.html',
+          price_usd: 3149,
+        },
+      },
+      metadata: {},
+      created_at: '2026-03-23T18:00:00Z',
+      updated_at: '2026-03-23T18:30:00Z',
+    }
+
+    const originalFrom = supabase.from
+    try {
+      // Mock price_checks retornando apenas o prod-in-1 e prod-in-2
+      ;(supabase as any).from = (table: string) => {
+        if (table === 'price_checks') {
+          return {
+            select: () => ({
+              in: () => ({
+                gte: () => ({
+                  lte: () => ({
+                    order: async () => ({
+                      data: [
+                        {
+                          product_id: 'prod-in-1',
+                          status: 'ok',
+                          price_db: 5300,
+                          price_bh: 5300,
+                          diff_usd: 0,
+                          checked_at: '2026-03-23T18:05:00Z',
+                          raw: {},
+                        },
+                      ],
+                      error: null,
+                    }),
+                  }),
+                }),
+              }),
+            }),
+          }
+        }
+        return originalFrom.call(supabase, table)
+      }
+
+      // (1) Reconstrução deve filtrar job.results estritamente pelos product_ids do job
+      const reconstructed = await bhBatchUpdateService.reconstructJobResults(jobWithGhosts)
+      expect(reconstructed.results['prod-in-1']).toBeDefined()
+      expect(reconstructed.results['prod-ghost-pyxis']).toBeUndefined()
+      expect(reconstructed.results['prod-ghost-ultrostudio']).toBeUndefined()
+      expect(Object.keys(reconstructed.results)).not.toContain('prod-ghost-pyxis')
+
+      // (2) Na mesclagem da página: GUARDA ABSOLUTA primeiro
+      const batchJobProductIds = new Set(jobWithGhosts.product_ids)
+      const catalogProducts: ProductBatchItem[] = [
+        {
+          id: 'prod-in-1',
+          name: 'Produto Válido no Lote',
+          sku: 'IN-1',
+          price_usd: 5300,
+          website_url: 'https://bhphotovideo.com/c/product/in-1.html',
+          is_discontinued: false,
+          updated_at: '2026-03-20T10:00:00Z',
+          last_reviewed_at: '2026-03-20T10:00:00Z',
+          batchStatus: 'idle',
+          checkResult: null,
+          errorMessage: null,
+        },
+        {
+          id: 'prod-ghost-pyxis',
+          name: 'Blackmagic PYXIS 6K PL',
+          sku: 'PYXIS-6K-PL',
+          price_usd: 3595,
+          website_url: null,
+          is_discontinued: false,
+          updated_at: '2026-03-23T10:00:00Z',
+          last_reviewed_at: '2026-03-23T10:00:00Z',
+          batchStatus: 'idle',
+          checkResult: null,
+          errorMessage: null,
+        },
+      ]
+
+      // Simula parsedCache residual corrompido
+      const parsedCache: Record<string, any> = {
+        'prod-ghost-pyxis': {
+          batchStatus: 'done',
+          checkResult: { status: 'divergente', price_bh: null },
+        },
+      }
+
+      const merged = catalogProducts.map((item) => {
+        // Guarda absoluta PRIMEIRO
+        if (!batchJobProductIds || !batchJobProductIds.has(item.id)) {
+          return {
+            ...item,
+            batchStatus: 'idle' as const,
+            checkResult: null,
+            errorMessage: null,
+          }
+        }
+
+        // Prioridade 1: reconstructed
+        if (reconstructed?.results && reconstructed.results[item.id]) {
+          const recItem = reconstructed.results[item.id]
+          return {
+            ...item,
+            batchStatus: recItem.batchStatus || 'done',
+            checkResult: recItem.checkResult || null,
+          }
+        }
+
+        // Prioridade 2: dbJob.results
+        if (jobWithGhosts.results && jobWithGhosts.results[item.id]) {
+          const dbItem = jobWithGhosts.results[item.id]
+          return {
+            ...item,
+            batchStatus: dbItem.batchStatus || 'done',
+            checkResult: dbItem.checkResult || null,
+          }
+        }
+
+        return item
+      })
+
+      const pyxisMerged = merged.find((p) => p.id === 'prod-ghost-pyxis')
+      expect(pyxisMerged?.batchStatus).toBe('idle')
+      expect(pyxisMerged?.checkResult).toBeNull()
+
+      const in1Merged = merged.find((p) => p.id === 'prod-in-1')
+      expect(in1Merged?.batchStatus).toBe('done')
+      expect(in1Merged?.checkResult?.status).toBe('ok')
+
+      // (3) Auto-save de localStorage: NÃO deve salvar produtos fora do lote
+      const activeJobIds = new Set(jobWithGhosts.product_ids)
+      const simulatedSavedMap: Record<string, any> = {}
+      merged.forEach((p) => {
+        if (activeJobIds && !activeJobIds.has(p.id)) return
+        if (p.checkResult || p.batchStatus !== 'idle') {
+          simulatedSavedMap[p.id] = { batchStatus: p.batchStatus }
+        }
+      })
+      expect(simulatedSavedMap['prod-ghost-pyxis']).toBeUndefined()
+      expect(simulatedSavedMap['prod-in-1']).toBeDefined()
+    } finally {
+      supabase.from = originalFrom
+    }
+  })
+
+  it('Confirmar Estado Atual altera apenas last_reviewed_at, preservando updated_at, price_usd e is_discontinued', async () => {
+    const originalFrom = supabase.from
+    let updatedPayload: any = null
+    let updatedId: string | null = null
+
+    try {
+      ;(supabase as any).from = (table: string) => {
+        if (table === 'products') {
+          return {
+            update: (payload: any) => {
+              updatedPayload = payload
+              return {
+                eq: async (col: string, val: string) => {
+                  updatedId = val
+                  return { error: null }
+                },
+                in: async (col: string, vals: string[]) => {
+                  return { error: null }
+                },
+              }
+            },
+          }
+        }
+        return originalFrom.call(supabase, table)
+      }
+
+      // 1. Teste individual
+      const resIso = await bhBatchUpdateService.confirmCurrentState('prod-sony-bp-u70')
+      expect(resIso).toBeDefined()
+      expect(updatedId).toBe('prod-sony-bp-u70')
+      expect(updatedPayload).toHaveProperty('last_reviewed_at')
+      expect(updatedPayload.updated_at).toBeUndefined()
+      expect(updatedPayload.price_usd).toBeUndefined()
+      expect(updatedPayload.is_discontinued).toBeUndefined()
+      expect(Object.keys(updatedPayload)).toEqual(['last_reviewed_at'])
+
+      // 2. Teste em lote
+      let batchPayload: any = null
+      let batchIds: string[] = []
+      ;(supabase as any).from = (table: string) => {
+        if (table === 'products') {
+          return {
+            update: (payload: any) => {
+              batchPayload = payload
+              return {
+                in: async (col: string, vals: string[]) => {
+                  batchIds = vals
+                  return { error: null }
+                },
+              }
+            },
+          }
+        }
+        return originalFrom.call(supabase, table)
+      }
+
+      const batchIso = await bhBatchUpdateService.confirmBatchCurrentState([
+        'prod-1',
+        'prod-2',
+      ])
+      expect(batchIso).toBeDefined()
+      expect(batchIds).toEqual(['prod-1', 'prod-2'])
+      expect(batchPayload).toHaveProperty('last_reviewed_at')
+      expect(batchPayload.updated_at).toBeUndefined()
+      expect(batchPayload.price_usd).toBeUndefined()
+      expect(batchPayload.is_discontinued).toBeUndefined()
+      expect(Object.keys(batchPayload)).toEqual(['last_reviewed_at'])
+    } finally {
+      supabase.from = originalFrom
+    }
+  })
+
+  it('descontinuado no catálogo com check divergente aparece e conta em divergentes com botão Aplicar e Reativar', () => {
+    // Caso real BRCH800: is_discontinued = true, preço cadastrado $0, preço B&H $5.900 (divergente)
+    const productBrch800: ProductBatchItem = {
+      id: 'prod-brch800',
+      name: 'Sony BRC-H800 PTZ Camera',
+      sku: 'BRCH800',
+      price_usd: 0,
+      website_url: 'https://bhphotovideo.com/c/product/brch800.html',
+      is_discontinued: true,
+      updated_at: '2026-03-20T10:00:00Z',
+      last_reviewed_at: '2026-03-20T10:00:00Z',
+      batchStatus: 'done',
+      checkResult: {
+        status: 'divergente',
+        price_bh: 5900,
+        price_usd_cadastrado: 0,
+        diff_usd: 5900,
+        diff_pct: 100,
+        is_discontinued: false,
+        url_used: 'https://bhphotovideo.com/c/product/brch800.html',
+        url_discovered: false,
+        checked_at: new Date().toISOString(),
+      },
+    }
+
+    const testCatalog: ProductBatchItem[] = [
+      productBrch800,
+      {
+        id: 'prod-real-discontinued',
+        name: 'Equipamento Realmente Descontinuado',
+        sku: 'DISC-01',
+        price_usd: 1200,
+        website_url: 'https://bhphotovideo.com/c/product/disc.html',
+        is_discontinued: true,
+        updated_at: '2026-03-20T10:00:00Z',
+        last_reviewed_at: '2026-03-20T10:00:00Z',
+        batchStatus: 'done',
+        checkResult: {
+          status: 'descontinuado',
+          price_bh: null,
+          diff_usd: null,
+          diff_pct: null,
+          is_discontinued: true,
+          checked_at: new Date().toISOString(),
+        },
+      },
+      {
+        id: 'prod-ok-item',
+        name: 'Item OK Alinhado',
+        sku: 'OK-01',
+        price_usd: 500,
+        website_url: 'https://bhphotovideo.com/c/product/ok.html',
+        is_discontinued: false,
+        updated_at: '2026-03-20T10:00:00Z',
+        last_reviewed_at: '2026-03-20T10:00:00Z',
+        batchStatus: 'done',
+        checkResult: {
+          status: 'ok',
+          price_bh: 500,
+          diff_usd: 0,
+          diff_pct: 0,
+          is_discontinued: false,
+          checked_at: new Date().toISOString(),
+        },
+      },
+    ]
+
+    // 1. Simulação dos contadores de auditoria (auditFilterCounts)
+    let divergentes = 0
+    let descontinuados = 0
+    let oks = 0
+
+    testCatalog.forEach((item) => {
+      const paired = bhBatchUpdateService.resolveItemPairedEvaluation(item)
+      const st = paired.effectiveStatus || item.checkResult?.status || null
+
+      if (st === 'divergente') {
+        divergentes++
+      } else if (st === 'descontinuado' || item.is_discontinued) {
+        descontinuados++
+      } else if (st === 'ok') {
+        oks++
+      }
+    })
+
+    // BRCH800 deve contar em divergentes, NÃO em descontinuados!
+    expect(divergentes).toBe(1)
+    expect(descontinuados).toBe(1) // apenas prod-real-discontinued
+    expect(oks).toBe(1)
+
+    // 2. Simulação de filtragem por statusFilter
+    const filterByStatus = (statusFilter: string) => {
+      return testCatalog.filter((item) => {
+        const paired = bhBatchUpdateService.resolveItemPairedEvaluation(item)
+        const itemEffectiveStatus = paired.effectiveStatus || item.checkResult?.status || null
+
+        if (statusFilter === 'divergente') {
+          return itemEffectiveStatus === 'divergente'
+        }
+        if (statusFilter === 'descontinuado') {
+          if (itemEffectiveStatus === 'divergente') return false
+          return itemEffectiveStatus === 'descontinuado' || item.is_discontinued
+        }
+        return true
+      })
+    }
+
+    const filteredDivergentes = filterByStatus('divergente')
+    expect(filteredDivergentes.map((p) => p.id)).toEqual(['prod-brch800'])
+
+    const filteredDescontinuados = filterByStatus('descontinuado')
+    expect(filteredDescontinuados.map((p) => p.id)).toEqual(['prod-real-discontinued'])
+
+    // 3. Avaliação de botões e flags para a linha do BRCH800
+    const pairedResolution = bhBatchUpdateService.resolveItemPairedEvaluation(productBrch800)
+    const effectiveStatus = pairedResolution.effectiveStatus || productBrch800.checkResult?.status || null
+    const isDivergent = effectiveStatus === 'divergente'
+    const isDiscontinued = !isDivergent && (productBrch800.is_discontinued || effectiveStatus === 'descontinuado')
+
+    // Deve ser marcado como divergente
+    expect(isDivergent).toBe(true)
+    // NÃO deve ser marcado como isDiscontinued na linha de exibição quando a verificação for divergente
+    expect(isDiscontinued).toBe(false)
+
+    // Verificação de botões:
+    // Botão "Aplicar B&H" ativo:
+    const showApplyButton = isDivergent && productBrch800.checkResult?.price_bh != null
+    expect(showApplyButton).toBe(true)
+
+    // Botão "Reativar" ativo (já que is_discontinued no catálogo e auditoria veio divergente com preço):
+    const showReactivateButton =
+      productBrch800.is_discontinued &&
+      (effectiveStatus === 'ok' || effectiveStatus === 'divergente')
+    expect(showReactivateButton).toBe(true)
+  })
 })

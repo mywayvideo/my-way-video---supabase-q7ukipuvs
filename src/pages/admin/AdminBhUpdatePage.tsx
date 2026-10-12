@@ -62,6 +62,7 @@ import {
 import { priceCheckService } from '@/services/priceCheckService'
 import { rebateDiscountService, ExistingRebateRule } from '@/services/rebateDiscountService'
 import { RebateDiscountModal } from '@/components/admin/RebateDiscountModal'
+import { supabase } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
 
 const STORAGE_KEY = 'bh_batch_update_session_v1'
@@ -291,6 +292,19 @@ export function AdminBhUpdatePage() {
       }
 
       const merged = allLoadedProducts.map((item) => {
+        // GUARDA ABSOLUTA PRIMEIRO:
+        // Se NÃO há lote no banco, OU o produto está fora do lote do banco:
+        // o estado DEVE voltar estritamente ao neutro ('idle', checkResult: null, errorMessage: null).
+        // Nenhum resultado de reconstructed, dbJob.results ou parsedCache pode contaminar produtos fora do lote.
+        if (!batchJobProductIds || !batchJobProductIds.has(item.id)) {
+          return {
+            ...item,
+            batchStatus: 'idle' as const,
+            checkResult: null,
+            errorMessage: null,
+          }
+        }
+
         // Prioridade 1: resultado reconstruído do banco (job + price_checks)
         if (reconstructed?.results && reconstructed.results[item.id]) {
           const recItem = reconstructed.results[item.id]
@@ -319,18 +333,6 @@ export function AdminBhUpdatePage() {
             website_url: finalUrl,
             price_usd: dbItem.price_usd ?? item.price_usd,
             manualUrlDraft: finalUrl || item.manualUrlDraft,
-          }
-        }
-
-        // Se NÃO há lote no banco, OU o produto está fora do lote do banco:
-        // estado DEVE voltar estritamente ao neutro ('idle', checkResult: null, errorMessage: null).
-        // Nenhum cache local residual pode ser aplicado a este produto.
-        if (!batchJobProductIds || !batchJobProductIds.has(item.id)) {
-          return {
-            ...item,
-            batchStatus: 'idle' as const,
-            checkResult: null,
-            errorMessage: null,
           }
         }
 
@@ -368,11 +370,21 @@ export function AdminBhUpdatePage() {
   }, [loadInitialProducts])
 
   // Salvar estado em localStorage quando itens forem alterados
+  // Salva SOMENTE produtos cujo id pertença a batchJobProductIds (activeJob), impedindo retroalimentação de fantasmas
   useEffect(() => {
     if (products.length === 0) return
+    const activeJobIds =
+      activeJob && Array.isArray(activeJob.product_ids) && activeJob.product_ids.length > 0
+        ? new Set(activeJob.product_ids)
+        : null
+
     const stateMap: Record<string, any> = {}
     let hasRelevantState = false
     products.forEach((p) => {
+      // Se não há lote ativo ou o produto não pertence ao lote ativo, não salva no cache
+      if (activeJobIds && !activeJobIds.has(p.id)) return
+      if (!activeJobIds) return
+
       if (p.checkResult || p.batchStatus !== 'idle' || p.manualUrlDraft !== p.website_url) {
         hasRelevantState = true
         stateMap[p.id] = {
@@ -391,8 +403,14 @@ export function AdminBhUpdatePage() {
       } catch {
         // quota excedida ou localStorage desativado
       }
+    } else {
+      try {
+        localStorage.removeItem(STORAGE_KEY)
+      } catch {
+        // ignora
+      }
     }
-  }, [products])
+  }, [products, activeJob])
 
   // Gerenciamento do temporizador de refrigeração
   useEffect(() => {
@@ -486,6 +504,13 @@ export function AdminBhUpdatePage() {
   const filteredProducts = useMemo(() => {
     return products
       .filter((item) => {
+        // Pareamento consistente de rebate e cálculo de status efetivo da verificação
+        const paired = bhBatchUpdateService.resolveItemPairedEvaluation(item)
+        const itemEffectiveStatus =
+          paired.effectiveStatus ||
+          item.checkResult?.status ||
+          (item.batchStatus === 'error' ? 'erro' : null)
+
         // Filtro de status/link da listagem
         if (filterType === 'without_link') {
           const hasUrl = Boolean(item.website_url && item.website_url.trim().startsWith('http'))
@@ -494,23 +519,29 @@ export function AdminBhUpdatePage() {
           const hasUrl = Boolean(item.website_url && item.website_url.trim().startsWith('http'))
           if (!hasUrl) return false
         } else if (filterType === 'discontinued') {
-          if (!item.is_discontinued && item.checkResult?.status !== 'descontinuado') return false
+          // Prevalência do status da verificação sobre a flag do catálogo:
+          // Se a verificação for divergente, o item pertence a Divergentes, NÃO a Descontinuados.
+          if (itemEffectiveStatus === 'divergente') return false
+          const isDesc = itemEffectiveStatus === 'descontinuado' || item.is_discontinued
+          if (!isDesc) return false
         }
 
         // Filtro por status de auditoria do lote (com pareamento consistente de rebate)
         if (statusFilter !== 'all') {
-          const paired = bhBatchUpdateService.resolveItemPairedEvaluation(item)
-          const itemEffectiveStatus =
-            paired.effectiveStatus ||
-            item.checkResult?.status ||
-            (item.batchStatus === 'error' ? 'erro' : null)
-
-          if (statusFilter === 'descontinuado') {
-            const isDesc = item.is_discontinued || itemEffectiveStatus === 'descontinuado'
+          if (statusFilter === 'divergente') {
+            // ESTRITAMENTE quando o effectiveStatus for 'divergente'
+            if (itemEffectiveStatus !== 'divergente') return false
+          } else if (statusFilter === 'descontinuado') {
+            // Prevalência da verificação: quando a verificação for divergente, NÃO entra em descontinuados.
+            // "Descontinuados" só recebe itens cuja verificação veio descontinuada,
+            // ou descontinuados no catálogo sem check divergente.
+            if (itemEffectiveStatus === 'divergente') return false
+            const isDesc = itemEffectiveStatus === 'descontinuado' || item.is_discontinued
             if (!isDesc) return false
           } else if (statusFilter === 'erro') {
             if (itemEffectiveStatus !== 'erro' && item.batchStatus !== 'error') return false
           } else {
+            // Se o item estiver descontinuado no catálogo mas tiver check 'ok', statusFilter 'ok' aceita
             if (itemEffectiveStatus !== statusFilter) return false
           }
         }
@@ -786,11 +817,20 @@ export function AdminBhUpdatePage() {
         item.checkResult?.status ||
         (item.batchStatus === 'error' ? 'erro' : null)
 
-      if (st === 'divergente') divergentes++
-      if (item.is_discontinued || st === 'descontinuado') descontinuados++
-      if (st === 'sem_url_confirmada') duvidosos++
-      if (st === 'ok') oks++
-      if (st === 'erro' || item.batchStatus === 'error') erros++
+      // Prevalência estrita do status da verificação:
+      // Se st === 'divergente', conta ESTRITAMENTE em divergentes (mesmo se is_discontinued no catálogo).
+      // Descontinuados só conta itens cuja verificação veio descontinuada, ou descontinuados no catálogo sem check divergente.
+      if (st === 'divergente') {
+        divergentes++
+      } else if (st === 'descontinuado' || item.is_discontinued) {
+        descontinuados++
+      } else if (st === 'sem_url_confirmada') {
+        duvidosos++
+      } else if (st === 'ok') {
+        oks++
+      } else if (st === 'erro' || item.batchStatus === 'error') {
+        erros++
+      }
     })
 
     return {
@@ -1582,6 +1622,201 @@ export function AdminBhUpdatePage() {
     }
   }
 
+  // Ação 4.7: Confirmar Estado Atual Individual (Falso-positivo de descontinuação)
+  // Atualiza SOMENTE last_reviewed_at = agora, sem tocar updated_at, price_usd ou is_discontinued.
+  // Limpa a pendência do item no lote (batchStatus 'done', marcado como revisado hoje)
+  // e atualiza o checkpoint em bh_batch_jobs se houver job ativo.
+  const handleConfirmSingleCurrentState = async (item: ProductBatchItem) => {
+    setProducts((prev) => prev.map((p) => (p.id === item.id ? { ...p, isReviewing: true } : p)))
+
+    try {
+      const reviewedAtIso = await bhBatchUpdateService.confirmCurrentState(item.id)
+
+      setProducts((prev) =>
+        prev.map((p) =>
+          p.id === item.id
+            ? {
+                ...p,
+                last_reviewed_at: reviewedAtIso,
+                batchStatus: 'done',
+                isReviewing: false,
+              }
+            : p,
+        ),
+      )
+
+      // Atualiza checkpoint no job em bh_batch_jobs se existir
+      if (activeJob?.id) {
+        try {
+          const updatedResultsSnapshot: Record<
+            string,
+            {
+              checkResult?: any
+              batchStatus: 'idle' | 'processing' | 'done' | 'error'
+              errorMessage?: string
+              website_url?: string
+              price_usd?: number
+            }
+          > = {
+            ...(activeJob.results || {}),
+            [item.id]: {
+              checkResult: item.checkResult || undefined,
+              batchStatus: 'done',
+              errorMessage: undefined,
+              website_url: item.website_url || undefined,
+              price_usd: item.price_usd ?? undefined,
+            },
+          }
+          const currentStats = bhBatchUpdateService.calculateStats(
+            selectedProducts.map((p) =>
+              p.id === item.id ? { ...p, last_reviewed_at: reviewedAtIso, batchStatus: 'done' } : p,
+            ),
+          )
+          await bhBatchUpdateService.recordItemCheckpoint({
+            jobId: activeJob.id,
+            productId: item.id,
+            batchStatus: 'done',
+            checkResult: item.checkResult || null,
+            errorMessage: null,
+            websiteUrl: item.website_url,
+            priceUsd: item.price_usd,
+            currentStats,
+            existingResults: updatedResultsSnapshot,
+          })
+          setActiveJob((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  stats: currentStats,
+                  results: updatedResultsSnapshot,
+                }
+              : null,
+          )
+        } catch (ckErr) {
+          console.warn('Erro ao atualizar checkpoint do job para estado atual:', ckErr)
+        }
+      }
+
+      toast({
+        title: 'Estado atual confirmado!',
+        description: `Produto "${item.name}" mantido ativo. Atualizado apenas a conferência manual (last_reviewed_at).`,
+      })
+    } catch (err: any) {
+      setProducts((prev) => prev.map((p) => (p.id === item.id ? { ...p, isReviewing: false } : p)))
+      toast({
+        title: 'Erro ao confirmar estado atual',
+        description: err.message || 'Falha ao registrar confirmação do estado atual.',
+        variant: 'destructive',
+      })
+    }
+  }
+
+  // Ação 4.8: Confirmar Estado Atual em Lote para Selecionados com auditoria 'descontinuado'
+  const handleConfirmBatchCurrentState = async () => {
+    const candidateIds = selectedProducts
+      .filter((p) => {
+        const pairedRes = bhBatchUpdateService.resolveItemPairedEvaluation(p)
+        const effStatus = pairedRes.effectiveStatus || p.checkResult?.status || null
+        // Elegíveis: produtos com status de auditoria 'descontinuado' que o usuário quer manter no estado atual
+        return effStatus === 'descontinuado'
+      })
+      .map((p) => p.id)
+
+    if (candidateIds.length === 0) {
+      toast({
+        title: 'Nenhum produto elegível',
+        description:
+          'Selecione produtos cuja auditoria retornou "Descontinuado" para confirmar o estado atual em lote.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    setIsBulkReviewing(true)
+    try {
+      const reviewedAtIso = await bhBatchUpdateService.confirmBatchCurrentState(candidateIds)
+
+      setProducts((prev) =>
+        prev.map((p) =>
+          candidateIds.includes(p.id)
+            ? {
+                ...p,
+                last_reviewed_at: reviewedAtIso,
+                batchStatus: 'done',
+              }
+            : p,
+        ),
+      )
+
+      // Atualiza job ativo com checkpoint consolidado
+      if (activeJob?.id) {
+        try {
+          const updatedResults: Record<
+            string,
+            {
+              checkResult?: any
+              batchStatus: 'idle' | 'processing' | 'done' | 'error'
+              errorMessage?: string
+              website_url?: string
+              price_usd?: number
+            }
+          > = { ...(activeJob.results || {}) }
+          candidateIds.forEach((id) => {
+            const p = products.find((prod) => prod.id === id)
+            updatedResults[id] = {
+              checkResult: p?.checkResult || undefined,
+              batchStatus: 'done',
+              errorMessage: undefined,
+              website_url: p?.website_url || undefined,
+              price_usd: p?.price_usd ?? undefined,
+            }
+          })
+          const currentStats = bhBatchUpdateService.calculateStats(
+            selectedProducts.map((p) =>
+              candidateIds.includes(p.id)
+                ? { ...p, last_reviewed_at: reviewedAtIso, batchStatus: 'done' }
+                : p,
+            ),
+          )
+          await supabase
+            .from('bh_batch_jobs' as any)
+            .update({
+              results: updatedResults,
+              stats: currentStats,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', activeJob.id)
+
+          setActiveJob((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  stats: currentStats,
+                  results: updatedResults,
+                }
+              : null,
+          )
+        } catch (jobErr) {
+          console.warn('Erro ao atualizar job no lote de estado atual:', jobErr)
+        }
+      }
+
+      toast({
+        title: `Estado atual de ${candidateIds.length} produto(s) confirmado!`,
+        description:
+          'Data de conferência (last_reviewed_at) atualizada sem alterar updated_at, price_usd ou is_discontinued.',
+      })
+    } catch (err: any) {
+      toast({
+        title: 'Erro na confirmação em lote',
+        description: err.message || 'Falha ao confirmar estado atual dos produtos selecionados.',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsBulkReviewing(false)
+    }
+  }
+
   // Ação 5: Confirmação de Descontinuação em Lote para Selecionados
   const handleConfirmBatchDiscontinued = async () => {
     const candidateIds = selectedProducts
@@ -2200,7 +2435,37 @@ export function AdminBhUpdatePage() {
                             ) : (
                               <AlertOctagon className="w-3.5 h-3.5 mr-1.5" />
                             )}
-                            Confirmar Descontinuados ({discontinuedCandidates.length})
+                            Confirmar Descontinuação ({discontinuedCandidates.length})
+                          </Button>
+                        )
+                      })()}
+
+                      {/* Ação em Lote: Confirmar Estado Atual (Falsos-Positivos de Descontinuação) */}
+                      {(() => {
+                        const currentStateCandidates = selectedProducts.filter((p) => {
+                          const pairedRes = bhBatchUpdateService.resolveItemPairedEvaluation(p)
+                          const effStatus =
+                            pairedRes.effectiveStatus || p.checkResult?.status || null
+                          return effStatus === 'descontinuado'
+                        })
+
+                        if (currentStateCandidates.length === 0) return null
+
+                        return (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={handleConfirmBatchCurrentState}
+                            disabled={isProcessingBatch || isBulkReviewing}
+                            className="h-9 text-xs bg-blue-600/10 hover:bg-blue-600/20 text-blue-300 border-blue-500/30 font-medium shadow-sm"
+                            title="Confirma estado atual (NÃO descontinuado): atualiza SOMENTE last_reviewed_at = agora para os selecionados, preservando updated_at, price_usd e is_discontinued"
+                          >
+                            {isBulkReviewing ? (
+                              <RefreshCw className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                            ) : (
+                              <Check className="w-3.5 h-3.5 mr-1.5" />
+                            )}
+                            Confirmar Estado Atual ({currentStateCandidates.length})
                           </Button>
                         )
                       })()}
@@ -2774,7 +3039,8 @@ export function AdminBhUpdatePage() {
                     const diffUsd = p.checkResult?.diff_usd
                     const diffPct = p.checkResult?.diff_pct
                     const isDivergent = effectiveStatus === 'divergente'
-                    const isDiscontinued = p.is_discontinued || effectiveStatus === 'descontinuado'
+                    const isDiscontinued =
+                      !isDivergent && (p.is_discontinued || effectiveStatus === 'descontinuado')
                     const isDoubtful = effectiveStatus === 'sem_url_confirmada'
                     const rebateActive = pairedResolution.rebateInfo.isBhRebateActive
                     const pairedEval = pairedResolution.pairedEval
@@ -3154,7 +3420,7 @@ export function AdminBhUpdatePage() {
                                 size="sm"
                                 variant="destructive"
                                 onClick={() => handleConfirmSingleDiscontinued(p)}
-                                disabled={p.isUpdatingDiscontinued}
+                                disabled={p.isUpdatingDiscontinued || p.isReviewing}
                                 className="h-7 text-[11px] px-2 font-medium shadow-sm"
                                 title="Grava is_discontinued = true com updated_at = last_reviewed_at = agora"
                               >
@@ -3163,7 +3429,27 @@ export function AdminBhUpdatePage() {
                                 ) : (
                                   <AlertOctagon className="w-3 h-3 mr-1" />
                                 )}
-                                Confirmar Descontinuado
+                                Confirmar Descontinuação
+                              </Button>
+                            )}
+
+                            {/* Confirmar Estado Atual (para falsos-positivos de descontinuação):
+                                Renderiza ao lado de Confirmar Descontinuação / Reativar */}
+                            {effectiveStatus === 'descontinuado' && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleConfirmSingleCurrentState(p)}
+                                disabled={p.isReviewing || p.isUpdatingDiscontinued}
+                                className="h-7 text-[11px] px-2 bg-blue-600/10 hover:bg-blue-600/20 text-blue-300 border-blue-500/30 font-medium shadow-sm"
+                                title="Confirma que o produto NÃO está descontinuado: atualiza SOMENTE last_reviewed_at = agora, preservando updated_at, price_usd e is_discontinued"
+                              >
+                                {p.isReviewing ? (
+                                  <RefreshCw className="w-3 h-3 mr-1 animate-spin" />
+                                ) : (
+                                  <Check className="w-3 h-3 mr-1" />
+                                )}
+                                Confirmar Estado Atual
                               </Button>
                             )}
 
@@ -3186,18 +3472,14 @@ export function AdminBhUpdatePage() {
                                 </Button>
                               )}
 
-                            {isDiscontinued &&
-                              !(
-                                p.is_discontinued &&
-                                (effectiveStatus === 'ok' || effectiveStatus === 'divergente')
-                              ) && (
-                                <Badge
-                                  variant="destructive"
-                                  className="text-[10px] uppercase font-mono py-0.5"
-                                >
-                                  Descontinuado
-                                </Badge>
-                              )}
+                            {isDiscontinued && !(p.is_discontinued && effectiveStatus === 'ok') && (
+                              <Badge
+                                variant="destructive"
+                                className="text-[10px] uppercase font-mono py-0.5"
+                              >
+                                Descontinuado
+                              </Badge>
+                            )}
 
                             {!isDivergent &&
                               !isDiscontinued &&

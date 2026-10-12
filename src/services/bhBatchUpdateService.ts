@@ -218,6 +218,48 @@ export const bhBatchUpdateService = {
   },
 
   /**
+   * Confirmação de "Estado Atual" (para falso-positivo de descontinuação):
+   * Atualiza SOMENTE last_reviewed_at = agora, mantendo updated_at, price_usd e is_discontinued intocados.
+   * Regras de datas do projeto: conferência manual altera exclusivamente last_reviewed_at;
+   * invariante last_reviewed_at >= updated_at.
+   */
+  async confirmCurrentState(productId: string): Promise<string> {
+    if (!productId) throw new Error('ID do produto não informado.')
+    const nowIso = new Date().toISOString()
+    const { error } = await supabase
+      .from('products')
+      .update({ last_reviewed_at: nowIso } as any)
+      .eq('id', productId)
+
+    if (error) {
+      throw new Error(`Falha ao confirmar estado atual: ${error.message}`)
+    }
+
+    return nowIso
+  },
+
+  /**
+   * Confirmação de "Estado Atual" em lote para múltiplos produtos (falsos-positivos de descontinuação):
+   * Atualiza SOMENTE last_reviewed_at = agora para todos os IDs, sem tocar updated_at, price_usd ou is_discontinued.
+   */
+  async confirmBatchCurrentState(productIds: string[]): Promise<string> {
+    if (!productIds || productIds.length === 0) {
+      throw new Error('Nenhum produto selecionado para confirmação de estado atual.')
+    }
+    const nowIso = new Date().toISOString()
+    const { error } = await supabase
+      .from('products')
+      .update({ last_reviewed_at: nowIso } as any)
+      .in('id', productIds)
+
+    if (error) {
+      throw new Error(`Falha ao confirmar estado atual em lote: ${error.message}`)
+    }
+
+    return nowIso
+  },
+
+  /**
    * Confirma descontinuação em lote para múltiplos produtos:
    * Grava is_discontinued = true, updated_at = last_reviewed_at = agora (mesmo valor)
    * para todos os IDs informados. NUNCA altera price_usd.
@@ -836,8 +878,16 @@ export const bhBatchUpdateService = {
     }
 
     // 2. SECUNDÁRIO / ENRIQUECIMENTO: Usa job.results apenas para complementar itens faltantes ou enriquecer
+    // Restringe estritamente aos productIds pertencentes ao lote para impedir contaminação por fantasmas
+    const allowedProductIdsSet = productIds.length > 0 ? new Set(productIds) : null
+
     if (job.results && typeof job.results === 'object') {
       for (const [pId, item] of Object.entries(job.results)) {
+        // Se há lista de product_ids no lote, descarta qualquer id que não pertença a ela
+        if (allowedProductIdsSet && !allowedProductIdsSet.has(pId)) {
+          continue
+        }
+
         if (!combinedResults[pId]) {
           // Se o produto não tinha registro em price_checks na janela, adiciona a partir de job.results
           combinedResults[pId] = {

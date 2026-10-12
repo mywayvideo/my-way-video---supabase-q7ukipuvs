@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react'
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
+import { Link } from 'react-router-dom'
 import { AdminLayout } from '@/components/admin/AdminLayout'
 import {
   categoryService,
@@ -14,7 +15,7 @@ import {
   SuggestionConfidence,
 } from '@/services/categoryTriageService'
 import { CategoryEditDialog } from '@/components/admin/CategoryEditDialog'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -61,13 +62,12 @@ import {
   Layers,
   ArrowRight,
   Clock,
-  Filter,
   Check,
   ChevronLeft,
   ChevronRight,
   ShieldCheck,
-  ShieldAlert,
   Loader2,
+  ExternalLink,
 } from 'lucide-react'
 import { toast } from '@/hooks/use-toast'
 import { useDebounce } from '@/hooks/use-debounce'
@@ -101,8 +101,34 @@ export function AdminCategoriesPage() {
 
   // Decisões individuais na fila de triagem (em memória para o dropdown de cada linha)
   const [triageDecisions, setTriageDecisions] = useState<Record<string, string>>({})
+  // Seleção de troca de categoria na coluna Ações para produtos já vinculados
+  const [actionCategorySelections, setActionCategorySelections] = useState<Record<string, string>>(
+    {},
+  )
   const [savingProductId, setSavingProductId] = useState<string | null>(null)
   const [postponedIds, setPostponedIds] = useState<Set<string>>(new Set())
+
+  // Scrollbar horizontal superior sincronizada com a tabela
+  const topScrollRef = useRef<HTMLDivElement>(null)
+  const topTrackRef = useRef<HTMLDivElement>(null)
+  const tableContainerRef = useRef<HTMLDivElement>(null)
+  const [scrollMetrics, setScrollMetrics] = useState({
+    scrollLeft: 0,
+    scrollWidth: 0,
+    clientWidth: 0,
+  })
+  const [isDraggingTop, setIsDraggingTop] = useState(false)
+  const topDragStartRef = useRef<{
+    startX: number
+    scrollLeft: number
+    maxScroll: number
+    trackTravel: number
+  }>({
+    startX: 0,
+    scrollLeft: 0,
+    maxScroll: 0,
+    trackTravel: 0,
+  })
 
   // CRUD Dialogs
   const [editDialogOpen, setEditDialogOpen] = useState(false)
@@ -374,6 +400,209 @@ export function AdminCategoriesPage() {
       })
     } finally {
       setIsDeletingCategory(false)
+    }
+  }
+
+  // Obter o elemento que realmente rola na tabela
+  const getTableScrollElement = useCallback((): HTMLElement | null => {
+    const container = tableContainerRef.current
+    if (!container) return null
+    const innerWrapper = container.querySelector<HTMLElement>('.relative.w-full.overflow-auto')
+    if (innerWrapper) return innerWrapper
+    const firstChild = container.firstElementChild as HTMLElement | null
+    if (firstChild && firstChild.tagName === 'DIV') return firstChild
+    return container
+  }, [])
+
+  const updateMetricsFromTable = useCallback(() => {
+    const tableEl = getTableScrollElement()
+    if (!tableEl) return
+    setScrollMetrics({
+      scrollLeft: tableEl.scrollLeft,
+      scrollWidth: tableEl.scrollWidth,
+      clientWidth: tableEl.clientWidth,
+    })
+  }, [getTableScrollElement])
+
+  // Sincronizar listeners de scroll e resize entre a tabela e a scrollbar do topo
+  useEffect(() => {
+    const tableEl = getTableScrollElement()
+    const topEl = topScrollRef.current
+    if (!tableEl) return
+
+    tableEl.classList.add(
+      '[scrollbar-width:none]',
+      '[-ms-overflow-style:none]',
+      '[&::-webkit-scrollbar]:hidden',
+    )
+
+    let isSyncingTop = false
+    let isSyncingBottom = false
+
+    const onTableScrollListener = () => {
+      if (isSyncingBottom) {
+        isSyncingBottom = false
+        return
+      }
+      isSyncingTop = true
+      if (topEl) {
+        topEl.scrollLeft = tableEl.scrollLeft
+      }
+      updateMetricsFromTable()
+    }
+
+    const onTopScrollListener = () => {
+      if (isSyncingTop) {
+        isSyncingTop = false
+        return
+      }
+      isSyncingBottom = true
+      tableEl.scrollLeft = topEl ? topEl.scrollLeft : 0
+      updateMetricsFromTable()
+    }
+
+    tableEl.addEventListener('scroll', onTableScrollListener, { passive: true })
+    if (topEl) {
+      topEl.addEventListener('scroll', onTopScrollListener, { passive: true })
+    }
+
+    updateMetricsFromTable()
+
+    const observer = new ResizeObserver(() => {
+      updateMetricsFromTable()
+    })
+
+    observer.observe(tableEl)
+    const tableChild = tableEl.querySelector('table')
+    if (tableChild) {
+      observer.observe(tableChild)
+    }
+    if (tableContainerRef.current && tableContainerRef.current !== tableEl) {
+      observer.observe(tableContainerRef.current)
+    }
+
+    return () => {
+      tableEl.removeEventListener('scroll', onTableScrollListener)
+      if (topEl) {
+        topEl.removeEventListener('scroll', onTopScrollListener)
+      }
+      observer.disconnect()
+    }
+  }, [products, getTableScrollElement, updateMetricsFromTable])
+
+  // Drag handlers para a barra de rolagem horizontal superior
+  const handleTopPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const tableEl = getTableScrollElement()
+    const trackEl = topTrackRef.current
+    if (!tableEl || !trackEl) return
+
+    const { scrollWidth, clientWidth, scrollLeft } = scrollMetrics
+    const maxScroll = Math.max(0, scrollWidth - clientWidth)
+    if (maxScroll <= 0) return
+
+    const trackWidth = trackEl.clientWidth
+    const ratio = clientWidth / scrollWidth
+    const thumbWidth = Math.max(56, Math.min(trackWidth, trackWidth * ratio))
+    const trackTravel = trackWidth - thumbWidth
+    if (trackTravel <= 0) return
+
+    e.currentTarget.setPointerCapture(e.pointerId)
+    topDragStartRef.current = {
+      startX: e.clientX,
+      scrollLeft,
+      maxScroll,
+      trackTravel,
+    }
+    setIsDraggingTop(true)
+  }
+
+  const handleTopPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isDraggingTop) return
+    const tableEl = getTableScrollElement()
+    if (!tableEl) return
+
+    const { startX, scrollLeft, maxScroll, trackTravel } = topDragStartRef.current
+    if (trackTravel <= 0 || maxScroll <= 0) return
+
+    const deltaX = e.clientX - startX
+    const scrollDelta = (deltaX / trackTravel) * maxScroll
+    const newScrollLeft = Math.max(0, Math.min(maxScroll, scrollLeft + scrollDelta))
+
+    tableEl.scrollLeft = newScrollLeft
+    if (topScrollRef.current) {
+      topScrollRef.current.scrollLeft = newScrollLeft
+    }
+    setScrollMetrics((prev) => ({ ...prev, scrollLeft: newScrollLeft }))
+  }
+
+  const handleTopPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isDraggingTop) return
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId)
+    }
+    setIsDraggingTop(false)
+  }
+
+  const handleTrackClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const trackEl = topTrackRef.current
+    if (!trackEl) return
+    const tableEl = getTableScrollElement()
+    if (!tableEl) return
+
+    const { scrollWidth, clientWidth } = scrollMetrics
+    const maxScroll = Math.max(0, scrollWidth - clientWidth)
+    if (maxScroll <= 0) return
+
+    const rect = trackEl.getBoundingClientRect()
+    const clickX = e.clientX - rect.left
+    const trackWidth = rect.width
+    const ratio = clientWidth / scrollWidth
+    const thumbWidth = Math.max(56, Math.min(trackWidth, trackWidth * ratio))
+
+    const targetThumbLeft = Math.max(0, Math.min(trackWidth - thumbWidth, clickX - thumbWidth / 2))
+    const trackTravel = trackWidth - thumbWidth
+    const newScrollLeft = trackTravel > 0 ? (targetThumbLeft / trackTravel) * maxScroll : 0
+
+    tableEl.scrollTo({ left: newScrollLeft, behavior: 'smooth' })
+    if (topScrollRef.current) {
+      topScrollRef.current.scrollLeft = newScrollLeft
+    }
+    setScrollMetrics((prev) => ({ ...prev, scrollLeft: newScrollLeft }))
+  }
+
+  const handleStepScroll = (direction: 'left' | 'right') => {
+    const tableEl = getTableScrollElement()
+    if (!tableEl) return
+    const step = 280
+    const targetLeft = direction === 'left' ? tableEl.scrollLeft - step : tableEl.scrollLeft + step
+    tableEl.scrollTo({ left: targetLeft, behavior: 'smooth' })
+    if (topScrollRef.current) {
+      topScrollRef.current.scrollTo({ left: targetLeft, behavior: 'smooth' })
+    }
+  }
+
+  const canScrollHorizontally =
+    scrollMetrics.scrollWidth > scrollMetrics.clientWidth && scrollMetrics.clientWidth > 0
+
+  const getThumbStyle = () => {
+    const trackEl = topTrackRef.current
+    const trackWidth = trackEl?.clientWidth || 0
+    if (!canScrollHorizontally || trackWidth <= 0) {
+      return { width: '100%', left: '0px', display: 'none' }
+    }
+    const { scrollLeft, scrollWidth, clientWidth } = scrollMetrics
+    const maxScroll = Math.max(1, scrollWidth - clientWidth)
+    const ratio = clientWidth / scrollWidth
+    const thumbWidth = Math.max(56, Math.min(trackWidth, trackWidth * ratio))
+    const trackTravel = trackWidth - thumbWidth
+    const thumbLeft = Math.max(0, Math.min(trackTravel, (scrollLeft / maxScroll) * trackTravel))
+
+    return {
+      width: `${thumbWidth}px`,
+      transform: `translateX(${thumbLeft}px)`,
+      left: 0,
     }
   }
 
@@ -799,11 +1028,93 @@ export function AdminCategoriesPage() {
           )}
 
           {/* ========================================================
-              TABELA DE PRODUTOS & FILA DE TRIAGEM (REQUISITOS 2, 3, 5)
+              TABELA DE PRODUTOS & FILA DE TRIAGEM (REQUISITOS 1, 2, 3)
           ======================================================== */}
           <div className="border rounded-xl bg-card overflow-hidden shadow-sm">
-            <div className="overflow-x-auto">
-              <Table>
+            {/* Barra de rolagem horizontal superior sincronizada com a tabela (Ajuste 3) */}
+            <div
+              className="relative w-full border-b border-border/60 bg-muted/40 select-none transition-colors hover:bg-muted/50 flex items-center px-1"
+              style={{ height: '22px' }}
+              aria-label="Barra de rolagem horizontal superior da listagem de produtos"
+            >
+              {/* Botão de rolagem para esquerda ◀ */}
+              <button
+                type="button"
+                onClick={() => handleStepScroll('left')}
+                className="shrink-0 w-5 h-5 flex items-center justify-center rounded text-muted-foreground hover:text-primary hover:bg-primary/10 active:scale-95 transition-all cursor-pointer mr-1 z-10"
+                title="Rolar tabela para a esquerda (◀)"
+                aria-label="Rolar para a esquerda"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+              </button>
+
+              {/* Contêiner nativo invisível espelhado para sincronização de eventos */}
+              <div
+                ref={topScrollRef}
+                className="absolute inset-0 overflow-x-auto overflow-y-hidden opacity-0 pointer-events-none [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+                tabIndex={-1}
+              >
+                <div
+                  style={{
+                    width:
+                      scrollMetrics.scrollWidth > 0 ? `${scrollMetrics.scrollWidth}px` : '1200px',
+                    height: '1px',
+                  }}
+                />
+              </div>
+
+              {/* Trilho visual interativo */}
+              <div
+                ref={topTrackRef}
+                onClick={handleTrackClick}
+                className="relative flex-1 h-full cursor-pointer flex items-center"
+                title="Clique ou arraste a pegada para rolar a tabela horizontalmente"
+              >
+                <div className="absolute left-0 right-0 h-2 bg-slate-900/90 dark:bg-slate-900/90 border border-slate-700/80 rounded-full shadow-inner" />
+
+                {canScrollHorizontally && (
+                  <div
+                    onPointerDown={handleTopPointerDown}
+                    onPointerMove={handleTopPointerMove}
+                    onPointerUp={handleTopPointerUp}
+                    onPointerCancel={handleTopPointerUp}
+                    style={getThumbStyle()}
+                    className={cn(
+                      'absolute h-3.5 rounded-full cursor-grab active:cursor-grabbing transition-[filter,transform] duration-75 shadow-md z-10 flex items-center justify-center touch-none',
+                      'bg-gradient-to-r from-primary/90 via-primary to-primary/90 hover:brightness-110 active:brightness-125 shadow-[0_1px_8px_rgba(59,130,246,0.5)] border border-primary/40',
+                      isDraggingTop &&
+                        'scale-y-110 brightness-125 shadow-[0_2px_10px_rgba(59,130,246,0.7)]',
+                    )}
+                  >
+                    <div className="flex gap-0.5 pointer-events-none opacity-85">
+                      <div className="w-0.5 h-1.5 bg-primary-foreground/70 rounded-full" />
+                      <div className="w-0.5 h-1.5 bg-primary-foreground/70 rounded-full" />
+                      <div className="w-0.5 h-1.5 bg-primary-foreground/70 rounded-full" />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Botão de rolagem para direita ▶ */}
+              <button
+                type="button"
+                onClick={() => handleStepScroll('right')}
+                className="shrink-0 w-5 h-5 flex items-center justify-center rounded text-muted-foreground hover:text-primary hover:bg-primary/10 active:scale-95 transition-all cursor-pointer ml-1 z-10"
+                title="Rolar tabela para a direita (▶)"
+                aria-label="Rolar para a direita"
+              >
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            <div
+              ref={tableContainerRef}
+              className="overflow-x-auto [&::-webkit-scrollbar]:h-2.5 [&::-webkit-scrollbar-track]:bg-muted/30 [&::-webkit-scrollbar-thumb]:bg-slate-600 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-slate-500"
+              style={{
+                scrollbarWidth: 'thin',
+              }}
+            >
+              <Table className="min-w-[1050px]">
                 <TableHeader>
                   <TableRow className="bg-muted/40">
                     <TableHead className="w-[44px]">
@@ -815,7 +1126,7 @@ export function AdminCategoriesPage() {
                         aria-label="Selecionar todos os produtos da página"
                       />
                     </TableHead>
-                    <TableHead className="min-w-[280px]">Produto & SKU</TableHead>
+                    <TableHead className="min-w-[300px]">Produto & SKU</TableHead>
                     <TableHead className="w-[140px]">Fabricante</TableHead>
                     <TableHead className="w-[140px]">NCM Atual</TableHead>
                     <TableHead className="w-[170px]">Rótulo Legado</TableHead>
@@ -824,7 +1135,7 @@ export function AdminCategoriesPage() {
                         ? 'Sugestão & Confirmação (Triagem)'
                         : 'Categoria Oficial'}
                     </TableHead>
-                    <TableHead className="w-[100px] text-right">Ações</TableHead>
+                    <TableHead className="w-[170px] text-right">Ações</TableHead>
                   </TableRow>
                 </TableHeader>
 
@@ -886,6 +1197,12 @@ export function AdminCategoriesPage() {
                         activeCatForNcmCheck?.acceptable_ncms,
                       )
 
+                      // Categoria selecionada no dropdown "Trocar..." da coluna Ações (Ajuste 1)
+                      const actionChosenCatId =
+                        actionCategorySelections[product.id] || product.category_id || ''
+                      const isActionChanged =
+                        Boolean(actionChosenCatId) && actionChosenCatId !== product.category_id
+
                       return (
                         <TableRow
                           key={product.id}
@@ -904,33 +1221,59 @@ export function AdminCategoriesPage() {
                             />
                           </TableCell>
 
-                          {/* Produto: Imagem, Nome e SKU */}
+                          {/* Produto: Imagem, Nome (Link clicável) e SKU */}
                           <TableCell>
                             <div className="flex items-start gap-3">
-                              {product.image_url ? (
-                                <img
-                                  src={product.image_url}
-                                  alt={product.name}
-                                  className="w-10 h-10 object-contain rounded border bg-white shrink-0"
-                                  onError={(e) => {
-                                    ;(e.target as HTMLElement).style.display = 'none'
-                                  }}
-                                />
-                              ) : (
-                                <div className="w-10 h-10 rounded border bg-muted flex items-center justify-center shrink-0">
-                                  <Tag className="w-4 h-4 text-muted-foreground" />
-                                </div>
-                              )}
+                              <Link
+                                to={`/product/${product.id}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="group/img shrink-0"
+                                title="Abrir cadastro completo do produto"
+                              >
+                                {product.image_url ? (
+                                  <img
+                                    src={product.image_url}
+                                    alt={product.name}
+                                    className="w-10 h-10 object-contain rounded border bg-white group-hover/img:border-primary transition-colors"
+                                    onError={(e) => {
+                                      ;(e.target as HTMLElement).style.display = 'none'
+                                    }}
+                                  />
+                                ) : (
+                                  <div className="w-10 h-10 rounded border bg-muted flex items-center justify-center group-hover/img:border-primary transition-colors">
+                                    <Tag className="w-4 h-4 text-muted-foreground group-hover/img:text-primary" />
+                                  </div>
+                                )}
+                              </Link>
                               <div className="min-w-0">
-                                <p className="text-xs font-semibold text-foreground line-clamp-2 leading-snug">
-                                  {product.name}
-                                </p>
+                                {/* Link para ir direto ao cadastro /product/:id (Ajuste 2) */}
+                                <Link
+                                  to={`/product/${product.id}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-xs font-semibold text-foreground hover:text-primary hover:underline line-clamp-2 leading-snug inline-flex items-center gap-1 group/title"
+                                  title={`Ver produto: ${product.name}`}
+                                >
+                                  <span>{product.name}</span>
+                                  <ExternalLink className="w-3 h-3 opacity-0 group-hover/title:opacity-100 transition-opacity shrink-0 text-primary" />
+                                </Link>
                                 <div className="flex items-center gap-2 mt-1">
                                   {product.sku && (
                                     <code className="text-[11px] font-mono text-muted-foreground bg-muted px-1 py-0.5 rounded">
                                       {product.sku}
                                     </code>
                                   )}
+                                  <Link
+                                    to={`/product/${product.id}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-[11px] text-muted-foreground hover:text-primary inline-flex items-center gap-0.5 hover:underline"
+                                    title="Abrir página completa do produto em nova aba"
+                                  >
+                                    <span>Ver produto</span>
+                                    <ExternalLink className="w-2.5 h-2.5" />
+                                  </Link>
                                 </div>
                               </div>
                             </div>
@@ -960,13 +1303,21 @@ export function AdminCategoriesPage() {
                                 <TooltipProvider>
                                   <Tooltip>
                                     <TooltipTrigger asChild>
-                                      <Badge
-                                        variant="outline"
-                                        className="text-[10px] px-1.5 py-0 h-5 font-normal bg-amber-500/10 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-700 flex items-center gap-1"
+                                      <Link
+                                        to={`/product/${product.id}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-block"
                                       >
-                                        <AlertTriangle className="w-2.5 h-2.5 text-amber-600 dark:text-amber-400 shrink-0" />
-                                        <span>NCM fora do padrão</span>
-                                      </Badge>
+                                        <Badge
+                                          variant="outline"
+                                          className="text-[10px] px-1.5 py-0 h-5 font-normal bg-amber-500/10 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-700 flex items-center gap-1 hover:bg-amber-500/20 cursor-pointer"
+                                        >
+                                          <AlertTriangle className="w-2.5 h-2.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                                          <span>NCM fora do padrão</span>
+                                          <ExternalLink className="w-2.5 h-2.5 ml-0.5 opacity-60" />
+                                        </Badge>
+                                      </Link>
                                     </TooltipTrigger>
                                     <TooltipContent className="max-w-xs text-xs">
                                       O NCM atual ({formatNcmPrefixDisplay(product.ncm || '')}) não
@@ -974,7 +1325,7 @@ export function AdminCategoriesPage() {
                                       <strong>{activeCatForNcmCheck?.name}</strong> (
                                       {activeCatForNcmCheck?.acceptable_ncms?.join(', ') ||
                                         'nenhum'}
-                                      ).
+                                      ). Clique no badge para abrir o cadastro do produto.
                                     </TooltipContent>
                                   </Tooltip>
                                 </TooltipProvider>
@@ -999,7 +1350,7 @@ export function AdminCategoriesPage() {
                             )}
                           </TableCell>
 
-                          {/* FILA DE TRIAGEM / CATEGORIA OFICIAL (REQUISITO 2) */}
+                          {/* FILA DE TRIAGEM / CATEGORIA OFICIAL (REQUISITO 1 & 2) */}
                           <TableCell>
                             {product.category_id ? (
                               // Produto já vinculado a uma categoria oficial
@@ -1010,7 +1361,7 @@ export function AdminCategoriesPage() {
                                 </Badge>
                               </div>
                             ) : (
-                              // Produto em fila de triagem (sugestão em 2 camadas + dropdown + selo de confiança)
+                              // Produto em fila de triagem (sugestão em 2 camadas + dropdown + botão Confirmar Categoria)
                               <div className="space-y-2">
                                 {/* Selo de confiança da sugestão automática */}
                                 {suggestion ? (
@@ -1050,19 +1401,108 @@ export function AdminCategoriesPage() {
                                   </span>
                                 )}
 
-                                {/* Dropdown pré-selecionado com opções */}
-                                <div className="flex items-center gap-1.5">
+                                {/* Dropdown apenas PREPARA a escolha (estado local) */}
+                                <div className="space-y-1.5">
+                                  <div className="flex items-center gap-1.5">
+                                    <Select
+                                      value={chosenCategoryId}
+                                      onValueChange={(val) =>
+                                        setTriageDecisions((prev) => ({
+                                          ...prev,
+                                          [product.id]: val,
+                                        }))
+                                      }
+                                    >
+                                      <SelectTrigger className="h-7 text-xs w-[200px] bg-background">
+                                        <SelectValue placeholder="Escolher categoria..." />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {categoriesList.map((cat) => (
+                                          <SelectItem
+                                            key={cat.id}
+                                            value={cat.id}
+                                            className="text-xs"
+                                          >
+                                            {cat.name}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+
+                                    {/* Botão Revisar Depois */}
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-7 text-xs px-2 text-muted-foreground hover:text-foreground"
+                                      onClick={() => handlePostpone(product.id)}
+                                      title="Ocultar da fila de triagem nesta sessão para revisar depois"
+                                    >
+                                      <Clock className="w-3.5 h-3.5 mr-1" />
+                                      Revisar depois
+                                    </Button>
+                                  </div>
+
+                                  {/* Botão "Confirmar categoria" ABAIXO do seletor (Ajuste 1) */}
+                                  <div>
+                                    <Button
+                                      size="sm"
+                                      className="h-7 text-xs px-3 bg-primary text-primary-foreground hover:bg-primary/90 font-medium shadow-xs"
+                                      disabled={!chosenCategoryId || isSaving}
+                                      onClick={() => handleConfirmSingle(product, chosenCategoryId)}
+                                      title="Efetivar e gravar categoria deste produto"
+                                    >
+                                      {isSaving ? (
+                                        <>
+                                          <Loader2 className="w-3 h-3 animate-spin mr-1.5" />
+                                          Salvando...
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Check className="w-3.5 h-3.5 mr-1.5 text-primary-foreground" />
+                                          Confirmar categoria
+                                        </>
+                                      )}
+                                    </Button>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </TableCell>
+
+                          {/* Ações: Link para /product/:id e Seletor com Botão "Confirmar categoria" (Ajustes 1 e 2) */}
+                          <TableCell className="text-right">
+                            <div className="flex flex-col items-end gap-1.5">
+                              {/* Link direto para a página completa do produto */}
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                asChild
+                                className="h-7 px-2 text-xs text-muted-foreground hover:text-primary gap-1"
+                                title="Abrir página completa do produto (/product/:id)"
+                              >
+                                <Link
+                                  to={`/product/${product.id}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                >
+                                  <span>Ver produto</span>
+                                  <ExternalLink className="w-3 h-3" />
+                                </Link>
+                              </Button>
+
+                              {product.category_id && (
+                                <div className="space-y-1 w-[140px] text-left">
                                   <Select
-                                    value={chosenCategoryId}
-                                    onValueChange={(val) =>
-                                      setTriageDecisions((prev) => ({
+                                    value={actionChosenCatId}
+                                    onValueChange={(newCatId) => {
+                                      setActionCategorySelections((prev) => ({
                                         ...prev,
-                                        [product.id]: val,
+                                        [product.id]: newCatId,
                                       }))
-                                    }
+                                    }}
                                   >
-                                    <SelectTrigger className="h-7 text-xs w-[180px] bg-background">
-                                      <SelectValue placeholder="Escolher categoria..." />
+                                    <SelectTrigger className="h-7 text-xs w-full bg-background">
+                                      <SelectValue placeholder="Trocar..." />
                                     </SelectTrigger>
                                     <SelectContent>
                                       {categoriesList.map((cat) => (
@@ -1073,62 +1513,35 @@ export function AdminCategoriesPage() {
                                     </SelectContent>
                                   </Select>
 
-                                  {/* Botão Confirmar */}
-                                  <Button
-                                    size="sm"
-                                    className="h-7 text-xs px-2.5 bg-primary text-primary-foreground hover:bg-primary/90"
-                                    disabled={!chosenCategoryId || isSaving}
-                                    onClick={() => handleConfirmSingle(product, chosenCategoryId)}
-                                    title="Confirmar esta categoria e gravar category_id"
-                                  >
-                                    {isSaving ? (
-                                      <Loader2 className="w-3 h-3 animate-spin" />
-                                    ) : (
-                                      <Check className="w-3.5 h-3.5 mr-1" />
-                                    )}
-                                    Confirmar
-                                  </Button>
-
-                                  {/* Botão Revisar Depois */}
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-7 text-xs px-2 text-muted-foreground hover:text-foreground"
-                                    onClick={() => handlePostpone(product.id)}
-                                    title="Ocultar da fila de triagem nesta sessão para revisar depois"
-                                  >
-                                    <Clock className="w-3.5 h-3.5 mr-1" />
-                                    Revisar depois
-                                  </Button>
+                                  {/* Botão Confirmar categoria abaixo do seletor Trocar */}
+                                  {isActionChanged && (
+                                    <Button
+                                      size="sm"
+                                      className="h-6 text-[11px] w-full px-2 bg-primary text-primary-foreground hover:bg-primary/90 font-medium"
+                                      disabled={isSaving}
+                                      onClick={() => {
+                                        const catObj = categoriesById.get(actionChosenCatId)
+                                        if (catObj) {
+                                          handleConfirmSingle(
+                                            product,
+                                            actionChosenCatId,
+                                            catObj.name,
+                                          )
+                                        }
+                                      }}
+                                      title="Efetivar troca de categoria"
+                                    >
+                                      {isSaving ? (
+                                        <Loader2 className="w-3 h-3 animate-spin mr-1" />
+                                      ) : (
+                                        <Check className="w-3 h-3 mr-1" />
+                                      )}
+                                      Confirmar categoria
+                                    </Button>
+                                  )}
                                 </div>
-                              </div>
-                            )}
-                          </TableCell>
-
-                          {/* Ações Rápidas */}
-                          <TableCell className="text-right">
-                            {product.category_id && (
-                              <Select
-                                value={product.category_id}
-                                onValueChange={(newCatId) => {
-                                  const catObj = categoriesById.get(newCatId)
-                                  if (catObj) {
-                                    handleConfirmSingle(product, newCatId, catObj.name)
-                                  }
-                                }}
-                              >
-                                <SelectTrigger className="h-7 text-xs w-[120px] ml-auto">
-                                  <SelectValue placeholder="Trocar..." />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {categoriesList.map((cat) => (
-                                    <SelectItem key={cat.id} value={cat.id} className="text-xs">
-                                      {cat.name}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            )}
+                              )}
+                            </div>
                           </TableCell>
                         </TableRow>
                       )

@@ -15,6 +15,7 @@ import AdminProductCache from './pages/AdminProductCache'
 import AdminAISettings from './pages/admin/ai-settings'
 import AdminAIPage from './pages/admin/AdminAIPage'
 import AdminCatalogPage from './pages/admin/AdminCatalogPage'
+import AdminCategoriesPage from './pages/admin/AdminCategoriesPage'
 import { AdminBhUpdatePage } from './pages/admin/AdminBhUpdatePage'
 import AdminSkuStandardizationPage from './pages/admin/AdminSkuStandardizationPage'
 import { AdminPriceChecksPage } from './pages/admin/AdminPriceChecksPage'
@@ -154,6 +155,14 @@ const App = () => {
                       element={
                         <ProtectedRoute>
                           <AdminCatalogPage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/admin/categories"
+                      element={
+                        <ProtectedRoute>
+                          <AdminCategoriesPage />
                         </ProtectedRoute>
                       }
                     />

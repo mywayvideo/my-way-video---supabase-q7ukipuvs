@@ -689,24 +689,19 @@ export const bhBatchUpdateService = {
    * Busca o job mais recente no banco (independente do status: in_progress, paused, completed, etc.)
    */
   async getLatestBatchJob(): Promise<BhBatchJobRecord | null> {
-    try {
-      const { data, error } = await supabase
-        .from('bh_batch_jobs' as any)
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle()
+    const { data, error } = await supabase
+      .from('bh_batch_jobs' as any)
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
 
-      if (error) {
-        console.warn('bhBatchUpdateService.getLatestBatchJob:', error.message)
-        return null
-      }
-
-      return data as unknown as BhBatchJobRecord | null
-    } catch (err: any) {
-      console.warn('bhBatchUpdateService.getLatestBatchJob unexpected error:', err?.message)
-      return null
+    if (error) {
+      console.error('bhBatchUpdateService.getLatestBatchJob query error:', error.message)
+      throw new Error(`Erro ao consultar último lote no banco: ${error.message}`)
     }
+
+    return (data as unknown as BhBatchJobRecord | null) ?? null
   },
 
   /**
@@ -768,11 +763,11 @@ export const bhBatchUpdateService = {
             .order('checked_at', { ascending: true })
 
           if (error) {
-            console.warn(
+            console.error(
               'bhBatchUpdateService.reconstructJobResults price_checks error:',
               error.message,
             )
-            continue
+            throw new Error(`Erro ao reconstruir histórico de auditoria: ${error.message}`)
           }
 
           if (checks && checks.length > 0) {
@@ -832,7 +827,11 @@ export const bhBatchUpdateService = {
           }
         }
       } catch (err: any) {
-        console.warn('bhBatchUpdateService.reconstructJobResults price_checks error:', err?.message)
+        console.error(
+          'bhBatchUpdateService.reconstructJobResults price_checks error:',
+          err?.message,
+        )
+        throw err
       }
     }
 

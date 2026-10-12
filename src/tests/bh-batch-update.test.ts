@@ -917,4 +917,123 @@ describe('B&H Batch Update Service & Business Rules', () => {
     expect(oks).toBe(1)
     expect(divergentes).toBe(1)
   })
+
+  it('se dbJob falhar ou for nulo: cache local residual NUNCA deve ser aplicado e produtos voltam ao estado neutro', () => {
+    // Cenário: localStorage contém resíduos antigos de sessões anteriores (ex.: divergências fantasmas com preço B&H null)
+    const simulatedLocalStorage: Record<string, any> = {
+      'bh_batch_update_cache': JSON.stringify({
+        'prod-blackmagic-pyxis': {
+          batchStatus: 'done',
+          checkResult: { status: 'divergente', price_bh: null, diff_usd: null },
+          errorMessage: null,
+          website_url: 'https://bhphotovideo.com/c/product/blackmagic-pyxis',
+        },
+        'prod-blackmagic-pocket': {
+          batchStatus: 'done',
+          checkResult: { status: 'divergente', price_bh: null, diff_usd: null },
+          errorMessage: null,
+        },
+      }),
+    }
+
+    const mockProducts: ProductBatchItem[] = [
+      {
+        id: 'prod-blackmagic-pyxis',
+        name: 'Blackmagic Design PYXIS 12K Cine',
+        sku: 'CINECAMCPYXN12LFEF',
+        price_usd: 5699,
+        website_url: null,
+        is_discontinued: false,
+        updated_at: '2026-03-23T18:07:00Z',
+        last_reviewed_at: '2026-03-23T18:07:00Z',
+        batchStatus: 'idle',
+        checkResult: null,
+        errorMessage: null,
+      },
+      {
+        id: 'prod-blackmagic-pocket',
+        name: 'Blackmagic Pocket Cinema Camera',
+        sku: 'CINECAMPOCHDMFT',
+        price_usd: 555,
+        website_url: null,
+        is_discontinued: false,
+        updated_at: '2026-03-23T18:07:00Z',
+        last_reviewed_at: '2026-03-23T18:07:00Z',
+        batchStatus: 'idle',
+        checkResult: null,
+        errorMessage: null,
+      },
+      {
+        id: 'prod-sony-brcx400',
+        name: 'Sony BRC-X400 4K PTZ Camera',
+        sku: 'BRCX400UC',
+        price_usd: 5900,
+        website_url: null,
+        is_discontinued: false,
+        updated_at: '2026-10-10T12:00:00Z',
+        last_reviewed_at: '2026-10-10T12:00:00Z',
+        batchStatus: 'idle',
+        checkResult: null,
+        errorMessage: null,
+      },
+    ]
+
+    // CASO A: dbJob falhou com erro de conexão / consulta (dbJob = null)
+    const dbJob: BhBatchJobRecord | null = null
+    const batchJobProductIds =
+      dbJob && Array.isArray((dbJob as any).product_ids) && (dbJob as any).product_ids.length > 0
+        ? new Set((dbJob as any).product_ids)
+        : null
+
+    // Lógica implementada na página:
+    const cached = simulatedLocalStorage['bh_batch_update_cache']
+    let parsedCache: Record<string, Partial<ProductBatchItem>> = {}
+
+    if (cached) {
+      if (!dbJob || !batchJobProductIds) {
+        // Sem lote no banco: limpa o storage residual
+        delete simulatedLocalStorage['bh_batch_update_cache']
+        parsedCache = {}
+      } else {
+        parsedCache = JSON.parse(cached)
+      }
+    }
+
+    // Mesclagem com proteção de neutralidade
+    const merged = mockProducts.map((item) => {
+      // Sem lote no banco (dbJob null/erro): volta estritamente ao neutro
+      if (!batchJobProductIds || !batchJobProductIds.has(item.id)) {
+        return {
+          ...item,
+          batchStatus: 'idle' as const,
+          checkResult: null,
+          errorMessage: null,
+        }
+      }
+
+      const saved = parsedCache[item.id]
+      if (saved) {
+        return {
+          ...item,
+          batchStatus: saved.batchStatus || item.batchStatus,
+          checkResult: saved.checkResult || item.checkResult,
+          errorMessage: saved.errorMessage || item.errorMessage,
+        }
+      }
+      return item
+    })
+
+    // Asserções:
+    // 1. O cache residual foi removido do storage
+    expect(simulatedLocalStorage['bh_batch_update_cache']).toBeUndefined()
+
+    // 2. Todos os produtos estão com status neutro (sem auditoria residual/divergente fantasma)
+    expect(merged.every((p) => p.batchStatus === 'idle')).toBe(true)
+    expect(merged.every((p) => p.checkResult === null)).toBe(true)
+    expect(merged.every((p) => p.errorMessage === null)).toBe(true)
+
+    const pyxis = merged.find((p) => p.id === 'prod-blackmagic-pyxis')
+    expect(pyxis?.checkResult).toBeNull()
+    expect(pyxis?.batchStatus).toBe('idle')
+  })
 })

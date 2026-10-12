@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   AlertTriangle,
   AlertOctagon,
+  AlertCircle,
   HelpCircle,
   XCircle,
   ArrowRight,
@@ -138,6 +139,7 @@ export function AdminBhUpdatePage() {
   // Job persistido em banco (bh_batch_jobs)
   const [activeJob, setActiveJob] = useState<BhBatchJobRecord | null>(null)
   const [loadingActiveJob, setLoadingActiveJob] = useState<boolean>(true)
+  const [jobLoadError, setJobLoadError] = useState<string | null>(null)
 
   // Filtros de seleção rápida por grupo
   const [selectedManufacturerId, setSelectedManufacturerId] = useState<string>('all')
@@ -169,6 +171,7 @@ export function AdminBhUpdatePage() {
         dbJob = await bhBatchUpdateService.getLatestBatchJob()
         if (dbJob) {
           setActiveJob(dbJob)
+          setJobLoadError(null)
           if (dbJob.metadata?.cooldownSeconds) {
             setCooldownSeconds(dbJob.metadata.cooldownSeconds)
           }
@@ -183,10 +186,34 @@ export function AdminBhUpdatePage() {
           }
 
           // Reconstrói sempre a visão do lote cruzando com price_checks da janela de execução
-          reconstructed = await bhBatchUpdateService.reconstructJobResults(dbJob)
+          try {
+            reconstructed = await bhBatchUpdateService.reconstructJobResults(dbJob)
+          } catch (recErr: any) {
+            console.error('Falha ao reconstruir resultados do job:', recErr)
+            const errMsg = recErr?.message || 'Falha ao reconstruir dados de price_checks do lote.'
+            setJobLoadError(errMsg)
+            toast({
+              title: 'Aviso: Histórico de verificações incompleto',
+              description: `Não foi possível carregar todas as verificações do lote do banco: ${errMsg}`,
+              variant: 'destructive',
+            })
+          }
+        } else {
+          setActiveJob(null)
+          setJobLoadError(null)
         }
-      } catch (e) {
-        console.warn('Falha ao checar jobs no banco:', e)
+      } catch (e: any) {
+        console.error('Falha ao consultar jobs no banco:', e)
+        const errMsg = e?.message || 'Falha de comunicação ao buscar lote persistido no banco.'
+        setJobLoadError(errMsg)
+        dbJob = null
+        reconstructed = null
+        setActiveJob(null)
+        toast({
+          title: 'Erro ao carregar lote do banco',
+          description: `${errMsg}. Cache local residual desativado por segurança.`,
+          variant: 'destructive',
+        })
       }
 
       // Se houver um lote detectado (dbJob), busca os produtos específicos do lote via fetchProductsByIds
@@ -213,46 +240,54 @@ export function AdminBhUpdatePage() {
       // Converte o mapa consolidado em lista para mesclagem
       const allLoadedProducts = Array.from(loadedProductMap.values())
 
-      // Se houver estado em localStorage, mescla como apoio secundário
-      const cached = localStorage.getItem(STORAGE_KEY)
-      let parsedCache: Record<string, Partial<ProductBatchItem>> = {}
-      if (cached) {
-        try {
-          parsedCache = JSON.parse(cached)
-        } catch {
-          parsedCache = {}
-        }
-      }
-
-      // Se há um lote no banco (dbJob com product_ids), esse lote é a autoridade EXCLUSIVA.
-      // Qualquer cache local de sessões antigas de produtos fora do lote atual deve ser descartado,
-      // limpando resíduos enganosos de auditoria (ex.: divergências fictícias com preço '—').
+      // Se há um lote válido no banco (dbJob com product_ids), esse lote é a autoridade EXCLUSIVA.
       const batchJobProductIds =
         dbJob && Array.isArray(dbJob.product_ids) && dbJob.product_ids.length > 0
           ? new Set(dbJob.product_ids)
           : null
 
-      // Poda proativa do próprio localStorage: se há lote ativo/restaurado, remove entradas
-      // de produtos que não pertencem ao lote, mantendo apenas itens do lote se houver
-      if (batchJobProductIds && cached) {
-        const prunedLocalCache: Record<string, Partial<ProductBatchItem>> = {}
-        let hasPrunedKeys = false
-        for (const [pId, savedVal] of Object.entries(parsedCache)) {
-          if (batchJobProductIds.has(pId)) {
-            prunedLocalCache[pId] = savedVal
-            hasPrunedKeys = true
-          }
-        }
-        try {
-          if (hasPrunedKeys) {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(prunedLocalCache))
-          } else {
+      // Se houver estado em localStorage, só é aceito se pertencer comprovadamente a um lote válido do banco.
+      // Se dbJob não foi carregado (dbJob === null), o cache local residual NÃO PODE ser aplicado de forma alguma:
+      // produtos voltam ao estado neutro e resíduos do localStorage são descartados.
+      const cached = localStorage.getItem(STORAGE_KEY)
+      let parsedCache: Record<string, Partial<ProductBatchItem>> = {}
+
+      if (cached) {
+        if (!dbJob || !batchJobProductIds) {
+          // Sem lote no banco: limpa o storage residual para não reter dados fantasma
+          try {
             localStorage.removeItem(STORAGE_KEY)
+          } catch {
+            // ignora
           }
-        } catch {
-          // ignora quota/desativado
+          parsedCache = {}
+        } else {
+          try {
+            parsedCache = JSON.parse(cached)
+          } catch {
+            parsedCache = {}
+          }
+
+          // Poda proativa do próprio localStorage: mantém apenas itens confirmadamente presentes no lote atual do banco
+          const prunedLocalCache: Record<string, Partial<ProductBatchItem>> = {}
+          let hasPrunedKeys = false
+          for (const [pId, savedVal] of Object.entries(parsedCache)) {
+            if (batchJobProductIds.has(pId)) {
+              prunedLocalCache[pId] = savedVal
+              hasPrunedKeys = true
+            }
+          }
+          try {
+            if (hasPrunedKeys) {
+              localStorage.setItem(STORAGE_KEY, JSON.stringify(prunedLocalCache))
+            } else {
+              localStorage.removeItem(STORAGE_KEY)
+            }
+          } catch {
+            // ignora quota/desativado
+          }
+          parsedCache = prunedLocalCache
         }
-        parsedCache = prunedLocalCache
       }
 
       const merged = allLoadedProducts.map((item) => {
@@ -287,9 +322,10 @@ export function AdminBhUpdatePage() {
           }
         }
 
-        // Se há um lote no banco, produtos fora do lote NÃO recebem dados de localStorage:
-        // voltam estritamente ao estado neutro (sem auditoria residual).
-        if (batchJobProductIds && !batchJobProductIds.has(item.id)) {
+        // Se NÃO há lote no banco, OU o produto está fora do lote do banco:
+        // estado DEVE voltar estritamente ao neutro ('idle', checkResult: null, errorMessage: null).
+        // Nenhum cache local residual pode ser aplicado a este produto.
+        if (!batchJobProductIds || !batchJobProductIds.has(item.id)) {
           return {
             ...item,
             batchStatus: 'idle' as const,
@@ -298,7 +334,7 @@ export function AdminBhUpdatePage() {
           }
         }
 
-        // Prioridade 3: cache local de sessão (apenas para itens do lote atual se existir lote)
+        // Prioridade 3: cache local de sessão (SOMENTE para itens confirmadamente pertencentes ao lote atual do banco)
         const saved = parsedCache[item.id]
         if (saved) {
           return {
@@ -1804,6 +1840,38 @@ export function AdminBhUpdatePage() {
               </div>
             </div>
           </div>
+
+          {/* Alerta de Falha ao Carregar Lote do Banco */}
+          {jobLoadError && !loading && (
+            <div className="bg-destructive/10 border border-destructive/40 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-lg bg-destructive/20 border border-destructive/40 flex items-center justify-center text-destructive font-bold shrink-0">
+                  <AlertCircle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="font-semibold text-sm text-destructive">
+                    Falha ao carregar lote persistido do banco
+                  </h4>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {jobLoadError} Por segurança e para evitar dados fantasma, nenhum cache local
+                    residual foi aplicado.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => loadInitialProducts()}
+                  className="text-xs h-9 border-destructive/40 text-destructive hover:bg-destructive/10"
+                >
+                  <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
+                  Tentar Novamente
+                </Button>
+              </div>
+            </div>
+          )}
 
           {/* Alerta de Lote em Andamento Persistido em Banco */}
           {activeJob && (activeJob.status === 'in_progress' || activeJob.status === 'paused') && (

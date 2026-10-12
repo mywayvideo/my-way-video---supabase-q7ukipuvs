@@ -1239,8 +1239,6 @@ export function AdminCategoriesPage() {
                             <div className="flex items-start gap-3">
                               <Link
                                 to={`/products/edit/${product.id}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
                                 className="group/img shrink-0"
                                 title="Abrir cadastro admin do produto (/products/edit/:id)"
                               >
@@ -1263,13 +1261,10 @@ export function AdminCategoriesPage() {
                                 {/* Link para ir direto ao cadastro admin /products/edit/:id */}
                                 <Link
                                   to={`/products/edit/${product.id}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
                                   className="text-xs font-semibold text-foreground hover:text-primary hover:underline line-clamp-2 leading-snug inline-flex items-center gap-1 group/title"
                                   title={`Abrir cadastro admin: ${product.name}`}
                                 >
                                   <span>{product.name}</span>
-                                  <ExternalLink className="w-3 h-3 opacity-0 group-hover/title:opacity-100 transition-opacity shrink-0 text-primary" />
                                 </Link>
                                 <div className="flex items-center gap-2 mt-1">
                                   {product.sku && (
@@ -1308,8 +1303,6 @@ export function AdminCategoriesPage() {
                                     <TooltipTrigger asChild>
                                       <Link
                                         to={`/products/edit/${product.id}`}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
                                         className="inline-block"
                                       >
                                         <Badge
@@ -1318,7 +1311,6 @@ export function AdminCategoriesPage() {
                                         >
                                           <AlertTriangle className="w-2.5 h-2.5 text-amber-600 dark:text-amber-400 shrink-0" />
                                           <span>NCM fora do padrão</span>
-                                          <ExternalLink className="w-2.5 h-2.5 ml-0.5 opacity-60" />
                                         </Badge>
                                       </Link>
                                     </TooltipTrigger>

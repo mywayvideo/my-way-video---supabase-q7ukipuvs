@@ -1427,4 +1427,191 @@ describe('B&H Batch Update Service & Business Rules', () => {
       (effectiveStatus === 'ok' || effectiveStatus === 'divergente')
     expect(showReactivateButton).toBe(true)
   })
+
+  it('orders batch results by action priority rank: divergente > descontinuado > link duvidoso > erro > ok', async () => {
+    const { getActionPriorityRank } = await import('@/pages/admin/AdminBhUpdatePage')
+
+    const pDivergentOld: ProductBatchItem = {
+      id: 'p-div-old',
+      name: 'Item Divergente Antigo',
+      sku: 'DIV-01',
+      price_usd: 100,
+      website_url: 'https://bh.com/1',
+      is_discontinued: false,
+      updated_at: '2026-01-01T10:00:00Z',
+      last_reviewed_at: '2026-01-01T10:00:00Z',
+      batchStatus: 'done',
+      checkResult: {
+        status: 'divergente',
+        price_bh: 120,
+        diff_usd: 20,
+        diff_pct: 20,
+      },
+    }
+
+    const pDivergentRecent: ProductBatchItem = {
+      id: 'p-div-rec',
+      name: 'Item Divergente Recente',
+      sku: 'DIV-02',
+      price_usd: 200,
+      website_url: 'https://bh.com/2',
+      is_discontinued: false,
+      updated_at: '2026-03-01T10:00:00Z',
+      last_reviewed_at: '2026-03-01T10:00:00Z',
+      batchStatus: 'done',
+      checkResult: {
+        status: 'divergente',
+        price_bh: 250,
+        diff_usd: 50,
+        diff_pct: 25,
+      },
+    }
+
+    const pDiscontinuedBrch800: ProductBatchItem = {
+      id: 'p-brch800',
+      name: 'Sony BRC-H800 (is_discontinued true mas check divergente)',
+      sku: 'BRCH800',
+      price_usd: 0,
+      website_url: 'https://bh.com/brch800',
+      is_discontinued: true,
+      updated_at: '2026-02-01T10:00:00Z',
+      last_reviewed_at: '2026-02-01T10:00:00Z',
+      batchStatus: 'done',
+      checkResult: {
+        status: 'divergente',
+        price_bh: 5900,
+        diff_usd: 5900,
+        diff_pct: 100,
+      },
+    }
+
+    const pRealDiscontinued: ProductBatchItem = {
+      id: 'p-disc',
+      name: 'Item Realmente Descontinuado',
+      sku: 'DISC-01',
+      price_usd: 500,
+      website_url: 'https://bh.com/disc',
+      is_discontinued: true,
+      updated_at: '2026-01-15T10:00:00Z',
+      last_reviewed_at: '2026-01-15T10:00:00Z',
+      batchStatus: 'done',
+      checkResult: {
+        status: 'descontinuado',
+      },
+    }
+
+    const pDoubtfulLink: ProductBatchItem = {
+      id: 'p-doubtful',
+      name: 'Item Link Duvidoso',
+      sku: 'DOUBT-01',
+      price_usd: 300,
+      website_url: null,
+      is_discontinued: false,
+      updated_at: '2026-01-20T10:00:00Z',
+      last_reviewed_at: '2026-01-20T10:00:00Z',
+      batchStatus: 'done',
+      checkResult: {
+        status: 'sem_url_confirmada',
+      },
+    }
+
+    const pError: ProductBatchItem = {
+      id: 'p-error',
+      name: 'Item com Falha no Lote',
+      sku: 'ERR-01',
+      price_usd: 400,
+      website_url: 'https://bh.com/err',
+      is_discontinued: false,
+      updated_at: '2026-01-10T10:00:00Z',
+      last_reviewed_at: '2026-01-10T10:00:00Z',
+      batchStatus: 'error',
+      errorMessage: 'Network timeout',
+    }
+
+    const pOkOld: ProductBatchItem = {
+      id: 'p-ok-old',
+      name: 'Item OK Antigo',
+      sku: 'OK-01',
+      price_usd: 800,
+      website_url: 'https://bh.com/ok1',
+      is_discontinued: false,
+      updated_at: '2026-01-05T10:00:00Z',
+      last_reviewed_at: '2026-01-05T10:00:00Z',
+      batchStatus: 'done',
+      checkResult: {
+        status: 'ok',
+        price_bh: 800,
+        diff_usd: 0,
+        diff_pct: 0,
+      },
+    }
+
+    const pOkRecent: ProductBatchItem = {
+      id: 'p-ok-rec',
+      name: 'Item OK Recente',
+      sku: 'OK-02',
+      price_usd: 900,
+      website_url: 'https://bh.com/ok2',
+      is_discontinued: false,
+      updated_at: '2026-03-10T10:00:00Z',
+      last_reviewed_at: '2026-03-10T10:00:00Z',
+      batchStatus: 'done',
+      checkResult: {
+        status: 'ok',
+        price_bh: 900,
+        diff_usd: 0,
+        diff_pct: 0,
+      },
+    }
+
+    // 1. Testa ranks individuais de prioridade
+    expect(getActionPriorityRank(pDivergentOld)).toBe(1)
+    expect(getActionPriorityRank(pDivergentRecent)).toBe(1)
+    // BRCH800 tem divergência e deve ter rank 1 (prevalece sobre is_discontinued)
+    expect(getActionPriorityRank(pDiscontinuedBrch800)).toBe(1)
+    expect(getActionPriorityRank(pRealDiscontinued)).toBe(2)
+    expect(getActionPriorityRank(pDoubtfulLink)).toBe(3)
+    expect(getActionPriorityRank(pError)).toBe(4)
+    expect(getActionPriorityRank(pOkOld)).toBe(5)
+    expect(getActionPriorityRank(pOkRecent)).toBe(5)
+
+    // 2. Simula ordenação em lote com desempate por data (mais antigo primeiro)
+    const unsortedList = [
+      pOkRecent,
+      pRealDiscontinued,
+      pDivergentRecent,
+      pError,
+      pDoubtfulLink,
+      pOkOld,
+      pDiscontinuedBrch800,
+      pDivergentOld,
+    ]
+
+    const sortedList = [...unsortedList].sort((a, b) => {
+      const rankA = getActionPriorityRank(a)
+      const rankB = getActionPriorityRank(b)
+      if (rankA !== rankB) {
+        return rankA - rankB
+      }
+      const aRev = a.last_reviewed_at || a.updated_at || 0
+      const bRev = b.last_reviewed_at || b.updated_at || 0
+      return new Date(aRev).getTime() - new Date(bRev).getTime()
+    })
+
+    // Bloco 1 (Divergentes): pDivergentOld (01/01), pDiscontinuedBrch800 (01/02), pDivergentRecent (01/03)
+    // Bloco 2 (Descontinuado): pRealDiscontinued
+    // Bloco 3 (Link Duvidoso): pDoubtfulLink
+    // Bloco 4 (Erro): pError
+    // Bloco 5 (OK): pOkOld (05/01), pOkRecent (10/03)
+    expect(sortedList.map((p) => p.id)).toEqual([
+      'p-div-old',
+      'p-brch800',
+      'p-div-rec',
+      'p-disc',
+      'p-doubtful',
+      'p-error',
+      'p-ok-old',
+      'p-ok-rec',
+    ])
+  })
 })

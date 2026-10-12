@@ -72,6 +72,54 @@ const MAX_BATCH_SELECTION = 100
  * Retorna true se last_reviewed_at existe, é da data de HOJE (dia civil local),
  * e não é anterior a updated_at (respeita a invariante do sistema: last_reviewed_at >= updated_at).
  */
+/**
+ * Retorna o peso de prioridade de ação para a lista de resultados em lote:
+ * 1 = Divergente (ação imediata: aplicar B&H ou reativar)
+ * 2 = Descontinuado (ação: confirmar descontinuação ou reativar/estado atual)
+ * 3 = Link Duvidoso / Ausente (ação: conferir link manual)
+ * 4 = Erro / Falha (ação: retentar)
+ * 5 = Preço OK (sem ação pendente)
+ * 6 = Outros / Pendentes
+ *
+ * Utiliza estritamente a precedência vigente onde 'divergente' prevalece sobre
+ * is_discontinued (regra v0.0.701 do BRCH800).
+ */
+export function getActionPriorityRank(item: ProductBatchItem): number {
+  const paired = bhBatchUpdateService.resolveItemPairedEvaluation(item)
+  const itemEffectiveStatus =
+    paired.effectiveStatus ||
+    item.checkResult?.status ||
+    (item.batchStatus === 'error' ? 'erro' : null)
+
+  // 1. Divergente tem prioridade máxima (prevalece inclusive sobre is_discontinued)
+  if (itemEffectiveStatus === 'divergente') {
+    return 1
+  }
+
+  // 2. Descontinuado (verificação descontinuado ou catálogo is_discontinued sem divergência)
+  if (itemEffectiveStatus === 'descontinuado' || item.is_discontinued) {
+    return 2
+  }
+
+  // 3. Link duvidoso / ausente
+  if (itemEffectiveStatus === 'sem_url_confirmada') {
+    return 3
+  }
+
+  // 4. Erros / Falhas de verificação ou lote
+  if (itemEffectiveStatus === 'erro' || item.batchStatus === 'error') {
+    return 4
+  }
+
+  // 5. Preço OK
+  if (itemEffectiveStatus === 'ok') {
+    return 5
+  }
+
+  // 6. Outros / pendentes sem status de auditoria
+  return 6
+}
+
 export function isReviewedToday(
   lastReviewedAt?: string | null,
   updatedAt?: string | null,
@@ -502,6 +550,16 @@ export function AdminBhUpdatePage() {
 
   // 2. Filtragem e ordenação dos produtos
   const filteredProducts = useMemo(() => {
+    // Contexto de lote ativo ou restaurado do banco/sessão
+    const isBatchContext = Boolean(
+      (activeJob &&
+        (activeJob.status === 'in_progress' ||
+          activeJob.status === 'paused' ||
+          activeJob.status === 'completed')) ||
+      selectedIds.size > 0 ||
+      isProcessingBatch,
+    )
+
     return products
       .filter((item) => {
         // Pareamento consistente de rebate e cálculo de status efetivo da verificação
@@ -568,6 +626,22 @@ export function AdminBhUpdatePage() {
         return true
       })
       .sort((a, b) => {
+        // Em contexto de lote ativo/restaurado: ordena por prioridade de ação
+        // 1=Divergente, 2=Descontinuado, 3=Link Duvidoso, 4=Erro, 5=OK, 6=Outros
+        // Em caso de empate (mesmo bloco), preserva a ordenação por data (mais desatualizados primeiro)
+        if (isBatchContext) {
+          const rankA = getActionPriorityRank(a)
+          const rankB = getActionPriorityRank(b)
+          if (rankA !== rankB) {
+            return rankA - rankB
+          }
+
+          const aRev = a.last_reviewed_at || a.updated_at || 0
+          const bRev = b.last_reviewed_at || b.updated_at || 0
+          return new Date(aRev).getTime() - new Date(bRev).getTime()
+        }
+
+        // Fora do contexto de lote: preserva as ordenações manuais existentes
         if (sortBy === 'updated_at_asc') {
           // Prioriza produtos com last_reviewed_at mais antigo (ou nunca revisados)
           const aRev = a.last_reviewed_at || a.updated_at || 0
@@ -589,6 +663,9 @@ export function AdminBhUpdatePage() {
       })
   }, [
     products,
+    activeJob,
+    selectedIds,
+    isProcessingBatch,
     filterType,
     statusFilter,
     selectedManufacturerId,

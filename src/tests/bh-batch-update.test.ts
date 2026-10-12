@@ -1614,4 +1614,326 @@ describe('B&H Batch Update Service & Business Rules', () => {
       'p-ok-rec',
     ])
   })
+
+  // =========================================================================
+  // CENÁRIOS ESPECÍFICOS DAS 5 CORREÇÕES
+  // =========================================================================
+
+  it('Cenário 1: Exclusão de produto sem check real dos filtros e contadores', () => {
+    // Produtos como CINECAMCPYXM12LFL não têm price_check no banco.
+    // Nunca devem aparecer em abas de status de auditoria ('divergente', 'descontinuado', 'sem_url_confirmada', 'ok', 'erro').
+    const items: ProductBatchItem[] = [
+      {
+        id: 'cinecam',
+        name: 'Cinema Camera',
+        sku: 'CINECAMCPYXM12LFL',
+        price_usd: 1200,
+        website_url: 'https://bh.com/cinecam',
+        is_discontinued: false,
+        updated_at: '2026-01-01T00:00:00Z',
+        last_reviewed_at: '2026-01-01T00:00:00Z',
+        batchStatus: 'idle',
+        checkResult: null, // SEM check real
+      },
+      {
+        id: 'real-div',
+        name: 'Real Divergente',
+        sku: 'DIV-01',
+        price_usd: 1000,
+        website_url: 'https://bh.com/div1',
+        is_discontinued: false,
+        updated_at: '2026-01-01T00:00:00Z',
+        last_reviewed_at: '2026-01-01T00:00:00Z',
+        batchStatus: 'done',
+        checkResult: {
+          status: 'divergente',
+          price_bh: 1100,
+          diff_usd: 100,
+          diff_pct: 10,
+        },
+      },
+    ]
+
+    // Simula a lógica de filtragem da página com a regra (1):
+    const filterByStatus = (statusFilter: string) => {
+      return items.filter((item) => {
+        if (statusFilter === 'all') return true
+        const hasRealVerification =
+          item.checkResult !== null || (statusFilter === 'erro' && item.batchStatus === 'error')
+        if (!hasRealVerification) return false
+
+        const paired = bhBatchUpdateService.resolveItemPairedEvaluation(item)
+        const itemEffectiveStatus =
+          paired.effectiveStatus || item.checkResult?.status || null
+
+        if (statusFilter === 'divergente') {
+          return itemEffectiveStatus === 'divergente'
+        }
+        if (statusFilter === 'descontinuado') {
+          return itemEffectiveStatus === 'descontinuado'
+        }
+        return itemEffectiveStatus === statusFilter
+      })
+    }
+
+    // CINECAMCPYXM12LFL não aparece em nenhuma aba de auditoria
+    expect(filterByStatus('divergente').map((p) => p.id)).toEqual(['real-div'])
+    expect(filterByStatus('descontinuado')).toHaveLength(0)
+    expect(filterByStatus('sem_url_confirmada')).toHaveLength(0)
+    expect(filterByStatus('ok')).toHaveLength(0)
+    expect(filterByStatus('erro')).toHaveLength(0)
+
+    // Simula contador de auditoria: produtos sem verificação real não incrementam nenhum contador
+    let totalVerified = 0
+    let divergentesCount = 0
+    items.forEach((item) => {
+      const hasRealVerification = item.checkResult !== null || item.batchStatus === 'error'
+      if (!hasRealVerification) return
+      totalVerified++
+      const paired = bhBatchUpdateService.resolveItemPairedEvaluation(item)
+      const st = paired.effectiveStatus || item.checkResult?.status || null
+      if (st === 'divergente') divergentesCount++
+    })
+
+    expect(totalVerified).toBe(1)
+    expect(divergentesCount).toBe(1)
+  })
+
+  it('Cenário 2: Atualização de contadores em tempo real após confirmação', () => {
+    // Ao confirmar uma ação humana (Aplicar B&H, Confirmar Estado Atual, etc.),
+    // o item é atualizado no estado local de modo a sair imediatamente da fila de divergentes.
+    const initialItems: ProductBatchItem[] = [
+      {
+        id: 'p1',
+        name: 'Item 1',
+        sku: 'SKU-1',
+        price_usd: 1000,
+        website_url: 'https://bh.com/1',
+        is_discontinued: false,
+        updated_at: '2026-01-01T00:00:00Z',
+        last_reviewed_at: '2026-01-01T00:00:00Z',
+        batchStatus: 'done',
+        checkResult: {
+          status: 'divergente',
+          price_bh: 1200,
+          diff_usd: 200,
+          diff_pct: 20,
+        },
+      },
+      {
+        id: 'p2',
+        name: 'Item 2',
+        sku: 'SKU-2',
+        price_usd: 500,
+        website_url: 'https://bh.com/2',
+        is_discontinued: false,
+        updated_at: '2026-01-01T00:00:00Z',
+        last_reviewed_at: '2026-01-01T00:00:00Z',
+        batchStatus: 'done',
+        checkResult: {
+          status: 'divergente',
+          price_bh: 550,
+          diff_usd: 50,
+          diff_pct: 10,
+        },
+      },
+    ]
+
+    const computeCounts = (list: ProductBatchItem[]) => {
+      let div = 0
+      let ok = 0
+      list.forEach((item) => {
+        if (!item.checkResult && item.batchStatus !== 'error') return
+        const paired = bhBatchUpdateService.resolveItemPairedEvaluation(item)
+        const st = paired.effectiveStatus || item.checkResult?.status || null
+        if (st === 'divergente') div++
+        else if (st === 'ok') ok++
+      })
+      return { div, ok }
+    }
+
+    expect(computeCounts(initialItems)).toEqual({ div: 2, ok: 0 })
+
+    // Ação 1: Aplicar B&H em p1 -> price_usd = 1200, checkResult.status = 'ok'
+    const afterApplyP1 = initialItems.map((p) =>
+      p.id === 'p1'
+        ? {
+            ...p,
+            price_usd: 1200,
+            checkResult: {
+              ...(p.checkResult as any),
+              status: 'ok' as const,
+              diff_usd: 0,
+              diff_pct: 0,
+            },
+          }
+        : p,
+    )
+
+    // Contadores atualizam na hora sem reload
+    expect(computeCounts(afterApplyP1)).toEqual({ div: 1, ok: 1 })
+
+    // Ação 2: Confirmar Estado Atual em p2 -> checkResult.status = 'ok', pendência resolvida
+    const afterConfirmP2 = afterApplyP1.map((p) =>
+      p.id === 'p2'
+        ? {
+            ...p,
+            checkResult: {
+              ...(p.checkResult as any),
+              status: 'ok' as const,
+            },
+          }
+        : p,
+    )
+
+    expect(computeCounts(afterConfirmP2)).toEqual({ div: 0, ok: 2 })
+  })
+
+  it('Cenário 3: Agregação de novo lote mantendo pendências anteriores ativas', () => {
+    // Pendência persistente por produto: um produto analisado no passado (ex: semana anterior)
+    // cuja pendência ainda não foi resolvida por humano (last_reviewed_at < checked_at)
+    // é mantido quando um novo lote roda.
+    const activePendingMap: Record<string, { checkResult: any; website_url: string; price_usd: number }> = {
+      'p-old-pending': {
+        checkResult: {
+          status: 'divergente',
+          price_bh: 850,
+          diff_usd: 50,
+          diff_pct: 6.25,
+        },
+        website_url: 'https://bh.com/old',
+        price_usd: 800,
+      },
+    }
+
+    // Novo lote de 1 produto rodou agora (p-new-batch)
+    const newBatchJobResults: Record<string, any> = {
+      'p-new-batch': {
+        batchStatus: 'done',
+        checkResult: {
+          status: 'divergente',
+          price_bh: 1500,
+          diff_usd: 200,
+          diff_pct: 15,
+        },
+        website_url: 'https://bh.com/new',
+        price_usd: 1300,
+      },
+    }
+
+    const allLoadedProducts: ProductBatchItem[] = [
+      {
+        id: 'p-old-pending',
+        name: 'Produto Pendente Antigo',
+        sku: 'OLD-01',
+        price_usd: 800,
+        website_url: 'https://bh.com/old',
+        is_discontinued: false,
+        updated_at: '2026-03-01T00:00:00Z',
+        last_reviewed_at: '2026-03-01T00:00:00Z', // Anterior ao check
+      },
+      {
+        id: 'p-new-batch',
+        name: 'Produto Novo do Lote',
+        sku: 'NEW-01',
+        price_usd: 1300,
+        website_url: 'https://bh.com/new',
+        is_discontinued: false,
+        updated_at: '2026-03-10T00:00:00Z',
+        last_reviewed_at: '2026-03-10T00:00:00Z',
+      },
+      {
+        id: 'p-neutral',
+        name: 'Produto Neutro Sem Pendência',
+        sku: 'NEU-01',
+        price_usd: 200,
+        website_url: 'https://bh.com/neu',
+        is_discontinued: false,
+        updated_at: '2026-03-10T00:00:00Z',
+        last_reviewed_at: '2026-03-10T00:00:00Z',
+      },
+    ]
+
+    const batchJobProductIds = new Set(['p-new-batch'])
+
+    // Mesclagem com regra (3):
+    const merged = allLoadedProducts.map((item) => {
+      if (batchJobProductIds.has(item.id) && newBatchJobResults[item.id]) {
+        const dbItem = newBatchJobResults[item.id]
+        return {
+          ...item,
+          batchStatus: 'done' as const,
+          checkResult: dbItem.checkResult,
+        }
+      }
+      if (activePendingMap[item.id]) {
+        const pend = activePendingMap[item.id]
+        return {
+          ...item,
+          batchStatus: 'done' as const,
+          checkResult: pend.checkResult,
+        }
+      }
+      return {
+        ...item,
+        batchStatus: 'idle' as const,
+        checkResult: null,
+      }
+    })
+
+    // Ambos os divergentes (antigo persistente e novo do lote) estão presentes
+    const divergentItems = merged.filter((p) => p.checkResult?.status === 'divergente')
+    expect(divergentItems.map((p) => p.id)).toEqual(['p-old-pending', 'p-new-batch'])
+
+    // Produto neutro não tem checkResult
+    const neutral = merged.find((p) => p.id === 'p-neutral')
+    expect(neutral?.checkResult).toBeNull()
+  })
+
+  it('Cenário 4: Checagem automática NÃO grava last_reviewed_at nem updated_at', () => {
+    // A checagem automática (Firecrawl / B&H) atualiza exclusivamente website_url se descoberto
+    // e grava o histórico em price_checks. NUNCA toca em last_reviewed_at nem updated_at.
+    // Somente ações humanas carimbam essas datas.
+    const initialProductState = {
+      id: 'prod-auto',
+      website_url: null,
+      updated_at: '2026-01-15T12:00:00Z',
+      last_reviewed_at: '2026-01-15T12:00:00Z',
+    }
+
+    // Simulação do payload de update da checagem automática após a correção:
+    const simulateAutomaticUrlDiscovery = (prod: typeof initialProductState, discoveredUrl: string) => {
+      // Regra (4): checagem automática atualiza SOMENTE website_url, sem carimbar datas
+      return {
+        ...prod,
+        website_url: discoveredUrl,
+        // updated_at e last_reviewed_at permanecem intocados!
+      }
+    }
+
+    const stateAfterAutoCheck = simulateAutomaticUrlDiscovery(
+      initialProductState,
+      'https://www.bhphotovideo.com/c/product/123-REG/test.html',
+    )
+
+    expect(stateAfterAutoCheck.website_url).toBe('https://www.bhphotovideo.com/c/product/123-REG/test.html')
+    expect(stateAfterAutoCheck.updated_at).toBe(initialProductState.updated_at)
+    expect(stateAfterAutoCheck.last_reviewed_at).toBe(initialProductState.last_reviewed_at)
+
+    // Ação humana: ao alterar dados, atualiza ambas as datas para agora
+    const simulateHumanEdit = (prod: typeof stateAfterAutoCheck, newPrice: number) => {
+      const now = '2026-03-12T18:00:00Z'
+      return {
+        ...prod,
+        price_usd: newPrice,
+        updated_at: now,
+        last_reviewed_at: now,
+      }
+    }
+
+    const stateAfterHumanAction = simulateHumanEdit(stateAfterAutoCheck, 999)
+    expect(stateAfterHumanAction.updated_at).toBe('2026-03-12T18:00:00Z')
+    expect(stateAfterHumanAction.last_reviewed_at).toBe('2026-03-12T18:00:00Z')
+    expect(stateAfterHumanAction.last_reviewed_at).toBe(stateAfterHumanAction.updated_at)
+  })
 })

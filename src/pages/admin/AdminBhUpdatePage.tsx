@@ -265,45 +265,66 @@ export function AdminBhUpdatePage() {
         })
       }
 
-      // Se houver um lote detectado (dbJob), busca os produtos específicos do lote via fetchProductsByIds
-      // para garantir que mesmo produtos ausentes dos 2000 da listagem inicial apareçam na tela
+      // 1.1 REGRA (3): Consulta pendências ativas persistentes por produto no banco
+      // (price_checks com divergente, descontinuado ou sem_url_confirmada ainda não liquidados por ação humana)
+      let activePendingMap: Record<
+        string,
+        {
+          checkResult: any
+          website_url?: string | null
+          price_usd?: number | null
+        }
+      > = {}
+      try {
+        activePendingMap = await bhBatchUpdateService.fetchActiveProductPendingChecks()
+      } catch (pendErr) {
+        console.warn('Falha ao consultar pendências ativas persistentes:', pendErr)
+        activePendingMap = {}
+      }
+
+      // Se houver um lote detectado (dbJob) ou pendências ativas, busca produtos adicionais que estejam fora do limit
       const loadedProductMap = new Map<string, ProductBatchItem>()
       for (const item of data) {
         loadedProductMap.set(item.id, item)
       }
 
+      const neededExtraIds = new Set<string>()
       if (dbJob && dbJob.product_ids && dbJob.product_ids.length > 0) {
-        const missingIds = dbJob.product_ids.filter((id) => !loadedProductMap.has(id))
-        if (missingIds.length > 0) {
-          try {
-            const extraProducts = await bhBatchUpdateService.fetchProductsByIds(missingIds)
-            for (const extra of extraProducts) {
-              loadedProductMap.set(extra.id, extra)
-            }
-          } catch (extraErr) {
-            console.warn('Falha ao carregar produtos específicos do lote:', extraErr)
+        for (const id of dbJob.product_ids) {
+          if (!loadedProductMap.has(id)) neededExtraIds.add(id)
+        }
+      }
+      for (const id of Object.keys(activePendingMap)) {
+        if (!loadedProductMap.has(id)) neededExtraIds.add(id)
+      }
+
+      if (neededExtraIds.size > 0) {
+        try {
+          const extraProducts = await bhBatchUpdateService.fetchProductsByIds(
+            Array.from(neededExtraIds),
+          )
+          for (const extra of extraProducts) {
+            loadedProductMap.set(extra.id, extra)
           }
+        } catch (extraErr) {
+          console.warn('Falha ao carregar produtos específicos adicionais:', extraErr)
         }
       }
 
       // Converte o mapa consolidado em lista para mesclagem
       const allLoadedProducts = Array.from(loadedProductMap.values())
 
-      // Se há um lote válido no banco (dbJob com product_ids), esse lote é a autoridade EXCLUSIVA.
       const batchJobProductIds =
         dbJob && Array.isArray(dbJob.product_ids) && dbJob.product_ids.length > 0
           ? new Set(dbJob.product_ids)
           : null
 
       // Se houver estado em localStorage, só é aceito se pertencer comprovadamente a um lote válido do banco.
-      // Se dbJob não foi carregado (dbJob === null), o cache local residual NÃO PODE ser aplicado de forma alguma:
-      // produtos voltam ao estado neutro e resíduos do localStorage são descartados.
       const cached = localStorage.getItem(STORAGE_KEY)
       let parsedCache: Record<string, Partial<ProductBatchItem>> = {}
 
       if (cached) {
         if (!dbJob || !batchJobProductIds) {
-          // Sem lote no banco: limpa o storage residual para não reter dados fantasma
           try {
             localStorage.removeItem(STORAGE_KEY)
           } catch {
@@ -317,7 +338,6 @@ export function AdminBhUpdatePage() {
             parsedCache = {}
           }
 
-          // Poda proativa do próprio localStorage: mantém apenas itens confirmadamente presentes no lote atual do banco
           const prunedLocalCache: Record<string, Partial<ProductBatchItem>> = {}
           let hasPrunedKeys = false
           for (const [pId, savedVal] of Object.entries(parsedCache)) {
@@ -333,28 +353,19 @@ export function AdminBhUpdatePage() {
               localStorage.removeItem(STORAGE_KEY)
             }
           } catch {
-            // ignora quota/desativado
+            // ignora
           }
           parsedCache = prunedLocalCache
         }
       }
 
       const merged = allLoadedProducts.map((item) => {
-        // GUARDA ABSOLUTA PRIMEIRO:
-        // Se NÃO há lote no banco, OU o produto está fora do lote do banco:
-        // o estado DEVE voltar estritamente ao neutro ('idle', checkResult: null, errorMessage: null).
-        // Nenhum resultado de reconstructed, dbJob.results ou parsedCache pode contaminar produtos fora do lote.
-        if (!batchJobProductIds || !batchJobProductIds.has(item.id)) {
-          return {
-            ...item,
-            batchStatus: 'idle' as const,
-            checkResult: null,
-            errorMessage: null,
-          }
-        }
-
-        // Prioridade 1: resultado reconstruído do banco (job + price_checks)
-        if (reconstructed?.results && reconstructed.results[item.id]) {
+        // Prioridade 1: resultado reconstruído do banco (job + price_checks) para itens do lote atual
+        if (
+          batchJobProductIds?.has(item.id) &&
+          reconstructed?.results &&
+          reconstructed.results[item.id]
+        ) {
           const recItem = reconstructed.results[item.id]
           const finalUrl =
             recItem.website_url || reconstructed.sourceUrls[item.id] || item.website_url
@@ -369,8 +380,8 @@ export function AdminBhUpdatePage() {
           }
         }
 
-        // Prioridade 2: resultado direto gravado no results do job
-        if (dbJob?.results && dbJob.results[item.id]) {
+        // Prioridade 2: resultado direto gravado no results do job para itens do lote atual
+        if (batchJobProductIds?.has(item.id) && dbJob?.results && dbJob.results[item.id]) {
           const dbItem = dbJob.results[item.id]
           const finalUrl = dbItem.website_url || item.website_url
           return {
@@ -385,19 +396,45 @@ export function AdminBhUpdatePage() {
         }
 
         // Prioridade 3: cache local de sessão (SOMENTE para itens confirmadamente pertencentes ao lote atual do banco)
-        const saved = parsedCache[item.id]
-        if (saved) {
-          return {
-            ...item,
-            batchStatus: saved.batchStatus || item.batchStatus,
-            checkResult: saved.checkResult || item.checkResult,
-            errorMessage: saved.errorMessage || item.errorMessage,
-            manualUrlDraft: saved.manualUrlDraft ?? item.manualUrlDraft,
-            website_url: saved.website_url ?? item.website_url,
-            price_usd: saved.price_usd ?? item.price_usd,
+        if (batchJobProductIds?.has(item.id)) {
+          const saved = parsedCache[item.id]
+          if (saved) {
+            return {
+              ...item,
+              batchStatus: saved.batchStatus || item.batchStatus,
+              checkResult: saved.checkResult || item.checkResult,
+              errorMessage: saved.errorMessage || item.errorMessage,
+              manualUrlDraft: saved.manualUrlDraft ?? item.manualUrlDraft,
+              website_url: saved.website_url ?? item.website_url,
+              price_usd: saved.price_usd ?? item.price_usd,
+            }
           }
         }
-        return item
+
+        // Prioridade 4 (REGRA 3): Pendência humana persistente ativa por produto
+        // Se o produto não faz parte do lote atual (ou se o lote não gerou resultado para ele),
+        // mas tem pendência ativa no banco (price_check não liquidado por ação humana):
+        if (activePendingMap[item.id]) {
+          const pend = activePendingMap[item.id]
+          const finalUrl = pend.website_url || item.website_url
+          return {
+            ...item,
+            batchStatus: 'done' as const,
+            checkResult: pend.checkResult,
+            errorMessage: null,
+            website_url: finalUrl,
+            price_usd: pend.price_usd ?? item.price_usd,
+            manualUrlDraft: finalUrl || item.manualUrlDraft,
+          }
+        }
+
+        // Produto neutro sem lote e sem pendência ativa
+        return {
+          ...item,
+          batchStatus: 'idle' as const,
+          checkResult: null,
+          errorMessage: null,
+        }
       })
 
       setProducts(merged)
@@ -585,21 +622,29 @@ export function AdminBhUpdatePage() {
         }
 
         // Filtro por status de auditoria do lote (com pareamento consistente de rebate)
+        // REGRA (1): para qualquer aba de status de auditoria (divergente, descontinuado,
+        // sem_url_confirmada, ok, erro), o produto DEVE ter verificação real do banco
+        // (checkResult !== null ou item.batchStatus === 'error').
+        // Produto sem verificação real NUNCA aparece em nenhum grupo de auditoria.
         if (statusFilter !== 'all') {
+          const hasRealVerification =
+            item.checkResult !== null || (statusFilter === 'erro' && item.batchStatus === 'error')
+          if (!hasRealVerification) {
+            return false
+          }
+
           if (statusFilter === 'divergente') {
             // ESTRITAMENTE quando o effectiveStatus for 'divergente'
             if (itemEffectiveStatus !== 'divergente') return false
           } else if (statusFilter === 'descontinuado') {
             // Prevalência da verificação: quando a verificação for divergente, NÃO entra em descontinuados.
-            // "Descontinuados" só recebe itens cuja verificação veio descontinuada,
-            // ou descontinuados no catálogo sem check divergente.
+            // "Descontinuados" na aba de auditoria só recebe itens com check real 'descontinuado'
             if (itemEffectiveStatus === 'divergente') return false
-            const isDesc = itemEffectiveStatus === 'descontinuado' || item.is_discontinued
-            if (!isDesc) return false
+            if (itemEffectiveStatus !== 'descontinuado') return false
           } else if (statusFilter === 'erro') {
             if (itemEffectiveStatus !== 'erro' && item.batchStatus !== 'error') return false
           } else {
-            // Se o item estiver descontinuado no catálogo mas tiver check 'ok', statusFilter 'ok' aceita
+            // Abas 'ok', 'sem_url_confirmada', etc.
             if (itemEffectiveStatus !== statusFilter) return false
           }
         }
@@ -876,11 +921,12 @@ export function AdminBhUpdatePage() {
   }, [selectedProducts])
 
   // Contadores para os filtros rápidos por status de auditoria
+  // REGRA (1): exibe SOMENTE produtos com status real segundo o banco (checkResult !== null ou batchStatus === 'error').
   // Se houver produtos selecionados no lote, reflete a verdade do lote selecionado/restaurado
-  // Caso contrário, calcula sobre o conjunto completo de produtos com verificação
+  // Caso contrário, calcula sobre o conjunto de produtos com verificação real
   const auditFilterCounts = useMemo(() => {
     const targetSet = selectedProducts.length > 0 ? selectedProducts : products
-    let total = targetSet.length
+    let total = 0
     let divergentes = 0
     let descontinuados = 0
     let duvidosos = 0
@@ -888,6 +934,11 @@ export function AdminBhUpdatePage() {
     let erros = 0
 
     targetSet.forEach((item) => {
+      // Produto sem verificação real não entra em nenhum grupo de auditoria
+      const hasRealVerification = item.checkResult !== null || item.batchStatus === 'error'
+      if (!hasRealVerification) return
+
+      total++
       const paired = bhBatchUpdateService.resolveItemPairedEvaluation(item)
       const st =
         paired.effectiveStatus ||
@@ -896,10 +947,10 @@ export function AdminBhUpdatePage() {
 
       // Prevalência estrita do status da verificação:
       // Se st === 'divergente', conta ESTRITAMENTE em divergentes (mesmo se is_discontinued no catálogo).
-      // Descontinuados só conta itens cuja verificação veio descontinuada, ou descontinuados no catálogo sem check divergente.
+      // Descontinuados na auditoria só conta itens cuja verificação veio descontinuada.
       if (st === 'divergente') {
         divergentes++
-      } else if (st === 'descontinuado' || item.is_discontinued) {
+      } else if (st === 'descontinuado') {
         descontinuados++
       } else if (st === 'sem_url_confirmada') {
         duvidosos++
@@ -1601,7 +1652,15 @@ export function AdminBhUpdatePage() {
             ? {
                 ...p,
                 last_reviewed_at: reviewedAtIso,
+                batchStatus: 'done',
                 isReviewing: false,
+                checkResult: p.checkResult
+                  ? {
+                      ...p.checkResult,
+                      status: 'ok',
+                      message: 'Revisão confirmada manualmente.',
+                    }
+                  : null,
               }
             : p,
         ),
@@ -1639,6 +1698,15 @@ export function AdminBhUpdatePage() {
                 updated_at: nowIso,
                 last_reviewed_at: nowIso,
                 isUpdatingDiscontinued: false,
+                batchStatus: 'done',
+                checkResult: p.checkResult
+                  ? {
+                      ...p.checkResult,
+                      status: 'ok',
+                      is_discontinued: true,
+                      message: 'Descontinuação confirmada no catálogo.',
+                    }
+                  : null,
               }
             : p,
         ),
@@ -1678,6 +1746,15 @@ export function AdminBhUpdatePage() {
                 updated_at: nowIso,
                 last_reviewed_at: nowIso,
                 isUpdatingDiscontinued: false,
+                batchStatus: 'done',
+                checkResult: p.checkResult
+                  ? {
+                      ...p.checkResult,
+                      status: 'ok',
+                      is_discontinued: false,
+                      message: 'Produto reativado no catálogo.',
+                    }
+                  : null,
               }
             : p,
         ),
@@ -1699,10 +1776,9 @@ export function AdminBhUpdatePage() {
     }
   }
 
-  // Ação 4.7: Confirmar Estado Atual Individual (Falso-positivo de descontinuação)
-  // Atualiza SOMENTE last_reviewed_at = agora, sem tocar updated_at, price_usd ou is_discontinued.
-  // Limpa a pendência do item no lote (batchStatus 'done', marcado como revisado hoje)
-  // e atualiza o checkpoint em bh_batch_jobs se houver job ativo.
+  // Ação 4.7: Confirmar Estado Atual Individual (Falso-positivo de descontinuação / confirmação sem alteração)
+  // REGRA (2): Atualiza SOMENTE last_reviewed_at = agora, sem tocar updated_at, price_usd ou is_discontinued.
+  // Liquida a pendência: checkResult.status = 'ok', saindo do grupo de divergentes/descontinuados na hora.
   const handleConfirmSingleCurrentState = async (item: ProductBatchItem) => {
     setProducts((prev) => prev.map((p) => (p.id === item.id ? { ...p, isReviewing: true } : p)))
 
@@ -1717,6 +1793,13 @@ export function AdminBhUpdatePage() {
                 last_reviewed_at: reviewedAtIso,
                 batchStatus: 'done',
                 isReviewing: false,
+                checkResult: p.checkResult
+                  ? {
+                      ...p.checkResult,
+                      status: 'ok',
+                      message: 'Estado atual mantido e confirmado.',
+                    }
+                  : null,
               }
             : p,
         ),
@@ -1725,6 +1808,14 @@ export function AdminBhUpdatePage() {
       // Atualiza checkpoint no job em bh_batch_jobs se existir
       if (activeJob?.id) {
         try {
+          const resolvedCheckResult = item.checkResult
+            ? {
+                ...item.checkResult,
+                status: 'ok' as const,
+                message: 'Estado atual mantido e confirmado.',
+              }
+            : null
+
           const updatedResultsSnapshot: Record<
             string,
             {
@@ -1737,7 +1828,7 @@ export function AdminBhUpdatePage() {
           > = {
             ...(activeJob.results || {}),
             [item.id]: {
-              checkResult: item.checkResult || undefined,
+              checkResult: resolvedCheckResult || undefined,
               batchStatus: 'done',
               errorMessage: undefined,
               website_url: item.website_url || undefined,
@@ -1746,14 +1837,21 @@ export function AdminBhUpdatePage() {
           }
           const currentStats = bhBatchUpdateService.calculateStats(
             selectedProducts.map((p) =>
-              p.id === item.id ? { ...p, last_reviewed_at: reviewedAtIso, batchStatus: 'done' } : p,
+              p.id === item.id
+                ? {
+                    ...p,
+                    last_reviewed_at: reviewedAtIso,
+                    batchStatus: 'done',
+                    checkResult: resolvedCheckResult,
+                  }
+                : p,
             ),
           )
           await bhBatchUpdateService.recordItemCheckpoint({
             jobId: activeJob.id,
             productId: item.id,
             batchStatus: 'done',
-            checkResult: item.checkResult || null,
+            checkResult: resolvedCheckResult,
             errorMessage: null,
             websiteUrl: item.website_url,
             priceUsd: item.price_usd,
@@ -1820,6 +1918,13 @@ export function AdminBhUpdatePage() {
                 ...p,
                 last_reviewed_at: reviewedAtIso,
                 batchStatus: 'done',
+                checkResult: p.checkResult
+                  ? {
+                      ...p.checkResult,
+                      status: 'ok',
+                      message: 'Estado atual mantido e confirmado em lote.',
+                    }
+                  : null,
               }
             : p,
         ),
@@ -1840,8 +1945,15 @@ export function AdminBhUpdatePage() {
           > = { ...(activeJob.results || {}) }
           candidateIds.forEach((id) => {
             const p = products.find((prod) => prod.id === id)
+            const resolvedCheck = p?.checkResult
+              ? {
+                  ...p.checkResult,
+                  status: 'ok' as const,
+                  message: 'Estado atual mantido e confirmado em lote.',
+                }
+              : undefined
             updatedResults[id] = {
-              checkResult: p?.checkResult || undefined,
+              checkResult: resolvedCheck,
               batchStatus: 'done',
               errorMessage: undefined,
               website_url: p?.website_url || undefined,
@@ -1851,7 +1963,12 @@ export function AdminBhUpdatePage() {
           const currentStats = bhBatchUpdateService.calculateStats(
             selectedProducts.map((p) =>
               candidateIds.includes(p.id)
-                ? { ...p, last_reviewed_at: reviewedAtIso, batchStatus: 'done' }
+                ? {
+                    ...p,
+                    last_reviewed_at: reviewedAtIso,
+                    batchStatus: 'done',
+                    checkResult: p.checkResult ? { ...p.checkResult, status: 'ok' as const } : null,
+                  }
                 : p,
             ),
           )
@@ -1927,6 +2044,15 @@ export function AdminBhUpdatePage() {
                 is_discontinued: true,
                 updated_at: nowIso,
                 last_reviewed_at: nowIso,
+                batchStatus: 'done',
+                checkResult: p.checkResult
+                  ? {
+                      ...p.checkResult,
+                      status: 'ok',
+                      is_discontinued: true,
+                      message: 'Descontinuação confirmada no catálogo em lote.',
+                    }
+                  : null,
               }
             : p,
         ),
@@ -1981,6 +2107,15 @@ export function AdminBhUpdatePage() {
                 is_discontinued: false,
                 updated_at: nowIso,
                 last_reviewed_at: nowIso,
+                batchStatus: 'done',
+                checkResult: p.checkResult
+                  ? {
+                      ...p.checkResult,
+                      status: 'ok',
+                      is_discontinued: false,
+                      message: 'Produto reativado no catálogo em lote.',
+                    }
+                  : null,
               }
             : p,
         ),
@@ -2036,6 +2171,14 @@ export function AdminBhUpdatePage() {
             ? {
                 ...p,
                 last_reviewed_at: reviewedAtIso,
+                batchStatus: 'done',
+                checkResult: p.checkResult
+                  ? {
+                      ...p.checkResult,
+                      status: 'ok',
+                      message: 'Revisão confirmada em lote.',
+                    }
+                  : null,
               }
             : p,
         ),

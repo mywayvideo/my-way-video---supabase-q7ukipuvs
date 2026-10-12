@@ -970,4 +970,153 @@ export const bhBatchUpdateService = {
       sourceUrls,
     }
   },
+
+  /**
+   * Consulta os price_checks mais recentes com status de pendência
+   * ('divergente', 'descontinuado', 'sem_url_confirmada') onde a pendência
+   * humana ainda está ativa (last_reviewed_at < checked_at ou nulo).
+   *
+   * Regras:
+   * - Para 'divergente': pendência ativa se p.price_usd !== pc.price_bh E p.last_reviewed_at < pc.checked_at.
+   * - Para 'descontinuado': pendência ativa se p.is_discontinued !== true E p.last_reviewed_at < pc.checked_at.
+   * - Para 'sem_url_confirmada': pendência ativa se p.last_reviewed_at < pc.checked_at.
+   * - Ação humana (last_reviewed_at >= checked_at) liquida a pendência.
+   *
+   * Novos lotes agregam itens aos grupos; pendências antigas não resolvidas permanecem.
+   */
+  async fetchActiveProductPendingChecks(): Promise<
+    Record<
+      string,
+      {
+        checkResult: PriceCheckResult
+        website_url?: string | null
+        price_usd?: number | null
+      }
+    >
+  > {
+    try {
+      // 1. Busca os price_checks com status de auditoria pendente
+      const { data: checks, error } = await supabase
+        .from('price_checks')
+        .select('*')
+        .in('status', ['divergente', 'descontinuado', 'sem_url_confirmada'])
+        .order('checked_at', { ascending: false })
+        .limit(1000)
+
+      if (error) {
+        console.warn('bhBatchUpdateService.fetchActiveProductPendingChecks error:', error.message)
+        return {}
+      }
+
+      if (!checks || checks.length === 0) {
+        return {}
+      }
+
+      // Agrupa pelo mais recente de cada produto
+      const latestChecksByProduct = new Map<string, any>()
+      for (const row of checks) {
+        if (!latestChecksByProduct.has(row.product_id)) {
+          latestChecksByProduct.set(row.product_id, row)
+        }
+      }
+
+      const productIds = Array.from(latestChecksByProduct.keys())
+      if (productIds.length === 0) return {}
+
+      // 2. Busca dados atuais dos produtos para avaliar se a pendência ainda está ativa
+      const productsData = await this.fetchProductsByIds(productIds)
+      const productsMap = new Map<string, ProductBatchItem>()
+      for (const p of productsData) {
+        productsMap.set(p.id, p)
+      }
+
+      const activePendingMap: Record<
+        string,
+        {
+          checkResult: PriceCheckResult
+          website_url?: string | null
+          price_usd?: number | null
+        }
+      > = {}
+
+      for (const [pId, row] of latestChecksByProduct.entries()) {
+        const prod = productsMap.get(pId)
+        if (!prod) continue
+
+        const checkTime = new Date(row.checked_at).getTime()
+        const reviewTime = prod.last_reviewed_at ? new Date(prod.last_reviewed_at).getTime() : 0
+
+        // Se uma ação humana já revisou após a checagem, pendência foi liquidada
+        // (com tolerância de 500ms caso checagem e revisão tenham sido disparadas quase juntas)
+        if (prod.last_reviewed_at && reviewTime >= checkTime - 500) {
+          // Exceção de divergência de preço: se o preço ainda divergir e não foi revisado hoje,
+          // ou se foi liquidado formalmente?
+          // Conforme especificação: "Ação humana (last_reviewed_at >= checked_at) liquida a pendência.
+          // Para divergência de preço: pendência ativa se p.price_usd !== pc.price_bh e p.last_reviewed_at < pc.checked_at."
+          continue
+        }
+
+        // Divergência de preço: ativa se p.price_usd !== pc.price_bh e p.last_reviewed_at < pc.checked_at
+        if (row.status === 'divergente') {
+          const currentPrice = prod.price_usd != null ? Number(prod.price_usd) : null
+          const bhPrice = row.price_bh != null ? Number(row.price_bh) : null
+          if (currentPrice === bhPrice && bhPrice !== null) {
+            // Preço já está igual ao B&H, pendência sanada
+            continue
+          }
+        }
+
+        // Descontinuação: se o produto já está marcado como is_discontinued no catálogo, não há pendência de descontinuação pendente
+        if (row.status === 'descontinuado' && prod.is_discontinued) {
+          continue
+        }
+
+        const rawData = row.raw || {}
+        const rebateInfo = rawData.rebate_info || {}
+        const isRebateActive = Boolean(rawData.rebate_active ?? rebateInfo.rebate_active ?? false)
+        const priceFull =
+          row.price_bh != null
+            ? Number(row.price_bh)
+            : rebateInfo.price_full != null
+              ? Number(rebateInfo.price_full)
+              : null
+        const priceWithRebate =
+          rebateInfo.price_with_rebate != null ? Number(rebateInfo.price_with_rebate) : null
+        const rebateEndDate = rawData.rebate_end_date ?? rebateInfo.rebate_end_date ?? null
+
+        const checkResult: PriceCheckResult = {
+          status: row.status as PriceCheckStatus,
+          price_usd_cadastrado: row.price_db != null ? Number(row.price_db) : null,
+          price_bh: row.price_bh != null ? Number(row.price_bh) : null,
+          diff_usd: row.diff_usd != null ? Number(row.diff_usd) : null,
+          diff_pct: row.diff_pct != null ? Number(row.diff_pct) : null,
+          is_discontinued: row.status === 'descontinuado' || Boolean(rawData.is_discontinued),
+          url_used: row.url_used || null,
+          url_discovered: Boolean(row.url_discovered),
+          message: row.message || null,
+          checked_at: row.checked_at || new Date().toISOString(),
+          error: row.status === 'erro' ? row.message : undefined,
+          rebate_active: isRebateActive,
+          price_full: priceFull,
+          price_with_rebate: priceWithRebate,
+          rebate_savings: rebateInfo.rebate_savings ?? null,
+          rebate_end_date: rebateEndDate,
+          rebate_end_date_iso: null,
+          sku_matched: true,
+          mfr_number_found: rawData.mfr_number || null,
+        }
+
+        activePendingMap[pId] = {
+          checkResult,
+          website_url: row.url_used || prod.website_url || null,
+          price_usd: prod.price_usd,
+        }
+      }
+
+      return activePendingMap
+    } catch (err: any) {
+      console.warn('bhBatchUpdateService.fetchActiveProductPendingChecks error:', err?.message)
+      return {}
+    }
+  },
 }

@@ -749,17 +749,16 @@ Deno.serve(async (req: Request) => {
         )
       }
 
-      // MFR # validado com sucesso! Gravar website_url no banco de dados (conforme item 4)
+      // MFR # validado com sucesso! Gravar website_url no banco de dados
+      // Regras de datas rígidas: checagem automática nunca grava last_reviewed_at nem updated_at.
+      // Somente ações humanas carimbam datas.
       console.log(
         `[check-price-bhphoto] MFR # conferido com sucesso para ${cleanManualUrl}. Gravando website_url no produto ${product.id}`,
       )
-      const nowIso = new Date().toISOString()
       const { error: updateUrlErr } = await supabase
         .from('products')
         .update({
           website_url: cleanManualUrl,
-          updated_at: nowIso,
-          last_reviewed_at: nowIso,
         })
         .eq('id', product.id)
 

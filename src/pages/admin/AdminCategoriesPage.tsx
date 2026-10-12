@@ -302,20 +302,19 @@ export function AdminCategoriesPage() {
     chosenCategoryId?: string,
     chosenCategoryName?: string,
   ) => {
-    let finalCatId = chosenCategoryId
+    let finalCatId = chosenCategoryId || triageDecisions[product.id]
     let finalCatName = chosenCategoryName
 
+    if (finalCatId && !finalCatName) {
+      finalCatName = categoriesById.get(finalCatId)?.name
+    }
+
     if (!finalCatId) {
-      // Usar a seleção do dropdown ou a sugestão automática
-      finalCatId = triageDecisions[product.id]
-      if (finalCatId) {
-        finalCatName = categoriesById.get(finalCatId)?.name
-      } else {
-        const suggestion = getProductCategorySuggestion(product, categoriesByName)
-        if (suggestion?.categoryId) {
-          finalCatId = suggestion.categoryId
-          finalCatName = suggestion.categoryName
-        }
+      // Fallback para a sugestão automática se nenhum id foi fornecido nem selecionado
+      const suggestion = getProductCategorySuggestion(product, categoriesByName)
+      if (suggestion?.categoryId) {
+        finalCatId = suggestion.categoryId
+        finalCatName = suggestion.categoryName
       }
     }
 
@@ -1229,7 +1228,7 @@ export function AdminCategoriesPage() {
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="group/img shrink-0"
-                                title="Abrir cadastro completo do produto"
+                                title="Abrir cadastro admin do produto (/product/:id)"
                               >
                                 {product.image_url ? (
                                   <img
@@ -1247,13 +1246,13 @@ export function AdminCategoriesPage() {
                                 )}
                               </Link>
                               <div className="min-w-0">
-                                {/* Link para ir direto ao cadastro /product/:id (Ajuste 2) */}
+                                {/* Link para ir direto ao cadastro admin /product/:id */}
                                 <Link
                                   to={`/product/${product.id}`}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className="text-xs font-semibold text-foreground hover:text-primary hover:underline line-clamp-2 leading-snug inline-flex items-center gap-1 group/title"
-                                  title={`Ver produto: ${product.name}`}
+                                  title={`Abrir cadastro admin: ${product.name}`}
                                 >
                                   <span>{product.name}</span>
                                   <ExternalLink className="w-3 h-3 opacity-0 group-hover/title:opacity-100 transition-opacity shrink-0 text-primary" />
@@ -1264,16 +1263,6 @@ export function AdminCategoriesPage() {
                                       {product.sku}
                                     </code>
                                   )}
-                                  <Link
-                                    to={`/product/${product.id}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-[11px] text-muted-foreground hover:text-primary inline-flex items-center gap-0.5 hover:underline"
-                                    title="Abrir página completa do produto em nova aba"
-                                  >
-                                    <span>Ver produto</span>
-                                    <ExternalLink className="w-2.5 h-2.5" />
-                                  </Link>
                                 </div>
                               </div>
                             </div>

@@ -219,12 +219,15 @@ export const LEGACY_EXACT_MAP: Record<string, string> = {
   'multivisor 4k': 'Monitors',
   'multivisor hd': 'Monitors',
 
-  // Streaming / Switchers
-  switcher: 'Streaming',
-  switchers: 'Streaming',
-  keyer: 'Streaming',
-  'control panel': 'Streaming',
-  controller: 'Streaming',
+  // Production Switchers & Control Panels
+  switcher: 'Production Switchers',
+  switchers: 'Production Switchers',
+  'production switcher': 'Production Switchers',
+  'production switchers': 'Production Switchers',
+  keyer: 'Production Switchers',
+  'control panel': 'Production Switchers',
+  controller: 'Production Switchers',
+  'broadcast panel': 'Production Switchers',
 
   // Desktop Video
   'capture card': 'Desktop Video',
@@ -411,10 +414,38 @@ export function getProductCategorySuggestion(
     }
   }
 
-  // Streaming / Switchers
+  // Production Switchers & Painéis de Controle
   if (
     fullText.includes('switcher') ||
     fullText.includes('atem') ||
+    fullText.includes('constellation') ||
+    fullText.includes('television studio') ||
+    fullText.includes('advanced panel') ||
+    fullText.includes('camera control panel') ||
+    fullText.includes('control panel') ||
+    fullText.includes('broadcast panel')
+  ) {
+    // Se a categoria Production Switchers existir, sugere ela; senão fallback para Streaming
+    const prodSwitcherCat = categoriesByName.get('Production Switchers')
+    if (prodSwitcherCat) {
+      return {
+        level: 'medium',
+        categoryName: 'Production Switchers',
+        categoryId: prodSwitcherCat.id,
+        reason: 'Termos de switcher de produção / painel de controle ATEM',
+      }
+    }
+    const cat = categoriesByName.get('Streaming')
+    return {
+      level: 'medium',
+      categoryName: 'Streaming',
+      categoryId: cat?.id,
+      reason: 'Termos de switcher / streaming ATEM',
+    }
+  }
+
+  // Streaming
+  if (
     fullText.includes('streaming') ||
     fullText.includes('web presenter') ||
     fullText.includes('live stream')
@@ -424,7 +455,7 @@ export function getProductCategorySuggestion(
       level: 'medium',
       categoryName: 'Streaming',
       categoryId: cat?.id,
-      reason: 'Termos de switcher / streaming ATEM',
+      reason: 'Termos de streaming / Web Presenter',
     }
   }
 

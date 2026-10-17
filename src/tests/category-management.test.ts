@@ -79,6 +79,7 @@ describe('categoryTriageService - 2-Layer Suggestions & Cintel Rules', () => {
     ['Lenses', { id: 'cat-lenses', name: 'Lenses' }],
     ['Monitors', { id: 'cat-monitors', name: 'Monitors' }],
     ['Streaming', { id: 'cat-streaming', name: 'Streaming' }],
+    ['Production Switchers', { id: 'cat-prod-switchers', name: 'Production Switchers' }],
     ['Desktop Video', { id: 'cat-desktop-video', name: 'Desktop Video' }],
   ])
 
@@ -160,5 +161,25 @@ describe('categoryTriageService - 2-Layer Suggestions & Cintel Rules', () => {
     expect(sugAudio?.level).toBe('medium')
     expect(sugNet?.categoryName).toBe('Networking & Storage')
     expect(sugNet?.level).toBe('medium')
+  })
+
+  it('identifies Production Switchers and Control Panels correctly', () => {
+    const atemSwitcher = {
+      name: 'Blackmagic Design ATEM Mini Extreme ISO G2 Switcher',
+      category: 'Switcher',
+      ncm: '85437099',
+    }
+    const controlPanel = {
+      name: 'Blackmagic ATEM 1 M/E Advanced Panel 10',
+      category: 'Control Panel',
+      ncm: '85437099',
+    }
+    const sugSwitcher = getProductCategorySuggestion(atemSwitcher, mockCategories)
+    const sugPanel = getProductCategorySuggestion(controlPanel, mockCategories)
+
+    expect(sugSwitcher?.categoryName).toBe('Production Switchers')
+    expect(sugSwitcher?.level).toBe('high')
+    expect(sugPanel?.categoryName).toBe('Production Switchers')
+    expect(sugPanel?.level).toBe('high')
   })
 })

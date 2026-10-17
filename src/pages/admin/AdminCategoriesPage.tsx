@@ -1113,7 +1113,7 @@ export function AdminCategoriesPage() {
                 scrollbarWidth: 'thin',
               }}
             >
-              <Table className="min-w-[1050px]">
+              <Table className="min-w-[890px]">
                 <TableHeader>
                   <TableRow className="bg-muted/40">
                     <TableHead className="w-[44px] sticky left-0 z-20 bg-muted/95 backdrop-blur-xs">
@@ -1125,7 +1125,7 @@ export function AdminCategoriesPage() {
                         aria-label="Selecionar todos os produtos da página"
                       />
                     </TableHead>
-                    <TableHead className="min-w-[300px] sticky left-[44px] z-20 bg-muted/95 backdrop-blur-xs border-r border-border/60 shadow-[4px_0_8px_-3px_rgba(0,0,0,0.06)] dark:shadow-[4px_0_8px_-3px_rgba(0,0,0,0.3)]">
+                    <TableHead className="w-[135px] min-w-[135px] max-w-[135px] sticky left-[44px] z-20 bg-muted/95 backdrop-blur-xs border-r border-border/60 shadow-[4px_0_8px_-3px_rgba(0,0,0,0.06)] dark:shadow-[4px_0_8px_-3px_rgba(0,0,0,0.3)]">
                       Produto & SKU
                     </TableHead>
                     <TableHead className="w-[140px]">Fabricante</TableHead>
@@ -1231,49 +1231,52 @@ export function AdminCategoriesPage() {
                           {/* Produto: Imagem, Nome (Link clicável) e SKU */}
                           <TableCell
                             className={cn(
-                              'sticky left-[44px] z-10 bg-card border-r border-border/60 shadow-[4px_0_8px_-3px_rgba(0,0,0,0.06)] dark:shadow-[4px_0_8px_-3px_rgba(0,0,0,0.3)] transition-colors',
+                              'w-[135px] min-w-[135px] max-w-[135px] sticky left-[44px] z-10 bg-card border-r border-border/60 shadow-[4px_0_8px_-3px_rgba(0,0,0,0.06)] dark:shadow-[4px_0_8px_-3px_rgba(0,0,0,0.3)] transition-colors p-2',
                               isSelected && 'bg-primary/5',
                               isOutOfStandard && 'bg-amber-500/[0.03]',
                             )}
                           >
-                            <div className="flex items-start gap-3">
+                            <div className="flex flex-col gap-1.5 w-full">
                               {/* Navegação na mesma aba para manter a sessão no builder */}
-                              <Link
-                                to={`/products/edit/${product.id}`}
-                                className="group/img shrink-0"
-                                title="Abrir cadastro admin do produto (/products/edit/:id)"
-                              >
-                                {product.image_url ? (
-                                  <img
-                                    src={product.image_url}
-                                    alt={product.name}
-                                    className="w-10 h-10 object-contain rounded border bg-white group-hover/img:border-primary transition-colors"
-                                    onError={(e) => {
-                                      ;(e.target as HTMLElement).style.display = 'none'
-                                    }}
-                                  />
-                                ) : (
-                                  <div className="w-10 h-10 rounded border bg-muted flex items-center justify-center group-hover/img:border-primary transition-colors">
-                                    <Tag className="w-4 h-4 text-muted-foreground group-hover/img:text-primary" />
-                                  </div>
+                              <div className="flex items-center gap-2">
+                                <Link
+                                  to={`/products/edit/${product.id}`}
+                                  className="group/img shrink-0"
+                                  title="Abrir cadastro admin do produto (/products/edit/:id)"
+                                >
+                                  {product.image_url ? (
+                                    <img
+                                      src={product.image_url}
+                                      alt={product.name}
+                                      className="w-8 h-8 object-contain rounded border bg-white group-hover/img:border-primary transition-colors"
+                                      onError={(e) => {
+                                        ;(e.target as HTMLElement).style.display = 'none'
+                                      }}
+                                    />
+                                  ) : (
+                                    <div className="w-8 h-8 rounded border bg-muted flex items-center justify-center group-hover/img:border-primary transition-colors">
+                                      <Tag className="w-3.5 h-3.5 text-muted-foreground group-hover/img:text-primary" />
+                                    </div>
+                                  )}
+                                </Link>
+                                {product.sku && (
+                                  <code
+                                    className="text-[10px] font-mono text-muted-foreground bg-muted px-1 py-0.5 rounded truncate max-w-[75px] block"
+                                    title={product.sku}
+                                  >
+                                    {product.sku}
+                                  </code>
                                 )}
-                              </Link>
-                              <div className="min-w-0">
+                              </div>
+                              <div className="min-w-0 w-full">
                                 {/* Link para ir direto ao cadastro admin /products/edit/:id */}
                                 <Link
                                   to={`/products/edit/${product.id}`}
-                                  className="text-xs font-semibold text-foreground hover:text-primary hover:underline line-clamp-2 leading-snug inline-flex items-center gap-1 group/title"
+                                  className="text-xs font-semibold text-foreground hover:text-primary hover:underline line-clamp-3 leading-snug break-words block group/title"
                                   title={`Abrir cadastro admin: ${product.name}`}
                                 >
-                                  <span>{product.name}</span>
+                                  {product.name}
                                 </Link>
-                                <div className="flex items-center gap-2 mt-1">
-                                  {product.sku && (
-                                    <code className="text-[11px] font-mono text-muted-foreground bg-muted px-1 py-0.5 rounded">
-                                      {product.sku}
-                                    </code>
-                                  )}
-                                </div>
                               </div>
                             </div>
                           </TableCell>

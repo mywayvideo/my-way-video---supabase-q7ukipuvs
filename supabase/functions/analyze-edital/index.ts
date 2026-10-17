@@ -6,6 +6,8 @@ import { corsHeaders } from '../_shared/cors.ts'
 interface AnalyzeEditalRequest {
   licitacao_id: string
   texto_edital?: string
+  texto_tr_dedicado?: string
+  texto_habilitacao_dedicado?: string
   force_reanalysis?: boolean
   itens_input?: Array<{
     n_item?: number
@@ -13,6 +15,11 @@ interface AnalyzeEditalRequest {
     quantidade?: number
     unidade?: string
     valor_unitario_estimado?: number
+    marca_modelo?: string
+    norma_abnt?: string
+    prazo_entrega?: string
+    garantia?: string
+    fonte_origem?: string
   }>
 }
 
@@ -86,6 +93,8 @@ Deno.serve(async (req: Request) => {
     const {
       licitacao_id,
       texto_edital,
+      texto_tr_dedicado,
+      texto_habilitacao_dedicado,
       force_reanalysis = false,
       itens_input,
       pdf_status: incomingPdfStatus,
@@ -113,11 +122,86 @@ Deno.serve(async (req: Request) => {
       })
     }
 
-    // 2. Monta o texto de análise (respeitando prioridade: parâmetro enviado > texto_integral salvo > objeto_completo/resumo)
-    const rawText =
+    // 2. Busca documentos dedicados no storage / anexos caso existam
+    let trDocTexto = ''
+    let habDocTexto = ''
+    try {
+      const { data: dedicatedDocs } = await supabase
+        .from('imp_sim_licitacao_documentos')
+        .select('*')
+        .eq('licitacao_id', licitacao_id)
+        .in('tipo_documento', ['tr_dedicado', 'habilitacao_dedicada', 'TR'])
+
+      if (dedicatedDocs && dedicatedDocs.length > 0) {
+        for (const doc of dedicatedDocs) {
+          if (
+            doc.tipo_documento === 'tr_dedicado' ||
+            (doc.tipo_documento === 'TR' && !trDocTexto)
+          ) {
+            // Se for arquivo txt ou similar
+            if (doc.arquivo_path && doc.arquivo_path.endsWith('.txt')) {
+              const { data: b } = await supabase.storage
+                .from('licitacao-documentos')
+                .download(doc.arquivo_path)
+              if (b) trDocTexto += '\n' + (await b.text())
+            }
+          } else if (doc.tipo_documento === 'habilitacao_dedicada') {
+            if (doc.arquivo_path && doc.arquivo_path.endsWith('.txt')) {
+              const { data: b } = await supabase.storage
+                .from('licitacao-documentos')
+                .download(doc.arquivo_path)
+              if (b) habDocTexto += '\n' + (await b.text())
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Erro ao ler docs dedicados:', e)
+    }
+
+    // Prioridade da fonte do Termo de Referência (Objeto):
+    // 1) Parâmetro direto texto_tr_dedicado
+    // 2) Doc dedicado tipo 'tr_dedicado'
+    // 3) Coluna texto_termo_referencia da licitação
+    // Fallback: texto do edital integral
+    const trDedicadoText =
+      (texto_tr_dedicado || '').trim() ||
+      trDocTexto.trim() ||
+      (licitacao.texto_termo_referencia || '').trim()
+
+    // Prioridade da fonte de Habilitação / Informações do Pregão:
+    // 1) Parâmetro direto texto_habilitacao_dedicado
+    // 2) Doc dedicado tipo 'habilitacao_dedicada'
+    // 3) Coluna texto_habilitacao da licitação
+    // Fallback: texto do edital integral
+    const habilitacaoDedicadaText =
+      (texto_habilitacao_dedicado || '').trim() ||
+      habDocTexto.trim() ||
+      (licitacao.texto_habilitacao || '').trim()
+
+    // Texto fallback do edital completo
+    const fallbackEditalText =
       (texto_edital || '').trim() ||
       (licitacao.texto_integral || '').trim() ||
       `${licitacao.objeto_resumo || ''}\n${licitacao.objeto_completo || ''}`
+
+    // Determina o texto específico para cada módulo
+    const textoParaItens = trDedicadoText || fallbackEditalText
+    const fonteItensUtilizada: 'TR dedicado' | 'Planilha' | 'Edital completo' =
+      itens_input && itens_input.length > 0 && itens_input[0].fonte_origem === 'Planilha'
+        ? 'Planilha'
+        : trDedicadoText
+          ? 'TR dedicado'
+          : 'Edital completo'
+
+    const textoParaJuridico = habilitacaoDedicadaText || fallbackEditalText
+    const fonteJuridicoUtilizada: 'Habilitação dedicada' | 'Edital completo' =
+      habilitacaoDedicadaText ? 'Habilitação dedicada' : 'Edital completo'
+
+    const rawText = `${trDedicadoText ? '=== TERMO DE REFERÊNCIA (OBJETO / SERVIÇOS) ===\n' + trDedicadoText + '\n\n' : ''}${habilitacaoDedicadaText ? '=== HABILITAÇÃO E REQUISITOS DO PREGÃO ===\n' + habilitacaoDedicadaText + '\n\n' : ''}${fallbackEditalText}`
+
+    // Chave de API OpenAI declarada no escopo principal para uso em todos os blocos opcionais
+    const openaiApiKey = Deno.env.get('OPENAI_API_KEY') || ''
 
     // 3. CACHE CANDIDATOS: Se já analisado e mesmo hash_documento e não for forçado, reusa
     // Apenas se a análise anterior concluída teve itens OU exigências (gate de sanidade válido)
@@ -231,12 +315,201 @@ Deno.serve(async (req: Request) => {
     }
 
     const itensProcessados = []
-    const rawItens =
+    let rawItens =
       itens_input && itens_input.length > 0
         ? itens_input
         : spreadsheetItens.length > 0
           ? spreadsheetItens
-          : extrairItensDeterministicosDoTexto(rawText)
+          : extrairItensDeterministicosDoTexto(textoParaItens, fonteItensUtilizada)
+
+    // Fallback com LLM (gpt-4o-mini) se o parser determinístico extraiu 0 itens
+    // mas o texto possui conteúdo (> 100 caracteres)
+    if (rawItens.length === 0 && openaiApiKey && textoParaItens.trim().length > 100) {
+      try {
+        const openai = new OpenAI({ apiKey: openaiApiKey, timeout: 20000 })
+        const promptItens = `Você é um analista especialista em licitações e compras públicas federais e estaduais.
+Extraia com precisão a lista de itens/produtos/serviços a serem contratados ou adquiridos a partir do trecho de Termo de Referência ou Edital abaixo.
+
+Para cada item encontrado, extraia cuidadosamente:
+- n_item: número do item no edital (1, 2, ...)
+- descricao: descrição clara do item/equipamento/serviço
+- quantidade: quantidade numérica (padrão 1 se não especificado)
+- unidade: unidade de medida (UN, peça, serviço, kit, etc. Padrão "UN")
+- valor_unitario_estimado: VALOR UNITÁRIO ESTIMADO informado no documento para este item (ex.: 18400.00). Busque atenciosamente na planilha orçamentária, tabela de preços, estimativa de custos ou pesquisa de mercado citada no texto. Se o edital realmente NÃO informar nenhum valor estimado para o item, retorne estritamente 0 (NUNCA invente ou estime valores inexistentes no texto).
+- marca_modelo: marca ou modelo de referência se houver, ou null
+- norma_abnt: norma técnica citada (ex.: ABNT NBR 14565) ou null
+- prazo_entrega: prazo de entrega do item se houver, ou null
+- garantia: garantia mínima requerida se houver (ex.: 12 meses), ou null
+
+Responda EXCLUSIVAMENTE em formato JSON puro:
+{
+  "itens": [
+    {
+      "n_item": 1,
+      "descricao": "Lente teleobjetiva zoom profissional 70-200mm",
+      "quantidade": 1,
+      "unidade": "UN",
+      "valor_unitario_estimado": 18400.00,
+      "marca_modelo": "Nikon Z",
+      "norma_abnt": null,
+      "prazo_entrega": "30 dias",
+      "garantia": "12 meses"
+    }
+  ]
+}
+
+Se realmente não houver nenhum produto ou serviço no texto, retorne {"itens": []}.
+
+TEXTO DO TR / EDITAL:
+"""
+${textoParaItens.slice(0, 35000)}
+"""`
+
+        const completionItens = await openai.chat.completions.create({
+          model: 'gpt-4o-mini',
+          messages: [{ role: 'user', content: promptItens }],
+          temperature: 0.1,
+          response_format: { type: 'json_object' },
+        })
+
+        const contentItens = completionItens.choices[0]?.message?.content || '{}'
+        const parsedItens = JSON.parse(contentItens)
+        if (Array.isArray(parsedItens.itens) && parsedItens.itens.length > 0) {
+          rawItens = parsedItens.itens.map((it: any, idx: number) => ({
+            n_item: it.n_item || idx + 1,
+            descricao: it.descricao || `Item ${idx + 1}`,
+            quantidade: Number(it.quantidade) || 1,
+            unidade: it.unidade || 'UN',
+            valor_unitario_estimado: Number(it.valor_unitario_estimado) || 0,
+            marca_modelo: it.marca_modelo || undefined,
+            norma_abnt: it.norma_abnt || undefined,
+            prazo_entrega: it.prazo_entrega || undefined,
+            garantia: it.garantia || undefined,
+            fonte_origem: fonteItensUtilizada,
+          }))
+        }
+      } catch (errAiItens) {
+        console.warn('Falha no fallback de IA para extração de itens (não fatal):', errAiItens)
+      }
+    }
+
+    // Heurística determinística quando o edital é de item único e já possui valor_estimado global
+    // (ex.: Fundação Padre Anchieta com R$ 18.400,00 na Habilitação/Aviso de Dispensa ou já gravado na licitação)
+    const valorEstimadoGlobalLic = Number(licitacao.valor_estimado) || 0
+    if (rawItens.length === 1 && (Number(rawItens[0].valor_unitario_estimado) || 0) === 0) {
+      const valHab = extrairValorEstimadoDeTrecho(textoParaJuridico)
+      const valDocCompleto = extrairValorEstimadoDeTrecho(rawText)
+      const valCandidato =
+        valHab > 0 ? valHab : valDocCompleto > 0 ? valDocCompleto : valorEstimadoGlobalLic
+      if (valCandidato > 0) {
+        const q = Number(rawItens[0].quantidade) || 1
+        rawItens[0].valor_unitario_estimado = valCandidato / q
+        rawItens[0].valor_total = valCandidato
+      }
+    }
+
+    // -------------------------------------------------------------
+    // PASSADA COMPLEMENTAR DO LLM PARA ITENS COM VALOR 0
+    // À PROVA DE FALHAS:
+    // - Try/catch geral e try/catch por item
+    // - Timeout curto com AbortController (máx 15s)
+    // - JSON validado rigorosamente
+    // - Qualquer erro na IA é logado sem derrubar a análise
+    // - REGRA DE OURO: Sem valor no texto, permanece 0 / editável
+    // -------------------------------------------------------------
+    const itensSemValor = rawItens.filter((it) => (Number(it.valor_unitario_estimado) || 0) === 0)
+    if (
+      itensSemValor.length > 0 &&
+      openaiApiKey &&
+      (textoParaItens.length > 50 || rawText.length > 50)
+    ) {
+      try {
+        const openai = new OpenAI({ apiKey: openaiApiKey, timeout: 15000 })
+        const textoBuscaValores = (rawText.length > 1000 ? rawText : textoParaItens).slice(0, 35000)
+
+        // Tenta uma chamada focada com timeout controlado
+        const promptValores = `Você é um perito em orçamentos de licitações públicas.
+Abaixo estão itens identificados em um edital/Termo de Referência cujo valor estimado ainda não foi localizado.
+Analise o texto do documento e procure o VALOR UNITÁRIO ESTIMADO oficial do edital (orçamento estimado, valor de referência, planilha de custos, valor total de contratação ou pesquisa prévia de preços) para cada um dos itens listados.
+
+REGRAS OBRIGATÓRIAS:
+1. Extraia APENAS o valor unitário estimado que estiver explicitamente ou contextualmente indicado no documento para cada item.
+2. NUNCA invente, presuma ou estime valores de mercado da sua cabeça. Se o documento NÃO trouxer o valor unitário estimado para determinado item, retorne estritamente 0 para aquele item.
+3. Responda em JSON puro no formato:
+{
+  "valores": [
+    { "n_item": 1, "valor_unitario_estimado": 18400.00 }
+  ]
+}
+
+ITENS PARA BUSCA DE VALOR ESTIMADO:
+${JSON.stringify(
+  itensSemValor.map((it) => ({
+    n_item: it.n_item,
+    descricao: it.descricao,
+    quantidade: it.quantidade,
+  })),
+  null,
+  2,
+)}
+
+TEXTO DO EDITAL / TERMO DE REFERÊNCIA / HABILITAÇÃO:
+"""
+${textoBuscaValores}
+"""`
+
+        const compValores = await openai.chat.completions.create({
+          model: 'gpt-4o-mini',
+          messages: [{ role: 'user', content: promptValores }],
+          temperature: 0.0,
+          response_format: { type: 'json_object' },
+        })
+
+        const contentValores = compValores.choices[0]?.message?.content || '{}'
+        let parsedValores: any = null
+        try {
+          parsedValores = JSON.parse(contentValores)
+        } catch (jsonErr) {
+          console.warn('JSON inválido retornado pelo LLM em compValores:', jsonErr)
+        }
+
+        if (parsedValores && Array.isArray(parsedValores.valores)) {
+          const mapaValores = new Map<number, number>()
+          for (const v of parsedValores.valores) {
+            try {
+              const num = Number(v?.n_item)
+              const val = Number(v?.valor_unitario_estimado)
+              if (!isNaN(num) && !isNaN(val) && val > 0) {
+                mapaValores.set(num, val)
+              }
+            } catch (itemParseErr) {
+              console.warn('Erro ao processar item do JSON de valores:', itemParseErr)
+            }
+          }
+
+          rawItens = rawItens.map((it) => {
+            const vEncontrado = mapaValores.get(it.n_item)
+            if (
+              (!it.valor_unitario_estimado || it.valor_unitario_estimado === 0) &&
+              vEncontrado &&
+              vEncontrado > 0
+            ) {
+              return {
+                ...it,
+                valor_unitario_estimado: vEncontrado,
+                valor_total: (it.quantidade || 1) * vEncontrado,
+              }
+            }
+            return it
+          })
+        }
+      } catch (errAiValores) {
+        console.warn(
+          'Falha na passada complementar de LLM para valores (seguindo com valor 0):',
+          errAiValores,
+        )
+      }
+    }
 
     let totalEstimado = 0
     let itemsCobertos = 0
@@ -312,6 +585,13 @@ Deno.serve(async (req: Request) => {
         unidade: raw.unidade || 'UN',
         valor_unitario_estimado: valUnit,
         valor_total: total,
+        marca_modelo: (raw as any).marca_modelo || null,
+        norma_abnt: (raw as any).norma_abnt || null,
+        prazo_entrega_item: (raw as any).prazo_entrega || null,
+        garantia_meses: (raw as any).garantia
+          ? parseInt(String((raw as any).garantia).replace(/\D/g, '')) || null
+          : null,
+        fonte_origem: (raw as any).fonte_origem || fonteItensUtilizada,
         catalog_coverage: {
           coverage_produto: coverageProduto,
           coverage_servico: false,
@@ -333,10 +613,10 @@ Deno.serve(async (req: Request) => {
     }
 
     // -------------------------------------------------------------
-    // BLOCO JURÍDICO-ADMINISTRATIVO (LLM barato com Citação Obrigatória)
-    // Usamos gpt-4o-mini (analyst) com prompt rígido exigindo citação textual
+    // BLOCO JURÍDICO-ADMINISTRATIVO (LLM com Citação Obrigatória)
+    // Usamos gpt-4o-mini com prompt rígido exigindo citação textual
+    // À prova de falhas: qualquer erro mantém campos conhecidos e completa normalmente
     // -------------------------------------------------------------
-    const openaiApiKey = Deno.env.get('OPENAI_API_KEY') || ''
     let juridicoExtracted: JuridicoAdministrativeExtracted = {
       modalidade: licitacao.modalidade || 'pregão',
       criterio_julgamento: licitacao.criterio_julgamento || 'menor preço',
@@ -356,15 +636,14 @@ Deno.serve(async (req: Request) => {
     let auditoriaUsada = 'extração_heuristica'
     let auditorDeepSeekUsado = false
 
-    if (openaiApiKey && rawText.length > 30) {
+    if (openaiApiKey && textoParaJuridico.length > 30) {
       try {
         const openai = new OpenAI({ apiKey: openaiApiKey })
-        // Divide o texto integral em blocos de até ~60.000 caracteres
-        // gpt-4o-mini suporta 128k contexto; fatiar em blocos de 60k permite extração profunda
+        // Divide o texto de habilitação em blocos de até ~60.000 caracteres
         const CHUNK_SIZE = 60000
         const textChunks: string[] = []
-        for (let offset = 0; offset < rawText.length; offset += CHUNK_SIZE) {
-          textChunks.push(rawText.slice(offset, offset + CHUNK_SIZE))
+        for (let offset = 0; offset < textoParaJuridico.length; offset += CHUNK_SIZE) {
+          textChunks.push(textoParaJuridico.slice(offset, offset + CHUNK_SIZE))
         }
 
         const todasExigencias: JuridicoExigencia[] = []
@@ -379,7 +658,7 @@ Deno.serve(async (req: Request) => {
           const chunk = textChunks[chunkIdx]
           const isFirstChunk = chunkIdx === 0
           const prompt = `Você é um analista especialista em licitações públicas federais (Lei 14.133/2021 e 8.666/1993).
-Analise o trecho ${chunkIdx + 1}/${textChunks.length} do edital/TR abaixo e extraia com RIGOR JURÍDICO as regras e exigências.
+Analise o trecho ${chunkIdx + 1}/${textChunks.length} da seção de Habilitação e Requisitos do pregão abaixo e extraia com RIGOR JURÍDICO as regras e exigências.
 
 REGRA MANDATÓRIA: Toda exigência DEVE conter a "citacao_textual" EXATA do trecho do edital que a fundamenta. Se não houver citação no texto, NÃO invente.
 
@@ -536,6 +815,7 @@ ${chunk}
             const deepseek = new OpenAI({
               apiKey: deepseekKey,
               baseURL: 'https://api.deepseek.com',
+              timeout: 15000,
             })
             const auditPrompt = `Você é um auditor jurídico sênior de licitações públicas. Revise as exigências extraídas abaixo verificando se há riscos de direcionamento ou violação da Lei 14.133/2021 (ex.: exigência indevida de carta de solidariedade do fabricante, vistoria obrigatória sem opção de declaração).
 Exigências: ${JSON.stringify(juridicoExtracted.exigencias.slice(0, 8))}
@@ -549,21 +829,27 @@ Retorne um parecer em JSON: {"risco_direcionamento": boolean, "motivo_auditoria"
             })
             auditorDeepSeekUsado = true
             const dsOutput = JSON.parse(dsRes.choices[0]?.message?.content || '{}')
-            // Salva na auditoria
-            await supabase.from('imp_sim_licitacao_auditoria_ia').insert({
-              licitacao_id,
-              fase: 'auditoria',
-              modelo_usado: 'deepseek-chat',
-              versao_funcao: 'v2.0-r2',
-              output_json: dsOutput,
-              status: 'concluido',
-            })
+            // Salva na auditoria sem travar fluxo se falhar
+            await supabase
+              .from('imp_sim_licitacao_auditoria_ia')
+              .insert({
+                licitacao_id,
+                fase: 'auditoria',
+                modelo_usado: 'deepseek-chat',
+                versao_funcao: 'v2.0-r2',
+                output_json: dsOutput,
+                status: 'concluido',
+              })
+              .catch((errDbDs: any) => console.warn('Erro ao salvar auditoria deepseek:', errDbDs))
           } catch (dsErr) {
             console.warn('Auditor DeepSeek (fronteira) ignorado por falha na chamada:', dsErr)
           }
         }
       } catch (llmErr) {
-        console.error('Erro na extração LLM barato (gpt-4o-mini):', llmErr)
+        console.error(
+          'Erro na extração LLM (gpt-4o-mini) — mantendo dados determinísticos:',
+          llmErr,
+        )
       }
     }
 
@@ -592,8 +878,14 @@ Retorne um parecer em JSON: {"risco_direcionamento": boolean, "motivo_auditoria"
       updated_at: new Date().toISOString(),
     }
 
-    if (totalEstimado > 0 && (!licitacao.valor_estimado || licitacao.valor_estimado === 0)) {
+    if (totalEstimado > 0) {
       updateHeader.valor_estimado = totalEstimado
+    } else if (
+      (!licitacao.valor_estimado || licitacao.valor_estimado === 0) &&
+      juridicoExtracted.valor_estimado &&
+      juridicoExtracted.valor_estimado > 0
+    ) {
+      updateHeader.valor_estimado = juridicoExtracted.valor_estimado
     }
 
     await supabase.from('imp_sim_licitacoes').update(updateHeader).eq('id', licitacao_id)
@@ -635,10 +927,10 @@ Retorne um parecer em JSON: {"risco_direcionamento": boolean, "motivo_auditoria"
           status: 'exigido',
           observacao: ex.citacao_textual ? `Citação do edital: "${ex.citacao_textual}"` : null,
           fonte_obtencao: ex.motivo_exigencia || null,
+          fonte_origem: fonteJuridicoUtilizada,
         })
       }
     }
-
     // GATE DE SANIDADE MANDATÓRIO:
     // Se a análise terminar com 0 itens E 0 exigências, gravar status 'falha' (não 'concluido')
     const totalItensExtraidos = itensProcessados.length
@@ -665,12 +957,22 @@ Retorne um parecer em JSON: {"risco_direcionamento": boolean, "motivo_auditoria"
     // Grava log de auditoria IA da extração
     const finalOutput = {
       catalog_coverage: catalogCoverageOverall,
-      juridico: juridicoExtracted,
+      juridico: {
+        ...juridicoExtracted,
+        exigencias: (juridicoExtracted.exigencias || []).map((e) => ({
+          ...e,
+          fonte_origem: fonteJuridicoUtilizada,
+        })),
+      },
       itens_count: totalItensExtraidos,
       exigencias_count: totalExigenciasExtraidas,
       gate_sanidade_aprovado: !gateSanidadeReprovado,
       pdf_status: finalPdfStatus,
       caminho_recomendado: finalCaminhoRecomendado,
+      fontes_utilizadas: {
+        objeto_tr_fonte: fonteItensUtilizada,
+        habilitacao_fonte: fonteJuridicoUtilizada,
+      },
       auditor_deepseek_acionado: auditorDeepSeekUsado,
       motivo_falha: finalErroDetails,
     }
@@ -690,6 +992,61 @@ Retorne um parecer em JSON: {"risco_direcionamento": boolean, "motivo_auditoria"
       .select('id')
       .single()
 
+    // VERSIONAMENTO: Grava nova versão da extração na tabela imp_sim_licitacao_versoes
+    try {
+      const { data: versoesAntigas } = await supabase
+        .from('imp_sim_licitacao_versoes')
+        .select('numero_versao')
+        .eq('licitacao_id', licitacao_id)
+        .order('numero_versao', { ascending: false })
+        .limit(1)
+
+      const proxVersao =
+        versoesAntigas && versoesAntigas[0]?.numero_versao ? versoesAntigas[0].numero_versao + 1 : 1
+
+      // Busca os itens finais do banco para snapshot completo
+      const { data: itensSnapshot } = await supabase
+        .from('imp_sim_licitacao_itens')
+        .select('*')
+        .eq('licitacao_id', licitacao_id)
+
+      const { data: exigenciasSnapshot } = await supabase
+        .from('imp_sim_licitacao_exigencias')
+        .select('*')
+        .eq('licitacao_id', licitacao_id)
+
+      const jurSnapshot = {
+        ...juridicoExtracted,
+        exigencias: exigenciasSnapshot || [],
+      }
+
+      await supabase.from('imp_sim_licitacao_versoes').insert({
+        licitacao_id,
+        numero_versao: proxVersao,
+        tipo_gatilho: force_reanalysis ? 'reanalise' : 'analise',
+        descricao_versao: `Extração ${force_reanalysis ? 'reanalisada' : 'inicial'} (v${proxVersao}) - ${totalItensExtraidos} itens, ${totalExigenciasExtraidas} exigências`,
+        itens_snapshot: itensSnapshot || [],
+        juridico_snapshot: jurSnapshot,
+        objeto_sintetizado: updateHeader.objeto_resumo || licitacao.objeto_resumo,
+        objeto_citacao: (rawTr.length > 50 ? rawTr.slice(0, 350) : rawText.slice(0, 350)) + '...',
+        destaques_criticos: [],
+        fontes_utilizadas: {
+          objeto_tr_fonte: fonteItensUtilizada,
+          habilitacao_fonte: fonteJuridicoUtilizada,
+        },
+        total_itens: totalItensExtraidos,
+        valor_total_estimado: updateHeader.valor_estimado || licitacao.valor_estimado || 0,
+      })
+
+      // Atualiza versão atual no cabeçalho
+      await supabase
+        .from('imp_sim_licitacoes')
+        .update({ versao_analise_atual: proxVersao })
+        .eq('id', licitacao_id)
+    } catch (vErr) {
+      console.warn('Erro ao gravar versão versionada da extração:', vErr)
+    }
+
     return new Response(
       JSON.stringify({
         success: !gateSanidadeReprovado,
@@ -701,15 +1058,65 @@ Retorne um parecer em JSON: {"risco_direcionamento": boolean, "motivo_auditoria"
         audit_id: auditRow?.id,
         catalog_coverage: catalogCoverageOverall,
         itens: itensProcessados,
-        juridico: juridicoExtracted,
+        juridico: {
+          ...juridicoExtracted,
+          exigencias: (juridicoExtracted.exigencias || []).map((e) => ({
+            ...e,
+            fonte_origem: fonteJuridicoUtilizada,
+          })),
+        },
+        fontes_utilizadas: {
+          objeto_tr_fonte: fonteItensUtilizada,
+          habilitacao_fonte: fonteJuridicoUtilizada,
+        },
         auditor_deepseek_acionado: auditorDeepSeekUsado,
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
     )
   } catch (error: any) {
-    console.error('Erro na função analyze-edital:', error)
+    console.error('Erro geral não tratado na função analyze-edital:', error)
+    // Tenta atualizar o status da licitação e gravar log de erro para não deixá-la pendente/sem resposta
+    try {
+      const supabaseUrl = Deno.env.get('SUPABASE_URL') || Deno.env.get('PROJECT_URL') || ''
+      const supabaseKey =
+        Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || Deno.env.get('SERVICE_ROLE_KEY') || ''
+      if (supabaseUrl && supabaseKey) {
+        const supabase = createClient(supabaseUrl, supabaseKey)
+        const bodyFallback = await req
+          .clone()
+          .json()
+          .catch(() => ({}))
+        const licId = bodyFallback?.licitacao_id
+        if (licId) {
+          await supabase
+            .from('imp_sim_licitacoes')
+            .update({ status: 'EM ANÁLISE TÉCNICA', updated_at: new Date().toISOString() })
+            .eq('id', licId)
+            .catch(() => {})
+
+          await supabase
+            .from('imp_sim_licitacao_auditoria_ia')
+            .insert({
+              licitacao_id: licId,
+              fase: 'extração',
+              modelo_usado: 'fallback_error_recovery',
+              versao_funcao: 'v2.1-sanidade',
+              status: 'falha',
+              erro_details: error?.message || 'Erro interno inesperado',
+              output_json: { error: error?.message || 'Erro desconhecido' },
+            })
+            .catch(() => {})
+        }
+      }
+    } catch {
+      // Ignora erro no salvamento do fallback
+    }
+
     return new Response(
-      JSON.stringify({ error: error.message || 'Erro interno no processamento de edital.' }),
+      JSON.stringify({
+        error: error.message || 'Erro interno no processamento de edital.',
+        success: false,
+      }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
     )
   }
@@ -720,8 +1127,119 @@ Retorne um parecer em JSON: {"risco_direcionamento": boolean, "motivo_auditoria"
  * o edital descreve itens textualmente (Item 1, Lote 1, etc.).
  * Suporta itens em linha própria com flag /m e término em fim de linha.
  */
-export function extrairItensDeterministicosDoTexto(text: string) {
-  const itens = []
+export function extrairValorMonetarioBrasileiro(str: string): number {
+  if (!str) return 0
+  const cleaned = str
+    .replace(/[R$\s\xa0]/gi, '')
+    .replace(/\./g, '')
+    .replace(',', '.')
+    .trim()
+  const num = parseFloat(cleaned)
+  return isNaN(num) || num < 0 ? 0 : num
+}
+
+export function extrairValorEstimadoDeTrecho(trecho: string): number {
+  if (!trecho) return 0
+
+  // 1. Padrão explícito com palavras-chave de valor estimado / unitário
+  const padraoExplicito =
+    /(?:valor\s*(?:unit[áa]rio)?\s*estimado|pre[çc]o\s*(?:unit[áa]rio)?\s*estimado|valor\s*(?:de\s*)?refer[êe]ncia|pre[çc]o\s*(?:de\s*)?refer[êe]ncia|estimativa\s*(?:de\s*)?pre[çc]o|custo\s*estimado|valor\s*m[áa]ximo\s*(?:aceit[áa]vel)?)\s*(?:[:=–\-]|de\s+)?\s*(?:R\$\s*)?(\d{1,3}(?:\.\d{3})*(?:,\d{2})|\d+(?:,\d{2}))/i
+  const mExp = trecho.match(padraoExplicito)
+  if (mExp && mExp[1]) {
+    const val = extrairValorMonetarioBrasileiro(mExp[1])
+    if (val > 0) return val
+  }
+
+  // 2. Padrão com símbolo R$ explícito
+  const padraoRS = /(?:R\$\s*)(\d{1,3}(?:\.\d{3})*(?:,\d{2})|\d+(?:,\d{2}))/i
+  const mRS = trecho.match(padraoRS)
+  if (mRS && mRS[1]) {
+    const val = extrairValorMonetarioBrasileiro(mRS[1])
+    if (val > 0) return val
+  }
+
+  return 0
+}
+
+function isProcessoEditalInformativo(valor: string | null | undefined): boolean {
+  if (!valor) return false
+  const trimmed = valor.trim()
+  if (!trimmed) return false
+
+  if (
+    /^(?:edital|processo|preg[ãa]o|artefato|termo(?:\s+de\s+refer[êe]ncia)?|uasg)?\s*\d{1,5}\/\d{4}(?:\s*(?:informa[çc][õo]es?|informa|edital|processo|preg[ãa]o|ano|fls?\.?|sei|cgu))?$/i.test(
+      trimmed,
+    )
+  ) {
+    return true
+  }
+  if (/^\d{1,5}\/\d{4}\b/i.test(trimmed)) {
+    return true
+  }
+  if (/\b(?:informa[çc][õo]es\s+b[áa]sicas|informa\b)/i.test(trimmed) && /\d{4}/.test(trimmed)) {
+    return true
+  }
+  if (/^\d+$/.test(trimmed) || /^\d{2}\/\d{2}\/\d{4}$/.test(trimmed)) {
+    return true
+  }
+  return false
+}
+
+function extrairMarcaModeloSegura(texto: string): string | undefined {
+  if (!texto) return undefined
+
+  const padraoExplicito =
+    /(?:marca(?:\/modelo)?|modelo|refer[êe]ncia|fabricante)\s*[:\-–]\s*([A-Za-z0-9\s/+\-_]{2,50})/i
+  const mExp = texto.match(padraoExplicito)
+  if (mExp && mExp[1]) {
+    const limpo = mExp[1].split(/[,;.\n\r]/)[0]?.trim()
+    if (limpo && !isProcessoEditalInformativo(limpo) && limpo.length >= 2) {
+      return limpo
+    }
+  }
+
+  const padraoModeloInline =
+    /\b(?:marca|modelo|fabricante)\s+([A-Za-z0-9][A-Za-z0-9\s/+\-_]{1,40})/i
+  const mInline = texto.match(padraoModeloInline)
+  if (mInline && mInline[1]) {
+    const limpo = mInline[1]
+      .split(/[,;.\n\r]|(?:\b(?:garantia|prazo|norma|quantidade|valor)\b)/i)[0]
+      ?.trim()
+    if (limpo && !isProcessoEditalInformativo(limpo) && limpo.length >= 2) {
+      return limpo
+    }
+  }
+
+  const padraoCompativel =
+    /(?:compat[íi]vel\s+com(?:\s+o\s+sistema\s+de\s+montagem)?)\s*[:\-–]?\s*([A-Za-z0-9\s/+\-_]{3,40})/i
+  const mCompat = texto.match(padraoCompativel)
+  if (mCompat && mCompat[1]) {
+    const limpo = mCompat[1].split(/[,;.\n\r]/)[0]?.trim()
+    if (limpo && !isProcessoEditalInformativo(limpo) && limpo.length >= 3) {
+      return limpo
+    }
+  }
+
+  return undefined
+}
+
+export function extrairItensDeterministicosDoTexto(
+  text: string,
+  fonteOrigem: 'TR dedicado' | 'Edital completo' | 'Planilha' = 'Edital completo',
+) {
+  const itens: Array<{
+    n_item: number
+    descricao: string
+    quantidade: number
+    unidade: string
+    valor_unitario_estimado: number
+    valor_total?: number
+    marca_modelo?: string
+    norma_abnt?: string
+    prazo_entrega?: string
+    garantia?: string
+    fonte_origem?: string
+  }> = []
   const itemRegex = /(?:^|\n)\s*(?:item|lote)\s*(\d+)\s*[:.\-–]?\s*([^\n\r]{6,})/gim
   let match
   let count = 0
@@ -745,13 +1263,217 @@ export function extrairItensDeterministicosDoTexto(text: string) {
     if (desc.length >= 6) {
       seenNumbers.add(num)
       count++
+
+      // Extração de especificações complementares
+      const marcaModelo = extrairMarcaModeloSegura(desc)
+
+      let normaAbnt: string | undefined
+      const abntMatch = desc.match(/(?:ABNT\s*NBR\s*[\d\-]+|NBR\s*[\d\-]+|ISO\s*[\d\-]+)/i)
+      if (abntMatch && abntMatch[0]) {
+        normaAbnt = abntMatch[0].trim()
+      }
+
+      let prazoEntrega: string | undefined
+      const prazoMatch = desc.match(
+        /(?:prazo\s*(?:de\s*)?entrega\s*[:\-–]?\s*(\d+\s*(?:dias|meses)[^,;.\n]*))/i,
+      )
+      if (prazoMatch && prazoMatch[1]) {
+        prazoEntrega = prazoMatch[1].trim()
+      }
+
+      let garantia: string | undefined
+      const garantiaMatch = desc.match(
+        /(?:garantia\s*(?:m[íi]nima\s*)?[:\-–]?\s*(\d+\s*(?:meses|anos)[^,;.\n]*))/i,
+      )
+      if (garantiaMatch && garantiaMatch[1]) {
+        garantia = garantiaMatch[1].trim()
+      }
+
+      let qtd = 1
+      const qtdMatch = desc.match(/(?:quant(?:\.|idade)?|qtd\.?)\s*[:\-–]?\s*(\d+)/i)
+      if (qtdMatch && qtdMatch[1]) {
+        const q = parseInt(qtdMatch[1], 10)
+        if (!isNaN(q) && q > 0) qtd = q
+      }
+
+      const matchIndex = match.index || 0
+      const contextoAdjacente = text.slice(matchIndex, matchIndex + 700)
+      let valorUnit = extrairValorEstimadoDeTrecho(desc)
+      if (valorUnit === 0) {
+        valorUnit = extrairValorEstimadoDeTrecho(contextoAdjacente)
+      }
+      const valorTotal = valorUnit > 0 ? valorUnit * qtd : 0
+
       itens.push({
         n_item: num,
         descricao: desc,
-        quantidade: 1,
+        quantidade: qtd,
         unidade: 'UN',
-        valor_unitario_estimado: 0,
+        valor_unitario_estimado: valorUnit,
+        valor_total: valorTotal,
+        marca_modelo: marcaModelo,
+        norma_abnt: normaAbnt,
+        prazo_entrega: prazoEntrega,
+        garantia: garantia,
+        fonte_origem: fonteOrigem,
       })
+    }
+  }
+
+  // Fallback 1: detecção de tabela compacta "ITEM DESCRIÇÃO Unid. QUANTIDADE \n 1 un 1" ou com descrição após
+  // Exemplo CGU / Padre Anchieta:
+  // "Objetivo: LENTE TELEOBJETIVA 70-200MM (NIKON Z)"
+  // "ITEM DESCRIÇÃO Unid. QUANTIDADE \n 1 un 1"
+  if (itens.length === 0) {
+    const tabelaPadraoComValor =
+      /(?:ITEM\s+DESCRI[ÇC][ÃA]O\s+(?:Unid\.?|Unidade)\s+QUANTIDADE[\s\S]{0,100}?(?:VALOR|PRE[ÇC]O)|ITEM\s+QUANTIDADE\s+DESCRI[ÇC][ÃA]O)[\s\S]{0,400}?\b(\d+)\s+([a-zA-Z]{1,5})\s+(\d+)(?:[^\n\r\d]{1,30})?(?:R\$\s*)?(\d{1,3}(?:\.\d{3})*(?:,\d{2})|\d+(?:,\d{2}))?/i
+    const mTabVal = text.match(tabelaPadraoComValor)
+
+    const tabelaPadrao =
+      /(?:ITEM\s+DESCRI[ÇC][ÃA]O\s+(?:Unid\.?|Unidade)\s+QUANTIDADE|ITEM\s+QUANTIDADE\s+DESCRI[ÇC][ÃA]O)[\s\S]{0,300}?\b(\d+)\s+([a-zA-Z]{1,5})\s+(\d+)/i
+    const mTab = mTabVal || text.match(tabelaPadrao)
+
+    if (mTab) {
+      const num = parseInt(mTab[1], 10) || 1
+      const unid = (mTab[2] || 'UN').toUpperCase()
+      const qtd = parseInt(mTab[3], 10) || 1
+
+      // Busca a descrição do objeto nas proximidades ou no início
+      let descObj = ''
+      const mObjHead = text.match(/(?:Objetivo|Objeto)\s*:\s*([^\n\r]{6,150})/i)
+      if (mObjHead && mObjHead[1]) {
+        descObj = mObjHead[1].trim()
+      } else {
+        const mObjSec = text.match(
+          /(?:1\.\s*OBJETO|DO OBJETO|DEFINIÇÃO DO OBJETO)[\s\S]{0,100}?(?:adquirir|aquisi[çc][ãa]o\s+de)\s+([^\n\r;.]{10,200})/i,
+        )
+        if (mObjSec && mObjSec[1]) {
+          descObj = mObjSec[1].trim()
+        }
+      }
+
+      if (descObj) {
+        let marcaModelo = extrairMarcaModeloSegura(descObj)
+        if (!marcaModelo) {
+          const contextoBusca = text.slice(0, Math.min(text.length, 3000))
+          marcaModelo = extrairMarcaModeloSegura(contextoBusca)
+        }
+
+        let normaAbnt: string | undefined
+        const abntMatch = text.match(/(?:ABNT\s*NBR\s*[\d-]+|NBR\s*[\d-]+|ISO\s*[\d-]+)/i)
+        if (abntMatch && abntMatch[0]) {
+          normaAbnt = abntMatch[0].trim()
+        }
+
+        let prazoEntrega: string | undefined
+        const prazoMatch = text.match(
+          /(?:prazo\s*(?:de\s*)?entrega\s*[:\-–]?\s*(\d+\s*(?:dias|meses)[^,;.\n]*))/i,
+        )
+        if (prazoMatch && prazoMatch[1]) {
+          prazoEntrega = prazoMatch[1].trim()
+        }
+
+        let garantia: string | undefined
+        const garantiaMatch = text.match(
+          /(?:garantia\s*(?:m[íi]nima\s*)?[:\-–]?\s*(\d+\s*(?:meses|anos)[^,;.\n]*))/i,
+        )
+        if (garantiaMatch && garantiaMatch[1]) {
+          garantia = garantiaMatch[1].trim()
+        }
+
+        let valorUnit = 0
+        if (mTabVal && mTabVal[4]) {
+          valorUnit = extrairValorMonetarioBrasileiro(mTabVal[4])
+        }
+        if (valorUnit === 0) {
+          const mTabIdx = mTab.index || 0
+          const contextoTabela = text.slice(Math.max(0, mTabIdx - 100), mTabIdx + 400)
+          valorUnit = extrairValorEstimadoDeTrecho(contextoTabela)
+        }
+        if (valorUnit === 0) {
+          valorUnit = extrairValorEstimadoDeTrecho(text)
+        }
+        const valorTotal = valorUnit > 0 ? valorUnit * qtd : 0
+
+        itens.push({
+          n_item: num,
+          descricao: descObj,
+          quantidade: qtd,
+          unidade: unid,
+          valor_unitario_estimado: valorUnit,
+          valor_total: valorTotal,
+          marca_modelo: marcaModelo,
+          norma_abnt: normaAbnt,
+          prazo_entrega: prazoEntrega,
+          garantia: garantia,
+          fonte_origem: fonteOrigem,
+        })
+      }
+    }
+  }
+
+  // Fallback 2: Objeto único explícito no TR / Termo de Referência
+  // Ex: "1.1. O objetivo da contratação é adquirir 01 (uma) lente teleobjetiva zoom profissional..."
+  // ou "1. OBJETO Aquisição de 01 (uma) lente teleobjetiva zoom profissional para câmera mirrorless..."
+  if (itens.length === 0) {
+    const singleObjRegex =
+      /(?:1\.1\.?\s*O objetivo da contrata[çc][ãa]o [eé] adquirir|1\.\s*OBJETO\s+(?:Aquisi[çc][ãa]o de|Contrata[çc][ãa]o de)|DO OBJETO\s+(?:Aquisi[çc][ãa]o de|Contrata[çc][ãa]o de))\s+(\d{1,4})?\s*(?:\([a-zA-Z]+\))?\s*([^\n\r.;]{10,250})/i
+    const mSingle = text.match(singleObjRegex)
+    if (mSingle) {
+      const qtdRaw = mSingle[1] ? parseInt(mSingle[1], 10) : 1
+      const qtd = isNaN(qtdRaw) || qtdRaw <= 0 ? 1 : qtdRaw
+      let desc = (mSingle[2] || '').trim()
+      desc = desc
+        .replace(/^[:.\-–\s]+/, '')
+        .replace(/[\s;.]+$/, '')
+        .trim()
+
+      if (desc.length >= 10) {
+        let marcaModelo = extrairMarcaModeloSegura(desc)
+        if (!marcaModelo) {
+          const contextoBusca = text.slice(0, Math.min(text.length, 3000))
+          marcaModelo = extrairMarcaModeloSegura(contextoBusca)
+        }
+
+        let normaAbnt: string | undefined
+        const abntMatch = text.match(/(?:ABNT\s*NBR\s*[\d-]+|NBR\s*[\d-]+|ISO\s*[\d-]+)/i)
+        if (abntMatch && abntMatch[0]) {
+          normaAbnt = abntMatch[0].trim()
+        }
+
+        let prazoEntrega: string | undefined
+        const prazoMatch = text.match(
+          /(?:prazo\s*(?:de\s*)?entrega\s*[:\-–]?\s*(\d+\s*(?:dias|meses)[^,;.\n]*))/i,
+        )
+        if (prazoMatch && prazoMatch[1]) {
+          prazoEntrega = prazoMatch[1].trim()
+        }
+
+        let garantia: string | undefined
+        const garantiaMatch = text.match(
+          /(?:garantia\s*(?:m[íi]nima\s*)?[:\-–]?\s*(\d+\s*(?:meses|anos)[^,;.\n]*))/i,
+        )
+        if (garantiaMatch && garantiaMatch[1]) {
+          garantia = garantiaMatch[1].trim()
+        }
+
+        const valorUnit = extrairValorEstimadoDeTrecho(text)
+        const valorTotal = valorUnit > 0 ? valorUnit * qtd : 0
+
+        itens.push({
+          n_item: 1,
+          descricao: desc,
+          quantidade: qtd,
+          unidade: 'UN',
+          valor_unitario_estimado: valorUnit,
+          valor_total: valorTotal,
+          marca_modelo: marcaModelo,
+          norma_abnt: normaAbnt,
+          prazo_entrega: prazoEntrega,
+          garantia: garantia,
+          fonte_origem: fonteOrigem,
+        })
+      }
     }
   }
 

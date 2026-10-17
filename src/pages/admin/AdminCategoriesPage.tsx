@@ -36,6 +36,13 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -129,6 +136,10 @@ export function AdminCategoriesPage() {
     maxScroll: 0,
     trackTravel: 0,
   })
+
+  // Modal de listagem detalhada de todas as categorias (acionado pelo box Total de Categorias)
+  const [categoriesListModalOpen, setCategoriesListModalOpen] = useState(false)
+  const [categoriesSearchInModal, setCategoriesSearchInModal] = useState('')
 
   // CRUD Dialogs
   const [editDialogOpen, setEditDialogOpen] = useState(false)
@@ -756,27 +767,39 @@ export function AdminCategoriesPage() {
               </CardContent>
             </Card>
 
-            {/* Card 4: Total de Categorias Cadastradas */}
+            {/* Card 4: Total de Categorias Cadastradas (abre lista de categorias ao clicar) */}
             <Card
-              className={cn(
-                'cursor-pointer transition-all border shadow-sm hover:border-primary/50',
-                activeTab === 'all' && !selectedCategoryId
-                  ? 'ring-2 ring-primary bg-primary/5 border-primary'
-                  : 'bg-card',
-              )}
-              onClick={() => handleSelectTab('all')}
+              className="cursor-pointer transition-all border shadow-sm hover:border-primary/60 hover:shadow-md bg-card group/total-cat active:scale-[0.99]"
+              onClick={() => setCategoriesListModalOpen(true)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  setCategoriesListModalOpen(true)
+                }
+              }}
+              title="Clique para ver a lista completa das categorias e seus NCMs aceitáveis"
             >
               <CardContent className="p-4 flex items-center justify-between">
                 <div>
-                  <p className="text-xs font-medium text-muted-foreground">Total de Categorias</p>
-                  <p className="text-2xl font-bold text-foreground mt-1">
+                  <div className="flex items-center gap-1.5">
+                    <p className="text-xs font-medium text-muted-foreground">Total de Categorias</p>
+                    <Badge
+                      variant="outline"
+                      className="text-[9px] px-1 py-0 h-4 font-normal text-primary border-primary/30 group-hover/total-cat:bg-primary/10"
+                    >
+                      Ver lista
+                    </Badge>
+                  </div>
+                  <p className="text-2xl font-bold text-foreground mt-1 group-hover/total-cat:text-primary transition-colors">
                     {metrics?.categories.length ?? '...'}
                   </p>
                   <p className="text-[11px] text-muted-foreground mt-0.5">
                     Audio + Net/Storage inclusas
                   </p>
                 </div>
-                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary">
+                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary group-hover/total-cat:bg-primary group-hover/total-cat:text-primary-foreground transition-all">
                   <Layers className="w-5 h-5" />
                 </div>
               </CardContent>
@@ -1113,7 +1136,7 @@ export function AdminCategoriesPage() {
                 scrollbarWidth: 'thin',
               }}
             >
-              <Table className="min-w-[975px]">
+              <Table className="min-w-[1085px]">
                 <TableHeader>
                   <TableRow className="bg-muted/40">
                     <TableHead className="w-[44px] sticky left-0 z-20 bg-muted/95 backdrop-blur-xs">
@@ -1125,7 +1148,7 @@ export function AdminCategoriesPage() {
                         aria-label="Selecionar todos os produtos da página"
                       />
                     </TableHead>
-                    <TableHead className="w-[220px] min-w-[220px] max-w-[220px] sticky left-[44px] z-20 bg-muted/95 backdrop-blur-xs border-r border-border/60 shadow-[4px_0_8px_-3px_rgba(0,0,0,0.06)] dark:shadow-[4px_0_8px_-3px_rgba(0,0,0,0.3)]">
+                    <TableHead className="w-[330px] min-w-[330px] max-w-[330px] sticky left-[44px] z-20 bg-muted/95 backdrop-blur-xs border-r border-border/60 shadow-[4px_0_8px_-3px_rgba(0,0,0,0.06)] dark:shadow-[4px_0_8px_-3px_rgba(0,0,0,0.3)]">
                       Produto & SKU
                     </TableHead>
                     <TableHead className="w-[140px]">Fabricante</TableHead>
@@ -1139,7 +1162,6 @@ export function AdminCategoriesPage() {
                     <TableHead className="w-[170px] text-right">Ações</TableHead>
                   </TableRow>
                 </TableHeader>
-
                 <TableBody>
                   {loadingProducts ? (
                     <TableRow>
@@ -1228,15 +1250,15 @@ export function AdminCategoriesPage() {
                             />
                           </TableCell>
 
-                          {/* Produto: Imagem, Nome (Link clicável) e SKU */}
+                          {/* Produto: Imagem (~56px), Nome (Link clicável até 2 linhas) e SKU completo */}
                           <TableCell
                             className={cn(
-                              'w-[220px] min-w-[220px] max-w-[220px] sticky left-[44px] z-10 bg-card border-r border-border/60 shadow-[4px_0_8px_-3px_rgba(0,0,0,0.06)] dark:shadow-[4px_0_8px_-3px_rgba(0,0,0,0.3)] transition-colors p-2.5',
+                              'w-[330px] min-w-[330px] max-w-[330px] sticky left-[44px] z-10 bg-card border-r border-border/60 shadow-[4px_0_8px_-3px_rgba(0,0,0,0.06)] dark:shadow-[4px_0_8px_-3px_rgba(0,0,0,0.3)] transition-colors p-3',
                               isSelected && 'bg-primary/5',
                               isOutOfStandard && 'bg-amber-500/[0.03]',
                             )}
                           >
-                            <div className="flex items-start gap-2.5 w-full min-w-0">
+                            <div className="flex items-start gap-3 w-full min-w-0">
                               {/* Navegação na mesma aba para manter a sessão no builder */}
                               <Link
                                 to={`/products/edit/${product.id}`}
@@ -1247,19 +1269,19 @@ export function AdminCategoriesPage() {
                                   <img
                                     src={product.image_url}
                                     alt={product.name}
-                                    className="w-11 h-11 object-contain rounded border bg-white group-hover/img:border-primary transition-colors"
+                                    className="w-14 h-14 object-contain rounded border bg-white p-1 group-hover/img:border-primary transition-colors shrink-0"
                                     onError={(e) => {
                                       ;(e.target as HTMLElement).style.display = 'none'
                                     }}
                                   />
                                 ) : (
-                                  <div className="w-11 h-11 rounded border bg-muted flex items-center justify-center group-hover/img:border-primary transition-colors">
-                                    <Tag className="w-4 h-4 text-muted-foreground group-hover/img:text-primary" />
+                                  <div className="w-14 h-14 rounded border bg-muted flex items-center justify-center group-hover/img:border-primary transition-colors shrink-0">
+                                    <Tag className="w-5 h-5 text-muted-foreground group-hover/img:text-primary" />
                                   </div>
                                 )}
                               </Link>
 
-                              <div className="min-w-0 flex-1 flex flex-col gap-1">
+                              <div className="min-w-0 flex-1 flex flex-col gap-1.5">
                                 {/* Link para ir direto ao cadastro admin /products/edit/:id (no máx 2 linhas) */}
                                 <Link
                                   to={`/products/edit/${product.id}`}
@@ -1271,7 +1293,7 @@ export function AdminCategoriesPage() {
 
                                 {product.sku && (
                                   <code
-                                    className="text-[10px] font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded truncate max-w-[140px] block w-fit"
+                                    className="text-[10px] font-mono text-muted-foreground bg-muted px-2 py-0.5 rounded max-w-[240px] truncate block w-fit border border-border/40"
                                     title={product.sku}
                                   >
                                     {product.sku}
@@ -1280,7 +1302,6 @@ export function AdminCategoriesPage() {
                               </div>
                             </div>
                           </TableCell>
-
                           {/* Fabricante */}
                           <TableCell>
                             <span className="text-xs text-muted-foreground">
@@ -1591,6 +1612,169 @@ export function AdminCategoriesPage() {
           </div>
         </div>
       </div>
+
+      {/* Modal Lista de Categorias (acionado ao clicar no box "Total de Categorias") */}
+      <Dialog open={categoriesListModalOpen} onOpenChange={setCategoriesListModalOpen}>
+        <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col p-0 overflow-hidden">
+          <DialogHeader className="p-6 pb-3 border-b bg-muted/20">
+            <div className="flex items-center gap-2">
+              <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
+                <Layers className="w-5 h-5" />
+              </div>
+              <div>
+                <DialogTitle className="text-lg font-bold flex items-center gap-2">
+                  <span>Lista de Categorias Cadastradas</span>
+                  <Badge variant="secondary" className="font-mono text-xs">
+                    {categoriesList.length} categorias
+                  </Badge>
+                </DialogTitle>
+                <DialogDescription className="text-xs text-muted-foreground mt-0.5">
+                  Categorias canônicas cadastradas no sistema, quantidade de produtos vinculados e
+                  prefixos de NCMs aceitáveis para cada família.
+                </DialogDescription>
+              </div>
+            </div>
+
+            {/* Busca rápida dentro do modal */}
+            <div className="relative mt-3">
+              <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-muted-foreground" />
+              <Input
+                placeholder="Filtrar por nome da categoria ou NCM..."
+                value={categoriesSearchInModal}
+                onChange={(e) => setCategoriesSearchInModal(e.target.value)}
+                className="pl-8 h-8 text-xs bg-background"
+              />
+              {categoriesSearchInModal && (
+                <button
+                  onClick={() => setCategoriesSearchInModal('')}
+                  className="absolute right-2.5 top-2 text-xs text-muted-foreground hover:text-foreground"
+                >
+                  ×
+                </button>
+              )}
+            </div>
+          </DialogHeader>
+
+          {/* Conteúdo com rolagem da lista de categorias */}
+          <div className="flex-1 overflow-y-auto p-6 space-y-2.5 divide-y divide-border/40">
+            {categoriesList
+              .filter((cat) => {
+                if (!categoriesSearchInModal) return true
+                const query = categoriesSearchInModal.toLowerCase()
+                const matchName = cat.name.toLowerCase().includes(query)
+                const matchNcm = (cat.acceptable_ncms || []).some((n) =>
+                  n.toLowerCase().includes(query),
+                )
+                return matchName || matchNcm
+              })
+              .map((cat, idx) => (
+                <div
+                  key={cat.id}
+                  className={cn(
+                    'pt-3 first:pt-0 flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-lg hover:bg-muted/40 transition-colors',
+                  )}
+                >
+                  <div className="space-y-1.5 flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs font-mono text-muted-foreground w-6 shrink-0">
+                        #{idx + 1}
+                      </span>
+                      <span className="font-semibold text-sm text-foreground">{cat.name}</span>
+                      <Badge
+                        variant={cat.product_count > 0 ? 'secondary' : 'outline'}
+                        className="text-[11px] px-2 py-0 font-mono"
+                      >
+                        {cat.product_count}{' '}
+                        {cat.product_count === 1 ? 'produto vinculado' : 'produtos vinculados'}
+                      </Badge>
+                      {cat.legacy_pending_count > 0 && (
+                        <Badge
+                          variant="outline"
+                          className="text-[10px] px-1.5 py-0 font-mono bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-800"
+                        >
+                          +{cat.legacy_pending_count} na triagem
+                        </Badge>
+                      )}
+                      {cat.out_of_standard_count > 0 && (
+                        <Badge
+                          variant="destructive"
+                          className="text-[10px] px-1.5 py-0 flex items-center gap-1"
+                        >
+                          <AlertTriangle className="w-2.5 h-2.5" />
+                          {cat.out_of_standard_count} fora do padrão
+                        </Badge>
+                      )}
+                    </div>
+
+                    {/* NCMs aceitáveis resumidos */}
+                    <div className="flex items-start gap-1.5 text-xs text-muted-foreground pl-8">
+                      <span className="font-medium shrink-0 text-foreground/80">
+                        NCMs aceitáveis:
+                      </span>
+                      {cat.acceptable_ncms && cat.acceptable_ncms.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {cat.acceptable_ncms.map((ncm) => (
+                            <code
+                              key={ncm}
+                              className="text-[11px] font-mono px-1.5 py-0.2 bg-muted rounded border border-border/60 text-foreground"
+                            >
+                              {ncm}
+                            </code>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="italic text-muted-foreground">
+                          Nenhum prefixo restrito (aceita qualquer NCM)
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 shrink-0 pl-8 sm:pl-0">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => {
+                        setCategoriesListModalOpen(false)
+                        handleSelectCategoryCard(cat.id)
+                      }}
+                      title={`Filtrar produtos da categoria ${cat.name}`}
+                    >
+                      Ver produtos
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                      onClick={(e) => {
+                        setCategoriesListModalOpen(false)
+                        handleOpenEditCategory(cat, e)
+                      }}
+                      title="Editar categoria e NCMs aceitáveis"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+          </div>
+
+          <div className="p-3 border-t bg-muted/20 flex items-center justify-between text-xs text-muted-foreground">
+            <span>
+              Total de <strong>{categoriesList.length}</strong> categorias cadastradas
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 text-xs"
+              onClick={() => setCategoriesListModalOpen(false)}
+            >
+              Fechar
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Modal de Criação / Edição de Categorias e NCMs Aceitáveis */}
       <CategoryEditDialog

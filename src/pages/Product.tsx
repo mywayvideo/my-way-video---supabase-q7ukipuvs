@@ -308,7 +308,7 @@ export default function Product() {
     }
   }, [authUser, isAuthLoading])
 
-  // EFEITO 1 — Produtos da mesma categoria (carga inicial)
+  // EFEITO 1 — Produtos relacionados (manuais + IA de alta/média confiança, fallback por categoria)
   useEffect(() => {
     if (!product) return
     let mounted = true
@@ -316,10 +316,24 @@ export default function Product() {
       try {
         setIsLoadingRelated(true)
         const productAny = product as any
-        const relatedIds = [
-          ...(productAny.manual_related_ids || []),
-          ...(productAny.ai_related_ids || []),
-        ].filter((rid: string) => rid !== product.id)
+        const manual = Array.isArray(productAny.manual_related_ids)
+          ? productAny.manual_related_ids
+          : []
+        const aiAll = Array.isArray(productAny.ai_related_ids) ? productAny.ai_related_ids : []
+        const meta = (productAny.ai_related_meta || {}) as Record<string, { confidence?: string }>
+
+        // Na página pública: exibir manuais + sugestões IA de ALTA ou MÉDIA confiança.
+        // Baixa confiança fica oculta para o visitante até aprovação humana.
+        // Se um item não tiver meta ainda (legado), considera elegível por padrão.
+        const approvedAiIds = aiAll.filter((rid: string) => {
+          const itemMeta = meta[rid]
+          if (!itemMeta || !itemMeta.confidence) return true
+          return itemMeta.confidence === 'alta' || itemMeta.confidence === 'media'
+        })
+
+        const relatedIds = Array.from(new Set([...manual, ...approvedAiIds])).filter(
+          (rid: string) => rid !== product.id,
+        )
 
         if (relatedIds.length > 0) {
           const { data: relatedData } = await supabase
@@ -334,15 +348,18 @@ export default function Product() {
           }
         }
 
-        const { data } = await supabase
-          .from('products')
-          .select('*, manufacturer:manufacturers(*)')
-          .eq('category', product.category)
-          .neq('id', product.id)
-          .eq('is_discontinued', false)
-          .limit(8)
-        if (data && mounted) {
-          setRelatedProducts(data)
+        // Fallback legado por categoria quando não há relacionados gravados ou nenhum retornou
+        if (product.category) {
+          const { data } = await supabase
+            .from('products')
+            .select('*, manufacturer:manufacturers(*)')
+            .eq('category', product.category)
+            .neq('id', product.id)
+            .eq('is_discontinued', false)
+            .limit(8)
+          if (data && mounted) {
+            setRelatedProducts(data)
+          }
         }
       } catch (e) {
         console.error('Error fetching related products:', e)
@@ -401,10 +418,21 @@ export default function Product() {
         try {
           setIsLoadingRelated(true)
           const productAny = product as any
-          const relatedIds = [
-            ...(productAny.manual_related_ids || []),
-            ...(productAny.ai_related_ids || []),
-          ].filter((rid: string) => rid !== product.id)
+          const manual = Array.isArray(productAny.manual_related_ids)
+            ? productAny.manual_related_ids
+            : []
+          const aiAll = Array.isArray(productAny.ai_related_ids) ? productAny.ai_related_ids : []
+          const meta = (productAny.ai_related_meta || {}) as Record<string, { confidence?: string }>
+
+          const approvedAiIds = aiAll.filter((rid: string) => {
+            const itemMeta = meta[rid]
+            if (!itemMeta || !itemMeta.confidence) return true
+            return itemMeta.confidence === 'alta' || itemMeta.confidence === 'media'
+          })
+
+          const relatedIds = Array.from(new Set([...manual, ...approvedAiIds])).filter(
+            (rid: string) => rid !== product.id,
+          )
 
           if (relatedIds.length > 0) {
             const { data: relatedData } = await supabase
@@ -419,16 +447,17 @@ export default function Product() {
             }
           }
 
-          const { data } = await supabase
-            .from('products')
-            .select('*, manufacturer:manufacturers(*)')
-            .eq('category', product.category)
-            .neq('id', product.id)
-            .eq('is_discontinued', false)
-            .limit(8)
-
-          if (data && mounted) {
-            setRelatedProducts(data)
+          if (product.category) {
+            const { data } = await supabase
+              .from('products')
+              .select('*, manufacturer:manufacturers(*)')
+              .eq('category', product.category)
+              .neq('id', product.id)
+              .eq('is_discontinued', false)
+              .limit(8)
+            if (data && mounted) {
+              setRelatedProducts(data)
+            }
           }
         } catch (e) {
           console.error('Error restoring related products:', e)

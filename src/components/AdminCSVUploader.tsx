@@ -3,8 +3,9 @@ import { supabase } from '@/lib/supabase/client'
 import { persistExternalProductImage } from '@/services/productService'
 import { normalizeSkuForBrand, isSonyBrand } from '@/utils/sku-normalize'
 import { normalizeSkuKey } from '@/utils/sku-normalization'
+import { relatedProductsService } from '@/services/relatedProductsService'
 import { Button } from '@/components/ui/button'
-import { Upload, Plus, CheckCircle2 } from 'lucide-react'
+import { Upload, Plus, CheckCircle2, Sparkles } from 'lucide-react'
 import { toast } from '@/hooks/use-toast'
 import { Manufacturer } from '@/types'
 import {
@@ -56,6 +57,10 @@ export function AdminCSVUploader({ manufacturers, onSuccess, onAddManufacturer }
   const [showMfgDialog, setShowMfgDialog] = useState(false)
   const [file, setFile] = useState<File | null>(null)
   const [report, setReport] = useState<ReportData | null>(null)
+  const [relatedPipelineSummary, setRelatedPipelineSummary] = useState<{
+    autoApplied: number
+    pendingReview: number
+  } | null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -63,10 +68,11 @@ export function AdminCSVUploader({ manufacturers, onSuccess, onAddManufacturer }
     setFile(null)
     setReport(null)
     setStep('SELECT')
-    setIsDragging(false)
-    if (!isUploading && !isAnalyzing) setOpen(false)
+    setOpen(false)
+    setProgressMsg('')
+    setRelatedPipelineSummary(null)
+    if (fileInputRef.current) fileInputRef.current.value = ''
   }
-
   const handleFile = (f: File | null) => {
     if (!f) {
       setFile(null)
@@ -411,11 +417,58 @@ export function AdminCSVUploader({ manufacturers, onSuccess, onAddManufacturer }
         }
       }
 
-      toast({
-        title: 'Sucesso',
-        description: `Importação concluída. ${report.rowsToCreate.length + report.rowsToUpdate.length} produtos importados/atualizados. Imagens preservadas com sucesso (${imagesPersistedCount} persistidas no Storage).`,
+      // Disparar o pipeline de relacionados inteligentes para os produtos processados
+      // Buscar IDs criados ou atualizados
+      const processedSkus = [
+        ...report.rowsToCreate.map((r) => r.sku).filter(Boolean),
+        ...report.rowsToUpdate.map((r) => r.sku).filter(Boolean),
+      ]
+
+      let autoAppliedCount = 0
+      let pendingReviewCount = 0
+
+      if (processedSkus.length > 0) {
+        setProgressMsg('Executando pipeline de produtos relacionados inteligentes...')
+        try {
+          const { data: dbProducts } = await supabase
+            .from('products')
+            .select('id, sku')
+            .in('sku', processedSkus.slice(0, 50)) // Processar até os 50 primeiros do lote
+
+          if (dbProducts && dbProducts.length > 0) {
+            for (let i = 0; i < dbProducts.length; i++) {
+              const p = dbProducts[i]
+              setProgressMsg(`Analisando relacionados ${i + 1}/${dbProducts.length} (${p.sku})...`)
+              try {
+                const res = await relatedProductsService.generateForProduct(p.id)
+                if (res.success && res.ai_related_meta) {
+                  Object.values(res.ai_related_meta).forEach((m) => {
+                    if (m.confidence === 'alta' || m.confidence === 'media') {
+                      autoAppliedCount++
+                    } else if (m.confidence === 'baixa') {
+                      pendingReviewCount++
+                    }
+                  })
+                }
+              } catch (relErr) {
+                console.warn(`Erro ao gerar relacionados para SKU ${p.sku}:`, relErr)
+              }
+            }
+          }
+        } catch (pipelineErr) {
+          console.warn('Erro ao disparar pipeline em lote:', pipelineErr)
+        }
+      }
+
+      setRelatedPipelineSummary({
+        autoApplied: autoAppliedCount,
+        pendingReview: pendingReviewCount,
       })
-      handleReset()
+
+      toast({
+        title: 'Importação Concluída com Sucesso',
+        description: `${report.rowsToCreate.length + report.rowsToUpdate.length} produtos importados/atualizados. Imagens no Storage: ${imagesPersistedCount}. Relacionados: ${autoAppliedCount} aplicados automaticamente · ${pendingReviewCount} aguardando revisão.`,
+      })
       onSuccess()
     } catch (err: any) {
       toast({
@@ -565,6 +618,23 @@ export function AdminCSVUploader({ manufacturers, onSuccess, onAddManufacturer }
                       <p className="text-sm text-orange-500">
                         Rows setting to discontinued:{' '}
                         <strong>{report.discontinuedSetDiscontinued}</strong>
+                      </p>
+                    </>
+                  )}
+
+                  {relatedPipelineSummary && (
+                    <>
+                      <div className="border-t border-white/10 my-2 pt-2"></div>
+                      <h4 className="font-semibold text-xs text-primary flex items-center gap-1.5">
+                        <Sparkles className="w-4 h-4" /> Relacionados Inteligentes
+                      </h4>
+                      <p className="text-xs text-emerald-400">
+                        ✔ {relatedPipelineSummary.autoApplied} sugestões de alta/média confiança
+                        aplicadas automaticamente
+                      </p>
+                      <p className="text-xs text-amber-400">
+                        ? {relatedPipelineSummary.pendingReview} sugestões aguardando revisão em
+                        /admin/related-review
                       </p>
                     </>
                   )}

@@ -20,6 +20,7 @@ import {
   BookOpen,
   Search,
   CreditCard,
+  CheckCircle2,
 } from 'lucide-react'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { useAuthContext } from '@/contexts/AuthContext'
@@ -38,6 +39,8 @@ const navigation = [
   { name: 'Central de Duplicidades', href: '/admin/sku-standardization', icon: Sparkles },
   { name: 'Atualização B&H', href: '/admin/bh-update', icon: RefreshCw },
   { name: 'Verificação de Preços', href: '/admin/price-checks', icon: RefreshCw },
+  { name: 'Regras Relacionados', href: '/admin/related-rules', icon: Sparkles },
+  { name: 'Revisão Relacionados', href: '/admin/related-review', icon: CheckCircle2 },
   { name: 'Tabela de Apoio NCM', href: '/admin/ncm-support', icon: BookOpen },
   { name: 'Cache de Produtos', href: '/admin/product-cache', icon: Database },
   { name: 'Dicionário AVPRO', href: '/admin/avpro-keywords', icon: Sparkles },

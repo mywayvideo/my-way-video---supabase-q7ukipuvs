@@ -637,6 +637,46 @@ export function AdminProductForm({ initialData, onSuccess, onAddManufacturer }: 
                           <div className="flex flex-wrap gap-2">
                             {selectedProducts.map((prod: any) => {
                               const isAi = aiIds.includes(prod.id)
+                              const initialMeta = (initialData as any)?.ai_related_meta || {}
+                              const itemMeta = initialMeta[prod.id] || {}
+                              const confidence = itemMeta.confidence as
+                                | 'alta'
+                                | 'media'
+                                | 'baixa'
+                                | undefined
+
+                              let confBadge = null
+                              if (isAi) {
+                                if (confidence === 'alta') {
+                                  confBadge = (
+                                    <span
+                                      className="text-emerald-400 font-mono text-[10px] font-bold"
+                                      title="Confiança Alta (regra e specs casadas)"
+                                    >
+                                      ✔ alta
+                                    </span>
+                                  )
+                                } else if (confidence === 'media') {
+                                  confBadge = (
+                                    <span
+                                      className="text-amber-400 font-mono text-[10px] font-bold"
+                                      title="Confiança Média (regra ativa, spec ampla)"
+                                    >
+                                      ~ média
+                                    </span>
+                                  )
+                                } else if (confidence === 'baixa') {
+                                  confBadge = (
+                                    <span
+                                      className="text-red-400 font-mono text-[10px] font-bold"
+                                      title="Confiança Baixa (aguardando revisão)"
+                                    >
+                                      ? baixa
+                                    </span>
+                                  )
+                                }
+                              }
+
                               return (
                                 <Badge
                                   key={`badge-${prod.id}`}
@@ -644,17 +684,30 @@ export function AdminProductForm({ initialData, onSuccess, onAddManufacturer }: 
                                   className={cn(
                                     'flex items-center gap-1.5 text-xs py-1.5 px-3 font-normal border',
                                     isAi
-                                      ? 'bg-primary/20 hover:bg-primary/30 text-primary-foreground border-primary/30'
+                                      ? confidence === 'baixa'
+                                        ? 'bg-red-950/40 hover:bg-red-950/60 text-red-200 border-red-500/30'
+                                        : confidence === 'media'
+                                          ? 'bg-amber-950/40 hover:bg-amber-950/60 text-amber-200 border-amber-500/30'
+                                          : 'bg-primary/20 hover:bg-primary/30 text-primary-foreground border-primary/30'
                                       : 'border-transparent',
                                   )}
                                 >
                                   {isAi && <Sparkles className="w-3 h-3 text-primary" />}
-                                  <span className="max-w-[250px] truncate" title={prod.name}>
+                                  <span className="max-w-[220px] truncate" title={prod.name}>
                                     {prod.name}
                                   </span>
                                   {prod.sku && (
                                     <span className="text-muted-foreground ml-1 opacity-70">
                                       ({prod.sku})
+                                    </span>
+                                  )}
+                                  {confBadge}
+                                  {itemMeta.reason && (
+                                    <span
+                                      className="text-[10px] text-muted-foreground italic hidden sm:inline"
+                                      title={itemMeta.reason}
+                                    >
+                                      • {itemMeta.reason.slice(0, 35)}...
                                     </span>
                                   )}
                                   <button

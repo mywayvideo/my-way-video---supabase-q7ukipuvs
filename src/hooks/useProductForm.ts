@@ -10,6 +10,7 @@ import { calculateTotalUSDFromValues } from '@/utils/pricing-engine'
 import { sanitizeSku } from '@/utils/sku-sanitizer'
 import { normalizeSkuForBrand, isSonyBrand } from '@/utils/sku-normalize'
 import { validateNcmExists } from '@/services/ncmService'
+import { relatedProductsService } from '@/services/relatedProductsService'
 
 const productSchema = z.object({
   name: z.string().min(1, 'Nome é obrigatório'),
@@ -528,11 +529,26 @@ export function useProductForm(props?: UseProductFormProps) {
       }
 
       if (!isEditMode) {
-        await productService.createProduct(payload)
+        const created = await productService.createProduct(payload)
         toast({ description: 'Produto e Rebates salvos com sucesso!' })
+        if (created?.id) {
+          // Disparar geração de relacionados em segundo plano para produto novo
+          relatedProductsService.triggerBackgroundGeneration(created.id)
+        }
       } else {
+        // Checar se houve alteração em nome, descrição ou categoria para disparar pipeline
+        const initial = props?.initialData || {}
+        const nameChanged = payload.name !== initial.name
+        const descChanged = payload.description !== initial.description
+        const catChanged =
+          payload.category !== initial.category || payload.category_id !== initial.category_id
+
         await productService.updateProduct(id!, payload)
         toast({ description: 'Produto e Rebates salvos com sucesso!' })
+
+        if (id && (nameChanged || descChanged || catChanged)) {
+          relatedProductsService.triggerBackgroundGeneration(id)
+        }
       }
 
       if (props?.onSuccess) {

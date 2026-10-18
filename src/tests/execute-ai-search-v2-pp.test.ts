@@ -35,4 +35,24 @@ describe('execute_ai_search_v2_pp Edge Function checks', () => {
     expect(code).toContain('STATUS DO PRODUTO: FORA DE LINHA (DESCONTINUADO)')
     expect(code).toContain('A empresa nao trabalha com controle de estoque, portanto NUNCA fale em estoque')
   })
+
+  it('implements token normalization fallback in execute_ai_search_v2_pp', () => {
+    expect(code).toContain('[RPC_SEARCH_FALLBACK]')
+    expect(code).toContain('Sony BC-U')
+    expect(code).toContain('Sony BP-U')
+  })
+
+  it('calls check_ai_rate_limit with matching parameter names (user_identifier, max_requests)', () => {
+    expect(code).toContain("supabase.rpc('check_ai_rate_limit', {")
+    expect(code).toContain('user_identifier: identifier,')
+    expect(code).toContain('max_requests: limit,')
+  })
+
+  it('injects product_cache context into system prompt and enforces anti-derailment rules', () => {
+    expect(code).toContain('currentProductCacheContext')
+    expect(code).toContain('Especificacoes de compatibilidade (Product Cache):')
+    expect(code).toContain('8. REGRA ANTI-DESVIO (PRODUTOS EM DESTAQUE E EVASAO):')
+    expect(code).toContain('BC-QZ1 carrega baterias NP-FZ100 e NAO e compativel com a bateria BP-U70')
+    expect(code).toContain('BC-U1A e BC-U2A')
+  })
 })

@@ -29,19 +29,23 @@ export function CategoryModal({ onCategoryAdded, trigger }: CategoryModalProps) 
     setLoading(true)
 
     try {
-      // 1. Check for existing category (case-insensitive) to prevent duplicates
-      const { data: existing, error: searchError } = await supabase
+      // 1. Check for existing category (case/trim-insensitive) to prevent duplicates
+      const trimmed = name.trim()
+      const { data: allCats, error: searchError } = await supabase
         .from('categories')
         .select('id, name')
-        .ilike('name', name.trim())
-        .maybeSingle()
 
       if (searchError) throw searchError
 
+      const targetNorm = trimmed.toLowerCase()
+      const existing = (allCats || []).find(
+        (c: any) => (c.name || '').trim().toLowerCase() === targetNorm,
+      )
+
       if (existing) {
         toast({
-          title: 'Erro',
-          description: 'Esta categoria ja existe.',
+          title: 'Categoria duplicada',
+          description: `Já existe uma categoria cadastrada como "${existing.name}". Não é permitido nomes duplicados.`,
           variant: 'destructive',
         })
         setLoading(false)

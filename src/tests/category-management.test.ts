@@ -182,4 +182,27 @@ describe('categoryTriageService - 2-Layer Suggestions & Cintel Rules', () => {
     expect(sugPanel?.categoryName).toBe('Production Switchers')
     expect(sugPanel?.level).toBe('high')
   })
+
+  it('prevents case/trim duplicate category names', () => {
+    const existingCategories = [
+      { id: '1', name: 'Production Switchers' },
+      { id: '2', name: 'Card Readers' },
+      { id: '3', name: 'Chargers' },
+      { id: '4', name: 'Memory Cards' },
+    ]
+
+    const checkDuplicate = (name: string, excludeId?: string) => {
+      const norm = name.trim().toLowerCase()
+      return existingCategories.some(
+        (c) => c.id !== excludeId && c.name.trim().toLowerCase() === norm,
+      )
+    }
+
+    expect(checkDuplicate('production switchers')).toBe(true)
+    expect(checkDuplicate('  Production Switchers  ')).toBe(true)
+    expect(checkDuplicate('PRODUCTION SWITCHERS')).toBe(true)
+    expect(checkDuplicate('Production Switchers', '1')).toBe(false) // Editing itself
+    expect(checkDuplicate('Production Switchers', '2')).toBe(true) // Editing another
+    expect(checkDuplicate('Audio')).toBe(false)
+  })
 })

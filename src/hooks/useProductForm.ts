@@ -404,15 +404,40 @@ export function useProductForm(props?: UseProductFormProps) {
   }
 
   const handleAddCategory = async (name: string) => {
+    const trimmed = name.trim()
+    if (!trimmed) {
+      toast({ description: 'Nome da categoria é obrigatório', variant: 'destructive' })
+      return false
+    }
+
+    const norm = trimmed.toLowerCase()
+    const duplicate = categories.find((c: any) => (c.name || '').trim().toLowerCase() === norm)
+    if (duplicate) {
+      toast({
+        title: 'Categoria duplicada',
+        description: `Já existe uma categoria cadastrada como "${duplicate.name}".`,
+        variant: 'destructive',
+      })
+      form.setValue('category_id', duplicate.id)
+      return false
+    }
+
     try {
-      const { data, error } = await supabase.from('categories').insert({ name }).select().single()
+      const { data, error } = await supabase
+        .from('categories')
+        .insert({ name: trimmed })
+        .select()
+        .single()
       if (error) throw error
       await loadCategories()
       form.setValue('category_id', data.id)
       toast({ description: 'Categoria adicionada com sucesso!' })
       return true
-    } catch (e) {
-      toast({ description: 'Erro ao adicionar categoria', variant: 'destructive' })
+    } catch (e: any) {
+      const msg = e?.message?.includes('uq_categories_normalized_name')
+        ? 'Já existe uma categoria com este nome.'
+        : 'Erro ao adicionar categoria'
+      toast({ description: msg, variant: 'destructive' })
       return false
     }
   }

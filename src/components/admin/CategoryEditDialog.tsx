@@ -141,9 +141,12 @@ export function CategoryEditDialog({
       onOpenChange(false)
       onSaved()
     } catch (err: any) {
+      const msg = err?.message?.includes('uq_categories_normalized_name')
+        ? `Já existe uma categoria cadastrada com o nome "${trimmedName}" (não é permitido nomes duplicados).`
+        : err.message || 'Ocorreu um erro ao salvar.'
       toast({
         title: 'Erro ao salvar categoria',
-        description: err.message || 'Ocorreu um erro ao salvar.',
+        description: msg,
         variant: 'destructive',
       })
     } finally {

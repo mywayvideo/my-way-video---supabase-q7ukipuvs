@@ -270,15 +270,25 @@ export const categoryService = {
     const trimmedName = params.name.trim()
     if (!trimmedName) throw new Error('Nome da categoria é obrigatório')
 
-    // Checar duplicidade por nome
-    const { data: existing } = await supabase
+    // Checar duplicidade por nome (case/trim-insensitive)
+    const { data: allCategories, error: checkError } = await supabase
       .from('categories')
       .select('id, name')
-      .ilike('name', trimmedName)
-      .maybeSingle()
 
-    if (existing) {
-      throw new Error(`Já existe uma categoria chamada "${trimmedName}"`)
+    if (checkError) {
+      console.error('Erro ao verificar duplicidade de categoria:', checkError)
+      throw checkError
+    }
+
+    const normalizedTarget = trimmedName.trim().toLowerCase()
+    const duplicate = (allCategories || []).find(
+      (c: any) => (c.name || '').trim().toLowerCase() === normalizedTarget,
+    )
+
+    if (duplicate) {
+      throw new Error(
+        `Já existe uma categoria cadastrada com o nome "${duplicate.name}". Não é permitido nomes duplicados.`,
+      )
     }
 
     const insertPayload: any = {
@@ -326,16 +336,25 @@ export const categoryService = {
     if (params.name !== undefined) {
       const trimmedName = params.name.trim()
       if (!trimmedName) throw new Error('Nome da categoria não pode ser vazio')
-      // Checar se outro registro usa esse nome
-      const { data: existing } = await supabase
+      // Checar se outro registro usa esse nome (case/trim-insensitive)
+      const { data: allCategories, error: checkError } = await supabase
         .from('categories')
         .select('id, name')
-        .ilike('name', trimmedName)
-        .neq('id', id)
-        .maybeSingle()
 
-      if (existing) {
-        throw new Error(`Outra categoria já utiliza o nome "${trimmedName}"`)
+      if (checkError) {
+        console.error('Erro ao verificar duplicidade de categoria:', checkError)
+        throw checkError
+      }
+
+      const normalizedTarget = trimmedName.trim().toLowerCase()
+      const duplicate = (allCategories || []).find(
+        (c: any) => c.id !== id && (c.name || '').trim().toLowerCase() === normalizedTarget,
+      )
+
+      if (duplicate) {
+        throw new Error(
+          `Outra categoria já utiliza o nome "${duplicate.name}". Não é permitido nomes duplicados.`,
+        )
       }
 
       updatePayload.name = trimmedName

@@ -16,6 +16,7 @@ import AdminAISettings from './pages/admin/ai-settings'
 import AdminAIPage from './pages/admin/AdminAIPage'
 import AdminCatalogPage from './pages/admin/AdminCatalogPage'
 import AdminCategoriesPage from './pages/admin/AdminCategoriesPage'
+import AdminImportReviewPage from './pages/admin/AdminImportReviewPage'
 import AdminRelatedRulesPage from './pages/admin/AdminRelatedRulesPage'
 import AdminRelatedReviewPage from './pages/admin/AdminRelatedReviewPage'
 import { AdminBhUpdatePage } from './pages/admin/AdminBhUpdatePage'
@@ -157,6 +158,14 @@ const App = () => {
                       element={
                         <ProtectedRoute>
                           <AdminCatalogPage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/admin/import-review"
+                      element={
+                        <ProtectedRoute>
+                          <AdminImportReviewPage />
                         </ProtectedRoute>
                       }
                     />

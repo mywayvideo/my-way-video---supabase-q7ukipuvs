@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import {
   Dialog,
   DialogContent,
@@ -25,8 +26,13 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { productService } from '@/services/productService'
+import {
+  categoryImportStagingService,
+  StagingProductItem,
+} from '@/services/categoryImportStagingService'
+import { CategoryItem } from '@/services/categoryTriageService'
 import { toast } from '@/hooks/use-toast'
-import { Plus, Loader2, Save } from 'lucide-react'
+import { Plus, Loader2, Save, ArrowRight, CheckCircle2 } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { ManufacturerDialog } from '@/components/admin/ManufacturerDialog'
@@ -57,10 +63,18 @@ export function BulkReviewModal({
 
   const [showMfgDialog, setShowMfgDialog] = useState(false)
   const [activeMfgRow, setActiveMfgRow] = useState<number | null>(null)
+  const [batchReport, setBatchReport] = useState<{
+    batchId: string
+    directMatchedCount: number
+    stagingCount: number
+    discardedCount: number
+    totalCount: number
+  } | null>(null)
 
   useEffect(() => {
     if (isOpen) {
       setIsLoading(true)
+      setBatchReport(null)
       const initial = products.map((p) => ({
         ...p,
         price_cost: p.price_cost || 0,
@@ -117,54 +131,165 @@ export function BulkReviewModal({
     let hasError = false
     const newErrors: Record<number, string> = {}
 
-    for (let i = 0; i < editedProducts.length; i++) {
-      const p = editedProducts[i]
-      toast({
-        title: 'Progresso',
-        description: `Salvando produto ${i + 1} de ${editedProducts.length}`,
+    const batchId = `bh_${Date.now()}`
+    let directMatchedCount = 0
+    let stagingCount = 0
+    const discardedCount = 0 // Sempre 0 numa importação nova
+
+    try {
+      // 1. Carregar mapeamentos memorizados persistentes
+      const mappings = await categoryImportStagingService.getCategoryMappings()
+      const categoriesList: CategoryItem[] = categories.map((c) => ({
+        id: c.id,
+        name: c.name,
+      }))
+
+      const stagingItemsToInsert: Array<Partial<StagingProductItem>> = []
+
+      for (let i = 0; i < editedProducts.length; i++) {
+        const p = editedProducts[i]
+        toast({
+          title: 'Processando lote B&H',
+          description: `Avaliando item ${i + 1} de ${editedProducts.length} (${p.sku || p.name})`,
+        })
+
+        // Identificar categoria original informada (ex: vinda da extração B&H ou input)
+        const rawCategory = (p.extracted_category || p.category || p.original_category || '').trim()
+        const selectedCat = categories.find((c) => c.id === p.category_id)
+        const effectiveCategoryName = selectedCat?.name || rawCategory
+
+        // Chamar resolveCategoryMatch
+        const matchResult = categoryImportStagingService.resolveCategoryMatch({
+          rawCategory: effectiveCategoryName,
+          productName: p.name,
+          productDescription: p.description,
+          productNcm: p.ncm,
+          categories: categoriesList,
+          mappings,
+        })
+
+        const selectedMfg = manufacturers.find((m) => m.id === p.manufacturer_id)
+        const brandName = selectedMfg?.name || p.extracted_brand || p.manufacturer || ''
+
+        // Se o usuário selecionou uma categoria válida no dropdown OU casou direto
+        if (p.category_id || (matchResult.isMatchedDirect && matchResult.matchedCategoryId)) {
+          const finalCatId = p.category_id || matchResult.matchedCategoryId
+          const finalCatName = selectedCat?.name || matchResult.matchedCategoryName
+
+          const payload = {
+            name: p.name,
+            sku: p.sku,
+            price_usd: parseFloat(p.price_usa) || 0,
+            price_usa: parseFloat(p.price_usa) || 0,
+            price_cost: parseFloat(p.price_cost) || 0,
+            price_nationalized_cost: parseFloat(p.price_nationalized_cost) || null,
+            price_nationalized_sales: parseFloat(p.price_nationalized_sales) || null,
+            price_brl: parseFloat(p.price_nationalized_cost) || parseFloat(p.price_cost) || 0,
+            dimensions: p.dimensions || '',
+            weight: parseFloat(p.weight) || 0,
+            category_id: finalCatId,
+            category: finalCatName,
+            manufacturer_id: p.manufacturer_id || null,
+            brand: brandName || null,
+            description: p.description || '',
+            technical_info: p.technical_info || '',
+            image_url: p.image_url || '',
+            website_url: p._url || p.website_url || p.source_url || null,
+            is_discontinued: p.is_discontinued === 'true' || p.is_discontinued === true,
+            is_special: p.is_special === 'true' || p.is_special === true,
+          }
+
+          try {
+            await productService.createProduct(payload)
+            directMatchedCount++
+          } catch (err: any) {
+            newErrors[i] = err.message || 'Erro ao salvar'
+            hasError = true
+          }
+        } else {
+          // NÃO casado direto: envia para product_import_staging
+          const stagingItem: Partial<StagingProductItem> = {
+            batch_id: batchId,
+            batch_source: 'bh',
+            sku: p.sku || null,
+            name: p.name,
+            manufacturer_id: p.manufacturer_id || null,
+            brand_name: brandName || null,
+            price_usd: parseFloat(p.price_usa) || 0,
+            price_cost: parseFloat(p.price_cost) || 0,
+            price_brl: parseFloat(p.price_nationalized_cost) || parseFloat(p.price_cost) || 0,
+            weight: parseFloat(p.weight) || 0,
+            dimensions: p.dimensions || null,
+            stock: 0,
+            ncm: p.ncm || null,
+            image_url: p.image_url || null,
+            description: p.description || null,
+            technical_info: p.technical_info || null,
+            website_url: p._url || p.website_url || p.source_url || null,
+            is_special: p.is_special === 'true' || p.is_special === true,
+            is_discontinued: p.is_discontinued === 'true' || p.is_discontinued === true,
+            price_nationalized_sales: parseFloat(p.price_nationalized_sales) || null,
+            price_nationalized_cost: parseFloat(p.price_nationalized_cost) || null,
+            price_nationalized_currency: 'USD',
+
+            original_category: rawCategory || null,
+            suggested_category_id: matchResult.suggestedCategoryId,
+            suggested_category_name: matchResult.suggestedCategoryName,
+            suggestion_confidence: matchResult.confidence,
+            suggestion_reason: matchResult.reason,
+
+            status: 'pending',
+            raw_payload: p,
+          }
+
+          stagingItemsToInsert.push(stagingItem)
+          stagingCount++
+        }
+      }
+
+      if (stagingItemsToInsert.length > 0) {
+        const stagingRes =
+          await categoryImportStagingService.insertStagingBatch(stagingItemsToInsert)
+        if (!stagingRes.success) {
+          console.error('Falha ao inserir itens B&H em staging:', stagingRes.error)
+          toast({
+            title: 'Aviso sobre Staging',
+            description: `Houve erro ao salvar itens em staging: ${stagingRes.error}`,
+            variant: 'destructive',
+          })
+        }
+      }
+
+      setBatchReport({
+        batchId,
+        directMatchedCount,
+        stagingCount,
+        discardedCount,
+        totalCount: editedProducts.length,
       })
 
-      try {
-        const payload = {
-          name: p.name,
-          sku: p.sku,
-          price_usd: parseFloat(p.price_usa) || 0,
-          price_usa: parseFloat(p.price_usa) || 0,
-          price_cost: parseFloat(p.price_cost) || 0,
-          price_nationalized_cost: parseFloat(p.price_nationalized_cost) || null,
-          price_nationalized_sales: parseFloat(p.price_nationalized_sales) || null,
-          price_brl: parseFloat(p.price_nationalized_cost) || parseFloat(p.price_cost) || 0,
-          dimensions: p.dimensions || '',
-          weight: parseFloat(p.weight) || 0,
-          category_id: p.category_id || null,
-          manufacturer_id: p.manufacturer_id || null,
-          description: p.description || '',
-          technical_info: p.technical_info || '',
-          image_url: p.image_url || '',
-          website_url: p._url || p.website_url || p.source_url || null,
-          is_discontinued: p.is_discontinued === 'true' || p.is_discontinued === true,
-          is_special: p.is_special === 'true' || p.is_special === true,
-        }
-        await productService.createProduct(payload)
-      } catch (err: any) {
-        newErrors[i] = err.message || 'Erro ao salvar'
-        hasError = true
+      if (!hasError) {
+        toast({
+          title: 'Lote B&H Processado com Sucesso',
+          description: `Casados direto: ${directMatchedCount} · Aguardando confirmação (staging): ${stagingCount}`,
+        })
+        onSuccess()
+      } else {
+        toast({
+          title: 'Aviso',
+          description: 'Alguns produtos casados falharam ao salvar.',
+          variant: 'destructive',
+        })
       }
-    }
-
-    setIsSaving(false)
-    setErrors(newErrors)
-
-    if (!hasError) {
-      toast({ title: 'Sucesso', description: 'Todos os produtos foram salvos com sucesso.' })
-      onSuccess()
-      onClose()
-    } else {
+    } catch (e: any) {
       toast({
-        title: 'Aviso',
-        description: 'Alguns produtos falharam ao salvar.',
+        title: 'Erro no processamento',
+        description: e?.message || 'Falha ao processar lote',
         variant: 'destructive',
       })
+    } finally {
+      setIsSaving(false)
+      setErrors(newErrors)
     }
   }
 
@@ -179,7 +304,60 @@ export function BulkReviewModal({
         </DialogHeader>
 
         <div className="flex-1 overflow-auto py-4">
-          {isLoading ? (
+          {batchReport ? (
+            <div className="p-6 border rounded-xl bg-muted/20 space-y-4 max-w-xl mx-auto my-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-emerald-500/10 rounded-lg text-emerald-400">
+                  <CheckCircle2 className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-base text-foreground">
+                    Relatório de Fechamento do Lote B&H
+                  </h3>
+                  <p className="text-xs font-mono text-muted-foreground">{batchReport.batchId}</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-2 text-sm bg-background/50 p-4 rounded-lg border border-white/5">
+                <div className="flex justify-between py-1.5 border-b border-white/5">
+                  <span className="text-emerald-400 font-medium">
+                    Casados direto (entraram em products):
+                  </span>
+                  <strong className="text-emerald-400 font-mono text-base">
+                    {batchReport.directMatchedCount}
+                  </strong>
+                </div>
+                <div className="flex justify-between py-1.5 border-b border-white/5">
+                  <span className="text-amber-400 font-medium">
+                    Aguardando confirmação (staging):
+                  </span>
+                  <strong className="text-amber-400 font-mono text-base">
+                    {batchReport.stagingCount}
+                  </strong>
+                </div>
+                <div className="flex justify-between py-1.5">
+                  <span className="text-zinc-400 font-medium">Descartados:</span>
+                  <strong className="text-zinc-400 font-mono text-base">
+                    {batchReport.discardedCount}
+                  </strong>
+                </div>
+              </div>
+
+              {batchReport.stagingCount > 0 && (
+                <div className="pt-2">
+                  <Button
+                    asChild
+                    className="w-full bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 border border-amber-500/30"
+                  >
+                    <Link to="/admin/import-review" onClick={onClose}>
+                      Ir para Revisão de Importação ({batchReport.stagingCount} pendentes)
+                      <ArrowRight className="w-4 h-4 ml-2" />
+                    </Link>
+                  </Button>
+                </div>
+              )}
+            </div>
+          ) : isLoading ? (
             <div className="space-y-4 p-4">
               {[1, 2, 3].map((i) => (
                 <Skeleton key={i} className="h-16 w-full" />
@@ -318,16 +496,18 @@ export function BulkReviewModal({
 
         <DialogFooter className="mt-4 border-t border-border/50 pt-4">
           <Button variant="outline" onClick={onClose} disabled={isSaving}>
-            Cancelar
+            {batchReport ? 'Fechar' : 'Cancelar'}
           </Button>
-          <Button onClick={handleSaveAll} disabled={isSaving}>
-            {isSaving ? (
-              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-            ) : (
-              <Save className="w-4 h-4 mr-2" />
-            )}
-            {isSaving ? 'Salvando...' : 'Salvar Todos'}
-          </Button>
+          {!batchReport && (
+            <Button onClick={handleSaveAll} disabled={isSaving}>
+              {isSaving ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <Save className="w-4 h-4 mr-2" />
+              )}
+              {isSaving ? 'Salvando...' : 'Salvar Todos'}
+            </Button>
+          )}
         </DialogFooter>
 
         <ManufacturerDialog

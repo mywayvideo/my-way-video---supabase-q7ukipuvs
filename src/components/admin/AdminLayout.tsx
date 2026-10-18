@@ -35,6 +35,7 @@ const navigation = [
   { name: 'IA & Inteligência Artificial', href: '/admin/ai', icon: Brain },
   { name: 'Testador de Busca', href: '/admin/search-test', icon: Search },
   { name: 'Catálogo & Produtos', href: '/admin/catalog', icon: Package },
+  { name: 'Revisão de Importação', href: '/admin/import-review', icon: CheckCircle2 },
   { name: 'Gerenciar Categorias', href: '/admin/categories', icon: Tag },
   { name: 'Central de Duplicidades', href: '/admin/sku-standardization', icon: Sparkles },
   { name: 'Atualização B&H', href: '/admin/bh-update', icon: RefreshCw },

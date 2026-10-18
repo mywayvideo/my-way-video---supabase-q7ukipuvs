@@ -1,11 +1,17 @@
 import { useState, useRef, DragEvent } from 'react'
+import { Link } from 'react-router-dom'
 import { supabase } from '@/lib/supabase/client'
 import { persistExternalProductImage } from '@/services/productService'
 import { normalizeSkuForBrand, isSonyBrand } from '@/utils/sku-normalize'
 import { normalizeSkuKey } from '@/utils/sku-normalization'
 import { relatedProductsService } from '@/services/relatedProductsService'
+import {
+  categoryImportStagingService,
+  StagingProductItem,
+} from '@/services/categoryImportStagingService'
+import { CategoryItem } from '@/services/categoryTriageService'
 import { Button } from '@/components/ui/button'
-import { Upload, Plus, CheckCircle2, Sparkles } from 'lucide-react'
+import { Upload, Plus, CheckCircle2, Sparkles, ExternalLink, ArrowRight } from 'lucide-react'
 import { toast } from '@/hooks/use-toast'
 import { Manufacturer } from '@/types'
 import {
@@ -41,6 +47,13 @@ interface ReportData {
   discontinuedUpdates?: number
   discontinuedSetActive?: number
   discontinuedSetDiscontinued?: number
+  batchExecution?: {
+    batchId: string
+    directMatchedCount: number
+    stagingCount: number
+    discardedCount: number
+    updatedCount: number
+  }
 }
 
 const normalizeSkuForComparison = (sku: string) => {
@@ -315,10 +328,25 @@ export function AdminCSVUploader({ manufacturers, onSuccess, onAddManufacturer }
   const processImport = async () => {
     if (!report || (report.rowsToCreate.length === 0 && report.rowsToUpdate.length === 0)) return
     setIsUploading(true)
-    setProgressMsg('Importando produtos...')
+    setProgressMsg('Preparando importação e checagem de categorias...')
 
     try {
       let imagesPersistedCount = 0
+
+      // Carregar categorias ativas e mapeamentos persistidos
+      const [{ data: dbCategories }, mappings] = await Promise.all([
+        supabase.from('categories').select('id, name').order('name'),
+        categoryImportStagingService.getCategoryMappings(),
+      ])
+
+      const categoriesList: CategoryItem[] = (dbCategories || []).map((c) => ({
+        id: c.id,
+        name: c.name,
+      }))
+
+      const batchId = `csv_${Date.now()}`
+      const selectedMfg = manufacturers.find((m) => m.id === mfgId)
+      const brandName = selectedMfg?.name || ''
 
       const parseRow = (p: any) => {
         const prod: any = { manufacturer_id: mfgId }
@@ -351,17 +379,24 @@ export function AdminCSVUploader({ manufacturers, onSuccess, onAddManufacturer }
         return prod
       }
 
+      let directMatchedCount = 0
+      let stagingCount = 0
+      const discardedCount = 0 // Sempre 0 numa importação nova
+
+      // Tratar criação de produtos novos (dividindo entre casados direto e staging)
       if (report.rowsToCreate.length > 0) {
-        const productsToInsert = report.rowsToCreate.map(parseRow)
-        for (let i = 0; i < productsToInsert.length; i++) {
-          const prod = productsToInsert[i]
+        const parsedProducts = report.rowsToCreate.map(parseRow)
+
+        // Persistir imagens primeiro
+        for (let i = 0; i < parsedProducts.length; i++) {
+          const prod = parsedProducts[i]
           if (
             prod.image_url &&
             typeof prod.image_url === 'string' &&
             prod.image_url.trim() !== ''
           ) {
             setProgressMsg(
-              `Persistindo imagem ${i + 1}/${productsToInsert.length} (${prod.sku || prod.name})...`,
+              `Persistindo imagem ${i + 1}/${parsedProducts.length} (${prod.sku || prod.name})...`,
             )
             try {
               const persistedUrl = await persistExternalProductImage(prod.image_url)
@@ -373,13 +408,102 @@ export function AdminCSVUploader({ manufacturers, onSuccess, onAddManufacturer }
               }
             } catch (imgErr) {
               console.warn(`Erro ao persistir imagem do produto ${prod.sku}:`, imgErr)
-              // Preserva URL externa original mesmo se falhar
             }
           }
         }
-        setProgressMsg('Importando produtos...')
-        const { error } = await supabase.from('products').insert(productsToInsert)
-        if (error) throw error
+
+        const productsToInsertDirect: any[] = []
+        const stagingItemsToInsert: Array<Partial<StagingProductItem>> = []
+
+        setProgressMsg('Avaliando categorias informadas e mapeamentos...')
+        for (let i = 0; i < parsedProducts.length; i++) {
+          const prod = parsedProducts[i]
+          const originalCategory = (prod.category || prod.original_category || '').trim()
+
+          const matchResult = categoryImportStagingService.resolveCategoryMatch({
+            rawCategory: originalCategory,
+            productName: prod.name,
+            productDescription: prod.description,
+            productNcm: prod.ncm,
+            categories: categoriesList,
+            mappings,
+          })
+
+          if (matchResult.isMatchedDirect && matchResult.matchedCategoryId) {
+            // Casado direto: grava em products imediatamente
+            productsToInsertDirect.push({
+              ...prod,
+              category_id: matchResult.matchedCategoryId,
+              category: matchResult.matchedCategoryName,
+            })
+            directMatchedCount++
+          } else {
+            // Não casado: NÃO grava em products, envia para product_import_staging
+            const stagingItem: Partial<StagingProductItem> = {
+              batch_id: batchId,
+              batch_source: 'csv',
+              sku: prod.sku || null,
+              name: prod.name,
+              manufacturer_id: mfgId || null,
+              brand_name: brandName || null,
+              price_usd: prod.price_usd || 0,
+              price_cost: prod.price_cost || 0,
+              price_brl: prod.price_brl || 0,
+              weight: prod.weight || 0,
+              dimensions: prod.dimensions || null,
+              stock: prod.stock || 0,
+              ncm: prod.ncm || null,
+              image_url: prod.image_url || null,
+              description: prod.description || null,
+              technical_info: prod.technical_info || null,
+              website_url: prod.website_url || null,
+              is_special: prod.is_special || false,
+              is_discontinued: prod.is_discontinued || false,
+              price_nationalized_sales: prod.price_nationalized_sales ?? null,
+              price_nationalized_cost: prod.price_nationalized_cost ?? null,
+              price_nationalized_currency: prod.price_nationalized_currency || 'BRL',
+              price_usa_rebate: prod.price_usa_rebate ?? null,
+              price_cost_rebate: prod.price_cost_rebate ?? null,
+              date_rebate: prod.date_rebate ?? null,
+
+              original_category: originalCategory || null,
+              suggested_category_id: matchResult.suggestedCategoryId,
+              suggested_category_name: matchResult.suggestedCategoryName,
+              suggestion_confidence: matchResult.confidence,
+              suggestion_reason: matchResult.reason,
+
+              status: 'pending',
+              raw_payload: prod,
+            }
+
+            stagingItemsToInsert.push(stagingItem)
+            stagingCount++
+          }
+        }
+
+        if (productsToInsertDirect.length > 0) {
+          setProgressMsg(
+            `Gravando ${productsToInsertDirect.length} produtos casados no catálogo...`,
+          )
+          const { error } = await supabase.from('products').insert(productsToInsertDirect)
+          if (error) throw error
+        }
+
+        if (stagingItemsToInsert.length > 0) {
+          setProgressMsg(
+            `Enviando ${stagingItemsToInsert.length} itens para a fila de revisão de importação...`,
+          )
+          const stagingRes =
+            await categoryImportStagingService.insertStagingBatch(stagingItemsToInsert)
+          if (!stagingRes.success) {
+            console.error('Falha ao inserir itens em staging:', stagingRes.error)
+            toast({
+              title: 'Aviso sobre Staging',
+              description: `Produtos casados foram salvos, mas houve erro ao salvar itens em staging: ${stagingRes.error}`,
+              variant: 'destructive',
+            })
+          }
+        }
       }
 
       if (report.rowsToUpdate.length > 0) {
@@ -465,9 +589,25 @@ export function AdminCSVUploader({ manufacturers, onSuccess, onAddManufacturer }
         pendingReview: pendingReviewCount,
       })
 
+      // Atualizar o report com os dados consolidados do lote
+      setReport((prev) =>
+        prev
+          ? {
+              ...prev,
+              batchExecution: {
+                batchId,
+                directMatchedCount,
+                stagingCount,
+                discardedCount,
+                updatedCount: report.rowsToUpdate.length,
+              },
+            }
+          : null,
+      )
+
       toast({
-        title: 'Importação Concluída com Sucesso',
-        description: `${report.rowsToCreate.length + report.rowsToUpdate.length} produtos importados/atualizados. Imagens no Storage: ${imagesPersistedCount}. Relacionados: ${autoAppliedCount} aplicados automaticamente · ${pendingReviewCount} aguardando revisão.`,
+        title: 'Processamento do Lote Concluído',
+        description: `Casados direto: ${directMatchedCount} · Aguardando confirmação (staging): ${stagingCount} · Atualizados: ${report.rowsToUpdate.length}`,
       })
       onSuccess()
     } catch (err: any) {
@@ -605,6 +745,60 @@ export function AdminCSVUploader({ manufacturers, onSuccess, onAddManufacturer }
                     SKUs duplicados no CSV: <strong>{report.duplicates.length}</strong>
                   </p>
 
+                  {/* Relatório de Fechamento do Lote após Execução */}
+                  {report.batchExecution && (
+                    <div className="mt-3 pt-3 border-t border-white/10 space-y-2 bg-background/50 p-3 rounded-md">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold uppercase tracking-wider text-primary">
+                          Fechamento do Lote
+                        </span>
+                        <span className="text-[11px] font-mono text-muted-foreground">
+                          {report.batchExecution.batchId}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-1 gap-1 text-xs">
+                        <div className="flex justify-between py-1 border-b border-white/5">
+                          <span className="text-emerald-400 font-medium">
+                            Casados direto (entraram em products):
+                          </span>
+                          <strong className="text-emerald-400">
+                            {report.batchExecution.directMatchedCount}
+                          </strong>
+                        </div>
+                        <div className="flex justify-between py-1 border-b border-white/5">
+                          <span className="text-amber-400 font-medium">
+                            Aguardando confirmação (staging):
+                          </span>
+                          <strong className="text-amber-400">
+                            {report.batchExecution.stagingCount}
+                          </strong>
+                        </div>
+                        <div className="flex justify-between py-1">
+                          <span className="text-zinc-400 font-medium">Descartados:</span>
+                          <strong className="text-zinc-400">
+                            {report.batchExecution.discardedCount}
+                          </strong>
+                        </div>
+                      </div>
+
+                      {report.batchExecution.stagingCount > 0 && (
+                        <div className="pt-2">
+                          <Button
+                            asChild
+                            size="sm"
+                            className="w-full bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 border border-amber-500/30"
+                          >
+                            <Link to="/admin/import-review" onClick={() => setOpen(false)}>
+                              Ir para Revisão de Importação ({report.batchExecution.stagingCount}{' '}
+                              pendentes)
+                              <ArrowRight className="w-3.5 h-3.5 ml-1.5" />
+                            </Link>
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {report.discontinuedUpdates !== undefined && report.discontinuedUpdates > 0 && (
                     <>
                       <div className="border-t border-white/10 my-2 pt-2"></div>
@@ -677,6 +871,8 @@ export function AdminCSVUploader({ manufacturers, onSuccess, onAddManufacturer }
               <Button onClick={analyzeFile} disabled={isAnalyzing || !file || !mfgId}>
                 {isAnalyzing ? 'Analisando...' : 'Analisar Arquivo'}
               </Button>
+            ) : report?.batchExecution ? (
+              <Button onClick={handleReset}>Fechar</Button>
             ) : (
               <Button
                 onClick={processImport}

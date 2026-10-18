@@ -500,7 +500,14 @@ function buildDynamicSystemPrompt(
         '5. Se nao encontrar acessorios compativeis, seja honesto: "Nao localizei acessorios compativeis especificos para este produto em nosso catalogo."',
         '6. REGRAS DE PRECO: price_usd (Miami) e o UNICO preco exibido por padrao, em USD (US$). price_nationalized_sales e price_brl SO devem ser mencionados quando o cliente perguntar explicitamente sobre preco de entrega no Brasil. price_nationalized_currency define se o valor esta em BRL (R$) ou USD (US$). price_brl e sempre em USD e so usado se nao houver price_nationalized_sales.',
         '7. PROIBIDO escrever a tag literal [PRODUCT:UUID] como texto generico ou placeholder. Use SEMPRE o UUID real do produto fornecido no catalogo abaixo. O formato correto e [PRODUCT:uuid-real-do-produto].',
-        '8. REGRA ANTI-DESVIO (PRODUTOS EM DESTAQUE E EVASAO): Em perguntas sobre compatibilidade (ex: "O BC-QZ1 carrega a bateria BP-U70?", "qual carregador para PXW-Z200?", "bateria compativel"), e TERMINANTEMENTE PROIBIDO desviar o assunto criando blocos do tipo "Produtos em Destaque", "Destaques do Catalogo" ou reapresentar a propria camera/produto atual como resposta. Se a busca no catalogo nao retornou o produto exato buscado: (a) responda de forma direta e tecnicamente precisa a pergunta de compatibilidade (ex: "Nao, o BC-QZ1 carrega baterias NP-FZ100 e NAO e compativel com a bateria BP-U70"); (b) mencione honestamente se o carregador ou bateria corretos constam ou nao no catalogo; e (c) recomende e referencie os produtos compativeis corretos da mesma familia (ex: para baterias BP-U, os carregadores compativeis sao Sony BC-U1A e BC-U2A) caso existam no catalogo.',
+        '8. REGRA CRITICA DE COMPATIBILIDADE E VEREDITO IMEDIATO (SEM VITRINE FAKE):',
+        'Quando a pergunta for de compatibilidade, indicacao ou encaixe ("e indicado para essa camera?", "serve para", "e compativel com", "posso usar", "funciona com"):',
+        '   (a) ABRIR OBRIGATORIAMENTE com o VEREDITO CLARO no primeiro paragrafo: "Nao, o [Produto] nao e indicado/compativel com [Camera/Produto Atual]" ou "Sim, o [Produto] e compativel com...". NUNCA trate pergunta de compatibilidade como vitrine de compras ou "Analise de Produtos Recomendados".',
+        '   (b) FUNDAMENTAR O VEREDITO IMEDIATAMENTE nos dados tecnicos / battery_system do Product Cache do produto atual e do produto citado (ex: "A Sony PXW-Z200 utiliza o sistema de baterias BP-U (como BP-U35, BP-U70, BP-U100), enquanto o carregador Sony BC-QZ1 e projetado exclusivamente para baterias da serie NP-FZ100").',
+        '   (c) A existencia de um produto no catalogo ou resultado da ferramenta de busca NUNCA o torna compativel e NUNCA transforma a pergunta em vitrine de recomendacao. Se o usuario perguntou de um produto incompativel e a busca retornou esse produto, PROIBIDO coloca-lo em blocos de recomendacao, destaques ou no array referenced_internal_products.',
+        '   (d) PROIBIDO sugerir/recomendar produtos incompativeis com a camera da pagina: em perguntas de compatibilidade, os unicos produtos permitidos no array referenced_internal_products e nas recomendacoes sao os da MESMA familia de bateria/montagem da camera atual (ex: para PXW-Z200 / BP-U, o carregador compativel existente no catalogo e o Sony BC-U1A [PRODUCT:b0dc1986-20cf-4185-bc01-916347073ad4]; NUNCA o BC-QZ1).',
+        '   (e) SO CITAR COMO ALTERNATIVA DE COMPRA PRODUTOS QUE EXISTAM NO CATALOGO A BAIXO: O modelo BC-U2A NAO existe atualmente no catalogo My Way (ha apenas o BC-U1A). Voce pode citar modelos nao cadastrados apenas a titulo de informacao tecnica de conhecimento geral, mas NUNCA os ofereca como produto disponivel no catalogo e NUNCA invente tags [PRODUCT:...]. Recomende para compra EXCLUSIVAMENTE os itens presentes na lista do catalogo.',
+        '   (f) REGRA ANTI-DESVIO E ANTI-VITRINE: E terminantemente proibido abrir a resposta com titulos de vitrine ("Analise de Produtos Recomendados", "Produtos em Destaque", "Destaques do Catalogo") quando o usuario fez uma pergunta de compatibilidade. O veredito tecnico vem primeiro.',
       ]
         .filter(Boolean)
         .join('\n'),
@@ -1283,18 +1290,23 @@ serve(async (req: Request) => {
         finalMessages.push({
           role: 'user',
           content: [
-            'Abaixo estão os produtos reais encontrados em nosso catálogo.',
+            'Abaixo estão os produtos reais encontrados em nosso catálogo através da ferramenta de busca.',
             '',
-            'REGRAS OBRIGATÓRIAS PARA ESTA RESPOSTA:',
-            '1. REFERÊNCIA DE IDs: Para cada produto mencionado, coloque o ID exato no array referenced_internal_products.',
-            '2. NUNCA coloque nomes no array referenced_internal_products.',
-            '3. NUNCA exiba UUIDs para o usuário.',
-            '4. Para cada produto listado, informe preço FOB (USD) quando existir.',
-            '5. Se o preço estiver ausente, escreva: "Consulte-nos para preço e condições especiais".',
-            '6. Recomende TODOS os produtos relevantes.',
+            'REGRAS CRÍTICAS PARA ESTA RESPOSTA:',
+            '1. SE A PERGUNTA DO USUÁRIO FOR DE COMPATIBILIDADE / INDICAÇÃO (ex: "é indicado para essa câmera?", "serve para", "compatível com", "posso usar"):',
+            '   - A existência destes produtos na lista abaixo NÃO transforma a resposta em vitrine nem significa que são recomendados.',
+            '   - Se o produto pesquisado for INCOMPATÍVEL com a câmera atual, dê o veredito "Não" logo no início, explique o motivo (specs de battery_system / montagem) e NUNCA coloque esse produto incompatível em referenced_internal_products nem crie bloco de recomendação para ele.',
+            '   - NUNCA use o título "Análise de Produtos Recomendados" nem títulos de vitrine em perguntas de compatibilidade.',
+            '   - Se houver produtos compatíveis da MESMA família na lista abaixo, mencione-os como alternativa compatível e coloque seus IDs em referenced_internal_products.',
+            '   - PROIBIDO sugerir como alternativa para compra itens que NÃO constem na lista abaixo.',
+            '2. REFERÊNCIA DE IDs: Coloque no array referenced_internal_products EXCLUSIVAMENTE os IDs dos produtos do catálogo que sejam verdadeiramente COMPATÍVEIS e recomendados.',
+            '3. NUNCA coloque nomes no array referenced_internal_products.',
+            '4. NUNCA exiba UUIDs para o usuário no texto da mensagem.',
+            '5. Para cada produto compatível recomendado, informe preço FOB (USD) quando existir.',
+            '6. Se o preço estiver ausente, escreva: "Consulte-nos para preço e condições especiais".',
             '7. O campo message deve ter no máximo 2500 caracteres.',
             '',
-            'DADOS DOS PRODUTOS:',
+            'DADOS DOS PRODUTOS DO CATÁLOGO:',
             productsContext,
           ].join('\n'),
         })
@@ -1337,6 +1349,10 @@ serve(async (req: Request) => {
     // 5. PROCESSAMENTO FINAL (fora do if tool_calls)
     const rawResult = safeJSONParse(rawContent, {}) // ← rawContent, não aiMessage?.content
 
+    // Detecta se a pergunta do usuário é de compatibilidade/indicação
+    const isCompatibilityQuestion =
+      /\b(indicad[oa]|compat[ií]vel|serve|funciona|carrega|suporta|aceita|cabe|usar)\b/i.test(query)
+
     // Remove UUIDs expostos na mensagem (garantia técnica, independe do comportamento da IA)
     if (typeof rawResult?.message === 'string') {
       let cleanedMsg = rawResult.message
@@ -1344,12 +1360,23 @@ serve(async (req: Request) => {
         .replace(/\n{3,}/g, '\n\n')
         .trim()
 
-      // Na página de produto, se a IA gerou um bloco evasivo "Produtos em Destaque" com a própria câmera atual,
-      // remover o bloco para evitar a sensação de desvio de assunto
-      if (lastReferencedProductId && cleanedMsg.includes('Produtos em Destaque')) {
-        cleanedMsg = cleanedMsg
-          .replace(/#{1,3}\s*Produtos em Destaque[\s\S]*?(?=(#{1,3}|$))/gi, '')
-          .trim()
+      // Na página de produto, se a IA gerou um bloco evasivo "Produtos em Destaque" ou vitrine em compatibilidade
+      if (lastReferencedProductId) {
+        if (cleanedMsg.includes('Produtos em Destaque')) {
+          cleanedMsg = cleanedMsg
+            .replace(/#{1,3}\s*Produtos em Destaque[\s\S]*?(?=(#{1,3}|$))/gi, '')
+            .trim()
+        }
+
+        // Se pergunta for de compatibilidade, suprime blocos de cabeçalho de vitrine como "Análise de Produtos Recomendados"
+        if (isCompatibilityQuestion) {
+          cleanedMsg = cleanedMsg
+            .replace(
+              /#{1,3}\s*(An[aá]lise de Produtos Recomendados|Produtos Recomendados|Vitrine de Produtos)[\s\S]*?(?=(#{1,3}|$))/gi,
+              '',
+            )
+            .trim()
+        }
       }
 
       rawResult.message = cleanedMsg
@@ -1383,6 +1410,49 @@ serve(async (req: Request) => {
     console.log(
       `[DEBUG_T3] IDs sugeridos count: ${result.referenced_internal_products?.length || 0} | validIds size: ${validIds.size} | interceptação esperada: ${result.referenced_internal_products?.filter((id: string) => validIds.has(id)).length || 0} de ${result.referenced_internal_products?.length || 0}`,
     )
+
+    // FILTRO DE COMPATIBILIDADE DETERMINÍSTICO (quando na página de produto e pergunta de compatibilidade):
+    // Se o produto atual possui battery_system definido no Product Cache, produtos sugeridos com
+    // battery_system divergente NÃO podem ser mantidos em referenced_internal_products
+    if (lastReferencedProductId && isCompatibilityQuestion && currentProductCacheContext) {
+      const currentBatteryMatch = currentProductCacheContext.match(/battery_system:\s*([^\n\r]+)/i)
+      const currentBatterySystem = currentBatteryMatch
+        ? currentBatteryMatch[1].trim().toUpperCase()
+        : null
+
+      if (currentBatterySystem) {
+        const candidateIds = result.referenced_internal_products.filter((id: string) =>
+          validIds.has(id),
+        )
+        if (candidateIds.length > 0) {
+          const { data: candidateSpecs } = await supabase
+            .from('product_cache')
+            .select('product_id, spec_key, spec_value')
+            .in('product_id', candidateIds)
+            .eq('spec_key', 'battery_system')
+            .gt('expires_at', new Date().toISOString())
+
+          const candidateBatteryMap = new Map<string, string>()
+          for (const row of candidateSpecs || []) {
+            candidateBatteryMap.set(row.product_id, String(row.spec_value).trim().toUpperCase())
+          }
+
+          // Filtra candidatos cuja família de bateria seja declaradamente diferente
+          validIds = new Set(
+            candidateIds.filter((id: string) => {
+              const bSystem = candidateBatteryMap.get(id)
+              if (bSystem && bSystem !== currentBatterySystem) {
+                console.log(
+                  `[COMPATIBILITY_FILTER] Removendo produto incompatível ${id} (bateria: ${bSystem} vs câmera: ${currentBatterySystem})`,
+                )
+                return false
+              }
+              return true
+            }),
+          )
+        }
+      }
+    }
 
     result.referenced_internal_products = result.referenced_internal_products.filter(
       (id: string) => validIds.has(id) && (!currentProductId || id !== currentProductId),

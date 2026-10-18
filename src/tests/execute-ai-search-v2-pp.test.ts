@@ -48,11 +48,19 @@ describe('execute_ai_search_v2_pp Edge Function checks', () => {
     expect(code).toContain('max_requests: limit,')
   })
 
-  it('injects product_cache context into system prompt and enforces anti-derailment rules', () => {
+  it('injects product_cache context into system prompt and enforces compatibility verdict rules', () => {
     expect(code).toContain('currentProductCacheContext')
     expect(code).toContain('Especificacoes de compatibilidade (Product Cache):')
-    expect(code).toContain('8. REGRA ANTI-DESVIO (PRODUTOS EM DESTAQUE E EVASAO):')
-    expect(code).toContain('BC-QZ1 carrega baterias NP-FZ100 e NAO e compativel com a bateria BP-U70')
-    expect(code).toContain('BC-U1A e BC-U2A')
+    expect(code).toContain('8. REGRA CRITICA DE COMPATIBILIDADE E VEREDITO IMEDIATO (SEM VITRINE FAKE):')
+    expect(code).toContain('ABRIR OBRIGATORIAMENTE com o VEREDITO CLARO no primeiro paragrafo')
+    expect(code).toContain('PROIBIDO sugerir/recomendar produtos incompativeis com a camera da pagina')
+    expect(code).toContain('BC-U2A NAO existe atualmente no catalogo My Way (ha apenas o BC-U1A)')
+    expect(code).toContain('BC-U1A')
+  })
+
+  it('contains compatibility deterministic filter and strips showcase headings', () => {
+    expect(code).toContain('isCompatibilityQuestion')
+    expect(code).toContain('Análise de Produtos Recomendados')
+    expect(code).toContain('[COMPATIBILITY_FILTER]')
   })
 })

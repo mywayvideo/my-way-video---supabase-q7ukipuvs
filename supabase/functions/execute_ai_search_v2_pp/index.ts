@@ -449,6 +449,7 @@ function buildDynamicSystemPrompt(
     is_discontinued?: boolean | null
   } | null,
   isFirstInteraction: boolean,
+  currentProductCacheContext: string = '',
 ): string {
   const parts: string[] = []
 
@@ -477,6 +478,9 @@ function buildDynamicSystemPrompt(
         'CONTEXTO OBRIGATORIO DE PAGINA DE PRODUTO:',
         `Voce esta na pagina do produto "${productContext.name}" (ID: ${productContext.id}).`,
         productContext.image_url ? `Imagem do produto: ${productContext.image_url}` : '',
+        currentProductCacheContext
+          ? `Especificacoes de compatibilidade (Product Cache):\n${currentProductCacheContext}`
+          : '',
         productContext.technicalInfo
           ? `Especificacoes tecnicas: ${productContext.technicalInfo.slice(0, 1500)}`
           : '',
@@ -496,6 +500,7 @@ function buildDynamicSystemPrompt(
         '5. Se nao encontrar acessorios compativeis, seja honesto: "Nao localizei acessorios compativeis especificos para este produto em nosso catalogo."',
         '6. REGRAS DE PRECO: price_usd (Miami) e o UNICO preco exibido por padrao, em USD (US$). price_nationalized_sales e price_brl SO devem ser mencionados quando o cliente perguntar explicitamente sobre preco de entrega no Brasil. price_nationalized_currency define se o valor esta em BRL (R$) ou USD (US$). price_brl e sempre em USD e so usado se nao houver price_nationalized_sales.',
         '7. PROIBIDO escrever a tag literal [PRODUCT:UUID] como texto generico ou placeholder. Use SEMPRE o UUID real do produto fornecido no catalogo abaixo. O formato correto e [PRODUCT:uuid-real-do-produto].',
+        '8. REGRA ANTI-DESVIO (PRODUTOS EM DESTAQUE E EVASAO): Em perguntas sobre compatibilidade (ex: "O BC-QZ1 carrega a bateria BP-U70?", "qual carregador para PXW-Z200?", "bateria compativel"), e TERMINANTEMENTE PROIBIDO desviar o assunto criando blocos do tipo "Produtos em Destaque", "Destaques do Catalogo" ou reapresentar a propria camera/produto atual como resposta. Se a busca no catalogo nao retornou o produto exato buscado: (a) responda de forma direta e tecnicamente precisa a pergunta de compatibilidade (ex: "Nao, o BC-QZ1 carrega baterias NP-FZ100 e NAO e compativel com a bateria BP-U70"); (b) mencione honestamente se o carregador ou bateria corretos constam ou nao no catalogo; e (c) recomende e referencie os produtos compativeis corretos da mesma familia (ex: para baterias BP-U, os carregadores compativeis sao Sony BC-U1A e BC-U2A) caso existam no catalogo.',
       ]
         .filter(Boolean)
         .join('\n'),
@@ -829,6 +834,29 @@ serve(async (req: Request) => {
       }
     }
 
+    // Fetch do contexto do produto atual no product_cache se estiver na PP
+    let currentProductCacheContext: string = ''
+    if (lastReferencedProductId) {
+      try {
+        const { data: pcSpecs } = await supabase
+          .from('product_cache')
+          .select('spec_key, spec_value')
+          .eq('product_id', lastReferencedProductId)
+          .gt('expires_at', new Date().toISOString())
+
+        if (pcSpecs && pcSpecs.length > 0) {
+          currentProductCacheContext = pcSpecs
+            .map((s: any) => ` - ${s.spec_key}: ${s.spec_value}`)
+            .join('\n')
+          console.log(
+            `[PC_CURRENT_PRODUCT] Specs recuperados para produto atual: ${pcSpecs.length}`,
+          )
+        }
+      } catch (pcErr) {
+        console.log(`[PC_CURRENT_PRODUCT_ERROR] ${pcErr}`)
+      }
+    }
+
     // Chama a função que criamos no Passo 1
     const systemPrompt = buildDynamicSystemPrompt(
       agentSettings,
@@ -836,8 +864,9 @@ serve(async (req: Request) => {
       companyInfo,
       manufacturerList,
       userName,
-      productContext, // ← 1 parâmetro só, em vez de 2
+      productContext,
       isFirstInteraction,
+      currentProductCacheContext,
     )
 
     console.log(`[DEBUG] Prompt montado. Tamanho: ${systemPrompt.length} caracteres`)
@@ -952,10 +981,51 @@ serve(async (req: Request) => {
         )
 
         const tRPC = performance.now()
-        const { data: products, error: rpcError } = await supabase
+        let { data: products, error: rpcError } = await supabase
           .rpc('search_products_v2', { search_term: searchTerm, boost_multiplier: queryBoost })
           .abortSignal(controller.signal)
         console.log(`[PERF][RPC_SEARCH] ${Math.round(performance.now() - tRPC)}ms`)
+
+        // ✅ FALLBACK INTELIGENTE DE BUSCA: se 0 produtos retornados, tentar termo alternativo simplificado/família
+        if ((!products || products.length === 0) && searchTerm.trim().length > 0) {
+          let alternativeTerm: string | null = null
+          const cleanNoHyphen = searchTerm
+            .replace(/[-_.\/]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim()
+
+          // Detecta padrões comuns de família de bateria/carregador Sony ou termos pontuados
+          if (/\b(bpu|bp\s*u)\b/i.test(searchTerm) && !/\bbc\s*u\b/i.test(searchTerm)) {
+            // Se buscou bateria BP-U e carregador
+            if (/\b(charg|carregador)\b/i.test(searchTerm)) {
+              alternativeTerm = 'Sony BC-U'
+            } else {
+              alternativeTerm = 'Sony BP-U'
+            }
+          } else if (/\bbc\s*u\b/i.test(searchTerm)) {
+            alternativeTerm = 'Sony BC-U'
+          } else if (cleanNoHyphen !== searchTerm) {
+            alternativeTerm = cleanNoHyphen
+          }
+
+          if (alternativeTerm && alternativeTerm.toLowerCase() !== searchTerm.toLowerCase()) {
+            console.log(`[RPC_SEARCH_FALLBACK] Tentando termo alternativo: "${alternativeTerm}"`)
+            const { data: altProducts, error: altError } = await supabase
+              .rpc('search_products_v2', {
+                search_term: alternativeTerm,
+                boost_multiplier: queryBoost,
+              })
+              .abortSignal(controller.signal)
+
+            if (!altError && altProducts && altProducts.length > 0) {
+              console.log(
+                `[RPC_SEARCH_FALLBACK] Sucesso com "${alternativeTerm}": ${altProducts.length} produtos`,
+              )
+              products = altProducts
+              rpcError = null
+            }
+          }
+        }
 
         // ✅ ETAPA 2 — LOG DEBUG PARA PP (RPC raw products) — INSIRA AQUI
         if (body.currentProductId) {
@@ -1049,7 +1119,7 @@ serve(async (req: Request) => {
           messages.push({
             role: 'system',
             content:
-              'Nenhum acessório compatível foi encontrado em nosso catálogo para este produto. No entanto, responda à pergunta do usuário com base no seu conhecimento técnico geral sobre compatibilidade, especificações e o que funciona com este equipamento. NUNCA invente especificações. Não sugira encaminhamento ao WhatsApp apenas por não encontrar o acessório.',
+              'Nenhum acessório compatível direto foi retornado nesta busca. RESPONDA DIRETAMENTE À PERGUNTA DE COMPATIBILIDADE com precisão técnica absoluta. PROIBIDO criar seções "Produtos em Destaque" ou reapresentar o produto atual. Se a pergunta for sobre carregadores/baterias (ex: BP-U vs BC-QZ1 vs BC-U1A/BC-U2A), responda honestamente: esclareça qual bateria/carregador atende cada sistema e indique os modelos corretos (ex: BC-U1A/BC-U2A para BP-U; BC-QZ1 para NP-FZ100). NUNCA invente compatibilidade falsa.',
           })
         }
       }
@@ -1069,7 +1139,9 @@ serve(async (req: Request) => {
       }
 
       // Inject current product as a real catalog item so the AI can reference it with [PRODUCT:UUID]
-      if (body?.currentProductContext && validCurrentProductId) {
+      // MAS NA PÁGINA DE PRODUTO, quando a busca foi por acessórios/compatibilidade, NÃO injetar
+      // a própria câmera em allFoundProducts para não induzir a IA a sugerir a câmera como acessório
+      if (body?.currentProductContext && validCurrentProductId && !lastReferencedProductId) {
         const ctx = body.currentProductContext
         const alreadyInList = allFoundProducts.some((p: any) => p.id === validCurrentProductId)
         if (!alreadyInList) {
@@ -1267,10 +1339,20 @@ serve(async (req: Request) => {
 
     // Remove UUIDs expostos na mensagem (garantia técnica, independe do comportamento da IA)
     if (typeof rawResult?.message === 'string') {
-      rawResult.message = rawResult.message
+      let cleanedMsg = rawResult.message
         .replace(/[•-]?\s*ID:\s*[0-9a-f-]{36}/gi, '') // remove "• ID: uuid" ou "- ID: uuid"
         .replace(/\n{3,}/g, '\n\n')
         .trim()
+
+      // Na página de produto, se a IA gerou um bloco evasivo "Produtos em Destaque" com a própria câmera atual,
+      // remover o bloco para evitar a sensação de desvio de assunto
+      if (lastReferencedProductId && cleanedMsg.includes('Produtos em Destaque')) {
+        cleanedMsg = cleanedMsg
+          .replace(/#{1,3}\s*Produtos em Destaque[\s\S]*?(?=(#{1,3}|$))/gi, '')
+          .trim()
+      }
+
+      rawResult.message = cleanedMsg
     }
 
     const result = {

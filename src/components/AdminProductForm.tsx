@@ -251,11 +251,11 @@ export function AdminProductForm({ initialData, onSuccess, onAddManufacturer }: 
             name="category_id"
             render={({ field }) => (
               <FormItem className="col-span-2 md:col-span-2">
-                <FormLabel>Categoria do Sistema</FormLabel>
+                <FormLabel>Categoria do Sistema *</FormLabel>
                 <Select value={field.value} onValueChange={field.onChange}>
                   <FormControl>
                     <SelectTrigger className="bg-background/50 border-white/10">
-                      <SelectValue placeholder="Selecione..." />
+                      <SelectValue placeholder="Selecione a categoria..." />
                     </SelectTrigger>
                   </FormControl>
                   <SelectContent>

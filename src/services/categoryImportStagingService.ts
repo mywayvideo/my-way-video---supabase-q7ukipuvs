@@ -231,7 +231,7 @@ export const categoryImportStagingService = {
       }
     }
 
-    // B) Algoritmo de 2 camadas por termos e NCM
+    // B) Algoritmo de similaridade direta por termos e NCM
     const suggestion = getProductCategorySuggestion(
       {
         name: productName,
@@ -254,7 +254,23 @@ export const categoryImportStagingService = {
       }
     }
 
-    // C) Sem nenhuma sugestão conclusiva
+    // C) Similaridade textual fuzzy/token entre rawCategory e os nomes das categorias
+    if (rawClean) {
+      const fuzzyMatch = this.findBestSimilarityCategory(rawClean, categories)
+      if (fuzzyMatch) {
+        return {
+          isMatchedDirect: false,
+          matchedCategoryId: null,
+          matchedCategoryName: null,
+          suggestedCategoryId: fuzzyMatch.category.id,
+          suggestedCategoryName: fuzzyMatch.category.name,
+          confidence: fuzzyMatch.score >= 0.6 ? 'media' : 'baixa',
+          reason: `Sugestão por similaridade textual (${Math.round(fuzzyMatch.score * 100)}%): "${rawClean}" → "${fuzzyMatch.category.name}"`,
+        }
+      }
+    }
+
+    // D) Sem nenhuma sugestão conclusiva
     return {
       isMatchedDirect: false,
       matchedCategoryId: null,
@@ -266,6 +282,107 @@ export const categoryImportStagingService = {
         ? `Categoria "${rawClean}" não identificada no catálogo`
         : 'Produto sem categoria informada na importação',
     }
+  },
+
+  /**
+   * Encontra a categoria do catálogo com maior similaridade textual com a string de entrada.
+   * Utiliza sobreposição de tokens e distância de Levenshtein normalizada.
+   */
+  findBestSimilarityCategory(
+    rawText: string,
+    categories: CategoryItem[],
+  ): { category: CategoryItem; score: number } | null {
+    if (!rawText || !rawText.trim() || !categories.length) return null
+
+    const cleanInput = rawText
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+    const inputTokens = new Set(cleanInput.split(' ').filter((t) => t.length > 2))
+
+    let bestScore = 0
+    let bestCat: CategoryItem | null = null
+
+    for (const cat of categories) {
+      const cleanCat = cat.name
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+      const catTokens = cleanCat.split(' ').filter((t) => t.length > 2)
+
+      // 1. Substring direta
+      if (cleanInput.includes(cleanCat) || cleanCat.includes(cleanInput)) {
+        const score = 0.8
+        if (score > bestScore) {
+          bestScore = score
+          bestCat = cat
+        }
+        continue
+      }
+
+      // 2. Sobreposição de tokens
+      let tokenOverlap = 0
+      for (const token of catTokens) {
+        if (inputTokens.has(token)) {
+          tokenOverlap++
+        } else {
+          // Checar se algum token tem início comum (ex: camcorder vs camcorders vs camera)
+          for (const inp of inputTokens) {
+            if (
+              (inp.length >= 4 && token.startsWith(inp)) ||
+              (token.length >= 4 && inp.startsWith(token))
+            ) {
+              tokenOverlap += 0.7
+              break
+            }
+          }
+        }
+      }
+
+      const tokenScore = catTokens.length > 0 ? tokenOverlap / catTokens.length : 0
+
+      // 3. Levenshtein ratio
+      const maxLen = Math.max(cleanInput.length, cleanCat.length)
+      const distance = this.levenshtein(cleanInput, cleanCat)
+      const levScore = maxLen > 0 ? 1 - distance / maxLen : 0
+
+      const combinedScore = tokenScore * 0.7 + levScore * 0.3
+
+      if (combinedScore > bestScore && combinedScore >= 0.35) {
+        bestScore = combinedScore
+        bestCat = cat
+      }
+    }
+
+    if (bestCat) {
+      return { category: bestCat, score: bestScore }
+    }
+    return null
+  },
+
+  levenshtein(a: string, b: string): number {
+    const an = a ? a.length : 0
+    const bn = b ? b.length : 0
+    if (an === 0) return bn
+    if (bn === 0) return an
+    const matrix = Array.from({ length: bn + 1 }, (_, i) => [i])
+    for (let j = 0; j <= an; j++) matrix[0][j] = j
+    for (let i = 1; i <= bn; i++) {
+      for (let j = 1; j <= an; j++) {
+        if (b.charAt(i - 1) === a.charAt(j - 1)) {
+          matrix[i][j] = matrix[i - 1][j - 1]
+        } else {
+          matrix[i][j] = Math.min(
+            matrix[i - 1][j - 1] + 1, // substitution
+            matrix[i][j - 1] + 1, // insertion
+            matrix[i - 1][j] + 1, // deletion
+          )
+        }
+      }
+    }
+    return matrix[bn][an]
   },
 
   /**

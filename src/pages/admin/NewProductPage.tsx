@@ -563,7 +563,7 @@ export default function NewProductPage() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel className="flex justify-between items-center">
-                          <span>Categoria</span>
+                          <span>Categoria *</span>
                           <Button
                             type="button"
                             variant="ghost"
@@ -581,7 +581,7 @@ export default function NewProductPage() {
                         >
                           <FormControl>
                             <SelectTrigger>
-                              <SelectValue placeholder="Selecione..." />
+                              <SelectValue placeholder="Selecione a categoria..." />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>

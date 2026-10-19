@@ -11,6 +11,7 @@ import { sanitizeSku } from '@/utils/sku-sanitizer'
 import { normalizeSkuForBrand, isSonyBrand } from '@/utils/sku-normalize'
 import { validateNcmExists } from '@/services/ncmService'
 import { relatedProductsService } from '@/services/relatedProductsService'
+import { categoryImportStagingService } from '@/services/categoryImportStagingService'
 
 const productSchema = z.object({
   name: z.string().min(1, 'Nome é obrigatório'),
@@ -29,7 +30,7 @@ const productSchema = z.object({
   ),
   price_nationalized_currency: z.string().catch('BRL').default('BRL'),
   stock: z.coerce.number().catch(0).default(0),
-  category_id: z.string().catch('').default(''),
+  category_id: z.string().min(1, 'Categoria é obrigatória'),
   category: z.string().catch('').default(''),
   description: z
     .any()
@@ -363,8 +364,48 @@ export function useProductForm(props?: UseProductFormProps) {
       if (data.image_url) form.setValue('image_url', data.image_url, { shouldDirty: true })
       if (data.dimensions) form.setValue('dimensions', data.dimensions, { shouldDirty: true })
       if (data.category) form.setValue('category', data.category, { shouldDirty: true })
-      if (data.category_id && categories.some((c) => c.id === data.category_id)) {
-        form.setValue('category_id', data.category_id, { shouldDirty: true })
+
+      // REGRA 2: Quando categoria vier da extração, sugerir e EXIGIR confirmação antes de salvar
+      if (data.category || data.category_id) {
+        const rawCategory = (data.category || '').trim()
+        const matchRes = categoryImportStagingService.resolveCategoryMatch({
+          rawCategory,
+          productName: data.name,
+          productDescription: typeof data.description === 'string' ? data.description : '',
+          productNcm: data.ncm,
+          categories,
+          mappings: [],
+        })
+
+        if (matchRes.isMatchedDirect && matchRes.matchedCategoryId) {
+          form.setValue('category_id', matchRes.matchedCategoryId, { shouldDirty: true })
+        } else if (matchRes.suggestedCategoryId) {
+          // Não aplicar direto em silêncio: avisar e sugerir confirmação
+          const acceptSuggestion = window.confirm(
+            `Categoria detectada: "${rawCategory || 'Desconhecida'}".\n\nSugestão de similaridade: "${matchRes.suggestedCategoryName}".\n\nDeseja confirmar e aplicar esta categoria ao produto?`,
+          )
+          if (acceptSuggestion) {
+            form.setValue('category_id', matchRes.suggestedCategoryId, { shouldDirty: true })
+            toast({
+              title: 'Categoria confirmada',
+              description: `Categoria "${matchRes.suggestedCategoryName}" aplicada ao formulário.`,
+            })
+          } else {
+            form.setValue('category_id', '', { shouldDirty: true })
+            toast({
+              title: 'Categoria pendente',
+              description: 'Selecione manualmente a categoria do produto antes de salvar.',
+              variant: 'default',
+            })
+          }
+        } else {
+          form.setValue('category_id', '', { shouldDirty: true })
+          toast({
+            title: 'Categoria não identificada',
+            description: `A categoria "${rawCategory}" não foi encontrada no catálogo. Selecione uma categoria válida.`,
+            variant: 'destructive',
+          })
+        }
       }
       if (data.manufacturer_id) {
         form.setValue('manufacturer_id', data.manufacturer_id, { shouldDirty: true })
@@ -488,6 +529,22 @@ export function useProductForm(props?: UseProductFormProps) {
   }
 
   const onSubmit = async (data: any) => {
+    // REGRA 1: Recusar salvamento individual com categoria vazia/inválida
+    const rawCatId = (data.category_id || '').trim()
+    const validCategory = categories.find((c) => c.id === rawCatId)
+    if (!rawCatId || !validCategory) {
+      form.setError('category_id', {
+        type: 'manual',
+        message: 'Categoria obrigatória: selecione uma categoria válida do catálogo.',
+      })
+      toast({
+        title: 'Categoria obrigatória',
+        description: 'O salvamento de produto exige uma categoria válida do catálogo.',
+        variant: 'destructive',
+      })
+      return
+    }
+
     setIsSaving(true)
     try {
       // Validação estrita do NCM no submit: só grava se corresponder a código em

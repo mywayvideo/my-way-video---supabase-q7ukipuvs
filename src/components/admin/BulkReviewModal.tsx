@@ -171,10 +171,10 @@ export function BulkReviewModal({
         const selectedMfg = manufacturers.find((m) => m.id === p.manufacturer_id)
         const brandName = selectedMfg?.name || p.extracted_brand || p.manufacturer || ''
 
-        // Se o usuário selecionou uma categoria válida no dropdown OU casou direto
-        if (p.category_id || (matchResult.isMatchedDirect && matchResult.matchedCategoryId)) {
-          const finalCatId = p.category_id || matchResult.matchedCategoryId
-          const finalCatName = selectedCat?.name || matchResult.matchedCategoryName
+        // Se o usuário selecionou explicitamente uma categoria válida no dropdown
+        if (p.category_id && selectedCat) {
+          const finalCatId = p.category_id
+          const finalCatName = selectedCat.name
 
           const payload = {
             name: p.name,

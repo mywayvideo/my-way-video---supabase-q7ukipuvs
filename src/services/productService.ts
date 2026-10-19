@@ -289,6 +289,13 @@ export const productService = {
       }
     }
 
+    // REGRA 1: Recusar categoria vazia/inválida ao salvar produto
+    if (!productData.category_id || String(productData.category_id).trim() === '') {
+      throw new Error(
+        'Categoria obrigatória: o salvamento de produto (individual e via importação) deve recusar categoria vazia/inválida. Selecione uma categoria válida.',
+      )
+    }
+
     // Validação preventiva de unicidade por chave normalizada antes de tentar o insert
     if (finalSku) {
       const duplicate = await this.findDuplicateProductByNormalizedSku(finalSku, {

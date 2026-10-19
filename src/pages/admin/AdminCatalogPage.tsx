@@ -62,6 +62,9 @@ import { useDebounce } from '@/hooks/use-debounce'
 import { BulkReviewModal } from '@/components/admin/BulkReviewModal'
 import { BatchPriceBrlModal } from '@/components/admin/BatchPriceBrlModal'
 import { productService } from '@/services/productService'
+import { categoryImportStagingService } from '@/services/categoryImportStagingService'
+import { AdminImportReviewView } from '@/pages/admin/AdminImportReviewPage'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ImageWithFallback } from '@/components/ImageWithFallback'
 import { fetchProductImageMetrics } from '@/services/imageMetricsService'
 import { ProductImageMetricsBanner } from '@/components/admin/ProductImageMetricsBanner'
@@ -117,6 +120,8 @@ export default function AdminCatalogPage() {
   const [filterNoImage, setFilterNoImage] = useState(false)
   const [filterUnreviewedMonths, setFilterUnreviewedMonths] = useState<string>('all')
   const [filterActiveRebate, setFilterActiveRebate] = useState(false)
+  const [catalogTab, setCatalogTab] = useState<'catalog' | 'import-review'>('catalog')
+  const [pendingStagingCount, setPendingStagingCount] = useState<number>(0)
 
   const [isProcessingCSV, setIsProcessingCSV] = useState(false)
   const [csvProgress, setCsvProgress] = useState({ current: 0, total: 0, currentName: '' })

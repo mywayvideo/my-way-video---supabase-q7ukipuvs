@@ -505,17 +505,31 @@ export default function AdminCatalogPage() {
     }
   }
 
+  const fetchPendingStagingCount = async () => {
+    try {
+      const res = await categoryImportStagingService.fetchStagingItems({
+        status: 'pending',
+        limit: 1000,
+      })
+      setPendingStagingCount(res.items?.length || 0)
+    } catch (e) {
+      console.warn('Erro ao carregar contagem de staging pendente:', e)
+    }
+  }
+
   const fetchOtherData = async () => {
     const { data: mData } = await supabase.from('manufacturers').select('*').order('name')
     if (mData) setManufacturers(mData)
     const { data: cData } = await supabase.from('categories').select('*').order('name')
     if (cData) setCategories(cData)
     await fetchMetrics()
+    await fetchPendingStagingCount()
   }
 
   const fetchData = async () => {
     await fetchOtherData()
     await fetchProductsData(debouncedSearch)
+    await fetchPendingStagingCount()
   }
 
   useEffect(() => {
@@ -923,6 +937,28 @@ export default function AdminCatalogPage() {
               </Button>
               <Button
                 variant="outline"
+                className={cn(
+                  'shadow-sm relative',
+                  pendingStagingCount > 0
+                    ? 'bg-amber-500/15 text-amber-300 border-amber-500/40 hover:bg-amber-500/25 font-medium'
+                    : 'bg-card hover:bg-muted/50',
+                )}
+                onClick={() => setCatalogTab('import-review')}
+              >
+                <span className="flex items-center">
+                  Revisão de Importação
+                  {pendingStagingCount > 0 && (
+                    <Badge
+                      variant="secondary"
+                      className="ml-2 bg-amber-500 text-black font-semibold text-[11px] px-1.5 py-0 h-5"
+                    >
+                      {pendingStagingCount}
+                    </Badge>
+                  )}
+                </span>
+              </Button>
+              <Button
+                variant="outline"
                 className="shadow-sm"
                 onClick={() => setShowRecalcModal(true)}
               >
@@ -945,758 +981,827 @@ export default function AdminCatalogPage() {
             </div>
           </div>
 
-          {/* Indicador de Créditos Firecrawl (raspagem de produtos e verificação de preços B&H) */}
-          <FirecrawlCreditsWidget variant="compact" />
-
-          {/* Painel Informativo de Armazenamento de Imagens (Supabase Storage vs Proxy) */}
-          <ProductImageMetricsBanner
-            inStorage={imageMetrics.inStorage}
-            viaProxy={imageMetrics.viaProxy}
-            storagePercent={imageMetrics.storagePercent}
-            proxyPercent={imageMetrics.proxyPercent}
-            totalWithImages={imageMetrics.totalWithImages}
-            loading={imageMetrics.loading}
-            onRefresh={fetchMetrics}
-          />
-
-          <div className="bg-card border border-border/50 rounded-xl overflow-hidden shadow-sm relative">
-            <div className="p-4 border-b border-border/50 bg-muted/20 flex flex-col sm:flex-row justify-between sm:items-center gap-4">
-              <h2 className="font-semibold text-foreground">
-                Inventário ({filteredProducts.length} itens)
-              </h2>
-              <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
-                <div className="flex items-center gap-2">
-                  <Select value={filterUnreviewedMonths} onValueChange={setFilterUnreviewedMonths}>
-                    <SelectTrigger className="h-9 w-[190px] text-xs bg-background/50 border-border/50">
-                      <SelectValue placeholder="Gestão de revisão" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Todas as revisões</SelectItem>
-                      <SelectItem value="3">Sem revisão há 3+ meses</SelectItem>
-                      <SelectItem value="6">Sem revisão há 6+ meses</SelectItem>
-                      <SelectItem value="12">Sem revisão há 12+ meses</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <Button
-                  variant={filterActiveRebate ? 'secondary' : 'outline'}
-                  size="sm"
-                  onClick={() => setFilterActiveRebate((prev) => !prev)}
-                  className={cn(
-                    'h-9 whitespace-nowrap',
-                    filterActiveRebate &&
-                      'bg-purple-500/20 text-purple-300 border-purple-500/40 hover:bg-purple-500/30 font-medium',
-                  )}
-                  title="Exibir somente produtos com rebate de fabricante ativo e vigente"
+          {/* Abas Catálogo Principal vs Revisão de Importação */}
+          <Tabs
+            value={catalogTab}
+            onValueChange={(val: any) => setCatalogTab(val)}
+            className="w-full space-y-6"
+          >
+            <div className="flex items-center justify-between border-b border-border/50 pb-2">
+              <TabsList className="bg-card border border-border/50 p-1">
+                <TabsTrigger
+                  value="catalog"
+                  className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground text-xs sm:text-sm px-4 flex items-center gap-2"
                 >
-                  <Tag className="w-4 h-4 mr-2" />
-                  Com Rebate Vigente
-                </Button>
-                <Button
-                  variant={filterNoImage ? 'secondary' : 'outline'}
-                  size="sm"
-                  onClick={toggleNoImageFilter}
-                  className={cn(
-                    'h-9 whitespace-nowrap',
-                    filterNoImage &&
-                      'bg-primary/20 text-primary border-primary/30 hover:bg-primary/30',
-                  )}
+                  <Package className="w-4 h-4" />
+                  Catálogo ({totalCount})
+                </TabsTrigger>
+                <TabsTrigger
+                  value="import-review"
+                  className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground text-xs sm:text-sm px-4 flex items-center gap-2"
                 >
-                  <ImageOff className="w-4 h-4 mr-2" />
-                  Sem Imagem
-                  <Badge variant="secondary" className="ml-2 bg-background/50 text-foreground">
-                    {noImageCount}
-                  </Badge>
-                </Button>{' '}
-                <div className="relative w-full sm:w-72">
-                  <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    placeholder="Buscar equipamento..."
-                    className="pl-10 pr-10 bg-background/50 border-border/50 h-9"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                  />
-                  {search.length > 0 && (
-                    <button
-                      onClick={() => setSearch('')}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground cursor-pointer rounded-full transition-colors flex items-center justify-center"
-                    >
-                      <X size={18} />
-                    </button>
-                  )}
-                </div>
+                  <span className="flex items-center gap-1.5">
+                    Fila de Importação
+                    {pendingStagingCount > 0 && (
+                      <Badge
+                        variant="secondary"
+                        className="bg-amber-500 text-black font-semibold text-[10px] px-1.5 py-0 h-4 rounded-full"
+                      >
+                        {pendingStagingCount}
+                      </Badge>
+                    )}
+                  </span>
+                </TabsTrigger>
+              </TabsList>
+
+              <div className="hidden sm:flex items-center text-xs text-muted-foreground">
+                {catalogTab === 'catalog' ? (
+                  <span>Gestão completa do inventário do catálogo</span>
+                ) : (
+                  <span>Itens aguardando confirmação manual de categoria</span>
+                )}
               </div>
             </div>
 
-            {selectedProductIds.length > 0 && (
-              <div className="bg-background/95 backdrop-blur-sm border-b md:border-b md:border-t-0 border-t border-border/50 p-3 flex flex-col md:flex-row items-center justify-between gap-3 z-30 transition-all fixed bottom-0 left-0 right-0 md:static shadow-[0_-10px_40px_rgba(0,0,0,0.1)] md:shadow-none">
-                <span className="text-sm font-medium md:ml-2">
-                  {selectedProductIds.length} produtos selecionados
-                </span>
-                <div className="flex flex-wrap items-center gap-2 w-full md:w-auto justify-end">
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={clearSelection}
-                    className="text-muted-foreground"
-                  >
-                    Limpar
-                  </Button>
-                  <Button
-                    size="sm"
-                    onClick={() => setShowExportModal(true)}
-                    className="bg-blue-600 hover:bg-blue-700 text-white"
-                  >
-                    <Download className="w-4 h-4 mr-2" /> Exportar CSV
-                  </Button>
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    onClick={() => setShowDeleteConfirm(true)}
-                  >
-                    <Trash2 className="w-4 h-4 mr-2" /> Excluir
-                  </Button>
-                </div>
-              </div>
-            )}
+            <TabsContent value="import-review" className="m-0 space-y-4">
+              <AdminImportReviewView
+                embedded
+                onDataChanged={() => {
+                  fetchPendingStagingCount()
+                  fetchProductsData(debouncedSearch)
+                }}
+              />
+            </TabsContent>
 
-            {/* Barra de rolagem customizada espelhada no topo */}
-            <div
-              className="relative w-full border-b border-border/60 bg-muted/40 select-none transition-colors hover:bg-muted/50"
-              style={{ height: '16px' }}
-              aria-hidden="true"
-            >
-              {/* Contêiner nativo invisível para manter sincronização */}
-              <div
-                ref={topScrollRef}
-                className="absolute inset-0 overflow-x-auto overflow-y-hidden opacity-0 pointer-events-none [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
-                tabIndex={-1}
-              >
+            <TabsContent value="catalog" className="m-0 space-y-6">
+              {/* Indicador de Créditos Firecrawl (raspagem de produtos e verificação de preços B&H) */}
+              <FirecrawlCreditsWidget variant="compact" />
+
+              {/* Painel Informativo de Armazenamento de Imagens (Supabase Storage vs Proxy) */}
+              <ProductImageMetricsBanner
+                inStorage={imageMetrics.inStorage}
+                viaProxy={imageMetrics.viaProxy}
+                storagePercent={imageMetrics.storagePercent}
+                proxyPercent={imageMetrics.proxyPercent}
+                totalWithImages={imageMetrics.totalWithImages}
+                loading={imageMetrics.loading}
+                onRefresh={fetchMetrics}
+              />
+
+              <div className="bg-card border border-border/50 rounded-xl overflow-hidden shadow-sm relative">
+                <div className="p-4 border-b border-border/50 bg-muted/20 flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+                  <h2 className="font-semibold text-foreground">
+                    Inventário ({filteredProducts.length} itens)
+                  </h2>
+                  <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
+                    <div className="flex items-center gap-2">
+                      <Select
+                        value={filterUnreviewedMonths}
+                        onValueChange={setFilterUnreviewedMonths}
+                      >
+                        <SelectTrigger className="h-9 w-[190px] text-xs bg-background/50 border-border/50">
+                          <SelectValue placeholder="Gestão de revisão" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">Todas as revisões</SelectItem>
+                          <SelectItem value="3">Sem revisão há 3+ meses</SelectItem>
+                          <SelectItem value="6">Sem revisão há 6+ meses</SelectItem>
+                          <SelectItem value="12">Sem revisão há 12+ meses</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <Button
+                      variant={filterActiveRebate ? 'secondary' : 'outline'}
+                      size="sm"
+                      onClick={() => setFilterActiveRebate((prev) => !prev)}
+                      className={cn(
+                        'h-9 whitespace-nowrap',
+                        filterActiveRebate &&
+                          'bg-purple-500/20 text-purple-300 border-purple-500/40 hover:bg-purple-500/30 font-medium',
+                      )}
+                      title="Exibir somente produtos com rebate de fabricante ativo e vigente"
+                    >
+                      <Tag className="w-4 h-4 mr-2" />
+                      Com Rebate Vigente
+                    </Button>
+                    <Button
+                      variant={filterNoImage ? 'secondary' : 'outline'}
+                      size="sm"
+                      onClick={toggleNoImageFilter}
+                      className={cn(
+                        'h-9 whitespace-nowrap',
+                        filterNoImage &&
+                          'bg-primary/20 text-primary border-primary/30 hover:bg-primary/30',
+                      )}
+                    >
+                      <ImageOff className="w-4 h-4 mr-2" />
+                      Sem Imagem
+                      <Badge variant="secondary" className="ml-2 bg-background/50 text-foreground">
+                        {noImageCount}
+                      </Badge>
+                    </Button>{' '}
+                    <div className="relative w-full sm:w-72">
+                      <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        placeholder="Buscar equipamento..."
+                        className="pl-10 pr-10 bg-background/50 border-border/50 h-9"
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                      />
+                      {search.length > 0 && (
+                        <button
+                          onClick={() => setSearch('')}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground cursor-pointer rounded-full transition-colors flex items-center justify-center"
+                        >
+                          <X size={18} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {selectedProductIds.length > 0 && (
+                  <div className="bg-background/95 backdrop-blur-sm border-b md:border-b md:border-t-0 border-t border-border/50 p-3 flex flex-col md:flex-row items-center justify-between gap-3 z-30 transition-all fixed bottom-0 left-0 right-0 md:static shadow-[0_-10px_40px_rgba(0,0,0,0.1)] md:shadow-none">
+                    <span className="text-sm font-medium md:ml-2">
+                      {selectedProductIds.length} produtos selecionados
+                    </span>
+                    <div className="flex flex-wrap items-center gap-2 w-full md:w-auto justify-end">
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={clearSelection}
+                        className="text-muted-foreground"
+                      >
+                        Limpar
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={() => setShowExportModal(true)}
+                        className="bg-blue-600 hover:bg-blue-700 text-white"
+                      >
+                        <Download className="w-4 h-4 mr-2" /> Exportar CSV
+                      </Button>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        onClick={() => setShowDeleteConfirm(true)}
+                      >
+                        <Trash2 className="w-4 h-4 mr-2" /> Excluir
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Barra de rolagem customizada espelhada no topo */}
                 <div
-                  style={{
-                    width:
-                      scrollMetrics.scrollWidth > 0 ? `${scrollMetrics.scrollWidth}px` : '100%',
-                    height: '1px',
-                  }}
-                />
-              </div>
-
-              {/* Trilho visual interativo */}
-              <div
-                ref={topTrackRef}
-                onClick={(e) => handleTrackClick(e, topTrackRef.current)}
-                className="relative w-full h-full cursor-pointer flex items-center px-1"
-                title="Clique ou arraste para rolar a tabela horizontalmente"
-              >
-                {/* Linha guia do trilho */}
-                <div className="absolute left-1 right-1 h-2 bg-slate-800/80 border border-slate-700/60 rounded-full" />
-
-                {/* Pegada (Thumb) visível em destaque permanente */}
-                {canScrollHorizontally && (
+                  className="relative w-full border-b border-border/60 bg-muted/40 select-none transition-colors hover:bg-muted/50"
+                  style={{ height: '16px' }}
+                  aria-hidden="true"
+                >
+                  {/* Contêiner nativo invisível para manter sincronização */}
                   <div
-                    onPointerDown={handleTopPointerDown}
-                    onPointerMove={handleTopPointerMove}
-                    onPointerUp={handleTopPointerUp}
-                    onPointerCancel={handleTopPointerUp}
-                    style={getThumbStyle(topTrackRef.current)}
-                    className={cn(
-                      'absolute h-3.5 rounded-full cursor-grab active:cursor-grabbing transition-[filter,background-color] duration-150 shadow-md z-10 flex items-center justify-center touch-none',
-                      'bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 hover:brightness-110 active:brightness-125 shadow-[0_1px_6px_rgba(245,158,11,0.5)] border border-amber-300/40',
-                      isDraggingTop &&
-                        'scale-y-110 brightness-125 shadow-[0_2px_8px_rgba(245,158,11,0.7)]',
-                    )}
+                    ref={topScrollRef}
+                    className="absolute inset-0 overflow-x-auto overflow-y-hidden opacity-0 pointer-events-none [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+                    tabIndex={-1}
                   >
-                    {/* Micro ranhuras visuais decorativas no centro do thumb */}
-                    <div className="flex gap-0.5 pointer-events-none opacity-80">
-                      <div className="w-0.5 h-1.5 bg-amber-950/70 rounded-full" />
-                      <div className="w-0.5 h-1.5 bg-amber-950/70 rounded-full" />
-                      <div className="w-0.5 h-1.5 bg-amber-950/70 rounded-full" />
-                    </div>
+                    <div
+                      style={{
+                        width:
+                          scrollMetrics.scrollWidth > 0 ? `${scrollMetrics.scrollWidth}px` : '100%',
+                        height: '1px',
+                      }}
+                    />
                   </div>
-                )}
-              </div>
-            </div>
 
-            <div
-              ref={bottomScrollRef}
-              className={cn(
-                'overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden',
-                selectedProductIds.length > 0 ? 'pb-24 md:pb-0' : '',
-              )}
-            >
-              <Table>
-                <TableHeader>
-                  <TableRow className="hover:bg-transparent">
-                    {/* Coluna 1 fixa (sticky left-0) */}
-                    <TableHead className="sticky left-0 z-20 w-[280px] min-w-[280px] max-w-[320px] bg-card shadow-[2px_0_6px_-2px_rgba(0,0,0,0.12)]">
-                      <div className="flex items-center gap-3">
-                        <Checkbox
-                          checked={isAllVisibleSelected}
-                          onCheckedChange={toggleSelectAll}
-                        />
-                        <span className="font-semibold text-foreground">Produto</span>
-                      </div>
-                    </TableHead>
-                    <TableHead
-                      className={cn('w-32', sortableHeaderClasses('is_discontinued'))}
-                      onClick={() => handleSort('is_discontinued')}
-                    >
-                      <div className="flex items-center">
-                        Status {renderSortIndicator('is_discontinued')}
-                      </div>
-                    </TableHead>
-                    <TableHead className="w-36">Status da Imagem</TableHead>
-                    <TableHead
-                      className={cn('w-24', sortableHeaderClasses('is_special'))}
-                      onClick={() => handleSort('is_special')}
-                    >
-                      <div className="flex items-center justify-center">
-                        Destaque {renderSortIndicator('is_special')}
-                      </div>
-                    </TableHead>
-                    <TableHead
-                      className={sortableHeaderClasses('brand')}
-                      onClick={() => handleSort('brand')}
-                    >
-                      <div className="flex items-center">Marca {renderSortIndicator('brand')}</div>
-                    </TableHead>
-                    <TableHead
-                      className={sortableHeaderClasses('name')}
-                      onClick={() => handleSort('name')}
-                    >
-                      <div className="flex items-center">
-                        Nome Completo {renderSortIndicator('name')}
-                      </div>
-                    </TableHead>
-                    <TableHead
-                      className={sortableHeaderClasses('sku')}
-                      onClick={() => handleSort('sku')}
-                    >
-                      <div className="flex items-center">SKU {renderSortIndicator('sku')}</div>
-                    </TableHead>
-                    <TableHead
-                      className={cn('text-right', sortableHeaderClasses('price_usd'))}
-                      onClick={() => handleSort('price_usd')}
-                    >
-                      <div className="flex items-center justify-end">
-                        FOB Miami {renderSortIndicator('price_usd')}
-                      </div>
-                    </TableHead>
-                    <TableHead
-                      className={cn('w-40', sortableHeaderClasses('price_usa_rebate'))}
-                      onClick={() => handleSort('price_usa_rebate')}
-                    >
-                      <div className="flex items-center">
-                        Rebate Ativo {renderSortIndicator('price_usa_rebate')}
-                      </div>
-                    </TableHead>
-                    <TableHead
-                      className={cn('w-44', sortableHeaderClasses('last_reviewed_at'))}
-                      onClick={() => handleSort('last_reviewed_at')}
-                    >
-                      <div className="flex items-center">
-                        Última Revisão {renderSortIndicator('last_reviewed_at')}
-                      </div>
-                    </TableHead>
-                    <TableHead className="text-right">Ações</TableHead>{' '}
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredProducts.map((p) => (
-                    <TableRow key={p.id} className="group">
-                      {/* Coluna 1 fixa (sticky left-0) com nome e imagem */}
-                      <TableCell className="sticky left-0 z-10 w-[280px] min-w-[280px] max-w-[320px] bg-card group-hover:bg-muted/50 group-data-[state=selected]:bg-muted transition-colors shadow-[2px_0_6px_-2px_rgba(0,0,0,0.12)]">
-                        <div className="flex items-center gap-3">
-                          <Checkbox
-                            checked={selectedProductIds.includes(p.id)}
-                            onCheckedChange={() => toggleProductSelection(p.id)}
-                            className="shrink-0"
-                          />
-                          <div className="shrink-0">
-                            {p.image_url ? (
-                              <ImageWithFallback
-                                src={p.image_url}
-                                alt={p.name || 'thumb'}
-                                productId={p.id}
-                                className="w-10 h-10 object-contain rounded bg-white/5 border border-white/10"
-                              />
-                            ) : (
-                              <div className="w-10 h-10 flex items-center justify-center bg-white/5 rounded border border-white/10">
-                                <ImageIcon className="w-4 h-4 text-muted-foreground/50" />
-                              </div>
-                            )}
-                          </div>
-                          <div className="flex flex-col min-w-0 pr-1">
-                            <span
-                              className="font-medium text-foreground text-sm truncate"
-                              title={p.name}
-                            >
-                              {p.name}
-                            </span>
-                            <span className="text-xs text-muted-foreground font-mono truncate">
-                              {p.sku || '-'}
-                            </span>
-                            {p.ncm && (
-                              <div className="mt-0.5">
-                                <NcmTaxTooltip ncm={p.ncm} side="right" align="start">
-                                  <span className="text-[10px] text-zinc-400 hover:text-orange-400 font-mono">
-                                    NCM: {formatNCM(p.ncm)}
-                                  </span>
-                                </NcmTaxTooltip>
-                              </div>
-                            )}
-                          </div>
+                  {/* Trilho visual interativo */}
+                  <div
+                    ref={topTrackRef}
+                    onClick={(e) => handleTrackClick(e, topTrackRef.current)}
+                    className="relative w-full h-full cursor-pointer flex items-center px-1"
+                    title="Clique ou arraste para rolar a tabela horizontalmente"
+                  >
+                    {/* Linha guia do trilho */}
+                    <div className="absolute left-1 right-1 h-2 bg-slate-800/80 border border-slate-700/60 rounded-full" />
+
+                    {/* Pegada (Thumb) visível em destaque permanente */}
+                    {canScrollHorizontally && (
+                      <div
+                        onPointerDown={handleTopPointerDown}
+                        onPointerMove={handleTopPointerMove}
+                        onPointerUp={handleTopPointerUp}
+                        onPointerCancel={handleTopPointerUp}
+                        style={getThumbStyle(topTrackRef.current)}
+                        className={cn(
+                          'absolute h-3.5 rounded-full cursor-grab active:cursor-grabbing transition-[filter,background-color] duration-150 shadow-md z-10 flex items-center justify-center touch-none',
+                          'bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 hover:brightness-110 active:brightness-125 shadow-[0_1px_6px_rgba(245,158,11,0.5)] border border-amber-300/40',
+                          isDraggingTop &&
+                            'scale-y-110 brightness-125 shadow-[0_2px_8px_rgba(245,158,11,0.7)]',
+                        )}
+                      >
+                        {/* Micro ranhuras visuais decorativas no centro do thumb */}
+                        <div className="flex gap-0.5 pointer-events-none opacity-80">
+                          <div className="w-0.5 h-1.5 bg-amber-950/70 rounded-full" />
+                          <div className="w-0.5 h-1.5 bg-amber-950/70 rounded-full" />
+                          <div className="w-0.5 h-1.5 bg-amber-950/70 rounded-full" />
                         </div>
-                      </TableCell>
-                      <TableCell>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          disabled={!canToggleStatus || togglingIds.has(p.id)}
-                          onClick={() => handleToggleStatus(p)}
-                          className={cn(
-                            'h-7 text-xs px-2 w-[110px] flex items-center justify-center transition-colors',
-                            p.is_discontinued
-                              ? 'bg-yellow-500/10 text-yellow-600 border-yellow-500/30 hover:bg-yellow-500/20'
-                              : 'bg-green-500/10 text-green-600 border-green-500/30 hover:bg-green-500/20',
-                          )}
-                        >
-                          {togglingIds.has(p.id) ? (
-                            <Loader2 className="w-3 h-3 mr-1.5 animate-spin" />
-                          ) : null}
-                          {p.is_discontinued ? 'Descontinuado' : 'Ativo'}
-                        </Button>
-                      </TableCell>
-                      <TableCell>{renderImageStatusBadge(p.image_url)}</TableCell>
-                      <TableCell className="text-center align-middle">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          disabled={!canToggleStatus || togglingSpecialIds.has(p.id)}
-                          onClick={() => handleToggleSpecial(p)}
-                          className="h-8 w-8 hover:bg-transparent"
-                        >
-                          {togglingSpecialIds.has(p.id) ? (
-                            <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
-                          ) : (
-                            <Star
-                              className={cn(
-                                'w-5 h-5 transition-colors',
-                                p.is_special
-                                  ? 'text-amber-500 fill-amber-500'
-                                  : 'text-muted-foreground hover:text-amber-500/70',
-                              )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div
+                  ref={bottomScrollRef}
+                  className={cn(
+                    'overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden',
+                    selectedProductIds.length > 0 ? 'pb-24 md:pb-0' : '',
+                  )}
+                >
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="hover:bg-transparent">
+                        {/* Coluna 1 fixa (sticky left-0) */}
+                        <TableHead className="sticky left-0 z-20 w-[280px] min-w-[280px] max-w-[320px] bg-card shadow-[2px_0_6px_-2px_rgba(0,0,0,0.12)]">
+                          <div className="flex items-center gap-3">
+                            <Checkbox
+                              checked={isAllVisibleSelected}
+                              onCheckedChange={toggleSelectAll}
                             />
-                          )}
-                        </Button>
-                      </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
-                        {p.manufacturer?.name || '-'}
-                      </TableCell>
-                      <TableCell className="font-medium max-w-[200px]" title={p.name}>
-                        <div className="flex items-center gap-2">
-                          <span className="truncate">{p.name}</span>
-                          {p.is_discontinued && (
-                            <Badge
-                              variant="destructive"
-                              className="text-[9px] h-4 px-1 py-0 uppercase tracking-wider shrink-0"
-                            >
-                              Inativo
-                            </Badge>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell className="font-mono text-xs">{p.sku}</TableCell>
-                      <TableCell className="text-right font-mono font-medium text-primary">
-                        US${' '}
-                        {(p.price_usd || 0).toLocaleString('en-US', {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2,
-                        })}
-                      </TableCell>
-                      {/* Rebate Ativo (Fabricante) */}
-                      <TableCell className="whitespace-nowrap">
-                        {(() => {
-                          const rebatePrice = p.price_usa_rebate ? Number(p.price_usa_rebate) : 0
-                          if (!rebatePrice || rebatePrice <= 0) {
-                            return (
-                              <span className="text-muted-foreground/40 font-mono text-xs">—</span>
-                            )
-                          }
-
-                          const now = new Date()
-                          const rebateEnd = p.date_rebate ? new Date(p.date_rebate) : null
-                          const isExpired = rebateEnd ? rebateEnd < now : false
-
-                          if (isExpired) {
-                            return (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Badge
-                                    variant="outline"
-                                    className="bg-amber-500/10 text-amber-400 border-amber-500/30 text-[10px] font-mono cursor-help"
-                                  >
-                                    Expirado
-                                    {p.date_rebate && (
-                                      <span className="ml-1 opacity-75">
-                                        ({new Date(p.date_rebate).toLocaleDateString('pt-BR')})
-                                      </span>
-                                    )}
-                                  </Badge>
-                                </TooltipTrigger>
-                                <TooltipContent className="text-xs">
-                                  Rebate anterior de US$ {rebatePrice.toFixed(2)} expirou em{' '}
-                                  {p.date_rebate
-                                    ? new Date(p.date_rebate).toLocaleDateString('pt-BR')
-                                    : ''}
-                                </TooltipContent>
-                              </Tooltip>
-                            )
-                          }
-
-                          return (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Badge
-                                  variant="outline"
-                                  className="bg-purple-500/15 text-purple-300 border-purple-500/40 text-[11px] font-mono flex items-center gap-1 cursor-help py-0.5"
-                                >
-                                  <Tag className="w-3 h-3 shrink-0 text-purple-400" />
-                                  <span>US$ {rebatePrice.toFixed(2)}</span>
-                                  {p.date_rebate && (
-                                    <span className="text-[10px] text-purple-300/80 ml-0.5">
-                                      até {new Date(p.date_rebate).toLocaleDateString('pt-BR')}
-                                    </span>
-                                  )}
-                                </Badge>
-                              </TooltipTrigger>
-                              <TooltipContent className="text-xs space-y-1 p-2.5">
-                                <p className="font-semibold text-purple-300">
-                                  Rebate do Fabricante Vigente
-                                </p>
-                                <p>
-                                  Preço FOB Base:{' '}
-                                  <strong>US$ {(p.price_usd || 0).toFixed(2)}</strong>
-                                </p>
-                                <p>
-                                  Preço com Rebate:{' '}
-                                  <strong className="text-emerald-400">
-                                    US$ {rebatePrice.toFixed(2)}
-                                  </strong>
-                                </p>
-                                <p className="text-[11px] text-muted-foreground">
-                                  Válido até:{' '}
-                                  {p.date_rebate
-                                    ? new Date(p.date_rebate).toLocaleDateString('pt-BR')
-                                    : 'Indeterminado'}
-                                </p>
-                              </TooltipContent>
-                            </Tooltip>
-                          )
-                        })()}
-                      </TableCell>
-                      <TableCell className="whitespace-nowrap">
-                        {(() => {
-                          const updatedTime = p.updated_at ? new Date(p.updated_at).getTime() : 0
-                          const reviewedTime = p.last_reviewed_at
-                            ? new Date(p.last_reviewed_at).getTime()
-                            : 0
-                          const isReviewedAfterUpdate = reviewedTime > updatedTime
-
-                          return (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <div className="inline-flex items-center gap-1.5 cursor-help">
-                                  <span
-                                    className={cn(
-                                      'inline-block h-2.5 w-2.5 rounded-full shrink-0',
-                                      isReviewedAfterUpdate
-                                        ? 'bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.5)]'
-                                        : 'bg-sky-500 shadow-[0_0_6px_rgba(14,165,233,0.5)]',
-                                    )}
-                                    aria-hidden="true"
+                            <span className="font-semibold text-foreground">Produto</span>
+                          </div>
+                        </TableHead>
+                        <TableHead
+                          className={cn('w-32', sortableHeaderClasses('is_discontinued'))}
+                          onClick={() => handleSort('is_discontinued')}
+                        >
+                          <div className="flex items-center">
+                            Status {renderSortIndicator('is_discontinued')}
+                          </div>
+                        </TableHead>
+                        <TableHead className="w-36">Status da Imagem</TableHead>
+                        <TableHead
+                          className={cn('w-24', sortableHeaderClasses('is_special'))}
+                          onClick={() => handleSort('is_special')}
+                        >
+                          <div className="flex items-center justify-center">
+                            Destaque {renderSortIndicator('is_special')}
+                          </div>
+                        </TableHead>
+                        <TableHead
+                          className={sortableHeaderClasses('brand')}
+                          onClick={() => handleSort('brand')}
+                        >
+                          <div className="flex items-center">
+                            Marca {renderSortIndicator('brand')}
+                          </div>
+                        </TableHead>
+                        <TableHead
+                          className={sortableHeaderClasses('name')}
+                          onClick={() => handleSort('name')}
+                        >
+                          <div className="flex items-center">
+                            Nome Completo {renderSortIndicator('name')}
+                          </div>
+                        </TableHead>
+                        <TableHead
+                          className={sortableHeaderClasses('sku')}
+                          onClick={() => handleSort('sku')}
+                        >
+                          <div className="flex items-center">SKU {renderSortIndicator('sku')}</div>
+                        </TableHead>
+                        <TableHead
+                          className={cn('text-right', sortableHeaderClasses('price_usd'))}
+                          onClick={() => handleSort('price_usd')}
+                        >
+                          <div className="flex items-center justify-end">
+                            FOB Miami {renderSortIndicator('price_usd')}
+                          </div>
+                        </TableHead>
+                        <TableHead
+                          className={cn('w-40', sortableHeaderClasses('price_usa_rebate'))}
+                          onClick={() => handleSort('price_usa_rebate')}
+                        >
+                          <div className="flex items-center">
+                            Rebate Ativo {renderSortIndicator('price_usa_rebate')}
+                          </div>
+                        </TableHead>
+                        <TableHead
+                          className={cn('w-44', sortableHeaderClasses('last_reviewed_at'))}
+                          onClick={() => handleSort('last_reviewed_at')}
+                        >
+                          <div className="flex items-center">
+                            Última Revisão {renderSortIndicator('last_reviewed_at')}
+                          </div>
+                        </TableHead>
+                        <TableHead className="text-right">Ações</TableHead>{' '}
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredProducts.map((p) => (
+                        <TableRow key={p.id} className="group">
+                          {/* Coluna 1 fixa (sticky left-0) com nome e imagem */}
+                          <TableCell className="sticky left-0 z-10 w-[280px] min-w-[280px] max-w-[320px] bg-card group-hover:bg-muted/50 group-data-[state=selected]:bg-muted transition-colors shadow-[2px_0_6px_-2px_rgba(0,0,0,0.12)]">
+                            <div className="flex items-center gap-3">
+                              <Checkbox
+                                checked={selectedProductIds.includes(p.id)}
+                                onCheckedChange={() => toggleProductSelection(p.id)}
+                                className="shrink-0"
+                              />
+                              <div className="shrink-0">
+                                {p.image_url ? (
+                                  <ImageWithFallback
+                                    src={p.image_url}
+                                    alt={p.name || 'thumb'}
+                                    productId={p.id}
+                                    className="w-10 h-10 object-contain rounded bg-white/5 border border-white/10"
                                   />
-                                  <span className="font-mono text-xs text-foreground font-medium">
-                                    {p.last_reviewed_at
-                                      ? formatOrderDate(p.last_reviewed_at)
-                                      : '--'}
-                                  </span>
-                                  <span className="text-[11px] text-muted-foreground">
-                                    {isReviewedAfterUpdate ? '🟢' : '🔵'}
-                                  </span>
-                                </div>
-                              </TooltipTrigger>
-                              <TooltipContent
-                                side="left"
-                                className="text-xs max-w-xs space-y-1.5 p-3 shadow-lg bg-popover text-popover-foreground border-border/80"
-                              >
-                                <p className="font-semibold text-xs border-b border-border/50 pb-1 flex items-center gap-1">
-                                  {isReviewedAfterUpdate ? (
-                                    <span className="text-emerald-500 font-medium">
-                                      🟢 Revisado após a última alteração
-                                    </span>
-                                  ) : (
-                                    <span className="text-sky-500 font-medium">
-                                      🔵 Alterado — pendente de conferência
-                                    </span>
+                                ) : (
+                                  <div className="w-10 h-10 flex items-center justify-center bg-white/5 rounded border border-white/10">
+                                    <ImageIcon className="w-4 h-4 text-muted-foreground/50" />
+                                  </div>
+                                )}
+                              </div>
+                              <div className="flex flex-col min-w-0 pr-1">
+                                <span
+                                  className="font-medium text-foreground text-sm truncate"
+                                  title={p.name}
+                                >
+                                  {p.name}
+                                </span>
+                                <span className="text-xs text-muted-foreground font-mono truncate">
+                                  {p.sku || '-'}
+                                </span>
+                                {p.ncm && (
+                                  <div className="mt-0.5">
+                                    <NcmTaxTooltip ncm={p.ncm} side="right" align="start">
+                                      <span className="text-[10px] text-zinc-400 hover:text-orange-400 font-mono">
+                                        NCM: {formatNCM(p.ncm)}
+                                      </span>
+                                    </NcmTaxTooltip>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={!canToggleStatus || togglingIds.has(p.id)}
+                              onClick={() => handleToggleStatus(p)}
+                              className={cn(
+                                'h-7 text-xs px-2 w-[110px] flex items-center justify-center transition-colors',
+                                p.is_discontinued
+                                  ? 'bg-yellow-500/10 text-yellow-600 border-yellow-500/30 hover:bg-yellow-500/20'
+                                  : 'bg-green-500/10 text-green-600 border-green-500/30 hover:bg-green-500/20',
+                              )}
+                            >
+                              {togglingIds.has(p.id) ? (
+                                <Loader2 className="w-3 h-3 mr-1.5 animate-spin" />
+                              ) : null}
+                              {p.is_discontinued ? 'Descontinuado' : 'Ativo'}
+                            </Button>
+                          </TableCell>
+                          <TableCell>{renderImageStatusBadge(p.image_url)}</TableCell>
+                          <TableCell className="text-center align-middle">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              disabled={!canToggleStatus || togglingSpecialIds.has(p.id)}
+                              onClick={() => handleToggleSpecial(p)}
+                              className="h-8 w-8 hover:bg-transparent"
+                            >
+                              {togglingSpecialIds.has(p.id) ? (
+                                <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                              ) : (
+                                <Star
+                                  className={cn(
+                                    'w-5 h-5 transition-colors',
+                                    p.is_special
+                                      ? 'text-amber-500 fill-amber-500'
+                                      : 'text-muted-foreground hover:text-amber-500/70',
                                   )}
-                                </p>
-                                <div className="space-y-0.5 font-mono text-[11px]">
-                                  <p>
-                                    <span className="text-muted-foreground">Criado:</span>{' '}
-                                    {formatOrderDateTime(p.created_at)}
-                                  </p>
-                                  <p>
-                                    <span className="text-muted-foreground">Alterado:</span>{' '}
-                                    {formatOrderDateTime(p.updated_at || p.created_at)}
-                                  </p>
-                                  <p>
-                                    <span className="text-muted-foreground">Revisado:</span>{' '}
-                                    {formatOrderDateTime(p.last_reviewed_at || p.created_at)}
-                                  </p>
-                                </div>
-                              </TooltipContent>
-                            </Tooltip>
-                          )
-                        })()}
-                      </TableCell>
-                      <TableCell className="text-right whitespace-nowrap">
-                        {' '}
-                        <Link to={`/product/${p.id}`} target="_blank" title="Visualizar Página">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="hover:bg-primary/10 hover:text-primary transition-colors"
+                                />
+                              )}
+                            </Button>
+                          </TableCell>
+                          <TableCell className="text-xs text-muted-foreground">
+                            {p.manufacturer?.name || '-'}
+                          </TableCell>
+                          <TableCell className="font-medium max-w-[200px]" title={p.name}>
+                            <div className="flex items-center gap-2">
+                              <span className="truncate">{p.name}</span>
+                              {p.is_discontinued && (
+                                <Badge
+                                  variant="destructive"
+                                  className="text-[9px] h-4 px-1 py-0 uppercase tracking-wider shrink-0"
+                                >
+                                  Inativo
+                                </Badge>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell className="font-mono text-xs">{p.sku}</TableCell>
+                          <TableCell className="text-right font-mono font-medium text-primary">
+                            US${' '}
+                            {(p.price_usd || 0).toLocaleString('en-US', {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            })}
+                          </TableCell>
+                          {/* Rebate Ativo (Fabricante) */}
+                          <TableCell className="whitespace-nowrap">
+                            {(() => {
+                              const rebatePrice = p.price_usa_rebate
+                                ? Number(p.price_usa_rebate)
+                                : 0
+                              if (!rebatePrice || rebatePrice <= 0) {
+                                return (
+                                  <span className="text-muted-foreground/40 font-mono text-xs">
+                                    —
+                                  </span>
+                                )
+                              }
+
+                              const now = new Date()
+                              const rebateEnd = p.date_rebate ? new Date(p.date_rebate) : null
+                              const isExpired = rebateEnd ? rebateEnd < now : false
+
+                              if (isExpired) {
+                                return (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Badge
+                                        variant="outline"
+                                        className="bg-amber-500/10 text-amber-400 border-amber-500/30 text-[10px] font-mono cursor-help"
+                                      >
+                                        Expirado
+                                        {p.date_rebate && (
+                                          <span className="ml-1 opacity-75">
+                                            ({new Date(p.date_rebate).toLocaleDateString('pt-BR')})
+                                          </span>
+                                        )}
+                                      </Badge>
+                                    </TooltipTrigger>
+                                    <TooltipContent className="text-xs">
+                                      Rebate anterior de US$ {rebatePrice.toFixed(2)} expirou em{' '}
+                                      {p.date_rebate
+                                        ? new Date(p.date_rebate).toLocaleDateString('pt-BR')
+                                        : ''}
+                                    </TooltipContent>
+                                  </Tooltip>
+                                )
+                              }
+
+                              return (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Badge
+                                      variant="outline"
+                                      className="bg-purple-500/15 text-purple-300 border-purple-500/40 text-[11px] font-mono flex items-center gap-1 cursor-help py-0.5"
+                                    >
+                                      <Tag className="w-3 h-3 shrink-0 text-purple-400" />
+                                      <span>US$ {rebatePrice.toFixed(2)}</span>
+                                      {p.date_rebate && (
+                                        <span className="text-[10px] text-purple-300/80 ml-0.5">
+                                          até {new Date(p.date_rebate).toLocaleDateString('pt-BR')}
+                                        </span>
+                                      )}
+                                    </Badge>
+                                  </TooltipTrigger>
+                                  <TooltipContent className="text-xs space-y-1 p-2.5">
+                                    <p className="font-semibold text-purple-300">
+                                      Rebate do Fabricante Vigente
+                                    </p>
+                                    <p>
+                                      Preço FOB Base:{' '}
+                                      <strong>US$ {(p.price_usd || 0).toFixed(2)}</strong>
+                                    </p>
+                                    <p>
+                                      Preço com Rebate:{' '}
+                                      <strong className="text-emerald-400">
+                                        US$ {rebatePrice.toFixed(2)}
+                                      </strong>
+                                    </p>
+                                    <p className="text-[11px] text-muted-foreground">
+                                      Válido até:{' '}
+                                      {p.date_rebate
+                                        ? new Date(p.date_rebate).toLocaleDateString('pt-BR')
+                                        : 'Indeterminado'}
+                                    </p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              )
+                            })()}
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap">
+                            {(() => {
+                              const updatedTime = p.updated_at
+                                ? new Date(p.updated_at).getTime()
+                                : 0
+                              const reviewedTime = p.last_reviewed_at
+                                ? new Date(p.last_reviewed_at).getTime()
+                                : 0
+                              const isReviewedAfterUpdate = reviewedTime > updatedTime
+
+                              return (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <div className="inline-flex items-center gap-1.5 cursor-help">
+                                      <span
+                                        className={cn(
+                                          'inline-block h-2.5 w-2.5 rounded-full shrink-0',
+                                          isReviewedAfterUpdate
+                                            ? 'bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.5)]'
+                                            : 'bg-sky-500 shadow-[0_0_6px_rgba(14,165,233,0.5)]',
+                                        )}
+                                        aria-hidden="true"
+                                      />
+                                      <span className="font-mono text-xs text-foreground font-medium">
+                                        {p.last_reviewed_at
+                                          ? formatOrderDate(p.last_reviewed_at)
+                                          : '--'}
+                                      </span>
+                                      <span className="text-[11px] text-muted-foreground">
+                                        {isReviewedAfterUpdate ? '🟢' : '🔵'}
+                                      </span>
+                                    </div>
+                                  </TooltipTrigger>
+                                  <TooltipContent
+                                    side="left"
+                                    className="text-xs max-w-xs space-y-1.5 p-3 shadow-lg bg-popover text-popover-foreground border-border/80"
+                                  >
+                                    <p className="font-semibold text-xs border-b border-border/50 pb-1 flex items-center gap-1">
+                                      {isReviewedAfterUpdate ? (
+                                        <span className="text-emerald-500 font-medium">
+                                          🟢 Revisado após a última alteração
+                                        </span>
+                                      ) : (
+                                        <span className="text-sky-500 font-medium">
+                                          🔵 Alterado — pendente de conferência
+                                        </span>
+                                      )}
+                                    </p>
+                                    <div className="space-y-0.5 font-mono text-[11px]">
+                                      <p>
+                                        <span className="text-muted-foreground">Criado:</span>{' '}
+                                        {formatOrderDateTime(p.created_at)}
+                                      </p>
+                                      <p>
+                                        <span className="text-muted-foreground">Alterado:</span>{' '}
+                                        {formatOrderDateTime(p.updated_at || p.created_at)}
+                                      </p>
+                                      <p>
+                                        <span className="text-muted-foreground">Revisado:</span>{' '}
+                                        {formatOrderDateTime(p.last_reviewed_at || p.created_at)}
+                                      </p>
+                                    </div>
+                                  </TooltipContent>
+                                </Tooltip>
+                              )
+                            })()}
+                          </TableCell>
+                          <TableCell className="text-right whitespace-nowrap">
+                            {' '}
+                            <Link to={`/product/${p.id}`} target="_blank" title="Visualizar Página">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="hover:bg-primary/10 hover:text-primary transition-colors"
+                              >
+                                <Eye className="w-4 h-4" />
+                              </Button>
+                            </Link>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => {
+                                sessionStorage.setItem(
+                                  'admin-products-scroll-position',
+                                  JSON.stringify({ x: window.scrollX, y: window.scrollY }),
+                                )
+                              }}
+                              className="hover:bg-accent/10 hover:text-accent transition-colors"
+                              asChild
+                            >
+                              <Link to={`/products/edit/${p.id}`}>
+                                <Edit className="w-4 h-4" />
+                              </Link>
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleDelete(p.id)}
+                              className="hover:bg-destructive/10 hover:text-destructive transition-colors"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                      {filteredProducts.length === 0 && (
+                        <TableRow>
+                          <TableCell
+                            colSpan={11}
+                            className="h-24 text-center text-muted-foreground"
                           >
-                            <Eye className="w-4 h-4" />
-                          </Button>
-                        </Link>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => {
-                            sessionStorage.setItem(
-                              'admin-products-scroll-position',
-                              JSON.stringify({ x: window.scrollX, y: window.scrollY }),
-                            )
-                          }}
-                          className="hover:bg-accent/10 hover:text-accent transition-colors"
-                          asChild
-                        >
-                          <Link to={`/products/edit/${p.id}`}>
-                            <Edit className="w-4 h-4" />
-                          </Link>
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleDelete(p.id)}
-                          className="hover:bg-destructive/10 hover:text-destructive transition-colors"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                  {filteredProducts.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={11} className="h-24 text-center text-muted-foreground">
-                        Nenhum equipamento encontrado.
-                      </TableCell>
-                    </TableRow>
-                  )}{' '}
-                </TableBody>
-              </Table>
-            </div>
+                            Nenhum equipamento encontrado.
+                          </TableCell>
+                        </TableRow>
+                      )}{' '}
+                    </TableBody>
+                  </Table>
+                </div>
 
-            {/* Barra de rolagem customizada inferior consistente com a do topo */}
-            <div
-              className="relative w-full border-t border-border/60 bg-muted/40 select-none transition-colors hover:bg-muted/50"
-              style={{ height: '16px' }}
-              aria-hidden="true"
-            >
-              {/* Trilho visual interativo */}
-              <div
-                ref={bottomTrackRef}
-                onClick={(e) => handleTrackClick(e, bottomTrackRef.current)}
-                className="relative w-full h-full cursor-pointer flex items-center px-1"
-                title="Clique ou arraste para rolar a tabela horizontalmente"
-              >
-                {/* Linha guia do trilho */}
-                <div className="absolute left-1 right-1 h-2 bg-slate-800/80 border border-slate-700/60 rounded-full" />
-
-                {/* Pegada (Thumb) visível em destaque permanente */}
-                {canScrollHorizontally && (
+                {/* Barra de rolagem customizada inferior consistente com a do topo */}
+                <div
+                  className="relative w-full border-t border-border/60 bg-muted/40 select-none transition-colors hover:bg-muted/50"
+                  style={{ height: '16px' }}
+                  aria-hidden="true"
+                >
+                  {/* Trilho visual interativo */}
                   <div
-                    onPointerDown={handleBottomPointerDown}
-                    onPointerMove={handleBottomPointerMove}
-                    onPointerUp={handleBottomPointerUp}
-                    onPointerCancel={handleBottomPointerUp}
-                    style={getThumbStyle(bottomTrackRef.current)}
-                    className={cn(
-                      'absolute h-3.5 rounded-full cursor-grab active:cursor-grabbing transition-[filter,background-color] duration-150 shadow-md z-10 flex items-center justify-center touch-none',
-                      'bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 hover:brightness-110 active:brightness-125 shadow-[0_1px_6px_rgba(245,158,11,0.5)] border border-amber-300/40',
-                      isDraggingBottom &&
-                        'scale-y-110 brightness-125 shadow-[0_2px_8px_rgba(245,158,11,0.7)]',
-                    )}
+                    ref={bottomTrackRef}
+                    onClick={(e) => handleTrackClick(e, bottomTrackRef.current)}
+                    className="relative w-full h-full cursor-pointer flex items-center px-1"
+                    title="Clique ou arraste para rolar a tabela horizontalmente"
                   >
-                    {/* Micro ranhuras visuais decorativas no centro do thumb */}
-                    <div className="flex gap-0.5 pointer-events-none opacity-80">
-                      <div className="w-0.5 h-1.5 bg-amber-950/70 rounded-full" />
-                      <div className="w-0.5 h-1.5 bg-amber-950/70 rounded-full" />
-                      <div className="w-0.5 h-1.5 bg-amber-950/70 rounded-full" />
+                    {/* Linha guia do trilho */}
+                    <div className="absolute left-1 right-1 h-2 bg-slate-800/80 border border-slate-700/60 rounded-full" />
+
+                    {/* Pegada (Thumb) visível em destaque permanente */}
+                    {canScrollHorizontally && (
+                      <div
+                        onPointerDown={handleBottomPointerDown}
+                        onPointerMove={handleBottomPointerMove}
+                        onPointerUp={handleBottomPointerUp}
+                        onPointerCancel={handleBottomPointerUp}
+                        style={getThumbStyle(bottomTrackRef.current)}
+                        className={cn(
+                          'absolute h-3.5 rounded-full cursor-grab active:cursor-grabbing transition-[filter,background-color] duration-150 shadow-md z-10 flex items-center justify-center touch-none',
+                          'bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 hover:brightness-110 active:brightness-125 shadow-[0_1px_6px_rgba(245,158,11,0.5)] border border-amber-300/40',
+                          isDraggingBottom &&
+                            'scale-y-110 brightness-125 shadow-[0_2px_8px_rgba(245,158,11,0.7)]',
+                        )}
+                      >
+                        {/* Micro ranhuras visuais decorativas no centro do thumb */}
+                        <div className="flex gap-0.5 pointer-events-none opacity-80">
+                          <div className="w-0.5 h-1.5 bg-amber-950/70 rounded-full" />
+                          <div className="w-0.5 h-1.5 bg-amber-950/70 rounded-full" />
+                          <div className="w-0.5 h-1.5 bg-amber-950/70 rounded-full" />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {totalPages > 1 && (
+                  <div className="flex items-center justify-between border-t border-border/50 p-4">
+                    <span className="text-sm text-muted-foreground">
+                      Página {page} de {totalPages} ({totalCount} itens)
+                    </span>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={page === 1}
+                        onClick={() => setPage((p) => Math.max(1, p - 1))}
+                      >
+                        Anterior
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={page === totalPages}
+                        onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                      >
+                        Próxima
+                      </Button>
                     </div>
                   </div>
                 )}
               </div>
-            </div>
 
-            {totalPages > 1 && (
-              <div className="flex items-center justify-between border-t border-border/50 p-4">
-                <span className="text-sm text-muted-foreground">
-                  Página {page} de {totalPages} ({totalCount} itens)
-                </span>
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={page === 1}
-                    onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  >
-                    Anterior
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={page === totalPages}
-                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                  >
-                    Próxima
-                  </Button>
-                </div>
-              </div>
-            )}
-          </div>
-
-          <Dialog open={showExportModal} onOpenChange={setShowExportModal}>
-            <DialogContent className="max-w-md bg-card border-border/50">
-              <DialogHeader>
-                <DialogTitle>Exportar CSV de Produtos</DialogTitle>
-                <DialogDescription>
-                  Selecione os campos que deseja incluir no arquivo exportado.
-                </DialogDescription>
-              </DialogHeader>
-              <div className="py-4 space-y-4">
-                <div className="flex items-center space-x-2 pb-3 border-b border-border/50">
-                  <Checkbox
-                    id="export-all"
-                    checked={selectedExportFields.length === ALL_EXPORT_FIELDS.length}
-                    onCheckedChange={(checked) =>
-                      setSelectedExportFields(checked ? ALL_EXPORT_FIELDS : [])
-                    }
-                  />
-                  <Label htmlFor="export-all" className="font-semibold cursor-pointer">
-                    Selecionar Todos
-                  </Label>
-                </div>
-                <div className="overflow-y-auto max-h-[40vh] pr-2">
-                  <div className="grid grid-cols-2 gap-3">
-                    {ALL_EXPORT_FIELDS.map((field) => (
-                      <div key={field} className="flex items-center space-x-2">
-                        <Checkbox
-                          id={`export-${field}`}
-                          checked={selectedExportFields.includes(field)}
-                          onCheckedChange={(checked) =>
-                            setSelectedExportFields((prev) =>
-                              checked ? [...prev, field] : prev.filter((f) => f !== field),
-                            )
-                          }
-                        />
-                        <Label
-                          htmlFor={`export-${field}`}
-                          className="text-sm font-normal cursor-pointer truncate"
-                          title={field}
-                        >
-                          {field}
-                        </Label>
+              <Dialog open={showExportModal} onOpenChange={setShowExportModal}>
+                <DialogContent className="max-w-md bg-card border-border/50">
+                  <DialogHeader>
+                    <DialogTitle>Exportar CSV de Produtos</DialogTitle>
+                    <DialogDescription>
+                      Selecione os campos que deseja incluir no arquivo exportado.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="py-4 space-y-4">
+                    <div className="flex items-center space-x-2 pb-3 border-b border-border/50">
+                      <Checkbox
+                        id="export-all"
+                        checked={selectedExportFields.length === ALL_EXPORT_FIELDS.length}
+                        onCheckedChange={(checked) =>
+                          setSelectedExportFields(checked ? ALL_EXPORT_FIELDS : [])
+                        }
+                      />
+                      <Label htmlFor="export-all" className="font-semibold cursor-pointer">
+                        Selecionar Todos
+                      </Label>
+                    </div>
+                    <div className="overflow-y-auto max-h-[40vh] pr-2">
+                      <div className="grid grid-cols-2 gap-3">
+                        {ALL_EXPORT_FIELDS.map((field) => (
+                          <div key={field} className="flex items-center space-x-2">
+                            <Checkbox
+                              id={`export-${field}`}
+                              checked={selectedExportFields.includes(field)}
+                              onCheckedChange={(checked) =>
+                                setSelectedExportFields((prev) =>
+                                  checked ? [...prev, field] : prev.filter((f) => f !== field),
+                                )
+                              }
+                            />
+                            <Label
+                              htmlFor={`export-${field}`}
+                              className="text-sm font-normal cursor-pointer truncate"
+                              title={field}
+                            >
+                              {field}
+                            </Label>
+                          </div>
+                        ))}
                       </div>
-                    ))}
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setShowExportModal(false)}>
+                      Cancelar
+                    </Button>
+                    <Button onClick={executeExportCSV} disabled={selectedExportFields.length === 0}>
+                      Confirmar Exportação
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+
+              <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Confirmar exclusão</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Tem certeza que deseja excluir {selectedProductIds.length} produtos? Esta ação
+                      não pode ser desfeita.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel disabled={isDeletingBulk}>Cancelar</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={(e) => {
+                        e.preventDefault()
+                        handleBulkDelete()
+                      }}
+                      disabled={isDeletingBulk}
+                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    >
+                      {isDeletingBulk ? 'Excluindo...' : 'Excluir'}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+
+              <ScrollToTopButton />
+
+              {isProcessingCSV && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+                  <div className="bg-card p-6 rounded-xl shadow-xl border border-border/50 max-w-sm w-full text-center">
+                    <Loader2 className="w-10 h-10 animate-spin text-primary mx-auto mb-4" />
+                    <h3 className="text-lg font-semibold mb-2">Processando URLs...</h3>
+                    <p
+                      className="text-muted-foreground text-sm mb-4 truncate"
+                      title={csvProgress.currentName}
+                    >
+                      Extraindo: {csvProgress.currentName}
+                    </p>
+                    <p className="font-medium text-primary">
+                      {csvProgress.current} de {csvProgress.total} analisados
+                    </p>
                   </div>
                 </div>
-              </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setShowExportModal(false)}>
-                  Cancelar
-                </Button>
-                <Button onClick={executeExportCSV} disabled={selectedExportFields.length === 0}>
-                  Confirmar Exportação
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+              )}
 
-          <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Confirmar exclusão</AlertDialogTitle>
-                <AlertDialogDescription>
-                  Tem certeza que deseja excluir {selectedProductIds.length} produtos? Esta ação não
-                  pode ser desfeita.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel disabled={isDeletingBulk}>Cancelar</AlertDialogCancel>
-                <AlertDialogAction
-                  onClick={(e) => {
-                    e.preventDefault()
-                    handleBulkDelete()
-                  }}
-                  disabled={isDeletingBulk}
-                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                >
-                  {isDeletingBulk ? 'Excluindo...' : 'Excluir'}
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+              {showBulkReview && (
+                <BulkReviewModal
+                  isOpen={showBulkReview}
+                  onClose={() => setShowBulkReview(false)}
+                  products={extractedProducts}
+                  categories={categories}
+                  manufacturers={manufacturers}
+                  onSuccess={fetchData}
+                  onAddManufacturer={handleAddManufacturer}
+                />
+              )}
 
-          <ScrollToTopButton />
-
-          {isProcessingCSV && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
-              <div className="bg-card p-6 rounded-xl shadow-xl border border-border/50 max-w-sm w-full text-center">
-                <Loader2 className="w-10 h-10 animate-spin text-primary mx-auto mb-4" />
-                <h3 className="text-lg font-semibold mb-2">Processando URLs...</h3>
-                <p
-                  className="text-muted-foreground text-sm mb-4 truncate"
-                  title={csvProgress.currentName}
-                >
-                  Extraindo: {csvProgress.currentName}
-                </p>
-                <p className="font-medium text-primary">
-                  {csvProgress.current} de {csvProgress.total} analisados
-                </p>
-              </div>
-            </div>
-          )}
-
-          {showBulkReview && (
-            <BulkReviewModal
-              isOpen={showBulkReview}
-              onClose={() => setShowBulkReview(false)}
-              products={extractedProducts}
-              categories={categories}
-              manufacturers={manufacturers}
-              onSuccess={fetchData}
-              onAddManufacturer={handleAddManufacturer}
-            />
-          )}
-
-          <BatchPriceBrlModal
-            isOpen={showRecalcModal}
-            onClose={() => setShowRecalcModal(false)}
-            onSuccess={fetchData}
-          />
+              <BatchPriceBrlModal
+                isOpen={showRecalcModal}
+                onClose={() => setShowRecalcModal(false)}
+                onSuccess={fetchData}
+              />
+            </TabsContent>
+          </Tabs>
         </div>
       </AdminLayout>
     </TooltipProvider>

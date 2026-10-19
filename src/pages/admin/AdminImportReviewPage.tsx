@@ -33,6 +33,7 @@ import {
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { toast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase/client'
+import { cn } from '@/lib/utils'
 import {
   categoryImportStagingService,
   StagingProductItem,

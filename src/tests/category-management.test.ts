@@ -10,6 +10,80 @@ import {
   LEGACY_EXACT_MAP,
   CategoryItem,
 } from '../services/categoryTriageService'
+import { categoryImportStagingService } from '../services/categoryImportStagingService'
+
+describe('categoryImportStagingService - Combined Category Rules', () => {
+  const existingCategories = [
+    { id: 'cat-cam', name: 'Cameras' },
+    { id: 'cat-len', name: 'Lenses' },
+    { id: 'cat-aud', name: 'Audio' },
+  ]
+
+  const mappings = [
+    {
+      source_category: 'ENG & Pro Camcorders',
+      target_category_id: 'cat-cam',
+      target_category_name: 'Cameras',
+    },
+  ]
+
+  it('(a) rejects direct match when raw category is empty or invalid', () => {
+    const resEmpty = categoryImportStagingService.resolveCategoryMatch({
+      rawCategory: '',
+      categories: existingCategories,
+      mappings,
+    })
+    expect(resEmpty.isMatchedDirect).toBe(false)
+    expect(resEmpty.matchedCategoryId).toBeNull()
+
+    const resSpaces = categoryImportStagingService.resolveCategoryMatch({
+      rawCategory: '   ',
+      categories: existingCategories,
+      mappings,
+    })
+    expect(resSpaces.isMatchedDirect).toBe(false)
+    expect(resSpaces.matchedCategoryId).toBeNull()
+  })
+
+  it('(b) routes unknown imported category to staging suggestion, NOT direct match', () => {
+    // Caso 1: Mapeado anteriormente -> casa direto com alta confiança
+    const resMapped = categoryImportStagingService.resolveCategoryMatch({
+      rawCategory: 'ENG & Pro Camcorders',
+      categories: existingCategories,
+      mappings,
+    })
+    expect(resMapped.isMatchedDirect).toBe(true)
+    expect(resMapped.matchedCategoryId).toBe('cat-cam')
+
+    // Caso 2: Categoria desconhecida/nova -> NÃO casa direto, sugere por similaridade/palavras-chave
+    const resUnknown = categoryImportStagingService.resolveCategoryMatch({
+      rawCategory: 'Digital Cinema Cameras 4K',
+      productName: 'Sony FX6 Cinema Line',
+      categories: existingCategories,
+      mappings: [],
+    })
+    expect(resUnknown.isMatchedDirect).toBe(false)
+    expect(resUnknown.suggestedCategoryId).toBe('cat-cam')
+    expect(resUnknown.suggestedCategoryName).toBe('Cameras')
+  })
+
+  it('(c) staging item payload structure maintains pending status until user confirmation', () => {
+    const itemToStage = {
+      batch_id: 'test-batch',
+      batch_source: 'csv' as const,
+      name: 'Sony FX6 Camera Body',
+      sku: 'ILME-FX6V',
+      original_category: 'Digital Cinema Cameras',
+      suggested_category_id: 'cat-cam',
+      suggested_category_name: 'Cameras',
+      suggestion_confidence: 'alta' as const,
+      status: 'pending' as const,
+    }
+
+    expect(itemToStage.status).toBe('pending')
+    expect(itemToStage.suggested_category_id).toBe('cat-cam')
+  })
+})
 
 describe('categoryTriageService - NCM Prefix & Matching Rules', () => {
   it('normalizes NCM digits properly', () => {

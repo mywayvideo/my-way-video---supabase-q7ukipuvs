@@ -1633,6 +1633,9 @@ export type Database = {
           delivery_destination: string
           delivery_freight_allocation: string | null
           delivery_time_days: number | null
+          destination_other_expenses: number | null
+          destination_other_expenses_currency: string | null
+          destination_other_expenses_description: string | null
           destination_tax_rate: number | null
           discount_brl: number | null
           discount_pct: number | null
@@ -1685,6 +1688,9 @@ export type Database = {
           delivery_destination?: string
           delivery_freight_allocation?: string | null
           delivery_time_days?: number | null
+          destination_other_expenses?: number | null
+          destination_other_expenses_currency?: string | null
+          destination_other_expenses_description?: string | null
           destination_tax_rate?: number | null
           discount_brl?: number | null
           discount_pct?: number | null
@@ -1737,6 +1743,9 @@ export type Database = {
           delivery_destination?: string
           delivery_freight_allocation?: string | null
           delivery_time_days?: number | null
+          destination_other_expenses?: number | null
+          destination_other_expenses_currency?: string | null
+          destination_other_expenses_description?: string | null
           destination_tax_rate?: number | null
           discount_brl?: number | null
           discount_pct?: number | null

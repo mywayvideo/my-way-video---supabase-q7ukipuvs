@@ -14,6 +14,7 @@ interface ClassifyRequestBody {
   brand?: string
   model?: string
   additional_specs?: string
+  category?: string
   top_n?: number
   save_log?: boolean
   product_id?: string
@@ -1663,6 +1664,7 @@ Deno.serve(async (req: Request) => {
   const brand = (body.brand || '').trim()
   const model = (body.model || '').trim()
   const additionalSpecs = (body.additional_specs || '').trim()
+  const productCategory = (body.category || '').trim()
   const topN = Math.max(8, Math.min(Number(body.top_n) || 15, 30))
   const saveLog = body.save_log !== false
   const productId = body.product_id || null

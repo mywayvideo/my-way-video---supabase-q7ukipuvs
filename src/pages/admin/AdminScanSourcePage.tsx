@@ -740,8 +740,8 @@ export function AdminScanSourcePage() {
 
                   {/* Aba: Casados com Mudança */}
                   <TabsContent value="matched" className="p-0 m-0">
-                    <div className="w-full max-w-full overflow-hidden">
-                      <div className="overflow-auto max-h-[420px] w-full border-t border-white/10">
+                    <div className="w-full max-w-full overflow-y-auto max-h-[420px] border-t border-white/10">
+                      <div className="overflow-x-auto w-full">
                         <Table className="min-w-[860px]">
                           <TableHeader className="sticky top-0 z-30 bg-card">
                             <TableRow className="hover:bg-transparent">
@@ -823,8 +823,8 @@ export function AdminScanSourcePage() {
 
                   {/* Aba: Casados Inalterados */}
                   <TabsContent value="unchanged" className="p-0 m-0">
-                    <div className="w-full max-w-full overflow-hidden">
-                      <div className="overflow-auto max-h-[420px] w-full border-t border-white/10">
+                    <div className="w-full max-w-full overflow-y-auto max-h-[420px] border-t border-white/10">
+                      <div className="overflow-x-auto w-full">
                         <Table className="min-w-[720px]">
                           <TableHeader className="sticky top-0 z-30 bg-card">
                             <TableRow className="hover:bg-transparent">
@@ -872,8 +872,8 @@ export function AdminScanSourcePage() {
                         criado em produtos sem sua aprovação de categoria.
                       </span>
                     </div>
-                    <div className="w-full max-w-full overflow-hidden">
-                      <div className="overflow-auto max-h-[420px] w-full">
+                    <div className="w-full max-w-full overflow-y-auto max-h-[420px]">
+                      <div className="overflow-x-auto w-full">
                         <Table className="min-w-[920px]">
                           <TableHeader className="sticky top-0 z-30 bg-card">
                             <TableRow className="hover:bg-transparent">
@@ -957,8 +957,8 @@ export function AdminScanSourcePage() {
                       </div>
                     </div>
 
-                    <div className="w-full max-w-full overflow-hidden">
-                      <div className="overflow-auto max-h-[500px] w-full">
+                    <div className="w-full max-w-full overflow-y-auto max-h-[500px]">
+                      <div className="overflow-x-auto w-full">
                         <Table className="min-w-[1000px]">
                           <TableHeader className="sticky top-0 z-30 bg-card">
                             <TableRow className="hover:bg-transparent">
@@ -1127,8 +1127,8 @@ export function AdminScanSourcePage() {
                         <Download className="w-3.5 h-3.5 mr-1.5" /> Exportar em CSV
                       </Button>
                     </div>
-                    <div className="w-full max-w-full overflow-hidden">
-                      <div className="overflow-auto max-h-[480px] w-full">
+                    <div className="w-full max-w-full overflow-y-auto max-h-[480px]">
+                      <div className="overflow-x-auto w-full">
                         <Table className="min-w-[960px]">
                           <TableHeader className="sticky top-0 z-30 bg-card">
                             <TableRow className="hover:bg-transparent">
@@ -1264,8 +1264,8 @@ export function AdminScanSourcePage() {
                       Linhas com preço zerado, negativo ou ausente na Coluna D. Elas{' '}
                       <strong>não alteram</strong> o custo existente do produto.
                     </div>
-                    <div className="w-full max-w-full overflow-hidden">
-                      <div className="overflow-auto max-h-[420px] w-full">
+                    <div className="w-full max-w-full overflow-y-auto max-h-[420px]">
+                      <div className="overflow-x-auto w-full">
                         <Table className="min-w-[760px]">
                           <TableHeader className="sticky top-0 z-30 bg-card">
                             <TableRow className="hover:bg-transparent">

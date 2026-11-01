@@ -21,9 +21,12 @@ describe('categoryImportStagingService - Combined Category Rules', () => {
 
   const mappings = [
     {
+      id: 'm1',
       source_category: 'ENG & Pro Camcorders',
+      source_category_normalized: 'eng & pro camcorders',
       target_category_id: 'cat-cam',
       target_category_name: 'Cameras',
+      source_type: 'csv' as const,
     },
   ]
 

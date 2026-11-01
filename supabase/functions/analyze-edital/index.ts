@@ -1288,7 +1288,9 @@ const CATEGORIAS_VALIDAS: readonly CategoriaHabilitacaoEnxuta[] = [
   'sustentabilidade',
 ] as const
 
-export function normalizarCategoriaHabilitacao(cat: string | undefined | null): CategoriaHabilitacaoEnxuta {
+export function normalizarCategoriaHabilitacao(
+  cat: string | undefined | null,
+): CategoriaHabilitacaoEnxuta {
   const norm = normalize(cat || '')
   if (norm.includes('jurid')) return 'jurídica'
   if (norm.includes('fisc')) return 'fiscal'
@@ -1346,67 +1348,86 @@ export function extrairHabilitacaoDeterministica(texto: string): ExigenciaHabili
     },
     {
       categoria: 'fiscal',
-      padrao: /\b(?:certid[ãa]o\s+(?:conjunta\s+)?negativa\s+de\s+d[ée]bitos\s+relativos\s+a\s+cr[ée]ditos\s+tribut[áa]rios\s+federais|receita\s+federal|pgfn|tributos\s+federais)\b/i,
-      nomeDoc: 'Certidão Conjunta Negativa de Tributos Federais e Dívida Ativa da União (Receita Federal/PGFN)',
+      padrao:
+        /\b(?:certid[ãa]o\s+(?:conjunta\s+)?negativa\s+de\s+d[ée]bitos\s+relativos\s+a\s+cr[ée]ditos\s+tribut[áa]rios\s+federais|receita\s+federal|pgfn|tributos\s+federais)\b/i,
+      nomeDoc:
+        'Certidão Conjunta Negativa de Tributos Federais e Dívida Ativa da União (Receita Federal/PGFN)',
     },
     {
       categoria: 'fiscal',
-      padrao: /\b(?:certid[ãa]o\s+negativa\s+estadual|fazenda\s+estadual|tributos\s+estaduais|icms)\b/i,
+      padrao:
+        /\b(?:certid[ãa]o\s+negativa\s+estadual|fazenda\s+estadual|tributos\s+estaduais|icms)\b/i,
       nomeDoc: 'Certidão Negativa de Débitos Tributários Estaduais (Fazenda Estadual/Distrital)',
     },
     {
       categoria: 'fiscal',
-      padrao: /\b(?:certid[ãa]o\s+negativa\s+municipal|fazenda\s+municipal|tributos\s+municipais|issqn|iss)\b/i,
+      padrao:
+        /\b(?:certid[ãa]o\s+negativa\s+municipal|fazenda\s+municipal|tributos\s+municipais|issqn|iss)\b/i,
       nomeDoc: 'Certidão Negativa de Débitos Tributários Municipais (Fazenda Municipal)',
     },
     {
       categoria: 'trabalhista',
-      padrao: /\b(?:cndt|certid[ãa]o\s+negativa\s+de\s+d[ée]bitos\s+trabalhistas|justi[çc]a\s+do\s+trabalho)\b/i,
+      padrao:
+        /\b(?:cndt|certid[ãa]o\s+negativa\s+de\s+d[ée]bitos\s+trabalhistas|justi[çc]a\s+do\s+trabalho)\b/i,
       nomeDoc: 'Certidão Negativa de Débitos Trabalhistas (CNDT / TST)',
     },
     {
       categoria: 'fiscal',
-      padrao: /\b(?:crf|fgts|fundo\s+de\s+garantia\s+por\s+tempo\s+de\s+servi[çc]o|regularidade\s+do\s+fgts)\b/i,
+      padrao:
+        /\b(?:crf|fgts|fundo\s+de\s+garantia\s+por\s+tempo\s+de\s+servi[çc]o|regularidade\s+do\s+fgts)\b/i,
       nomeDoc: 'Certificado de Regularidade do FGTS (CRF / Caixa)',
     },
     {
       categoria: 'econômico-financeira',
-      padrao: /\b(?:fal[êe]ncia|concordata|recupera[çc][ãa]o\s+judicial|recupera[çc][ãa]o\s+extrajudicial)\b/i,
+      padrao:
+        /\b(?:fal[êe]ncia|concordata|recupera[çc][ãa]o\s+judicial|recupera[çc][ãa]o\s+extrajudicial)\b/i,
       nomeDoc: 'Certidão Negativa de Falência e Recuperação Judicial',
     },
     {
       categoria: 'econômico-financeira',
-      padrao: /\b(?:balan[çc]o\s+patrimonial|demonstra[çc][õo]es\s+cont[áa]beis|índices\s+de\s+liquidez|liquidez\s+geral|liquidez\s+corrente)\b/i,
-      nomeDoc: 'Balanço Patrimonial do último exercício social com índices de liquidez (LG, SG, LC ≥ 1,0)',
+      padrao:
+        /\b(?:balan[çc]o\s+patrimonial|demonstra[çc][õo]es\s+cont[áa]beis|índices\s+de\s+liquidez|liquidez\s+geral|liquidez\s+corrente)\b/i,
+      nomeDoc:
+        'Balanço Patrimonial do último exercício social com índices de liquidez (LG, SG, LC ≥ 1,0)',
     },
     {
       categoria: 'qualificação técnica',
-      padrao: /\b(?:atestado(?:s)?\s+de\s+capacidade\s+t[ée]cnica|capacidade\s+t[ée]cnico-operacional|comprova[çc][ãa]o\s+de\s+aptid[ãa]o)\b/i,
-      nomeDoc: 'Atestado de Capacidade Técnica comprovando fornecimento de bens pertinentes e compatíveis',
+      padrao:
+        /\b(?:atestado(?:s)?\s+de\s+capacidade\s+t[ée]cnica|capacidade\s+t[ée]cnico-operacional|comprova[çc][ãa]o\s+de\s+aptid[ãa]o)\b/i,
+      nomeDoc:
+        'Atestado de Capacidade Técnica comprovando fornecimento de bens pertinentes e compatíveis',
     },
     {
       categoria: 'qualificação técnica',
-      padrao: /\b(?:certid[ãa]o\s+de\s+registro\s+profissional|crea|cft|cau|registro\s+no\s+conselho)\b/i,
-      nomeDoc: 'Registro ou inscrição da empresa e responsáveis técnicos na entidade profissional competente',
+      padrao:
+        /\b(?:certid[ãa]o\s+de\s+registro\s+profissional|crea|cft|cau|registro\s+no\s+conselho)\b/i,
+      nomeDoc:
+        'Registro ou inscrição da empresa e responsáveis técnicos na entidade profissional competente',
     },
     {
       categoria: 'fabricante',
-      padrao: /\b(?:declara[çc][ãa]o\s+do\s+fabricante|carta\s+do\s+fabricante|credenciamento\s+de\s+fabricante|autoriza[çc][ãa]o\s+do\s+fabricante|distribuidor\s+autorizado)\b/i,
+      padrao:
+        /\b(?:declara[çc][ãa]o\s+do\s+fabricante|carta\s+do\s+fabricante|credenciamento\s+de\s+fabricante|autoriza[çc][ãa]o\s+do\s+fabricante|distribuidor\s+autorizado)\b/i,
       nomeDoc: 'Declaração de Fabricante ou Carta de Distribuidor Autorizado',
     },
     {
       categoria: 'jurídica',
-      padrao: /\b(?:trabalho\s+do\s+menor|inciso\s+xxxiii\s+do\s+artigo\s+7|art\.\s*7[ºo]?,\s*xxxiii)\b/i,
-      nomeDoc: 'Declaração de cumprimento do disposto no art. 7º, XXXIII da CF/88 (trabalho de menor)',
+      padrao:
+        /\b(?:trabalho\s+do\s+menor|inciso\s+xxxiii\s+do\s+artigo\s+7|art\.\s*7[ºo]?,\s*xxxiii)\b/i,
+      nomeDoc:
+        'Declaração de cumprimento do disposto no art. 7º, XXXIII da CF/88 (trabalho de menor)',
     },
     {
       categoria: 'jurídica',
-      padrao: /\b(?:inidoneidade|impedimento\s+de\s+licitar|declara[çc][ãa]o\s+de\s+inidoneidade|ceis|cnep)\b/i,
-      nomeDoc: 'Declaração de Inexistência de Fatos Impeditivos e inexistência de sanção nos cadastros CEIS/CNEP',
+      padrao:
+        /\b(?:inidoneidade|impedimento\s+de\s+licitar|declara[çc][ãa]o\s+de\s+inidoneidade|ceis|cnep)\b/i,
+      nomeDoc:
+        'Declaração de Inexistência de Fatos Impeditivos e inexistência de sanção nos cadastros CEIS/CNEP',
     },
     {
       categoria: 'sustentabilidade',
-      padrao: /\b(?:sustentabilidade|certifica[çc][ãa]o\s+ambiental|descarte\s+sustent[áa]vel|rohs|log[íi]stica\s+reversa)\b/i,
+      padrao:
+        /\b(?:sustentabilidade|certifica[çc][ãa]o\s+ambiental|descarte\s+sustent[áa]vel|rohs|log[íi]stica\s+reversa)\b/i,
       nomeDoc: 'Comprovação de Critérios de Sustentabilidade Ambiental e Logística Reversa',
     },
   ]

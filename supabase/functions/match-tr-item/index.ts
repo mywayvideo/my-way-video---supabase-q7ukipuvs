@@ -607,8 +607,11 @@ Retorne EXCLUSIVAMENTE em JSON:
         produtosEncontrados.push({
           origem: 'tr_identificado',
           fonte_rotulo: 'Compatível com a Finalidade',
-          nome: finalidadeTexto ? `Equipamento para ${finalidadeTexto.slice(0, 80)}` : 'Produto compatível com finalidade',
-          descricao: finalidadeTexto || trechoTexto || 'Produto compatível com a finalidade descrita no TR',
+          nome: finalidadeTexto
+            ? `Equipamento para ${finalidadeTexto.slice(0, 80)}`
+            : 'Produto compatível com finalidade',
+          descricao:
+            finalidadeTexto || trechoTexto || 'Produto compatível com a finalidade descrita no TR',
           sku: null,
           ncm: null,
           peso_bruto_kg: null,
@@ -627,7 +630,7 @@ Retorne EXCLUSIVAMENTE em JSON:
           finalidade: finalidadeTexto,
           produtos: produtosEncontrados,
         }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
       )
     }
 
@@ -821,7 +824,9 @@ ${textoEntrada.slice(0, 40000)}
             numero_item: it.numero_item ? String(it.numero_item).trim() : `Item ${idx + 1}`,
             titulo_item: it.titulo_item ? String(it.titulo_item).trim() : null,
             descricao_completa: it.descricao_completa || it.titulo_item || `Item ${idx + 1}`,
-            finalidade: it.finalidade ? String(it.finalidade).trim() : (it.titulo_item || it.descricao_completa || null),
+            finalidade: it.finalidade
+              ? String(it.finalidade).trim()
+              : it.titulo_item || it.descricao_completa || null,
             quantidade: typeof it.quantidade === 'number' && it.quantidade > 0 ? it.quantidade : 1,
             unidade_fornecimento: it.unidade_fornecimento || 'Unidade',
             codigo_catmat: it.codigo_catmat ? String(it.codigo_catmat).trim() : null,

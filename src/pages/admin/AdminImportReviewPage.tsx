@@ -110,9 +110,16 @@ export function AdminImportReviewView({
       setBatches(distinctBatches)
 
       // 3. Carregar itens com filtros aplicados
+      const isSourceFilter = batchFilter.startsWith('source:')
+      const sourceFilterValue = isSourceFilter
+        ? (batchFilter.replace('source:', '') as any)
+        : undefined
+      const batchIdValue = !isSourceFilter && batchFilter !== 'all' ? batchFilter : undefined
+
       const res = await categoryImportStagingService.fetchStagingItems({
         status: statusFilter,
-        batchId: batchFilter !== 'all' ? batchFilter : undefined,
+        batchId: batchIdValue,
+        batchSource: sourceFilterValue,
         suggestedCategoryName: categoryFilter !== 'all' ? categoryFilter : undefined,
         search: searchFilter.trim() || undefined,
         limit: 500,
@@ -432,8 +439,8 @@ export function AdminImportReviewView({
                 Área de Revisão de Importação
               </h1>
               <p className="text-sm text-muted-foreground mt-0.5">
-                Validação e confirmação de categorias pendentes de lotes CSV e B&amp;H antes de
-                gravar em produtos.
+                Validação e confirmação de categorias pendentes de lotes CSV, B&amp;H e ScanSource
+                antes de gravar em produtos.
               </p>
             </div>
           </div>
@@ -509,6 +516,9 @@ export function AdminImportReviewView({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Todos os Lotes</SelectItem>
+                  <SelectItem value="source:scansource">⚡ Origem: ScanSource</SelectItem>
+                  <SelectItem value="source:bh">⚡ Origem: B&amp;H</SelectItem>
+                  <SelectItem value="source:csv">⚡ Origem: CSV</SelectItem>
                   {batches.map((b) => (
                     <SelectItem key={b.batch_id} value={b.batch_id}>
                       {b.batch_source.toUpperCase()} · {b.batch_id.slice(-8)} ({b.total})
@@ -695,11 +705,37 @@ export function AdminImportReviewView({
 
                         {/* Lote */}
                         <TableCell>
-                          <div className="flex flex-col text-xs">
-                            <span className="font-mono text-zinc-300">
-                              {item.batch_source.toUpperCase()}
-                            </span>
-                            <span className="text-[11px] text-muted-foreground">
+                          <div className="flex flex-col text-xs gap-1">
+                            <div className="flex items-center gap-1.5">
+                              {item.batch_source === 'scansource' ? (
+                                <Badge
+                                  variant="outline"
+                                  className="bg-blue-500/10 text-blue-400 border-blue-500/30 text-[10px] font-semibold"
+                                >
+                                  ScanSource
+                                </Badge>
+                              ) : (
+                                <span className="font-mono text-zinc-300">
+                                  {item.batch_source.toUpperCase()}
+                                </span>
+                              )}
+                              {item.raw_payload?.itemType && (
+                                <Badge variant="outline" className="text-[10px] py-0 px-1">
+                                  {item.raw_payload.itemType}
+                                </Badge>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                              {item.price_nationalized_cost ? (
+                                <span className="font-mono text-emerald-400">
+                                  US$ {Number(item.price_nationalized_cost).toFixed(2)}
+                                </span>
+                              ) : null}
+                              {item.ncm && (
+                                <span className="font-mono text-zinc-400">NCM: {item.ncm}</span>
+                              )}
+                            </div>
+                            <span className="text-[10px] text-muted-foreground">
                               {new Date(item.created_at).toLocaleDateString('pt-BR')}
                             </span>
                           </div>

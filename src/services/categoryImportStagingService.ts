@@ -21,7 +21,7 @@ export interface CategoryMapping {
 export interface StagingProductItem {
   id: string
   batch_id: string
-  batch_source: 'csv' | 'bh' | 'manual'
+  batch_source: 'csv' | 'bh' | 'manual' | 'scansource'
   sku: string | null
   name: string
   manufacturer_id: string | null
@@ -120,7 +120,7 @@ export const categoryImportStagingService = {
     sourceCategory: string
     targetCategoryId: string
     targetCategoryName: string
-    sourceType?: 'csv' | 'bh' | 'manual'
+    sourceType?: 'csv' | 'bh' | 'manual' | 'scansource'
   }): Promise<CategoryMapping | null> {
     const rawSource = params.sourceCategory.trim()
     const normalized = normalizeCategoryKey(rawSource)
@@ -418,6 +418,7 @@ export const categoryImportStagingService = {
   async fetchStagingItems(filters?: {
     status?: 'pending' | 'confirmed' | 'discarded' | 'all'
     batchId?: string
+    batchSource?: 'csv' | 'bh' | 'manual' | 'scansource'
     suggestedCategoryName?: string
     search?: string
     limit?: number
@@ -438,6 +439,10 @@ export const categoryImportStagingService = {
 
       if (filters?.batchId && filters.batchId !== 'all') {
         query = query.eq('batch_id', filters.batchId)
+      }
+
+      if (filters?.batchSource && (filters.batchSource as any) !== 'all') {
+        query = query.eq('batch_source', filters.batchSource)
       }
 
       if (filters?.suggestedCategoryName && filters.suggestedCategoryName !== 'all') {

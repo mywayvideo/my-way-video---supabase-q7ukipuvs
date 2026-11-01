@@ -165,6 +165,349 @@ export function AdminScanSourcePage() {
     }
   }
 
+  // Carrega dados de demonstração completos no preview para inspeção visual de todas as abas
+  const loadMockPreview = () => {
+    const mockPreview: ScanSourceCrossMatchPreview = {
+      effectiveDate: 'JAN 2nd 2025',
+      fileName: 'Tabela_Sony_ScanSource_Demonstracao.xlsx',
+      totalRows: 874,
+      matchedCount: 152,
+      matchedWithChangeCount: 152,
+      matchedUnchangedCount: 1,
+      unmatchedCount: 720,
+      softwareCount: 18,
+      ignored3rdCount: 2,
+      anomaliesCount: 2,
+      missingFromCatalogCount: 99,
+      pxwSample: {
+        product: {
+          id: 'mock-pxw',
+          name: 'Sony PXW-X400KC 20x Manual Focus Zoom Lens Camcorder Kit (SKU: PXWX400KC)',
+          sku: 'PXWX400KC',
+          normalizedSku: 'PXWX400KC',
+          price_nationalized_cost: null,
+          price_nationalized_currency: null,
+          price_usd: 23500,
+          price_brl: null,
+          category: 'Cameras',
+          category_id: null,
+          manufacturer_id: '7d96d4ce-2f62-44ce-80e5-cab07efa7914',
+          is_discontinued: false,
+        },
+        row: {
+          rowIndex: 2,
+          model: 'PXWX400KC',
+          normalizedModel: 'PXWX400KC',
+          itemType: 'HW',
+          description: 'PXW-X400KC 20X MANUAL FOCUS ZOOM LENS CAMCORDER KIT',
+          rawPriceUsdSt: '22934.47',
+          priceUsdSt: 22934.47,
+          ncmSuggested: '8525.89.29',
+          is3rdParty: false,
+          isSoftware: false,
+          isAnomaly: false,
+        },
+        currentCostUsd: null,
+        currentCurrency: null,
+        newCostUsd: 22934.47,
+        hasPriceChange: true,
+        diffUsd: 22934.47,
+      },
+      matchedItems: Array.from({ length: 25 }, (_, idx) => ({
+        product: {
+          id: `mock-p-${idx}`,
+          name: `Sony Professional Product Modelo ${idx + 1} Ultra High Definition Video Equipment Series`,
+          sku: `SONY-MDL-${100 + idx}`,
+          normalizedSku: `SONYMDL${100 + idx}`,
+          price_nationalized_cost: 1200 + idx * 50,
+          price_nationalized_currency: 'Nacionalizado USD',
+          price_usd: 1500 + idx * 60,
+          price_brl: null,
+          category: 'Cameras',
+          category_id: null,
+          manufacturer_id: null,
+          is_discontinued: false,
+        },
+        row: {
+          rowIndex: idx + 3,
+          model: `MDL-${100 + idx}`,
+          normalizedModel: `MDL${100 + idx}`,
+          itemType: 'HW',
+          description: `Sony Broadcast Camera Kit Model ${idx + 1} with Extended Accessories Package`,
+          rawPriceUsdSt: (1350 + idx * 55).toFixed(2),
+          priceUsdSt: 1350 + idx * 55,
+          ncmSuggested: '8525.89.29',
+          is3rdParty: false,
+          isSoftware: false,
+          isAnomaly: false,
+        },
+        currentCostUsd: 1200 + idx * 50,
+        currentCurrency: 'Nacionalizado USD',
+        newCostUsd: 1350 + idx * 55,
+        hasPriceChange: true,
+        diffUsd: 150 + idx * 5,
+      })),
+      matchedWithChange: Array.from({ length: 25 }, (_, idx) => ({
+        product: {
+          id: `mock-p-${idx}`,
+          name: `Sony Professional Product Modelo ${idx + 1} Ultra High Definition Video Equipment Series`,
+          sku: `SONY-MDL-${100 + idx}`,
+          normalizedSku: `SONYMDL${100 + idx}`,
+          price_nationalized_cost: 1200 + idx * 50,
+          price_nationalized_currency: 'Nacionalizado USD',
+          price_usd: 1500 + idx * 60,
+          price_brl: null,
+          category: 'Cameras',
+          category_id: null,
+          manufacturer_id: null,
+          is_discontinued: false,
+        },
+        row: {
+          rowIndex: idx + 3,
+          model: `MDL-${100 + idx}`,
+          normalizedModel: `MDL${100 + idx}`,
+          itemType: 'HW',
+          description: `Sony Broadcast Camera Kit Model ${idx + 1} with Extended Accessories Package`,
+          rawPriceUsdSt: (1350 + idx * 55).toFixed(2),
+          priceUsdSt: 1350 + idx * 55,
+          ncmSuggested: '8525.89.29',
+          is3rdParty: false,
+          isSoftware: false,
+          isAnomaly: false,
+        },
+        currentCostUsd: 1200 + idx * 50,
+        currentCurrency: 'Nacionalizado USD',
+        newCostUsd: 1350 + idx * 55,
+        hasPriceChange: true,
+        diffUsd: 150 + idx * 5,
+      })),
+      matchedUnchanged: [
+        {
+          product: {
+            id: 'mock-unchanged-1',
+            name: 'Sony BRC-X400 4K Pan/Tilt/Zoom Camera',
+            sku: 'BRCX400',
+            normalizedSku: 'BRCX400',
+            price_nationalized_cost: 4890.0,
+            price_nationalized_currency: 'Nacionalizado USD',
+            price_usd: 5500.0,
+            price_brl: null,
+            category: 'PTZ Cameras',
+            category_id: null,
+            manufacturer_id: null,
+            is_discontinued: false,
+          },
+          row: {
+            rowIndex: 88,
+            model: 'BRC-X400',
+            normalizedModel: 'BRCX400',
+            itemType: 'HW',
+            description: '4K PTZ Camera BRCX400 Black Edition',
+            rawPriceUsdSt: '4890.00',
+            priceUsdSt: 4890.0,
+            ncmSuggested: '8525.89.29',
+            is3rdParty: false,
+            isSoftware: false,
+            isAnomaly: false,
+          },
+          currentCostUsd: 4890.0,
+          currentCurrency: 'Nacionalizado USD',
+          newCostUsd: 4890.0,
+          hasPriceChange: false,
+          diffUsd: 0,
+        },
+      ],
+      unmatchedItems: Array.from({ length: 20 }, (_, idx) => ({
+        row: {
+          rowIndex: 200 + idx,
+          model: `UNM-SONY-${500 + idx}`,
+          normalizedModel: `UNMSONY${500 + idx}`,
+          itemType: 'HW',
+          description: `Novo Equipamento de Transmissão e Monitoramento de Vídeo Profissional Linha ${idx + 1}`,
+          rawPriceUsdSt: (850 + idx * 75).toFixed(2),
+          priceUsdSt: 850 + idx * 75,
+          ncmSuggested: '8528.52.00',
+          is3rdParty: false,
+          isSoftware: false,
+          isAnomaly: false,
+        },
+        suggestedCategoryId: 'cat-monitors',
+        suggestedCategoryName: 'Monitores de Referência',
+        suggestionConfidence: 'alta' as const,
+        suggestionReason: 'NCM e termos de monitoramento',
+        candidates: [
+          {
+            productId: `cand-${idx}-1`,
+            productName: `Sony LMD-A240 24" LCD Production Monitor Series ${idx + 1}`,
+            productSku: `LMDA240-${idx}`,
+            normalizedSku: `LMDA240${idx}`,
+            category: 'Monitors',
+            currentCostUsd: 4169.07,
+            currentCurrency: 'Nacionalizado USD',
+            codeScore: 0.85,
+            tokenScore: 0.8,
+            totalScore: 85 - idx,
+            matchReason: 'Sobreposição alta de termos de modelo e monitor',
+          },
+          {
+            productId: `cand-${idx}-2`,
+            productName: `Sony PVM-X2400 24" 4K HDR Trimaster Monitor`,
+            productSku: `PVMX2400-${idx}`,
+            normalizedSku: `PVMX2400${idx}`,
+            category: 'Monitors',
+            currentCostUsd: 9800.0,
+            currentCurrency: 'Nacionalizado USD',
+            codeScore: 0.68,
+            tokenScore: 0.7,
+            totalScore: 68 - idx,
+            matchReason: 'Correspondência de família e display',
+          },
+        ],
+      })),
+      missingFromCatalog: [
+        {
+          id: 'miss-1',
+          name: 'Sony BRAVIA 49" 4K Commercial Display Series',
+          sku: 'FW49BZ35F',
+          category: 'Commercial Displays',
+          price_nationalized_cost: null,
+          price_nationalized_currency: null,
+          price_usd: 1200.0,
+          similarTableRows: [
+            {
+              sheetRowIndex: 501,
+              tableModel: 'FW43BZ30L',
+              normalizedModel: 'FW43BZ30L',
+              description: '43" BRAVIA 4K HDR X1 PROFESSIONAL DISPLAY 60HZ',
+              priceUsdSt: 823.02,
+              itemType: 'HW',
+              codeScore: 0.7,
+              tokenScore: 0.6,
+              totalScore: 67,
+              matchReason: 'Código similar',
+            },
+          ],
+        },
+        {
+          id: 'miss-2',
+          name: 'Sony BRC-H800 HD PTZ Camera with 12x Optical Zoom',
+          sku: 'BRCH8001',
+          category: 'PTZ Cameras',
+          price_nationalized_cost: null,
+          price_nationalized_currency: null,
+          price_usd: 4200.0,
+          similarTableRows: [
+            {
+              sheetRowIndex: 502,
+              tableModel: 'BRCH800',
+              normalizedModel: 'BRCH800',
+              description: 'HD Color PTZ Camera',
+              priceUsdSt: 3917.45,
+              itemType: 'HW',
+              codeScore: 0.85,
+              tokenScore: 0.75,
+              totalScore: 81,
+              matchReason: 'Código quase idêntico',
+            },
+          ],
+        },
+        {
+          id: 'miss-3',
+          name: 'Sony NP-BJ1 Battery Kit with USB Travel Charger',
+          sku: 'ACCTBDCJ',
+          category: 'Batteries',
+          price_nationalized_cost: null,
+          price_nationalized_currency: null,
+          price_usd: 65.0,
+          similarTableRows: [],
+        },
+        {
+          id: 'miss-4',
+          name: 'Sony LMD-A240 24" LCD Production Monitor',
+          sku: 'LMDA240',
+          category: 'Monitors',
+          price_nationalized_cost: null,
+          price_nationalized_currency: null,
+          price_usd: 4500.0,
+          similarTableRows: [
+            {
+              sheetRowIndex: 504,
+              tableModel: 'LMDA240//C9',
+              normalizedModel: 'LMDA240C9',
+              description: 'LUMA 23 PROFESSIONAL LCD MONITOR',
+              priceUsdSt: 4169.07,
+              itemType: 'HW',
+              codeScore: 0.75,
+              tokenScore: 0.6,
+              totalScore: 69,
+              matchReason: 'Modelo e linha LUMA',
+            },
+          ],
+        },
+        {
+          id: 'miss-5',
+          name: 'Sony BRCMALL Wall Mount for Select PTZ Cameras',
+          sku: 'SABRCMALLK',
+          category: 'Mounts & Brackets',
+          price_nationalized_cost: null,
+          price_nationalized_currency: null,
+          price_usd: 120.0,
+          similarTableRows: [
+            {
+              sheetRowIndex: 505,
+              tableModel: 'BRCH800',
+              normalizedModel: 'BRCH800',
+              description: 'HD Color PTZ Camera Mount Accessories',
+              priceUsdSt: 3917.45,
+              itemType: 'HW',
+              codeScore: 0.4,
+              tokenScore: 0.45,
+              totalScore: 41,
+              matchReason: 'Acessório compatível',
+            },
+          ],
+        },
+      ],
+      anomalies: [
+        {
+          rowIndex: 701,
+          model: 'ANOMALY-1',
+          normalizedModel: 'ANOMALY1',
+          itemType: 'HW',
+          description: 'Cabo Especial de Conexão com Preço Ausente na Planilha',
+          rawPriceUsdSt: '0.00',
+          priceUsdSt: null,
+          ncmSuggested: '',
+          is3rdParty: false,
+          isSoftware: false,
+          isAnomaly: true,
+          anomalyReason: 'Preço zerado ou nulo na Coluna D',
+        },
+        {
+          rowIndex: 702,
+          model: 'ANOMALY-2',
+          normalizedModel: 'ANOMALY2',
+          itemType: 'HW',
+          description: 'Suporte de Rack Negativo com Valor Inválido',
+          rawPriceUsdSt: '-15.00',
+          priceUsdSt: null,
+          ncmSuggested: '',
+          is3rdParty: false,
+          isSoftware: false,
+          isAnomaly: true,
+          anomalyReason: 'Preço negativo na Coluna D',
+        },
+      ],
+    }
+
+    setPreview(mockPreview)
+    toast({
+      title: 'Dados de Demonstração Carregados',
+      description:
+        'As 6 abas do Detalhamento do Cruzamento estão prontas para visualização e teste.',
+    })
+  }
+
   const handleExecuteImport = async () => {
     if (!preview) return
 
@@ -496,6 +839,20 @@ export function AdminScanSourcePage() {
                   )}
                 </Button>
               </div>
+
+              {/* Botão de demonstração para carregar dados de teste instantâneos no preview */}
+              <div className="pt-2 border-t border-white/5 flex items-center justify-between text-xs text-muted-foreground">
+                <span>Deseja visualizar o detalhamento do cruzamento sem planilha?</span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={loadMockPreview}
+                  className="h-7 text-[11px] border-amber-500/30 text-amber-400 hover:bg-amber-500/10"
+                >
+                  <Sparkles className="w-3 h-3 mr-1.5" />
+                  Carregar Dados de Demonstração (Preview)
+                </Button>
+              </div>
             </CardContent>
           </Card>
         )}
@@ -742,7 +1099,7 @@ export function AdminScanSourcePage() {
                   {/* Aba: Casados com Mudança */}
                   <TabsContent value="matched" className="p-0 m-0">
                     <SyncedScrollTable maxHeight="420px" minContentWidth="860px">
-                      <Table className="min-w-[860px]">
+                      <Table className="min-w-[860px] table-fixed">
                         <TableHeader className="sticky top-0 z-30 bg-card shadow-sm">
                           <TableRow className="hover:bg-transparent">
                             <TableHead className="w-36 min-w-[144px] max-w-[144px] sticky left-0 z-30 bg-card border-r border-white/10">
@@ -823,7 +1180,7 @@ export function AdminScanSourcePage() {
                   {/* Aba: Casados Inalterados */}
                   <TabsContent value="unchanged" className="p-0 m-0">
                     <SyncedScrollTable maxHeight="420px" minContentWidth="720px">
-                      <Table className="min-w-[720px]">
+                      <Table className="min-w-[720px] table-fixed">
                         <TableHeader className="sticky top-0 z-30 bg-card shadow-sm">
                           <TableRow className="hover:bg-transparent">
                             <TableHead className="w-36 min-w-[144px] max-w-[144px] sticky left-0 z-30 bg-card border-r border-white/10">
@@ -870,7 +1227,7 @@ export function AdminScanSourcePage() {
                       </span>
                     </div>
                     <SyncedScrollTable maxHeight="420px" minContentWidth="920px">
-                      <Table className="min-w-[920px]">
+                      <Table className="min-w-[920px] table-fixed">
                         <TableHeader className="sticky top-0 z-30 bg-card shadow-sm">
                           <TableRow className="hover:bg-transparent">
                             <TableHead className="w-36 min-w-[144px] max-w-[144px] sticky left-0 z-30 bg-card border-r border-white/10">
@@ -951,7 +1308,7 @@ export function AdminScanSourcePage() {
                     </div>
 
                     <SyncedScrollTable maxHeight="500px" minContentWidth="1000px">
-                      <Table className="min-w-[1000px]">
+                      <Table className="min-w-[1000px] table-fixed">
                         <TableHeader className="sticky top-0 z-30 bg-card shadow-sm">
                           <TableRow className="hover:bg-transparent">
                             <TableHead className="w-36 min-w-[144px] max-w-[144px] sticky left-0 z-30 bg-card border-r border-white/10">
@@ -1117,7 +1474,7 @@ export function AdminScanSourcePage() {
                       </Button>
                     </div>
                     <SyncedScrollTable maxHeight="480px" minContentWidth="960px">
-                      <Table className="min-w-[960px]">
+                      <Table className="min-w-[960px] table-fixed">
                         <TableHeader className="sticky top-0 z-30 bg-card shadow-sm">
                           <TableRow className="hover:bg-transparent">
                             <TableHead className="w-36 min-w-[144px] max-w-[144px] sticky left-0 z-30 bg-card border-r border-white/10">
@@ -1252,7 +1609,7 @@ export function AdminScanSourcePage() {
                       <strong>não alteram</strong> o custo existente do produto.
                     </div>
                     <SyncedScrollTable maxHeight="420px" minContentWidth="760px">
-                      <Table className="min-w-[760px]">
+                      <Table className="min-w-[760px] table-fixed">
                         <TableHeader className="sticky top-0 z-30 bg-card shadow-sm">
                           <TableRow className="hover:bg-transparent">
                             <TableHead className="w-24 min-w-[96px] max-w-[96px] sticky left-0 z-30 bg-card border-r border-white/10">

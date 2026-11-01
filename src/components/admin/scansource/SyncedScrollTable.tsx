@@ -243,8 +243,13 @@ export function SyncedScrollTable({
           '[&::-webkit-scrollbar]:w-2.5 [&::-webkit-scrollbar]:h-2.5',
           '[&::-webkit-scrollbar-track]:bg-slate-900/50 [&::-webkit-scrollbar-track]:border-l [&::-webkit-scrollbar-track]:border-white/5',
           '[&::-webkit-scrollbar-thumb]:bg-slate-600 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-slate-500',
-          // Remove overflow aninhado no wrapper do shadcn Table caso presente
-          '[&>div.relative.overflow-auto]:overflow-visible [&>div.relative.overflow-auto]:static',
+          // Neutralização definitiva de QUALQUER wrapper intermediário (como o <div className="relative w-full overflow-auto"> do shadcn Table):
+          // Força overflow: visible e position: static em qualquer div filha do scrollport,
+          // garantindo que:
+          // 1) O scrollportRef seja o ÚNICO scrollport (overflow-x e overflow-y);
+          // 2) canScrollHorizontally meça scrollWidth > clientWidth real no scrollportRef;
+          // 3) thead.sticky top-0 e th/td.sticky left-0 ancorem no scrollportRef e nunca desapareçam.
+          '[&_div]:overflow-visible [&_div]:static',
         )}
         style={{
           maxHeight,
@@ -252,7 +257,14 @@ export function SyncedScrollTable({
           scrollbarColor: '#64748b #0f172a',
         }}
       >
-        <div className="w-full" style={{ minWidth: minContentWidth || undefined }}>
+        <div
+          className="w-full"
+          style={{
+            minWidth: minContentWidth || undefined,
+            overflow: 'visible',
+            position: 'static',
+          }}
+        >
           {children}
         </div>
       </div>

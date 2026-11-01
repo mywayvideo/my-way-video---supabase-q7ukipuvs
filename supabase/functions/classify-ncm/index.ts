@@ -1664,7 +1664,7 @@ Deno.serve(async (req: Request) => {
   const brand = (body.brand || '').trim()
   const model = (body.model || '').trim()
   const additionalSpecs = (body.additional_specs || '').trim()
-  const productCategory = (body.category || '').trim()
+  const rawRequestCategory = (body.category || '').trim()
   const topN = Math.max(8, Math.min(Number(body.top_n) || 15, 30))
   const saveLog = body.save_log !== false
   const productId = body.product_id || null
@@ -1672,6 +1672,48 @@ Deno.serve(async (req: Request) => {
   const rawCurrentNcm = (body.current_ncm || '').toString().trim()
   const rawCurrentEx = (body.current_ex || '').toString().trim()
   const cleanCurrentNcmDigits = normalizeNcm(rawCurrentNcm)
+
+  // Resolução da Categoria Efetiva:
+  // 1. Categoria vinculada da tabela categories (se productId existir com category_id válido)
+  // 2. Senão, campo text category do produto em products
+  // 3. Senão, campo category enviado no payload
+  // 4. Senão, nenhuma ("")
+  let effectiveCategory = rawRequestCategory
+  let effectiveCategoryOrigin:
+    | 'linked_category'
+    | 'product_legacy_category'
+    | 'request_payload'
+    | 'none' = rawRequestCategory ? 'request_payload' : 'none'
+
+  if (productId) {
+    try {
+      const { data: prodRow } = await supabaseAdmin
+        .from('products')
+        .select('id, category, category_id')
+        .eq('id', productId)
+        .maybeSingle()
+
+      if (prodRow) {
+        if (prodRow.category_id) {
+          const { data: catRow } = await supabaseAdmin
+            .from('categories')
+            .select('id, name')
+            .eq('id', prodRow.category_id)
+            .maybeSingle()
+          if (catRow && catRow.name && catRow.name.trim()) {
+            effectiveCategory = catRow.name.trim()
+            effectiveCategoryOrigin = 'linked_category'
+          }
+        }
+        if (!effectiveCategory && prodRow.category && prodRow.category.trim()) {
+          effectiveCategory = prodRow.category.trim()
+          effectiveCategoryOrigin = 'product_legacy_category'
+        }
+      }
+    } catch (prodCatErr) {
+      console.warn('Aviso: falha não-fatal ao resolver categoria do produto:', prodCatErr)
+    }
+  }
 
   try {
     // 4. Construir Assinatura Enxuta do Produto
@@ -1748,10 +1790,22 @@ Deno.serve(async (req: Request) => {
     const fullTechnicalProfile = [combinedProductText, webContentSummary].filter(Boolean).join('\n')
 
     // 6.B FASE 0: CONSULTA À CAMADA DE CONHECIMENTO DE DOMÍNIO (ncm_support)
-    // Recuperar as linhas de ncm_support pertinentes à natureza do produto (match por palavras_chave/familia, top 3-5)
-    // usando supabaseAdmin (service role) e injetar esse conhecimento dinâmico no prompt do analista e auditor.
+    // Recuperar as linhas de ncm_support pertinentes à natureza do produto:
+    // (1) Casamento por categoria efetiva (quando houver categoria): casamento por termos entre effectiveCategory e row.familia (status = 'ativa')
+    // (2) Casamento textual por palavras_chave / familia / termos do perfil técnico
+    // Regra: Quando o produto NÃO tem categoria nenhuma, NÃO existe casamento por categoria — fica apenas o textual,
+    // com exigência de match FORTE (score >= 25) para que a família seja considerada como regra vinculante.
     let ncmSupportEntries: any[] = []
     let ncmSupportPromptBlock = ''
+    let matchedSupportFamilies: Array<{
+      entry: any
+      matchType: 'category' | 'strong_text' | 'weak_text'
+      score: number
+      matchedFamilyName: string
+      ncmPrincipal: string
+      ncmAlternativas: string[]
+    }> = []
+
     try {
       // Derivação da natureza/função primária preliminar a partir do texto técnico e composição
       const combinedTextLower = fullTechnicalProfile.toLowerCase()
@@ -1780,6 +1834,16 @@ Deno.serve(async (req: Request) => {
 
       const uniqueTerms = Array.from(new Set(searchTerms)).slice(0, 24)
 
+      // Termos normalizados da categoria efetiva para casamento por termos sem exigir igualdade exata
+      const normCatString = (effectiveCategory || '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+      const effectiveCategoryTerms = normCatString
+        .split(/[\s,+/()_&-]+/)
+        .map((t) => t.trim())
+        .filter((t) => t.length >= 3 && !/^(para|com|sem|das|dos|the|and|for|with|pro)$/i.test(t))
+
       const { data: allSupportRows, error: suppErr } = await supabaseAdmin
         .from('ncm_support')
         .select(
@@ -1788,18 +1852,45 @@ Deno.serve(async (req: Request) => {
         .limit(100)
 
       if (!suppErr && allSupportRows && allSupportRows.length > 0) {
-        // Pontuar relevância de cada linha de suporte contra o perfil técnico, termos e natureza derivada
+        // Pontuar relevância de cada linha de suporte contra o perfil técnico, termos e categoria
         const scored = allSupportRows.map((row: any) => {
           let score = 0
+          let categoryMatched = false
           const famLower = (row.familia || '').toLowerCase()
+          const famNorm = famLower.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
           const catLower = (row.categoria || '').toLowerCase()
+          const catNorm = catLower.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
           const kwList = Array.isArray(row.palavras_chave)
             ? row.palavras_chave.map((k: string) => String(k).toLowerCase())
             : []
           const textToMatch = fullTechnicalProfile.toLowerCase()
           const rowMainNcm = normalizeNcm(row.ncm_principal || '')
 
-          // Match de palavras-chave da família no perfil do produto
+          // CASAMENTO POR CATEGORIA EFETIVA (status = 'ativa'):
+          // Similaridade por termos entre effectiveCategory e row.familia (ou row.categoria)
+          if (effectiveCategoryTerms.length > 0 && row.status === 'ativa') {
+            let catTermHits = 0
+            for (const cTerm of effectiveCategoryTerms) {
+              if (famNorm.includes(cTerm) || catNorm.includes(cTerm)) {
+                catTermHits++
+              }
+            }
+            // Similaridade sem exigir igualdade exata:
+            // Se pelo menos 1 termo forte casar (ou match de substring direta)
+            const directSubstrMatch =
+              (normCatString.length >= 4 &&
+                (famNorm.includes(normCatString) || normCatString.includes(famNorm))) ||
+              (catNorm &&
+                normCatString.length >= 4 &&
+                (catNorm.includes(normCatString) || normCatString.includes(catNorm)))
+
+            if (catTermHits > 0 || directSubstrMatch) {
+              categoryMatched = true
+              score += 100 + catTermHits * 20 // Prioridade máxima de casamento por categoria
+            }
+          }
+
+          // Match de palavras-chave da família no perfil textual do produto
           for (const kw of kwList) {
             if (kw && textToMatch.includes(kw)) {
               score += 15
@@ -1826,8 +1917,6 @@ Deno.serve(async (req: Request) => {
           if (targetMachineHeadings.length > 0) {
             const coversTarget = targetMachineHeadings.some((th) => {
               if (rowMainNcm.startsWith(th)) return true
-              // Se a família tiver regra para partes/acessórios cobrindo a máquina alvo
-              // (ex.: 85299090 cobre máquinas da posição 8525)
               if (rowMainNcm === '85299090' && ['8525', '8526', '8527', '8528'].includes(th))
                 return true
               if (rowMainNcm === '84314910' && th.startsWith('84')) return true
@@ -1838,11 +1927,43 @@ Deno.serve(async (req: Request) => {
             }
           }
 
-          return { row, score }
+          return { row, score, categoryMatched }
         })
 
         scored.sort((a: any, b: any) => b.score - a.score)
-        // Tomar top 3 a 5 com pontuação mínima
+
+        // Classificar as famílias casadas e determinar se são regras vinculantes:
+        // - por categoria: categoryMatched === true
+        // - por texto FORTE: score >= 25 quando não há categoria
+        // - texto fraco: score > 0 e < 25
+        for (const item of scored) {
+          if (item.score <= 0) continue
+          const altsList: string[] = []
+          if (Array.isArray(item.row.ncm_alternativas)) {
+            for (const a of item.row.ncm_alternativas) {
+              const code = typeof a === 'string' ? a : a?.ncm
+              if (code) altsList.push(normalizeNcm(code))
+            }
+          }
+
+          let matchType: 'category' | 'strong_text' | 'weak_text' = 'weak_text'
+          if (item.categoryMatched) {
+            matchType = 'category'
+          } else if (item.score >= 25) {
+            matchType = 'strong_text'
+          }
+
+          matchedSupportFamilies.push({
+            entry: item.row,
+            matchType,
+            score: item.score,
+            matchedFamilyName: item.row.familia,
+            ncmPrincipal: normalizeNcm(item.row.ncm_principal || ''),
+            ncmAlternativas: altsList,
+          })
+        }
+
+        // Tomar top 3 a 5 com pontuação mínima para o prompt
         ncmSupportEntries = scored
           .filter((item: any) => item.score > 0)
           .slice(0, 5)
@@ -1909,6 +2030,82 @@ ${alts}
       targetMachines: compositionAnalysis.targetMachines,
       topN,
     })
+
+    // (c) INJEÇÃO FÍSICA DE CANDIDATOS DA CAMADA DE APOIO (ncm_support):
+    // Para cada família casada (por categoria ou por match textual forte/relevante), buscar os códigos
+    // ncm_principal e todos os ncm_alternativas em imp_sim_tax_rates (com alíquotas reais) e
+    // INJETÁ-LOS na lista de candidatos entregue ao LLM (mesma estrutura dos demais candidatos).
+    const injectedSupportNcmCodes = new Set<string>()
+    for (const fam of matchedSupportFamilies) {
+      if (fam.ncmPrincipal) injectedSupportNcmCodes.add(fam.ncmPrincipal)
+      for (const alt of fam.ncmAlternativas) {
+        if (alt) injectedSupportNcmCodes.add(alt)
+      }
+    }
+
+    if (injectedSupportNcmCodes.size > 0) {
+      for (const suppCode of injectedSupportNcmCodes) {
+        const cleanCode = normalizeNcm(suppCode)
+        if (!cleanCode) continue
+        const alreadyInCandidates = candidates.some((c: any) => normalizeNcm(c.ncm) === cleanCode)
+        if (!alreadyInCandidates) {
+          try {
+            const { data: dbRows } = await supabaseAdmin
+              .from('imp_sim_tax_rates')
+              .select(
+                'ncm, ex, ncm_descricao_full, ncm_descricao, ex_descricao, ii_rate, ipi_rate, pis_rate, cofins_rate, has_ex_tarifario',
+              )
+              .eq('ncm', cleanCode)
+              .limit(5)
+
+            if (dbRows && dbRows.length > 0) {
+              for (const row of dbRows) {
+                const injectedCandidate: any = {
+                  ncm: row.ncm,
+                  ex: row.ex || '',
+                  ncm_descricao_full: row.ncm_descricao_full || row.ncm_descricao || '',
+                  ncm_descricao: row.ncm_descricao || '',
+                  ex_descricao: row.ex_descricao || '',
+                  ii_rate: row.ii_rate ?? 0,
+                  ipi_rate: row.ipi_rate ?? 0,
+                  pis_rate: row.pis_rate ?? 2.1,
+                  cofins_rate: row.cofins_rate ?? 9.65,
+                  has_ex_tarifario: Boolean(row.has_ex_tarifario || row.ex),
+                  is_support_layer_injected: true,
+                  score: 0.98,
+                }
+                candidates.unshift(injectedCandidate)
+                console.log(
+                  `[classify-ncm: Injeção de Candidato ncm_support] NCM ${row.ncm}${row.ex ? ` Ex ${row.ex}` : ''} injetado no catálogo de candidatos com alíquotas reais.`,
+                )
+              }
+            } else {
+              // Se não existir na base local (ex.: 96200000), injetar como candidato com aviso
+              const injectedVirtualCandidate: any = {
+                ncm: cleanCode,
+                ex: '',
+                ncm_descricao_full:
+                  cleanCode === '96200000'
+                    ? 'Monopés, bipés, tripés e artigos semelhantes (Capítulo 96)'
+                    : `NCM ${cleanCode} (injetado via camada de apoio ncm_support)`,
+                ncm_descricao: `NCM ${cleanCode}`,
+                ex_descricao: '',
+                ii_rate: null,
+                ipi_rate: null,
+                pis_rate: null,
+                cofins_rate: null,
+                has_ex_tarifario: false,
+                is_support_layer_injected: true,
+                score: 0.98,
+              }
+              candidates.unshift(injectedVirtualCandidate)
+            }
+          } catch (injectErr) {
+            console.warn(`Erro ao injetar candidato ${cleanCode} de ncm_support:`, injectErr)
+          }
+        }
+      }
+    }
 
     if (candidates.length === 0) {
       return new Response(
@@ -2046,7 +2243,14 @@ Regra permanente: Todas as instruções são princípios genéricos universais a
 
 DIRETÓRIO VINCULANTE DE CLASSIFICAÇÃO FISCAL E REGRAS-MESTRE (KNOWLEDGE LAYER):
 ${DIRETORIO_NCM_KNOWLEDGE}
-${ncmSupportPromptBlock ? `\nCAMADA DE CONHECIMENTO DE DOMÍNIO ESPECÍFICA (TABELA ncm_support VINCULANTE):\n${ncmSupportPromptBlock}\n` : ''}
+${
+  ncmSupportPromptBlock
+    ? `\nCAMADA DE CONHECIMENTO DE DOMÍNIO ESPECÍFICA (TABELA ncm_support VINCULANTE):\n${ncmSupportPromptBlock}
+REGRA VINCULANTE DA CAMADA DE APOIO (ncm_support):
+Se uma família da tabela ncm_support casou (por categoria do produto ou por match textual forte), o NCM recomendado DEVE OBRIGATORIAMENTE ser o ncm_principal ou uma das ncm_alternativas dessa família, SALVO justificativa técnica explícita de que o produto NÃO pertence àquela família.
+É TERMINANTEMENTE PROIBIDO escolher fora da família casada por critério tributário (carga menor, Ex-Tarifário vantajoso, alíquota reduzida).\n`
+    : ''
+}
 
 METODOLOGIA OBRIGATÓRIA UNIVERSAL:
 
@@ -2409,7 +2613,14 @@ Construa a FASE 0 obrigatória no campo 'product_understanding' com a sentença 
 
 DIRETÓRIO VINCULANTE DE CLASSIFICAÇÃO FISCAL E REGRAS-MESTRE (KNOWLEDGE LAYER):
 ${DIRETORIO_NCM_KNOWLEDGE}
-${ncmSupportPromptBlock ? `\nCAMADA DE CONHECIMENTO DE DOMÍNIO ESPECÍFICA (TABELA ncm_support VINCULANTE):\n${ncmSupportPromptBlock}\n` : ''}
+${
+  ncmSupportPromptBlock
+    ? `\nCAMADA DE CONHECIMENTO DE DOMÍNIO ESPECÍFICA (TABELA ncm_support VINCULANTE):\n${ncmSupportPromptBlock}
+REGRA VINCULANTE DA CAMADA DE APOIO (ncm_support):
+Se uma família da tabela ncm_support casou (por categoria do produto ou por match textual forte), o NCM recomendado DEVE OBRIGATORIAMENTE ser o ncm_principal ou uma das ncm_alternativas dessa família, SALVO justificativa técnica explícita de que o produto NÃO pertence àquela família.
+É TERMINANTEMENTE PROIBIDO escolher fora da família casada por critério tributário (carga menor, Ex-Tarifário vantajoso, alíquota reduzida).\n`
+    : ''
+}
 
 PROTOCOLO OBRIGATÓRIO DE AUDITORIA (PRINCÍPIOS GENÉRICOS UNIVERSAIS):
 0. FASE 0 OBRIGATÓRIA — AUDITORIA DE ENTENDIMENTO DO PRODUTO (PRÉ-REQUISITO):
@@ -4051,6 +4262,50 @@ ${candidatesCatalogText}`
       }
     }
 
+    // (e) PÓS-AUDITOR — SEM AUTO-CORREÇÃO:
+    // Após a escolha final, se existe família casada por categoria (ou match forte de apoio)
+    // e o NCM recomendado NÃO é o ncm_principal nem alternativa dela, NÃO alterar o recomendado!
+    // Adicionar ao resultado o flag `ncm_support_divergence` com:
+    // família casada, ncm_principal da família, recomendado do modelo e texto explicativo,
+    // para sinalização em UI e decisão humana. A análise NCM é SEMPRE indicativa:
+    // o sistema apenas indica e justifica, nunca reenquadra automaticamente.
+    let ncmSupportDivergence: {
+      has_divergence: boolean
+      matched_family: string
+      family_ncm_principal: string
+      family_ncm_alternatives: string[]
+      recommended_ncm: string
+      match_origin: 'category' | 'strong_text'
+      message: string
+    } | null = null
+
+    // Verificar se a família casada principal (especialmente casada por categoria) diverge do recomendado
+    const categoryMatchedFamily = matchedSupportFamilies.find((f) => f.matchType === 'category')
+    const strongMatchedFamily = matchedSupportFamilies.find((f) => f.matchType === 'strong_text')
+    const activeGoverningFamily =
+      categoryMatchedFamily || (effectiveCategory ? null : strongMatchedFamily)
+
+    if (activeGoverningFamily) {
+      const familyPrincipalClean = normalizeNcm(activeGoverningFamily.ncmPrincipal)
+      const familyAltsClean = activeGoverningFamily.ncmAlternativas.map((a) => normalizeNcm(a))
+      const isCompliant =
+        recommendedNcmClean === familyPrincipalClean ||
+        familyAltsClean.includes(recommendedNcmClean)
+
+      if (!isCompliant) {
+        ncmSupportDivergence = {
+          has_divergence: true,
+          matched_family: activeGoverningFamily.matchedFamilyName,
+          family_ncm_principal: familyPrincipalClean,
+          family_ncm_alternatives: familyAltsClean,
+          recommended_ncm: recommendedNcmClean,
+          match_origin: activeGoverningFamily.matchType === 'category' ? 'category' : 'strong_text',
+          message: `Divergência detectada: a família "${activeGoverningFamily.matchedFamilyName}" casou ${activeGoverningFamily.matchType === 'category' ? `pela categoria do produto ("${effectiveCategory}")` : 'por correspondência textual forte'} (NCM principal: ${familyPrincipalClean}), porém o modelo recomendou ${recommendedNcmClean}. A análise NCM é estritamente indicativa — nenhuma correção automática foi aplicada, cabendo a decisão à revisão humana.`,
+        }
+        console.warn(`[ncm_support_divergence]: ${ncmSupportDivergence.message}`)
+      }
+    }
+
     const recommendationObject = {
       ncm: recommendedNcmClean,
       ex: finalRecommendationEx,
@@ -4228,6 +4483,10 @@ ${candidatesCatalogText}`
       product_understanding: finalProductUnderstanding,
       confidence: (llmResponseJson.confidence || 'media').toLowerCase(),
       sufficient_info: sufficiencyCheck.isSufficient,
+      effective_category: effectiveCategory || null,
+      effective_category_origin: effectiveCategoryOrigin,
+      matched_family: activeGoverningFamily ? activeGoverningFamily.matchedFamilyName : null,
+      ncm_support_divergence: ncmSupportDivergence,
       web_sources: webSources,
       audit_links: combinedAuditLinks,
       ncm_support_matches: ncmSupportEntries.map((s) => ({
@@ -4247,7 +4506,7 @@ ${candidatesCatalogText}`
       composition_analysis: compositionAnalysis,
       checklist_log: checklistLog,
       parts_indirect_logic: partsTelemetry,
-      version: '3.8.0-build.653',
+      version: '3.8.0-build.654',
       timestamp: new Date().toISOString(),
     }
 

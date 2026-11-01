@@ -65,9 +65,10 @@
     "ai-search-product-page": 12,
     "classify-ncm": 216,
     "sync-ncm-support-vigencia": 480,
-    "analyze-edital": 347,
+    "analyze-edital": 348,
     "update-icms-st-rates": 189,
     "check-price-bhphoto": 7,
-    "firecrawl-credits": 2
+    "firecrawl-credits": 2,
+    "match-tr-item": 10
   }
 }

@@ -4,7 +4,9 @@ import OpenAI from 'npm:openai@4.86.1'
 import { corsHeaders } from '../_shared/cors.ts'
 
 interface AnalyzeEditalRequest {
-  licitacao_id: string
+  licitacao_id?: string
+  modo?: 'completo' | 'habilitacao_enxuta'
+  texto_habilitacao?: string
   texto_edital?: string
   texto_tr_dedicado?: string
   texto_habilitacao_dedicado?: string
@@ -92,6 +94,8 @@ Deno.serve(async (req: Request) => {
     } = await req.json().catch(() => ({}))
     const {
       licitacao_id,
+      modo = 'completo',
+      texto_habilitacao,
       texto_edital,
       texto_tr_dedicado,
       texto_habilitacao_dedicado,
@@ -100,6 +104,41 @@ Deno.serve(async (req: Request) => {
       pdf_status: incomingPdfStatus,
       caminho_recomendado: incomingCaminho,
     } = body
+
+    const openaiApiKey = Deno.env.get('OPENAI_API_KEY') || ''
+
+    // -------------------------------------------------------------
+    // MODO DEDICADO: HABILITAÇÃO ENXUTA (NOVO FLUXO DE CADASTRO)
+    // Analisa SOMENTE o texto da seção de habilitação colado pelo usuário.
+    // Retorna APENAS os documentos/comprovações exigidas:
+    // { categoria, documento, clausula_ref }.
+    // PROIBIDO: citações textuais longas, motivações, itens do objeto, etc.
+    // -------------------------------------------------------------
+    if (modo === 'habilitacao_enxuta') {
+      const textoAnalise = (texto_habilitacao || texto_habilitacao_dedicado || '').trim()
+
+      if (!textoAnalise) {
+        return new Response(
+          JSON.stringify({
+            error: 'Texto de habilitação é obrigatório para o modo habilitacao_enxuta.',
+            exigencias: [],
+          }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        )
+      }
+
+      const exigenciasEnxutas = await executarAnaliseHabilitacaoEnxuta(textoAnalise, openaiApiKey)
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          modo: 'habilitacao_enxuta',
+          total: exigenciasEnxutas.length,
+          exigencias: exigenciasEnxutas,
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      )
+    }
 
     if (!licitacao_id) {
       return new Response(JSON.stringify({ error: 'licitacao_id é obrigatório.' }), {
@@ -199,9 +238,6 @@ Deno.serve(async (req: Request) => {
       habilitacaoDedicadaText ? 'Habilitação dedicada' : 'Edital completo'
 
     const rawText = `${trDedicadoText ? '=== TERMO DE REFERÊNCIA (OBJETO / SERVIÇOS) ===\n' + trDedicadoText + '\n\n' : ''}${habilitacaoDedicadaText ? '=== HABILITAÇÃO E REQUISITOS DO PREGÃO ===\n' + habilitacaoDedicadaText + '\n\n' : ''}${fallbackEditalText}`
-
-    // Chave de API OpenAI declarada no escopo principal para uso em todos os blocos opcionais
-    const openaiApiKey = Deno.env.get('OPENAI_API_KEY') || ''
 
     // 3. CACHE CANDIDATOS: Se já analisado e mesmo hash_documento e não for forçado, reusa
     // Apenas se a análise anterior concluída teve itens OU exigências (gate de sanidade válido)
@@ -1221,6 +1257,260 @@ function extrairMarcaModeloSegura(texto: string): string | undefined {
   }
 
   return undefined
+}
+
+export type CategoriaHabilitacaoEnxuta =
+  | 'jurídica'
+  | 'fiscal'
+  | 'trabalhista'
+  | 'econômico-financeira'
+  | 'qualificação técnica'
+  | 'SICAF'
+  | 'SPEC'
+  | 'fabricante'
+  | 'sustentabilidade'
+
+export interface ExigenciaHabilitacaoEnxuta {
+  categoria: CategoriaHabilitacaoEnxuta
+  documento: string
+  clausula_ref?: string | null
+}
+
+const CATEGORIAS_VALIDAS: readonly CategoriaHabilitacaoEnxuta[] = [
+  'jurídica',
+  'fiscal',
+  'trabalhista',
+  'econômico-financeira',
+  'qualificação técnica',
+  'SICAF',
+  'SPEC',
+  'fabricante',
+  'sustentabilidade',
+] as const
+
+export function normalizarCategoriaHabilitacao(cat: string | undefined | null): CategoriaHabilitacaoEnxuta {
+  const norm = normalize(cat || '')
+  if (norm.includes('jurid')) return 'jurídica'
+  if (norm.includes('fisc')) return 'fiscal'
+  if (norm.includes('trab')) return 'trabalhista'
+  if (norm.includes('econom') || norm.includes('financ')) return 'econômico-financeira'
+  if (norm.includes('tecnic') || norm.includes('qualific')) return 'qualificação técnica'
+  if (norm.includes('sicaf')) return 'SICAF'
+  if (norm.includes('spec')) return 'SPEC'
+  if (norm.includes('fabric')) return 'fabricante'
+  if (norm.includes('sustent')) return 'sustentabilidade'
+  return 'jurídica'
+}
+
+/**
+ * Extração determinística de exigências de habilitação com base em padrões comuns
+ * da Lei 14.133/2021, Lei 8.666/1993, SICAF e certidões federais/estaduais.
+ * Usado diretamente ou como fallback resiliente quando a IA falhar ou não estiver disponível.
+ */
+export function extrairHabilitacaoDeterministica(texto: string): ExigenciaHabilitacaoEnxuta[] {
+  if (!texto || !texto.trim()) return []
+
+  const exigencias: ExigenciaHabilitacaoEnxuta[] = []
+  const jaAdicionado = new Set<string>()
+
+  const pushExigencia = (
+    categoria: CategoriaHabilitacaoEnxuta,
+    documento: string,
+    clausula_ref?: string | null,
+  ) => {
+    const chave = `${categoria}:${normalize(documento)}`
+    if (!jaAdicionado.has(chave)) {
+      jaAdicionado.add(chave)
+      exigencias.push({
+        categoria,
+        documento: documento.trim(),
+        clausula_ref: clausula_ref ? clausula_ref.trim() : null,
+      })
+    }
+  }
+
+  const regrasPadroes: Array<{
+    categoria: CategoriaHabilitacaoEnxuta
+    padrao: RegExp
+    nomeDoc: string
+  }> = [
+    {
+      categoria: 'SICAF',
+      padrao: /\b(?:sicaf|sistema\s+de\s+cadastramento\s+unificado\s+de\s+fornecedores)\b/i,
+      nomeDoc: 'Certificado de Registro Cadastral no SICAF (vigente com níveis 1 a 6)',
+    },
+    {
+      categoria: 'jurídica',
+      padrao: /\b(?:ato\s+constitutivo|estatuto|contrato\s+social|registro\s+comercial)\b/i,
+      nomeDoc: 'Ato constitutivo, Estatuto ou Contrato Social consolidado',
+    },
+    {
+      categoria: 'fiscal',
+      padrao: /\b(?:certid[ãa]o\s+(?:conjunta\s+)?negativa\s+de\s+d[ée]bitos\s+relativos\s+a\s+cr[ée]ditos\s+tribut[áa]rios\s+federais|receita\s+federal|pgfn|tributos\s+federais)\b/i,
+      nomeDoc: 'Certidão Conjunta Negativa de Tributos Federais e Dívida Ativa da União (Receita Federal/PGFN)',
+    },
+    {
+      categoria: 'fiscal',
+      padrao: /\b(?:certid[ãa]o\s+negativa\s+estadual|fazenda\s+estadual|tributos\s+estaduais|icms)\b/i,
+      nomeDoc: 'Certidão Negativa de Débitos Tributários Estaduais (Fazenda Estadual/Distrital)',
+    },
+    {
+      categoria: 'fiscal',
+      padrao: /\b(?:certid[ãa]o\s+negativa\s+municipal|fazenda\s+municipal|tributos\s+municipais|issqn|iss)\b/i,
+      nomeDoc: 'Certidão Negativa de Débitos Tributários Municipais (Fazenda Municipal)',
+    },
+    {
+      categoria: 'trabalhista',
+      padrao: /\b(?:cndt|certid[ãa]o\s+negativa\s+de\s+d[ée]bitos\s+trabalhistas|justi[çc]a\s+do\s+trabalho)\b/i,
+      nomeDoc: 'Certidão Negativa de Débitos Trabalhistas (CNDT / TST)',
+    },
+    {
+      categoria: 'fiscal',
+      padrao: /\b(?:crf|fgts|fundo\s+de\s+garantia\s+por\s+tempo\s+de\s+servi[çc]o|regularidade\s+do\s+fgts)\b/i,
+      nomeDoc: 'Certificado de Regularidade do FGTS (CRF / Caixa)',
+    },
+    {
+      categoria: 'econômico-financeira',
+      padrao: /\b(?:fal[êe]ncia|concordata|recupera[çc][ãa]o\s+judicial|recupera[çc][ãa]o\s+extrajudicial)\b/i,
+      nomeDoc: 'Certidão Negativa de Falência e Recuperação Judicial',
+    },
+    {
+      categoria: 'econômico-financeira',
+      padrao: /\b(?:balan[çc]o\s+patrimonial|demonstra[çc][õo]es\s+cont[áa]beis|índices\s+de\s+liquidez|liquidez\s+geral|liquidez\s+corrente)\b/i,
+      nomeDoc: 'Balanço Patrimonial do último exercício social com índices de liquidez (LG, SG, LC ≥ 1,0)',
+    },
+    {
+      categoria: 'qualificação técnica',
+      padrao: /\b(?:atestado(?:s)?\s+de\s+capacidade\s+t[ée]cnica|capacidade\s+t[ée]cnico-operacional|comprova[çc][ãa]o\s+de\s+aptid[ãa]o)\b/i,
+      nomeDoc: 'Atestado de Capacidade Técnica comprovando fornecimento de bens pertinentes e compatíveis',
+    },
+    {
+      categoria: 'qualificação técnica',
+      padrao: /\b(?:certid[ãa]o\s+de\s+registro\s+profissional|crea|cft|cau|registro\s+no\s+conselho)\b/i,
+      nomeDoc: 'Registro ou inscrição da empresa e responsáveis técnicos na entidade profissional competente',
+    },
+    {
+      categoria: 'fabricante',
+      padrao: /\b(?:declara[çc][ãa]o\s+do\s+fabricante|carta\s+do\s+fabricante|credenciamento\s+de\s+fabricante|autoriza[çc][ãa]o\s+do\s+fabricante|distribuidor\s+autorizado)\b/i,
+      nomeDoc: 'Declaração de Fabricante ou Carta de Distribuidor Autorizado',
+    },
+    {
+      categoria: 'jurídica',
+      padrao: /\b(?:trabalho\s+do\s+menor|inciso\s+xxxiii\s+do\s+artigo\s+7|art\.\s*7[ºo]?,\s*xxxiii)\b/i,
+      nomeDoc: 'Declaração de cumprimento do disposto no art. 7º, XXXIII da CF/88 (trabalho de menor)',
+    },
+    {
+      categoria: 'jurídica',
+      padrao: /\b(?:inidoneidade|impedimento\s+de\s+licitar|declara[çc][ãa]o\s+de\s+inidoneidade|ceis|cnep)\b/i,
+      nomeDoc: 'Declaração de Inexistência de Fatos Impeditivos e inexistência de sanção nos cadastros CEIS/CNEP',
+    },
+    {
+      categoria: 'sustentabilidade',
+      padrao: /\b(?:sustentabilidade|certifica[çc][ãa]o\s+ambiental|descarte\s+sustent[áa]vel|rohs|log[íi]stica\s+reversa)\b/i,
+      nomeDoc: 'Comprovação de Critérios de Sustentabilidade Ambiental e Logística Reversa',
+    },
+  ]
+
+  for (const r of regrasPadroes) {
+    const match = texto.match(r.padrao)
+    if (match) {
+      // Procura cláusula próxima no texto (ex: 8.1, 9.2.3, etc.)
+      const matchIndex = match.index || 0
+      const contexto = texto.slice(Math.max(0, matchIndex - 120), matchIndex + 120)
+      const mClausula = contexto.match(/\b(\d{1,2}(?:\.\d{1,2}){1,3})\b/)
+      pushExigencia(r.categoria, r.nomeDoc, mClausula ? mClausula[1] : null)
+    }
+  }
+
+  return exigencias
+}
+
+/**
+ * Executa a análise enxuta de habilitação dedicada para o modal de cadastro.
+ * Retorna estritamente: categoria, documento, clausula_ref.
+ * PROIBIDO: citações textuais longas, motivações, itens do objeto.
+ */
+export async function executarAnaliseHabilitacaoEnxuta(
+  textoHabilitacao: string,
+  openaiApiKey?: string,
+): Promise<ExigenciaHabilitacaoEnxuta[]> {
+  const deterministas = extrairHabilitacaoDeterministica(textoHabilitacao)
+
+  if (!openaiApiKey || textoHabilitacao.length < 20) {
+    return deterministas
+  }
+
+  try {
+    const openai = new OpenAI({ apiKey: openaiApiKey, timeout: 20000 })
+    const prompt = `Você é um perito analista em habilitação de licitações públicas federais (Lei 14.133/2021).
+Analise EXCLUSIVAMENTE a seção de Habilitação / Requisitos do edital abaixo e extraia a lista completa e enxuta de DOCUMENTOS E COMPROVAÇÕES EXIGIDAS da licitante.
+
+REGRAS OBRIGATÓRIAS (ESTRITAMENTE PROIBIDO VIOLAR):
+1. Retorne APENAS um JSON com a lista de exigências.
+2. Cada exigência DEVE ter EXATAMENTE 3 campos:
+   - "categoria": uma dentre: "jurídica", "fiscal", "trabalhista", "econômico-financeira", "qualificação técnica", "SICAF", "SPEC", "fabricante", "sustentabilidade"
+   - "documento": nome claro, objetivo e padronizado do documento, certidão ou comprovação exigida (ex: "Certidão Conjunta Negativa de Débitos Federais (Receita/PGFN)", "Certidão Negativa de Débitos Trabalhistas (CNDT)", "Atestado de Capacidade Técnica", "Balanço Patrimonial do último exercício")
+   - "clausula_ref": número da cláusula ou item do edital que exige o documento (ex: "8.1.1", "9.2", "10.4.3") ou null se não houver cláusula explícita.
+3. PROIBIDO RETORNAR: citação textual longa do edital, justificativa, motivação, análise de risco, destaques críticos, prazos ou itens do objeto da licitação. O usuário quer apenas a relação enxuta e direta de documentos obrigatórios.
+4. Responda em JSON puro no formato:
+{
+  "exigencias": [
+    {
+      "categoria": "fiscal",
+      "documento": "Certidão Conjunta Negativa de Débitos Federais (Receita/PGFN)",
+      "clausula_ref": "8.3.1"
+    }
+  ]
+}
+
+TEXTO DA SEÇÃO DE HABILITAÇÃO:
+"""
+${textoHabilitacao.slice(0, 45000)}
+"""`
+
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.1,
+      response_format: { type: 'json_object' },
+    })
+
+    const content = completion.choices[0]?.message?.content || '{}'
+    const parsed = JSON.parse(content)
+
+    if (Array.isArray(parsed.exigencias) && parsed.exigencias.length > 0) {
+      const exigenciasFinais: ExigenciaHabilitacaoEnxuta[] = []
+      const chaves = new Set<string>()
+
+      for (const item of parsed.exigencias) {
+        if (!item || !item.documento) continue
+        const cat = normalizarCategoriaHabilitacao(item.categoria)
+        const doc = String(item.documento).trim()
+        const clausula = item.clausula_ref ? String(item.clausula_ref).trim() : null
+        const k = `${cat}:${normalize(doc)}`
+
+        if (!chaves.has(k) && doc.length >= 3) {
+          chaves.add(k)
+          exigenciasFinais.push({
+            categoria: cat,
+            documento: doc,
+            clausula_ref: clausula,
+          })
+        }
+      }
+
+      if (exigenciasFinais.length > 0) {
+        return exigenciasFinais
+      }
+    }
+  } catch (errAi) {
+    console.warn(
+      'Falha no LLM para análise enxuta de habilitação — utilizando resultado determinístico:',
+      errAi,
+    )
+  }
+
+  return deterministas
 }
 
 export function extrairItensDeterministicosDoTexto(

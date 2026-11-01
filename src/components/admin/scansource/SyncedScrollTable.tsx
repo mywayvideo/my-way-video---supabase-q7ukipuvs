@@ -8,16 +8,31 @@ interface SyncedScrollTableProps {
   className?: string
 }
 
+/**
+ * SyncedScrollTable - Padrão de Scrollport Único
+ *
+ * Estrutura:
+ * 1. Faixa horizontal fixa SUPERIOR (fora do scrollport da tabela):
+ *    - Fica acima do contêiner com rolagem vertical, de modo que NUNCA desaparece ao rolar verticalmente.
+ *    - Trilho com pegada estilizada âmbar que suporta clique e arraste (drag).
+ *    - Sincronização bidirecional em tempo real com o scroll horizontal da tabela.
+ *
+ * 2. UM ÚNICO contêiner com rolagem (overflow-x: auto; overflow-y: auto) com maxHeight:
+ *    - Scrollbar vertical nativa visível na borda direita do contêiner desde o início.
+ *    - Cabeçalho (TableHeader) sticky top-0 DENTRO desse contêiner:
+ *      fica fixo ao rolar para baixo e desliza horizontalmente com as colunas.
+ *    - Colunas fixas (sticky left-0, sticky left-[...]) com fundo opaco e z-index adequado.
+ */
 export function SyncedScrollTable({
   children,
-  maxHeight = '420px',
+  maxHeight = '480px',
   minContentWidth,
   className,
 }: SyncedScrollTableProps) {
-  const containerRef = useRef<HTMLDivElement>(null)
-  const topScrollRef = useRef<HTMLDivElement>(null)
-  const bottomScrollRef = useRef<HTMLDivElement>(null)
+  // Referência do scrollport único (contêiner onde a tabela é renderizada e onde ocorrem scroll X e Y)
+  const scrollportRef = useRef<HTMLDivElement>(null)
   const topTrackRef = useRef<HTMLDivElement>(null)
+
   const topDragStartRef = useRef({
     startX: 0,
     scrollLeft: 0,
@@ -32,90 +47,57 @@ export function SyncedScrollTable({
     clientWidth: 0,
   })
 
-  // Obtém o elemento que efetivamente faz overflow-x
-  const getTableScrollElement = useCallback((): HTMLElement | null => {
-    const wrapper = bottomScrollRef.current
-    if (!wrapper) return null
-    return wrapper
+  // Atualiza métricas de scroll horizontal
+  const updateMetrics = useCallback(() => {
+    const el = scrollportRef.current
+    if (!el) return
+    setScrollMetrics({
+      scrollLeft: el.scrollLeft,
+      scrollWidth: el.scrollWidth,
+      clientWidth: el.clientWidth,
+    })
   }, [])
 
-  // Sincronização bidirecional de scroll e métricas
+  // Listener no scrollport único para atualizar o scroll da barra do topo
   useEffect(() => {
-    const topEl = topScrollRef.current
-    const tableEl = getTableScrollElement()
-    if (!tableEl) return
+    const el = scrollportRef.current
+    if (!el) return
 
-    let isSyncingTop = false
-    let isSyncingBottom = false
-
-    const updateMetrics = () => {
-      const currentEl = getTableScrollElement()
-      if (!currentEl) return
-      setScrollMetrics({
-        scrollLeft: currentEl.scrollLeft,
-        scrollWidth: currentEl.scrollWidth,
-        clientWidth: currentEl.clientWidth,
+    const handleScroll = () => {
+      setScrollMetrics((prev) => {
+        if (prev.scrollLeft === el.scrollLeft) return prev
+        return {
+          ...prev,
+          scrollLeft: el.scrollLeft,
+        }
       })
     }
 
-    const handleTopScroll = () => {
-      const currentEl = getTableScrollElement()
-      if (!topEl || !currentEl) return
-      if (isSyncingTop) {
-        isSyncingTop = false
-        return
-      }
-      isSyncingBottom = true
-      currentEl.scrollLeft = topEl.scrollLeft
-      updateMetrics()
-    }
-
-    const handleTableScroll = () => {
-      const currentEl = getTableScrollElement()
-      if (!currentEl) return
-      if (isSyncingBottom) {
-        isSyncingBottom = false
-        return
-      }
-      isSyncingTop = true
-      if (topEl) {
-        topEl.scrollLeft = currentEl.scrollLeft
-      }
-      updateMetrics()
-    }
-
-    if (topEl) {
-      topEl.addEventListener('scroll', handleTopScroll, { passive: true })
-    }
-    tableEl.addEventListener('scroll', handleTableScroll, { passive: true })
-
+    el.addEventListener('scroll', handleScroll, { passive: true })
     updateMetrics()
 
     const resizeObserver = new ResizeObserver(() => {
       updateMetrics()
     })
 
-    resizeObserver.observe(tableEl)
-    if (tableEl.firstElementChild) {
-      resizeObserver.observe(tableEl.firstElementChild)
+    resizeObserver.observe(el)
+    if (el.firstElementChild) {
+      resizeObserver.observe(el.firstElementChild)
     }
 
     return () => {
-      if (topEl) {
-        topEl.removeEventListener('scroll', handleTopScroll)
-      }
-      tableEl.removeEventListener('scroll', handleTableScroll)
+      el.removeEventListener('scroll', handleScroll)
       resizeObserver.disconnect()
     }
-  }, [getTableScrollElement])
+  }, [updateMetrics])
 
-  // Drag handlers para o thumb superior
+  // Drag handlers para o thumb da barra do topo
   const handleTopPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault()
     e.stopPropagation()
-    const tableEl = getTableScrollElement()
+    const el = scrollportRef.current
     const trackEl = topTrackRef.current
-    if (!tableEl || !trackEl) return
+    if (!el || !trackEl) return
 
     const { scrollWidth, clientWidth, scrollLeft } = scrollMetrics
     const maxScroll = Math.max(0, scrollWidth - clientWidth)
@@ -139,8 +121,8 @@ export function SyncedScrollTable({
 
   const handleTopPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!isDraggingTop) return
-    const tableEl = getTableScrollElement()
-    if (!tableEl) return
+    const el = scrollportRef.current
+    if (!el) return
 
     const { startX, scrollLeft, maxScroll, trackTravel } = topDragStartRef.current
     if (trackTravel <= 0 || maxScroll <= 0) return
@@ -149,10 +131,7 @@ export function SyncedScrollTable({
     const scrollDelta = (deltaX / trackTravel) * maxScroll
     const newScrollLeft = Math.max(0, Math.min(maxScroll, scrollLeft + scrollDelta))
 
-    tableEl.scrollLeft = newScrollLeft
-    if (topScrollRef.current) {
-      topScrollRef.current.scrollLeft = newScrollLeft
-    }
+    el.scrollLeft = newScrollLeft
     setScrollMetrics((prev) => ({ ...prev, scrollLeft: newScrollLeft }))
   }
 
@@ -164,10 +143,11 @@ export function SyncedScrollTable({
     setIsDraggingTop(false)
   }
 
+  // Clique no trilho para navegar diretamente
   const handleTrackClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const trackEl = topTrackRef.current
-    const tableEl = getTableScrollElement()
-    if (!trackEl || !tableEl) return
+    const el = scrollportRef.current
+    if (!trackEl || !el) return
 
     const { scrollWidth, clientWidth } = scrollMetrics
     const maxScroll = Math.max(0, scrollWidth - clientWidth)
@@ -183,10 +163,7 @@ export function SyncedScrollTable({
     const trackTravel = trackWidth - thumbWidth
     const newScrollLeft = trackTravel > 0 ? (targetThumbLeft / trackTravel) * maxScroll : 0
 
-    tableEl.scrollTo({ left: newScrollLeft, behavior: 'smooth' })
-    if (topScrollRef.current) {
-      topScrollRef.current.scrollLeft = newScrollLeft
-    }
+    el.scrollTo({ left: newScrollLeft, behavior: 'smooth' })
     setScrollMetrics((prev) => ({ ...prev, scrollLeft: newScrollLeft }))
   }
 
@@ -214,31 +191,24 @@ export function SyncedScrollTable({
   }
 
   return (
-    <div
-      ref={containerRef}
-      className={cn(
-        'w-full max-w-full overflow-y-auto border-t border-white/10 relative',
-        className,
-      )}
-      style={{ maxHeight }}
-    >
-      {/* Barra de rolagem horizontal FIXA no TOPO (sticky top-0 z-40) */}
+    <div className={cn('w-full max-w-full flex flex-col relative', className)}>
+      {/* 1. Faixa de rolagem horizontal FIXA no TOPO (fora do scrollport da tabela) */}
       <div
         className={cn(
-          'sticky top-0 z-40 w-full bg-card/95 backdrop-blur-sm border-b border-white/10 select-none px-2 py-1',
+          'w-full bg-card/95 backdrop-blur-sm border-t border-b border-white/10 select-none px-2 py-1.5 shrink-0 z-20',
           !canScrollHorizontally && 'hidden',
         )}
       >
         <div
           ref={topTrackRef}
           onClick={handleTrackClick}
-          className="relative w-full h-3 cursor-pointer flex items-center"
+          className="relative w-full h-3.5 cursor-pointer flex items-center"
           title="Clique ou arraste a pegada para rolar a tabela horizontalmente"
         >
-          {/* Linha guia do trilho no tema escuro */}
+          {/* Linha guia do trilho escuro */}
           <div className="absolute left-0 right-0 h-2 bg-slate-900/90 border border-slate-700/80 rounded-full shadow-inner" />
 
-          {/* Pegada / Thumb interativa com destaque visual */}
+          {/* Pegada / Thumb interativa com destaque visual âmbar */}
           {canScrollHorizontally && (
             <div
               onPointerDown={handleTopPointerDown}
@@ -253,7 +223,7 @@ export function SyncedScrollTable({
                   'scale-y-110 brightness-125 shadow-[0_2px_8px_rgba(245,158,11,0.75)]',
               )}
             >
-              {/* Micro ranhuras visuais decorativas no centro do thumb */}
+              {/* Micro ranhuras visuais no centro do thumb */}
               <div className="flex gap-0.5 pointer-events-none opacity-85">
                 <div className="w-0.5 h-1.5 bg-amber-950/80 rounded-full" />
                 <div className="w-0.5 h-1.5 bg-amber-950/80 rounded-full" />
@@ -262,35 +232,29 @@ export function SyncedScrollTable({
             </div>
           )}
         </div>
-
-        {/* Elemento de scroll nativo invisível espelhado */}
-        <div
-          ref={topScrollRef}
-          className="absolute inset-0 overflow-x-auto overflow-y-hidden opacity-0 pointer-events-none [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
-          tabIndex={-1}
-        >
-          <div
-            style={{
-              width:
-                scrollMetrics.scrollWidth > 0
-                  ? `${scrollMetrics.scrollWidth}px`
-                  : minContentWidth || '100%',
-              height: '1px',
-            }}
-          />
-        </div>
       </div>
 
-      {/* Wrapper horizontal da tabela com rolagem própria sincronizada */}
+      {/* 2. Scrollport ÚNICO da tabela (overflow: auto nas duas direções, max-height e scrollbar visível) */}
       <div
-        ref={bottomScrollRef}
-        className="overflow-x-auto overflow-y-visible w-full [&::-webkit-scrollbar]:h-2.5 [&::-webkit-scrollbar-track]:bg-muted/30 [&::-webkit-scrollbar-thumb]:bg-slate-600 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-slate-500"
+        ref={scrollportRef}
+        className={cn(
+          'w-full max-w-full overflow-auto relative',
+          // Estilo da scrollbar vertical nativa visível na borda direita
+          '[&::-webkit-scrollbar]:w-2.5 [&::-webkit-scrollbar]:h-2.5',
+          '[&::-webkit-scrollbar-track]:bg-slate-900/50 [&::-webkit-scrollbar-track]:border-l [&::-webkit-scrollbar-track]:border-white/5',
+          '[&::-webkit-scrollbar-thumb]:bg-slate-600 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-slate-500',
+          // Remove overflow aninhado no wrapper do shadcn Table caso presente
+          '[&>div.relative.overflow-auto]:overflow-visible [&>div.relative.overflow-auto]:static',
+        )}
         style={{
+          maxHeight,
           scrollbarWidth: 'thin',
-          scrollbarColor: '#64748b #1e293b',
+          scrollbarColor: '#64748b #0f172a',
         }}
       >
-        {children}
+        <div className="w-full" style={{ minWidth: minContentWidth || undefined }}>
+          {children}
+        </div>
       </div>
     </div>
   )

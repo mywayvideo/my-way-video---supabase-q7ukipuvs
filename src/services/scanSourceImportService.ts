@@ -31,6 +31,12 @@ import {
 } from '@/utils/scansource-parser'
 import { categoryImportStagingService } from '@/services/categoryImportStagingService'
 import { CategoryItem } from '@/services/categoryTriageService'
+import {
+  SkuCandidateMatch,
+  ReverseTableMatch,
+  findTopCandidatesForUnmatchedRow,
+  findSimilarTableRowsForCatalogProduct,
+} from '@/utils/scansource-matching-helper'
 
 export interface CatalogProductSummary {
   id: string
@@ -63,6 +69,10 @@ export interface UnmatchedItemPreview {
   suggestedCategoryName: string | null
   suggestionConfidence: 'alta' | 'media' | 'baixa'
   suggestionReason: string
+  candidates: SkuCandidateMatch[]
+  linkedProductId?: string | null
+  linkedProductName?: string | null
+  linkedProductSku?: string | null
 }
 
 export interface MissingCatalogProduct {
@@ -73,6 +83,7 @@ export interface MissingCatalogProduct {
   price_nationalized_cost: number | null
   price_nationalized_currency: string | null
   price_usd: number | null
+  similarTableRows: ReverseTableMatch[]
 }
 
 export interface ScanSourceCrossMatchPreview {
@@ -232,12 +243,21 @@ export const scanSourceImportService = {
           mappings: categoryMappings,
         })
 
+        // Calcula até 5 melhores candidatos do catálogo por similaridade
+        const candidates = findTopCandidatesForUnmatchedRow(
+          row.model,
+          row.description,
+          catalogProducts,
+          5,
+        )
+
         unmatchedItems.push({
           row,
           suggestedCategoryId: catMatch.suggestedCategoryId,
           suggestedCategoryName: catMatch.suggestedCategoryName,
           suggestionConfidence: catMatch.confidence,
           suggestionReason: catMatch.reason,
+          candidates,
         })
       }
     }
@@ -256,6 +276,13 @@ export const scanSourceImportService = {
           p.manufacturer_id === '7d96d4ce-2f62-44ce-80e5-cab07efa7914' ||
           p.name.toLowerCase().includes('sony')
         if (isSony) {
+          const similarTableRows = findSimilarTableRowsForCatalogProduct(
+            p.sku,
+            p.name,
+            parseResult.validRows,
+            3,
+          )
+
           missingFromCatalog.push({
             id: p.id,
             name: p.name,
@@ -264,6 +291,7 @@ export const scanSourceImportService = {
             price_nationalized_cost: p.price_nationalized_cost,
             price_nationalized_currency: p.price_nationalized_currency,
             price_usd: p.price_usd,
+            similarTableRows,
           })
         }
       }
@@ -373,6 +401,8 @@ export const scanSourceImportService = {
             itemType: u.row.itemType,
             rowIndex: u.row.rowIndex,
             effectiveDate: preview.effectiveDate,
+            hasCandidates: u.candidates && u.candidates.length > 0,
+            candidatesCount: u.candidates?.length || 0,
           },
         }))
 
@@ -481,6 +511,177 @@ export const scanSourceImportService = {
     ])
 
     return [headers.join(','), ...rows.map((r) => r.join(','))].join('\n')
+  },
+
+  /**
+   * Vincula diretamente uma linha da tabela ScanSource a um produto existente do catálogo.
+   * Aplica o custo nacionalizado USD (coluna D) com a vigência especificada (padrão 'JAN 2nd 2025'),
+   * grava na auditoria com origem "vinculado" e NUNCA altera price_usd nem preço de venda.
+   */
+  async linkTableRowToProduct(params: {
+    productId: string
+    newCostUsd: number
+    effectiveDate?: string
+    tableModel: string
+    rowDescription?: string
+    userId?: string
+  }): Promise<{ success: boolean; error?: string }> {
+    const {
+      productId,
+      newCostUsd,
+      effectiveDate = 'JAN 2nd 2025',
+      tableModel,
+      rowDescription,
+      userId,
+    } = params
+
+    try {
+      if (newCostUsd < 0 || isNaN(newCostUsd)) {
+        throw new Error('O valor de custo nacionalizado deve ser um número positivo.')
+      }
+
+      // 1. Atualizar produto em `products` (apenas custo nacionalizado)
+      const { data: updatedProd, error: updateErr } = await supabase
+        .from('products')
+        .update({
+          price_nationalized_cost: roundToTwoDecimals(newCostUsd),
+          price_nationalized_currency: 'Nacionalizado USD',
+          // Invariante de integridade: NUNCA alterar price_usd, price_brl ou price_nationalized_sales
+        })
+        .eq('id', productId)
+        .select('id, name, sku, price_usd')
+        .single()
+
+      if (updateErr) {
+        console.error('Erro ao vincular produto existente:', updateErr)
+        throw new Error(updateErr.message)
+      }
+
+      // 2. Registrar evento na auditoria scansource_import_audits com origem 'vinculado'
+      try {
+        await (supabase as any).from('scansource_import_audits').insert({
+          file_name: `Vinculação Manual: ${tableModel} -> ${updatedProd?.sku || productId}`,
+          effective_date: effectiveDate,
+          total_sheet_rows: 1,
+          matched_count: 1,
+          updated_count: 1,
+          unchanged_count: 0,
+          details: {
+            origin: 'vinculado',
+            action: 'link_to_existing_product',
+            productId,
+            productSku: updatedProd?.sku,
+            productName: updatedProd?.name,
+            tableModel,
+            rowDescription,
+            appliedCostUsd: roundToTwoDecimals(newCostUsd),
+            effectiveDate,
+          },
+          executed_by: userId || null,
+        })
+      } catch (auditErr) {
+        console.warn('Falha não-bloqueante ao registrar auditoria de vinculação:', auditErr)
+      }
+
+      return { success: true }
+    } catch (e: any) {
+      console.error('Erro em linkTableRowToProduct:', e)
+      return { success: false, error: e?.message || 'Falha ao vincular produto' }
+    }
+  },
+
+  /**
+   * Grava custo nacionalizado USD manual para um produto existente
+   * (usado na ação 'Informar custo' dos ausentes ou edição direta).
+   * Origem na auditoria é gravada como "manual" e NUNCA toca em price_usd nem preço de venda.
+   * Se costUsd for nulo ou vazio, não altera nem bloqueia.
+   */
+  async updateManualNationalizedCost(params: {
+    productId: string
+    costUsd: number | null
+    effectiveDate?: string
+    notes?: string
+    userId?: string
+  }): Promise<{ success: boolean; error?: string }> {
+    const { productId, costUsd, effectiveDate = 'JAN 2nd 2025', notes, userId } = params
+
+    // Se nulo ou não fornecido, operação válida sem alteração (opcionalidade estrita)
+    if (costUsd === null || costUsd === undefined) {
+      return { success: true }
+    }
+
+    if (costUsd < 0 || isNaN(costUsd)) {
+      return { success: false, error: 'O custo deve ser um número positivo.' }
+    }
+
+    try {
+      const { data: updatedProd, error: updateErr } = await supabase
+        .from('products')
+        .update({
+          price_nationalized_cost: roundToTwoDecimals(costUsd),
+          price_nationalized_currency: 'Nacionalizado USD',
+          // NUNCA altera price_usd nem price_brl
+        })
+        .eq('id', productId)
+        .select('id, name, sku, price_usd')
+        .single()
+
+      if (updateErr) throw new Error(updateErr.message)
+
+      try {
+        await (supabase as any).from('scansource_import_audits').insert({
+          file_name: `Custo Manual: ${updatedProd?.sku || productId}`,
+          effective_date: effectiveDate,
+          total_sheet_rows: 1,
+          matched_count: 0,
+          updated_count: 1,
+          unchanged_count: 0,
+          details: {
+            origin: 'manual',
+            action: 'manual_cost_input',
+            productId,
+            productSku: updatedProd?.sku,
+            productName: updatedProd?.name,
+            appliedCostUsd: roundToTwoDecimals(costUsd),
+            effectiveDate,
+            notes,
+          },
+          executed_by: userId || null,
+        })
+      } catch (auditErr) {
+        console.warn('Falha não-bloqueante na auditoria de custo manual:', auditErr)
+      }
+
+      return { success: true }
+    } catch (e: any) {
+      console.error('Erro em updateManualNationalizedCost:', e)
+      return { success: false, error: e?.message || 'Falha ao atualizar custo manual' }
+    }
+  },
+
+  /**
+   * Atualiza o custo nacionalizado em um registro da staging table (área de revisão)
+   * antes ou durante a revisão de categoria.
+   */
+  async updateStagingNationalizedCost(
+    stagingId: string,
+    costUsd: number | null,
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      const { error } = await (supabase as any)
+        .from('product_import_staging')
+        .update({
+          price_nationalized_cost: costUsd !== null ? roundToTwoDecimals(costUsd) : null,
+          price_nationalized_currency: costUsd !== null ? 'Nacionalizado USD' : 'BRL',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', stagingId)
+
+      if (error) throw error
+      return { success: true }
+    } catch (e: any) {
+      return { success: false, error: e?.message || 'Falha ao atualizar custo na staging' }
+    }
   },
 
   /**

@@ -51,6 +51,9 @@ import {
   DollarSign,
   Ban,
   Loader2,
+  Link2,
+  Check,
+  Search,
 } from 'lucide-react'
 
 export function AdminScanSourcePage() {
@@ -74,6 +77,14 @@ export function AdminScanSourcePage() {
 
   // Filtros da tabela de preview
   const [searchFilter, setSearchFilter] = useState('')
+
+  // Modal / Diálogo para "Informar Custo" manual em produtos ausentes
+  const [manualCostModalProduct, setManualCostModalProduct] = useState<any | null>(null)
+  const [manualCostValue, setManualCostValue] = useState<string>('')
+  const [isSavingManualCost, setIsSavingManualCost] = useState(false)
+
+  // Feedback de vinculação direta por item
+  const [linkingRowIndex, setLinkingRowIndex] = useState<number | null>(null)
 
   // Carrega histórico de auditorias ao montar
   useEffect(() => {
@@ -212,6 +223,133 @@ export function AdminScanSourcePage() {
     setPreview(null)
     setExecutionResult(null)
     if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  // Ação: Vincular a produto existente direto do assistente de correspondências
+  const handleLinkCandidate = async (row: any, candidate: any, rowIndex: number) => {
+    if (!preview) return
+
+    try {
+      setLinkingRowIndex(rowIndex)
+      const res = await scanSourceImportService.linkTableRowToProduct({
+        productId: candidate.productId,
+        newCostUsd: row.priceUsdSt,
+        effectiveDate: preview.effectiveDate,
+        tableModel: row.model,
+        rowDescription: row.description,
+        userId: user?.id,
+      })
+
+      if (res.success) {
+        toast({
+          title: 'Produto vinculado com sucesso!',
+          description: `"${candidate.productName}" (SKU: ${candidate.productSku || '—'}) agora tem custo nacionalizado de US$ ${row.priceUsdSt.toFixed(2)} (vigência ${preview.effectiveDate}).`,
+        })
+
+        // Atualiza estado local no preview: marca item como vinculado
+        setPreview((prev) => {
+          if (!prev) return null
+          const nextUnmatched = prev.unmatchedItems.map((u) => {
+            if (u.row.rowIndex === row.rowIndex) {
+              return {
+                ...u,
+                linkedProductId: candidate.productId,
+                linkedProductName: candidate.productName,
+                linkedProductSku: candidate.productSku,
+              }
+            }
+            return u
+          })
+          return {
+            ...prev,
+            unmatchedItems: nextUnmatched,
+          }
+        })
+        loadAudits()
+      } else {
+        throw new Error(res.error || 'Falha ao vincular produto')
+      }
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao vincular produto',
+        description: err.message,
+        variant: 'destructive',
+      })
+    } finally {
+      setLinkingRowIndex(null)
+    }
+  }
+
+  // Ação: Salvar custo nacionalizado manual (ação 'Informar custo')
+  const handleSaveManualCost = async () => {
+    if (!manualCostModalProduct) return
+
+    const trimmed = manualCostValue.trim()
+    const parsedCost = trimmed === '' ? null : parseFloat(trimmed.replace(',', '.'))
+
+    if (trimmed !== '' && (isNaN(parsedCost!) || parsedCost! < 0)) {
+      toast({
+        title: 'Valor inválido',
+        description: 'Informe um valor numérico positivo em USD ou deixe em branco.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    try {
+      setIsSavingManualCost(true)
+      const res = await scanSourceImportService.updateManualNationalizedCost({
+        productId: manualCostModalProduct.id,
+        costUsd: parsedCost,
+        effectiveDate: preview?.effectiveDate || 'JAN 2nd 2025',
+        notes: `Informado manualmente via relatório de ausentes`,
+        userId: user?.id,
+      })
+
+      if (res.success) {
+        toast({
+          title: 'Custo nacionalizado gravado!',
+          description:
+            parsedCost !== null
+              ? `Custo nacionalizado de US$ ${parsedCost.toFixed(2)} registrado com origem "manual" (vigência ${preview?.effectiveDate || 'JAN 2nd 2025'}). Preço de venda inalterado.`
+              : `Item mantido sem custo nacionalizado, sem bloqueio.`,
+        })
+
+        // Atualiza localmente no relatório de ausentes
+        setPreview((prev) => {
+          if (!prev) return null
+          const nextMissing = prev.missingFromCatalog.map((m) => {
+            if (m.id === manualCostModalProduct.id) {
+              return {
+                ...m,
+                price_nationalized_cost: parsedCost,
+                price_nationalized_currency:
+                  parsedCost !== null ? 'Nacionalizado USD' : m.price_nationalized_currency,
+              }
+            }
+            return m
+          })
+          return {
+            ...prev,
+            missingFromCatalog: nextMissing,
+          }
+        })
+
+        setManualCostModalProduct(null)
+        setManualCostValue('')
+        loadAudits()
+      } else {
+        throw new Error(res.error || 'Falha ao salvar custo manual')
+      }
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao gravar custo',
+        description: err.message,
+        variant: 'destructive',
+      })
+    } finally {
+      setIsSavingManualCost(false)
+    }
   }
 
   // Filtra itens para a visualização das abas
@@ -573,6 +711,19 @@ export function AdminScanSourcePage() {
                         Não Casados ({preview.unmatchedCount})
                       </TabsTrigger>
                       <TabsTrigger
+                        value="suggestions"
+                        className="data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-2 text-xs text-primary font-medium"
+                      >
+                        <Sparkles className="w-3.5 h-3.5 mr-1 inline" />
+                        Possíveis correspondências (
+                        {
+                          preview.unmatchedItems.filter(
+                            (u) => u.candidates && u.candidates.length > 0,
+                          ).length
+                        }
+                        )
+                      </TabsTrigger>
+                      <TabsTrigger
                         value="missing"
                         className="data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-2 text-xs"
                       >
@@ -756,44 +907,297 @@ export function AdminScanSourcePage() {
                     </div>
                   </TabsContent>
 
+                  {/* Aba: Possíveis correspondências (Assistente de Correspondências) */}
+                  <TabsContent value="suggestions" className="p-0 m-0">
+                    <div className="p-4 bg-primary/5 border-b border-white/5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-muted-foreground">
+                      <div>
+                        <span className="font-semibold text-foreground flex items-center gap-1.5">
+                          <Sparkles className="w-4 h-4 text-primary" />
+                          Assistente de Correspondências (até 5 candidatos por similaridade)
+                        </span>
+                        <p className="mt-0.5">
+                          Normalização de código sem &quot;SONY&quot;, hífens ou sufixos de kit
+                          combinada com sobreposição de termos da descrição. Vincular grava o custo
+                          nacionalizado USD com vigência{' '}
+                          <strong className="text-foreground">{preview.effectiveDate}</strong> e
+                          origem &quot;vinculado&quot; na auditoria, sem alterar preço de venda.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="overflow-x-auto max-h-[500px] divide-y divide-white/5">
+                      {filteredUnmatched.map((u, i) => {
+                        const isLinked = !!u.linkedProductId
+                        const hasCandidates = u.candidates && u.candidates.length > 0
+                        const isLinkingThis = linkingRowIndex === u.row.rowIndex
+
+                        return (
+                          <div
+                            key={i}
+                            className="p-4 space-y-3 bg-card/50 hover:bg-white/[0.02] transition-colors"
+                          >
+                            {/* Linha da Planilha */}
+                            <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
+                              <div className="flex items-center gap-3">
+                                <Badge
+                                  variant="outline"
+                                  className="font-mono text-xs bg-white/5 border-white/10"
+                                >
+                                  Linha {u.row.rowIndex}
+                                </Badge>
+                                <div>
+                                  <span className="font-mono font-bold text-sm text-foreground mr-2">
+                                    {u.row.model}
+                                  </span>
+                                  <span className="text-xs text-muted-foreground">
+                                    {u.row.description}
+                                  </span>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <span className="text-xs text-muted-foreground">
+                                  Custo Planilha (Col D):
+                                </span>
+                                <span className="font-mono font-bold text-sm text-emerald-400">
+                                  {u.row.priceUsdSt !== null
+                                    ? `US$ ${u.row.priceUsdSt.toFixed(2)}`
+                                    : '—'}
+                                </span>
+                                {isLinked && (
+                                  <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-xs flex items-center gap-1">
+                                    <Check className="w-3 h-3" /> Vinculado a{' '}
+                                    {u.linkedProductSku || u.linkedProductName}
+                                  </Badge>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Busca por descrição pré-preenchida */}
+                            <div className="flex items-center gap-2 text-xs">
+                              <span className="text-muted-foreground shrink-0">
+                                Pesquisa sugerida:
+                              </span>
+                              <div className="relative flex-1 max-w-md">
+                                <Input
+                                  readOnly
+                                  value={u.row.description || u.row.model}
+                                  className="h-7 text-xs bg-background/50 border-white/10 font-mono text-zinc-300"
+                                />
+                              </div>
+                            </div>
+
+                            {/* Candidatos Ranqueados */}
+                            {hasCandidates ? (
+                              <div className="pl-4 border-l-2 border-primary/30 space-y-2 mt-2">
+                                <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+                                  {u.candidates.length} candidato(s) sugerido(s) do catálogo:
+                                </p>
+                                <div className="grid grid-cols-1 gap-2">
+                                  {u.candidates.map((cand) => (
+                                    <div
+                                      key={cand.productId}
+                                      className="p-2.5 rounded-lg bg-background/80 border border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+                                    >
+                                      <div className="flex flex-col gap-0.5 min-w-0">
+                                        <div className="flex items-center gap-2">
+                                          <span className="font-mono font-semibold text-foreground">
+                                            {cand.productSku || 'Sem SKU'}
+                                          </span>
+                                          <span className="text-muted-foreground">•</span>
+                                          <span
+                                            className="font-medium text-foreground truncate max-w-sm"
+                                            title={cand.productName}
+                                          >
+                                            {cand.productName}
+                                          </span>
+                                          <Badge
+                                            variant="outline"
+                                            className="text-[10px] py-0 bg-primary/10 text-primary border-primary/20"
+                                          >
+                                            {cand.totalScore}% compatível
+                                          </Badge>
+                                        </div>
+                                        <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                                          <span>Motivo: {cand.matchReason}</span>
+                                          {cand.category && (
+                                            <>
+                                              <span>•</span>
+                                              <span>Cat: {cand.category}</span>
+                                            </>
+                                          )}
+                                          <span>•</span>
+                                          <span>
+                                            Custo atual:{' '}
+                                            {cand.currentCostUsd !== null
+                                              ? `US$ ${cand.currentCostUsd.toFixed(2)}`
+                                              : 'Não definido'}
+                                          </span>
+                                        </div>
+                                      </div>
+
+                                      <div className="flex items-center gap-2 shrink-0">
+                                        <Button
+                                          size="sm"
+                                          disabled={isLinkingThis || u.row.priceUsdSt === null}
+                                          onClick={() =>
+                                            handleLinkCandidate(u.row, cand, u.row.rowIndex)
+                                          }
+                                          className="h-8 px-3 text-xs bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
+                                        >
+                                          {isLinkingThis ? (
+                                            <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
+                                          ) : (
+                                            <Link2 className="w-3.5 h-3.5 mr-1.5" />
+                                          )}
+                                          Vincular a produto existente
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="p-2 text-xs text-muted-foreground italic bg-background/40 rounded border border-white/5">
+                                Nenhum candidato com similaridade suficiente encontrado no catálogo
+                                para este modelo.
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </TabsContent>
+
                   {/* Aba: Ausentes no Catálogo */}
                   <TabsContent value="missing" className="p-0 m-0">
-                    <div className="p-4 bg-background/50 border-b border-white/5 flex items-center justify-between text-xs text-muted-foreground">
-                      <span>
-                        Produtos ativos da Sony no catálogo que não apareceram nesta planilha. Eles{' '}
-                        <strong>permanecem ativos</strong> e não sofrem alteração.
-                      </span>
+                    <div className="p-4 bg-background/50 border-b border-white/5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-muted-foreground">
+                      <div>
+                        <span>
+                          Produtos ativos da Sony no catálogo que não apareceram nesta planilha.
+                          Eles <strong>permanecem ativos</strong> e não sofrem alteração.
+                        </span>
+                        <p className="text-[11px] text-zinc-400 mt-0.5">
+                          Para cada produto, o sistema busca na tabela linhas com SKU similar
+                          (vinculação reversa) ou permite informar custo manual.
+                        </p>
+                      </div>
                       <Button size="sm" variant="outline" onClick={handleDownloadMissingCsv}>
                         <Download className="w-3.5 h-3.5 mr-1.5" /> Exportar em CSV
                       </Button>
                     </div>
-                    <div className="overflow-x-auto max-h-[420px]">
+                    <div className="overflow-x-auto max-h-[480px]">
                       <Table>
                         <TableHeader>
                           <TableRow>
                             <TableHead className="w-36">SKU</TableHead>
                             <TableHead>Nome</TableHead>
-                            <TableHead className="w-40">Categoria</TableHead>
-                            <TableHead className="w-36 text-right">Custo Atual (USD)</TableHead>
+                            <TableHead className="w-32">Categoria</TableHead>
+                            <TableHead className="w-32 text-right">Custo Atual</TableHead>
+                            <TableHead className="w-64">Linha Similar na Tabela</TableHead>
+                            <TableHead className="w-36 text-right">Ação</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {preview.missingFromCatalog.slice(0, 100).map((p) => (
-                            <TableRow key={p.id}>
-                              <TableCell className="font-mono text-xs font-semibold">
-                                {p.sku}
-                              </TableCell>
-                              <TableCell className="text-xs truncate max-w-sm">{p.name}</TableCell>
-                              <TableCell className="text-xs text-muted-foreground">
-                                {p.category}
-                              </TableCell>
-                              <TableCell className="text-right font-mono text-xs">
-                                {p.price_nationalized_cost !== null
-                                  ? `US$ ${p.price_nationalized_cost.toFixed(2)}`
-                                  : '—'}
-                              </TableCell>
-                            </TableRow>
-                          ))}
+                          {preview.missingFromCatalog.slice(0, 100).map((p) => {
+                            const topReverse = p.similarTableRows?.[0]
+                            return (
+                              <TableRow key={p.id}>
+                                <TableCell className="font-mono text-xs font-semibold">
+                                  {p.sku}
+                                </TableCell>
+                                <TableCell className="text-xs truncate max-w-xs" title={p.name}>
+                                  {p.name}
+                                </TableCell>
+                                <TableCell className="text-xs text-muted-foreground">
+                                  {p.category}
+                                </TableCell>
+                                <TableCell className="text-right font-mono text-xs">
+                                  {p.price_nationalized_cost !== null
+                                    ? `US$ ${p.price_nationalized_cost.toFixed(2)}`
+                                    : '—'}
+                                </TableCell>
+                                <TableCell>
+                                  {topReverse ? (
+                                    <div className="flex flex-col text-xs gap-0.5">
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="font-mono font-bold text-foreground">
+                                          {topReverse.tableModel}
+                                        </span>
+                                        <Badge
+                                          variant="outline"
+                                          className="text-[9px] py-0 bg-primary/5 text-primary border-primary/20"
+                                        >
+                                          {topReverse.totalScore}%
+                                        </Badge>
+                                        <span className="font-mono text-emerald-400 text-xs font-semibold">
+                                          {topReverse.priceUsdSt !== null
+                                            ? `US$ ${topReverse.priceUsdSt.toFixed(2)}`
+                                            : ''}
+                                        </span>
+                                      </div>
+                                      <span
+                                        className="text-[10px] text-muted-foreground truncate max-w-xs"
+                                        title={topReverse.description}
+                                      >
+                                        {topReverse.description}
+                                      </span>
+                                    </div>
+                                  ) : (
+                                    <span className="text-xs text-muted-foreground italic">
+                                      Nenhuma linha similar
+                                    </span>
+                                  )}
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  <div className="flex items-center justify-end gap-1.5">
+                                    {topReverse && topReverse.priceUsdSt !== null && (
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="h-7 px-2 text-[11px] border-primary/30 text-primary hover:bg-primary/10"
+                                        title={`Vincular à linha ${topReverse.tableModel} (US$ ${topReverse.priceUsdSt.toFixed(2)})`}
+                                        onClick={() =>
+                                          handleLinkCandidate(
+                                            {
+                                              rowIndex: topReverse.sheetRowIndex,
+                                              model: topReverse.tableModel,
+                                              description: topReverse.description,
+                                              priceUsdSt: topReverse.priceUsdSt,
+                                            },
+                                            {
+                                              productId: p.id,
+                                              productName: p.name,
+                                              productSku: p.sku,
+                                            },
+                                            topReverse.sheetRowIndex,
+                                          )
+                                        }
+                                      >
+                                        <Link2 className="w-3 h-3 mr-1" />
+                                        Vincular
+                                      </Button>
+                                    )}
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-7 px-2 text-[11px] text-foreground hover:bg-white/5"
+                                      onClick={() => {
+                                        setManualCostModalProduct(p)
+                                        setManualCostValue(
+                                          p.price_nationalized_cost !== null
+                                            ? String(p.price_nationalized_cost)
+                                            : '',
+                                        )
+                                      }}
+                                    >
+                                      <DollarSign className="w-3 h-3 mr-1" />
+                                      Informar custo
+                                    </Button>
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            )
+                          })}
                         </TableBody>
                       </Table>
                     </div>
@@ -1037,6 +1441,93 @@ export function AdminScanSourcePage() {
                 className="bg-emerald-600 hover:bg-emerald-700 text-white"
               >
                 Confirmar e Gravar
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Modal: Informar Custo Nacionalizado Manual */}
+        <Dialog
+          open={!!manualCostModalProduct}
+          onOpenChange={(open) => {
+            if (!open) {
+              setManualCostModalProduct(null)
+              setManualCostValue('')
+            }
+          }}
+        >
+          <DialogContent className="max-w-md bg-card border-white/10">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <DollarSign className="w-5 h-5 text-emerald-400" />
+                Informar Custo Nacionalizado Manual
+              </DialogTitle>
+              <DialogDescription>
+                Produto: <strong className="text-foreground">{manualCostModalProduct?.name}</strong>{' '}
+                ({manualCostModalProduct?.sku || 'Sem SKU'})
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4 py-2 text-xs">
+              <div className="p-3 rounded-lg bg-background/50 border border-white/5 space-y-1">
+                <p className="text-muted-foreground">
+                  Vigência da tabela:{' '}
+                  <strong className="text-foreground">
+                    {preview?.effectiveDate || 'JAN 2nd 2025'}
+                  </strong>
+                </p>
+                <p className="text-muted-foreground">
+                  Origem na auditoria: <strong className="text-foreground font-mono">manual</strong>
+                </p>
+                <p className="text-[11px] text-zinc-400">
+                  Preenchimento opcional. Itens sem custo permanecem sem custo nacionalizado, sem
+                  qualquer bloqueio. O preço de venda nunca é alterado.
+                </p>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-foreground">
+                  Custo Nacionalizado (USD)
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-2.5 text-xs text-muted-foreground font-mono">
+                    US$
+                  </span>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder="Ex: 1450.00 (opcional)"
+                    className="pl-10 text-xs font-mono bg-background/60 border-white/10"
+                    value={manualCostValue}
+                    onChange={(e) => setManualCostValue(e.target.value)}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button
+                variant="outline"
+                disabled={isSavingManualCost}
+                onClick={() => {
+                  setManualCostModalProduct(null)
+                  setManualCostValue('')
+                }}
+              >
+                Cancelar
+              </Button>
+              <Button
+                disabled={isSavingManualCost}
+                onClick={handleSaveManualCost}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white"
+              >
+                {isSavingManualCost ? (
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                ) : (
+                  <Check className="w-4 h-4 mr-2" />
+                )}
+                Gravar Custo Manual
               </Button>
             </DialogFooter>
           </DialogContent>

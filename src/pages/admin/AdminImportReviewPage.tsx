@@ -39,6 +39,8 @@ import {
   StagingProductItem,
 } from '@/services/categoryImportStagingService'
 import { CategoryItem } from '@/services/categoryTriageService'
+import { scanSourceImportService } from '@/services/scanSourceImportService'
+import { useAuthContext } from '@/contexts/AuthContext'
 import {
   CheckCircle2,
   XCircle,
@@ -55,6 +57,7 @@ import {
   ExternalLink,
   ImageIcon,
   Filter,
+  X,
 } from 'lucide-react'
 
 export interface AdminImportReviewViewProps {
@@ -84,10 +87,18 @@ export function AdminImportReviewView({
   // Seleção múltipla (até 100 itens)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
 
-  // Modal de correção de categoria
+  const { currentUser: user } = useAuthContext()
+
+  // Modal de correção de categoria e custo
   const [editingItem, setEditingItem] = useState<StagingProductItem | null>(null)
   const [editCategoryId, setEditCategoryId] = useState<string>('')
+  const [editCostValue, setEditCostValue] = useState<string>('')
   const [isConfirmingEdit, setIsConfirmingEdit] = useState(false)
+
+  // Estado de edição rápida inline de custo nacionalizado
+  const [inlineCostEditingId, setInlineCostEditingId] = useState<string | null>(null)
+  const [inlineCostValue, setInlineCostValue] = useState<string>('')
+  const [isSavingInlineCost, setIsSavingInlineCost] = useState(false)
 
   // Processamento em lote em chunks de 10
   const [isBatchProcessing, setIsBatchProcessing] = useState(false)
@@ -242,13 +253,18 @@ export function AdminImportReviewView({
     }
   }
 
-  // Abrir modal de correção manual de categoria
+  // Abrir modal de correção manual de categoria e custo
   const openEditModal = (item: StagingProductItem) => {
     setEditingItem(item)
     setEditCategoryId(item.suggested_category_id || '')
+    setEditCostValue(
+      item.price_nationalized_cost !== null && item.price_nationalized_cost !== undefined
+        ? String(item.price_nationalized_cost)
+        : '',
+    )
   }
 
-  // Confirmar após corrigir categoria no modal
+  // Confirmar após corrigir categoria e opcionalmente custo no modal
   const handleConfirmEdited = async () => {
     if (!editingItem || !editCategoryId) {
       toast({
@@ -262,8 +278,30 @@ export function AdminImportReviewView({
     const targetCat = categories.find((c) => c.id === editCategoryId)
     if (!targetCat) return
 
+    // Validação opcional de custo: se preenchido, deve ser positivo; se vazio, aceita normalmente
+    const trimmedCost = editCostValue.trim()
+    let parsedCost: number | null = null
+    if (trimmedCost !== '') {
+      parsedCost = parseFloat(trimmedCost.replace(',', '.'))
+      if (isNaN(parsedCost) || parsedCost < 0) {
+        toast({
+          title: 'Custo inválido',
+          description:
+            'O custo nacionalizado deve ser um número positivo em USD ou ficar em branco.',
+          variant: 'destructive',
+        })
+        return
+      }
+    }
+
     try {
       setIsConfirmingEdit(true)
+
+      // Se o usuário digitou ou alterou o custo na staging antes de confirmar
+      if (trimmedCost !== '') {
+        await scanSourceImportService.updateStagingNationalizedCost(editingItem.id, parsedCost)
+      }
+
       const res = await categoryImportStagingService.confirmSingleStagingItem({
         stagingId: editingItem.id,
         finalCategoryId: targetCat.id,
@@ -271,11 +309,22 @@ export function AdminImportReviewView({
       })
 
       if (res.success) {
+        // Se o produto foi criado e há custo nacionalizado digitado manualmente, grava auditoria com origem 'manual'
+        if (parsedCost !== null && res.productId) {
+          await scanSourceImportService.updateManualNationalizedCost({
+            productId: res.productId,
+            costUsd: parsedCost,
+            notes: 'Custo informado manualmente na área de revisão',
+            userId: user?.id,
+          })
+        }
+
         toast({
-          title: 'Produto confirmado com categoria corrigida!',
-          description: `"${editingItem.name}" salvo na categoria "${targetCat.name}". Mapeamento memorizado para importações futuras.`,
+          title: 'Produto confirmado com sucesso!',
+          description: `"${editingItem.name}" salvo na categoria "${targetCat.name}".`,
         })
         setEditingItem(null)
+        setEditCostValue('')
         await loadData()
         onDataChanged?.()
       } else {
@@ -289,6 +338,48 @@ export function AdminImportReviewView({
       })
     } finally {
       setIsConfirmingEdit(false)
+    }
+  }
+
+  // Salvar custo rápido inline na staging (opcional, sem bloqueio)
+  const handleSaveInlineCost = async (stagingId: string) => {
+    const trimmed = inlineCostValue.trim()
+    const parsedCost = trimmed === '' ? null : parseFloat(trimmed.replace(',', '.'))
+
+    if (trimmed !== '' && (isNaN(parsedCost!) || parsedCost! < 0)) {
+      toast({
+        title: 'Custo inválido',
+        description: 'Informe um número positivo em USD ou deixe em branco.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    try {
+      setIsSavingInlineCost(true)
+      const res = await scanSourceImportService.updateStagingNationalizedCost(stagingId, parsedCost)
+      if (res.success) {
+        toast({
+          title: 'Custo atualizado',
+          description:
+            parsedCost !== null
+              ? `Custo nacionalizado de US$ ${parsedCost.toFixed(2)} registrado.`
+              : 'Custo nacionalizado removido.',
+        })
+        setInlineCostEditingId(null)
+        setInlineCostValue('')
+        await loadData()
+      } else {
+        throw new Error(res.error || 'Falha ao salvar custo')
+      }
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao salvar custo',
+        description: err.message,
+        variant: 'destructive',
+      })
+    } finally {
+      setIsSavingInlineCost(false)
     }
   }
 
@@ -726,13 +817,70 @@ export function AdminImportReviewView({
                               )}
                             </div>
                             <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                              {item.price_nationalized_cost ? (
-                                <span className="font-mono text-emerald-400">
-                                  US$ {Number(item.price_nationalized_cost).toFixed(2)}
-                                </span>
-                              ) : null}
+                              {/* Custo Nacionalizado Editável / Indicador */}
+                              {inlineCostEditingId === item.id ? (
+                                <div className="flex items-center gap-1">
+                                  <Input
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    placeholder="US$ Custo"
+                                    className="h-6 w-20 px-1 text-[11px] font-mono bg-background border-white/20"
+                                    value={inlineCostValue}
+                                    onChange={(e) => setInlineCostValue(e.target.value)}
+                                    autoFocus
+                                    disabled={isSavingInlineCost}
+                                  />
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-6 w-6 p-0 text-emerald-400"
+                                    onClick={() => handleSaveInlineCost(item.id)}
+                                    disabled={isSavingInlineCost}
+                                    title="Salvar custo"
+                                  >
+                                    <Check className="w-3 h-3" />
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-6 w-6 p-0 text-muted-foreground"
+                                    onClick={() => setInlineCostEditingId(null)}
+                                    disabled={isSavingInlineCost}
+                                    title="Cancelar"
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </Button>
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-1">
+                                  <span
+                                    className={cn(
+                                      'font-mono cursor-pointer hover:underline',
+                                      item.price_nationalized_cost
+                                        ? 'text-emerald-400 font-semibold'
+                                        : 'text-zinc-400 italic',
+                                    )}
+                                    title="Clique para editar custo nacionalizado USD"
+                                    onClick={() => {
+                                      setInlineCostEditingId(item.id)
+                                      setInlineCostValue(
+                                        item.price_nationalized_cost !== null &&
+                                          item.price_nationalized_cost !== undefined
+                                          ? String(item.price_nationalized_cost)
+                                          : '',
+                                      )
+                                    }}
+                                  >
+                                    {item.price_nationalized_cost !== null &&
+                                    item.price_nationalized_cost !== undefined
+                                      ? `US$ ${Number(item.price_nationalized_cost).toFixed(2)}`
+                                      : '+ Custo USD'}
+                                  </span>
+                                </div>
+                              )}
                               {item.ncm && (
-                                <span className="font-mono text-zinc-400">NCM: {item.ncm}</span>
+                                <span className="font-mono text-zinc-400">• NCM: {item.ncm}</span>
                               )}
                             </div>
                             <span className="text-[10px] text-muted-foreground">
@@ -871,6 +1019,32 @@ export function AdminImportReviewView({
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+
+              {/* Campo Editável de Custo Nacionalizado USD (Opcional, sem bloqueio) */}
+              <div className="space-y-1.5 pt-1">
+                <label className="text-xs font-medium text-foreground flex items-center justify-between">
+                  <span>Custo Nacionalizado (USD)</span>
+                  <span className="text-[11px] text-muted-foreground font-normal">Opcional</span>
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-2.5 text-xs text-muted-foreground font-mono">
+                    US$
+                  </span>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder="Deixe vazio para manter sem custo"
+                    className="pl-10 text-xs font-mono bg-background border-white/10"
+                    value={editCostValue}
+                    onChange={(e) => setEditCostValue(e.target.value)}
+                  />
+                </div>
+                <p className="text-[11px] text-zinc-400">
+                  Valores digitados são gravados com origem &quot;manual&quot; na auditoria. O preço
+                  de venda nunca é alterado.
+                </p>
               </div>
             </div>
           )}

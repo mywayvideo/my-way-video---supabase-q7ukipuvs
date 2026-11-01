@@ -191,10 +191,77 @@ describe('Regras de Negócio e Casamento Alfanumérico', () => {
     // O item XZS9600 não existe no catálogo -> deve ir para unmatched (revisão)
     expect(preview.unmatchedCount).toBe(1)
     expect(preview.unmatchedItems[0].row.model).toBe('XZS9600')
+    expect(preview.unmatchedItems[0].candidates).toBeDefined()
 
     // Confere que amostra de destaque pxwSample foi preenchida
     expect(preview.pxwSample).toBeDefined()
     expect(preview.pxwSample?.newCostUsd).toBe(22934.47)
+  })
+
+  it('calcula candidatos para itens não casados e vinculação reversa nos ausentes', async () => {
+    const mockCatalog: CatalogProductSummary[] = [
+      {
+        id: 'prod-pxw-z280',
+        name: 'Sony PXW-Z280 4K Camcorder',
+        sku: 'PXW-Z280',
+        normalizedSku: 'PXWZ280',
+        price_nationalized_cost: null,
+        price_nationalized_currency: null,
+        price_usd: 5400.0,
+        price_brl: 32000.0,
+        category: 'Cameras',
+        category_id: 'cat-1',
+        manufacturer_id: 'sony-1',
+        is_discontinued: false,
+      },
+    ]
+
+    const mockRows: ScanSourceParsedRow[] = [
+      {
+        rowIndex: 10,
+        model: 'PXWZ280V',
+        normalizedModel: 'PXWZ280V',
+        description: '4K COMPACT HANDHELD CAMCORDER',
+        priceUsdSt: 4890.0,
+        rawPriceUsdSt: 4890.0,
+        ncmSuggested: '8525.89.21',
+        itemType: 'HW',
+        is3rdParty: false,
+        isSoftware: false,
+        isAnomaly: false,
+      },
+    ]
+
+    const preview = await scanSourceImportService.buildCrossMatchPreview(
+      {
+        sheetName: 'DEALERListPrice',
+        effectiveDate: 'JAN 2nd 2025',
+        totalRowsFound: 1,
+        dataRows: mockRows,
+        validRows: mockRows,
+        ignored3rdCount: 0,
+        softwareCount: 0,
+        hardwareCount: 1,
+        anomalyRows: [],
+      },
+      'test2.xlsx',
+      mockCatalog,
+      [{ id: 'cat-1', name: 'Cameras' }],
+    )
+
+    // O item PXWZ280V é não casado, mas deve ter como candidato PXW-Z280
+    expect(preview.unmatchedCount).toBe(1)
+    const unmatched = preview.unmatchedItems[0]
+    expect(unmatched.candidates.length).toBeGreaterThan(0)
+    expect(unmatched.candidates[0].productId).toBe('prod-pxw-z280')
+    expect(unmatched.candidates[0].productSku).toBe('PXW-Z280')
+
+    // O produto PXW-Z280 está ausente na tabela como casamento exato, mas deve ter vinculação reversa com PXWZ280V
+    expect(preview.missingFromCatalogCount).toBe(1)
+    const missing = preview.missingFromCatalog[0]
+    expect(missing.similarTableRows.length).toBeGreaterThan(0)
+    expect(missing.similarTableRows[0].tableModel).toBe('PXWZ280V')
+    expect(missing.similarTableRows[0].priceUsdSt).toBe(4890.0)
   })
 
   it('gera relatório de produtos ausentes no catálogo e exporta CSV', () => {
@@ -207,6 +274,7 @@ describe('Regras de Negócio e Casamento Alfanumérico', () => {
         price_nationalized_cost: 1800.0,
         price_nationalized_currency: 'Nacionalizado USD',
         price_usd: 2200.0,
+        similarTableRows: [],
       },
     ]
 

@@ -740,104 +740,126 @@ export function AdminScanSourcePage() {
 
                   {/* Aba: Casados com Mudança */}
                   <TabsContent value="matched" className="p-0 m-0">
-                    <div className="overflow-x-auto max-h-[420px]">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead className="w-36">Modelo Planilha</TableHead>
-                            <TableHead className="w-36">SKU Catálogo</TableHead>
-                            <TableHead>Nome do Produto</TableHead>
-                            <TableHead className="w-24">Tipo</TableHead>
-                            <TableHead className="w-32 text-right">Custo Atual</TableHead>
-                            <TableHead className="w-36 text-right">Novo Custo (ST)</TableHead>
-                            <TableHead className="w-28 text-right">Diferença</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {filteredMatchedWithChange.length === 0 ? (
-                            <TableRow>
-                              <TableCell
-                                colSpan={7}
-                                className="h-24 text-center text-muted-foreground text-xs"
-                              >
-                                Nenhum produto casado com mudança de preço.
-                              </TableCell>
+                    <div className="w-full max-w-full overflow-hidden">
+                      <div className="overflow-auto max-h-[420px] w-full border-t border-white/10">
+                        <Table className="min-w-[860px]">
+                          <TableHeader className="sticky top-0 z-30 bg-card">
+                            <TableRow className="hover:bg-transparent">
+                              <TableHead className="w-36 min-w-[144px] max-w-[144px] sticky left-0 z-30 bg-card border-r border-white/10">
+                                Modelo Planilha
+                              </TableHead>
+                              <TableHead className="w-36 min-w-[144px] max-w-[144px] sticky left-[144px] z-30 bg-card border-r border-white/10">
+                                SKU Catálogo
+                              </TableHead>
+                              <TableHead className="min-w-[240px]">Nome do Produto</TableHead>
+                              <TableHead className="w-24 min-w-[96px]">Tipo</TableHead>
+                              <TableHead className="w-32 min-w-[128px] text-right">
+                                Custo Atual
+                              </TableHead>
+                              <TableHead className="w-36 min-w-[144px] text-right">
+                                Novo Custo (ST)
+                              </TableHead>
+                              <TableHead className="w-28 min-w-[112px] text-right">
+                                Diferença
+                              </TableHead>
                             </TableRow>
-                          ) : (
-                            filteredMatchedWithChange.slice(0, 100).map((m) => (
-                              <TableRow key={m.product.id}>
-                                <TableCell className="font-mono text-xs font-semibold text-foreground">
-                                  {m.row.model}
-                                </TableCell>
-                                <TableCell className="font-mono text-xs text-muted-foreground">
-                                  {m.product.sku}
-                                </TableCell>
+                          </TableHeader>
+                          <TableBody>
+                            {filteredMatchedWithChange.length === 0 ? (
+                              <TableRow>
                                 <TableCell
-                                  className="text-xs truncate max-w-sm"
-                                  title={m.product.name}
+                                  colSpan={7}
+                                  className="h-24 text-center text-muted-foreground text-xs"
                                 >
-                                  {m.product.name}
-                                </TableCell>
-                                <TableCell>
-                                  <Badge variant="outline" className="text-[10px]">
-                                    {m.row.itemType}
-                                  </Badge>
-                                </TableCell>
-                                <TableCell className="text-right font-mono text-xs text-muted-foreground">
-                                  {m.currentCostUsd !== null
-                                    ? `US$ ${m.currentCostUsd.toFixed(2)}`
-                                    : '—'}
-                                </TableCell>
-                                <TableCell className="text-right font-mono text-xs font-bold text-emerald-400">
-                                  US$ {m.newCostUsd.toFixed(2)}
-                                </TableCell>
-                                <TableCell
-                                  className={cn(
-                                    'text-right font-mono text-xs',
-                                    m.diffUsd > 0 ? 'text-emerald-400' : 'text-amber-400',
-                                  )}
-                                >
-                                  {m.diffUsd > 0
-                                    ? `+US$ ${m.diffUsd.toFixed(2)}`
-                                    : `US$ ${m.diffUsd.toFixed(2)}`}
+                                  Nenhum produto casado com mudança de preço.
                                 </TableCell>
                               </TableRow>
-                            ))
-                          )}
-                        </TableBody>
-                      </Table>
+                            ) : (
+                              filteredMatchedWithChange.slice(0, 100).map((m) => (
+                                <TableRow key={m.product.id} className="group">
+                                  <TableCell className="w-36 min-w-[144px] max-w-[144px] sticky left-0 z-10 bg-card group-hover:bg-muted/50 border-r border-white/10 font-mono text-xs font-semibold text-foreground">
+                                    {m.row.model}
+                                  </TableCell>
+                                  <TableCell className="w-36 min-w-[144px] max-w-[144px] sticky left-[144px] z-10 bg-card group-hover:bg-muted/50 border-r border-white/10 font-mono text-xs text-muted-foreground">
+                                    {m.product.sku}
+                                  </TableCell>
+                                  <TableCell
+                                    className="text-xs truncate max-w-sm"
+                                    title={m.product.name}
+                                  >
+                                    {m.product.name}
+                                  </TableCell>
+                                  <TableCell>
+                                    <Badge variant="outline" className="text-[10px]">
+                                      {m.row.itemType}
+                                    </Badge>
+                                  </TableCell>
+                                  <TableCell className="text-right font-mono text-xs text-muted-foreground">
+                                    {m.currentCostUsd !== null
+                                      ? `US$ ${m.currentCostUsd.toFixed(2)}`
+                                      : '—'}
+                                  </TableCell>
+                                  <TableCell className="text-right font-mono text-xs font-bold text-emerald-400">
+                                    US$ {m.newCostUsd.toFixed(2)}
+                                  </TableCell>
+                                  <TableCell
+                                    className={cn(
+                                      'text-right font-mono text-xs',
+                                      m.diffUsd > 0 ? 'text-emerald-400' : 'text-amber-400',
+                                    )}
+                                  >
+                                    {m.diffUsd > 0
+                                      ? `+US$ ${m.diffUsd.toFixed(2)}`
+                                      : `US$ ${m.diffUsd.toFixed(2)}`}
+                                  </TableCell>
+                                </TableRow>
+                              ))
+                            )}
+                          </TableBody>
+                        </Table>
+                      </div>
                     </div>
                   </TabsContent>
 
                   {/* Aba: Casados Inalterados */}
                   <TabsContent value="unchanged" className="p-0 m-0">
-                    <div className="overflow-x-auto max-h-[420px]">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead className="w-36">Modelo Planilha</TableHead>
-                            <TableHead className="w-36">SKU Catálogo</TableHead>
-                            <TableHead>Nome do Produto</TableHead>
-                            <TableHead className="w-36 text-right">Custo Nacionalizado</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {preview.matchedUnchanged.slice(0, 100).map((m) => (
-                            <TableRow key={m.product.id}>
-                              <TableCell className="font-mono text-xs">{m.row.model}</TableCell>
-                              <TableCell className="font-mono text-xs text-muted-foreground">
-                                {m.product.sku}
-                              </TableCell>
-                              <TableCell className="text-xs truncate max-w-sm">
-                                {m.product.name}
-                              </TableCell>
-                              <TableCell className="text-right font-mono text-xs font-semibold text-foreground">
-                                US$ {m.newCostUsd.toFixed(2)}
-                              </TableCell>
+                    <div className="w-full max-w-full overflow-hidden">
+                      <div className="overflow-auto max-h-[420px] w-full border-t border-white/10">
+                        <Table className="min-w-[720px]">
+                          <TableHeader className="sticky top-0 z-30 bg-card">
+                            <TableRow className="hover:bg-transparent">
+                              <TableHead className="w-36 min-w-[144px] max-w-[144px] sticky left-0 z-30 bg-card border-r border-white/10">
+                                Modelo Planilha
+                              </TableHead>
+                              <TableHead className="w-36 min-w-[144px] max-w-[144px] sticky left-[144px] z-30 bg-card border-r border-white/10">
+                                SKU Catálogo
+                              </TableHead>
+                              <TableHead className="min-w-[240px]">Nome do Produto</TableHead>
+                              <TableHead className="w-36 min-w-[144px] text-right">
+                                Custo Nacionalizado
+                              </TableHead>
                             </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
+                          </TableHeader>
+                          <TableBody>
+                            {preview.matchedUnchanged.slice(0, 100).map((m) => (
+                              <TableRow key={m.product.id} className="group">
+                                <TableCell className="w-36 min-w-[144px] max-w-[144px] sticky left-0 z-10 bg-card group-hover:bg-muted/50 border-r border-white/10 font-mono text-xs">
+                                  {m.row.model}
+                                </TableCell>
+                                <TableCell className="w-36 min-w-[144px] max-w-[144px] sticky left-[144px] z-10 bg-card group-hover:bg-muted/50 border-r border-white/10 font-mono text-xs text-muted-foreground">
+                                  {m.product.sku}
+                                </TableCell>
+                                <TableCell className="text-xs truncate max-w-sm">
+                                  {m.product.name}
+                                </TableCell>
+                                <TableCell className="text-right font-mono text-xs font-semibold text-foreground">
+                                  US$ {m.newCostUsd.toFixed(2)}
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
                     </div>
                   </TabsContent>
 
@@ -850,60 +872,70 @@ export function AdminScanSourcePage() {
                         criado em produtos sem sua aprovação de categoria.
                       </span>
                     </div>
-                    <div className="overflow-x-auto max-h-[420px]">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead className="w-36">Modelo</TableHead>
-                            <TableHead>Descrição</TableHead>
-                            <TableHead className="w-28">NCM Sugerida</TableHead>
-                            <TableHead className="w-20">Tipo</TableHead>
-                            <TableHead className="w-48">Categoria Sugerida</TableHead>
-                            <TableHead className="w-32 text-right">Preço Coluna D</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {filteredUnmatched.slice(0, 100).map((u, i) => (
-                            <TableRow key={i}>
-                              <TableCell className="font-mono text-xs font-semibold text-foreground">
-                                {u.row.model}
-                              </TableCell>
-                              <TableCell
-                                className="text-xs truncate max-w-sm"
-                                title={u.row.description}
-                              >
-                                {u.row.description}
-                              </TableCell>
-                              <TableCell className="font-mono text-xs text-zinc-300">
-                                {u.row.ncmSuggested || '—'}
-                              </TableCell>
-                              <TableCell>
-                                <Badge variant="outline" className="text-[10px]">
-                                  {u.row.itemType}
-                                </Badge>
-                              </TableCell>
-                              <TableCell>
-                                <div className="flex flex-col text-xs">
-                                  <span className="font-semibold text-foreground">
-                                    {u.suggestedCategoryName || 'Sem sugestão'}
-                                  </span>
-                                  <span
-                                    className="text-[10px] text-muted-foreground truncate max-w-xs"
-                                    title={u.suggestionReason}
-                                  >
-                                    {u.suggestionReason}
-                                  </span>
-                                </div>
-                              </TableCell>
-                              <TableCell className="text-right font-mono text-xs font-bold text-foreground">
-                                {u.row.priceUsdSt !== null
-                                  ? `US$ ${u.row.priceUsdSt.toFixed(2)}`
-                                  : '—'}
-                              </TableCell>
+                    <div className="w-full max-w-full overflow-hidden">
+                      <div className="overflow-auto max-h-[420px] w-full">
+                        <Table className="min-w-[920px]">
+                          <TableHeader className="sticky top-0 z-30 bg-card">
+                            <TableRow className="hover:bg-transparent">
+                              <TableHead className="w-36 min-w-[144px] max-w-[144px] sticky left-0 z-30 bg-card border-r border-white/10">
+                                Modelo
+                              </TableHead>
+                              <TableHead className="w-72 min-w-[280px] max-w-[280px] sticky left-[144px] z-30 bg-card border-r border-white/10">
+                                Descrição
+                              </TableHead>
+                              <TableHead className="w-28 min-w-[112px]">NCM Sugerida</TableHead>
+                              <TableHead className="w-20 min-w-[80px]">Tipo</TableHead>
+                              <TableHead className="w-48 min-w-[192px]">
+                                Categoria Sugerida
+                              </TableHead>
+                              <TableHead className="w-32 min-w-[128px] text-right">
+                                Preço Coluna D
+                              </TableHead>
                             </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
+                          </TableHeader>
+                          <TableBody>
+                            {filteredUnmatched.slice(0, 100).map((u, i) => (
+                              <TableRow key={i} className="group">
+                                <TableCell className="w-36 min-w-[144px] max-w-[144px] sticky left-0 z-10 bg-card group-hover:bg-muted/50 border-r border-white/10 font-mono text-xs font-semibold text-foreground">
+                                  {u.row.model}
+                                </TableCell>
+                                <TableCell
+                                  className="w-72 min-w-[280px] max-w-[280px] sticky left-[144px] z-10 bg-card group-hover:bg-muted/50 border-r border-white/10 text-xs truncate"
+                                  title={u.row.description}
+                                >
+                                  {u.row.description}
+                                </TableCell>
+                                <TableCell className="font-mono text-xs text-zinc-300">
+                                  {u.row.ncmSuggested || '—'}
+                                </TableCell>
+                                <TableCell>
+                                  <Badge variant="outline" className="text-[10px]">
+                                    {u.row.itemType}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell>
+                                  <div className="flex flex-col text-xs">
+                                    <span className="font-semibold text-foreground">
+                                      {u.suggestedCategoryName || 'Sem sugestão'}
+                                    </span>
+                                    <span
+                                      className="text-[10px] text-muted-foreground truncate max-w-xs"
+                                      title={u.suggestionReason}
+                                    >
+                                      {u.suggestionReason}
+                                    </span>
+                                  </div>
+                                </TableCell>
+                                <TableCell className="text-right font-mono text-xs font-bold text-foreground">
+                                  {u.row.priceUsdSt !== null
+                                    ? `US$ ${u.row.priceUsdSt.toFixed(2)}`
+                                    : '—'}
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
                     </div>
                   </TabsContent>
 
@@ -925,146 +957,156 @@ export function AdminScanSourcePage() {
                       </div>
                     </div>
 
-                    <div className="overflow-x-auto max-h-[500px] divide-y divide-white/5">
-                      {filteredUnmatched.map((u, i) => {
-                        const isLinked = !!u.linkedProductId
-                        const hasCandidates = u.candidates && u.candidates.length > 0
-                        const isLinkingThis = linkingRowIndex === u.row.rowIndex
+                    <div className="w-full max-w-full overflow-hidden">
+                      <div className="overflow-auto max-h-[500px] w-full">
+                        <Table className="min-w-[1000px]">
+                          <TableHeader className="sticky top-0 z-30 bg-card">
+                            <TableRow className="hover:bg-transparent">
+                              <TableHead className="w-36 min-w-[144px] max-w-[144px] sticky left-0 z-30 bg-card border-r border-white/10">
+                                Modelo Planilha
+                              </TableHead>
+                              <TableHead className="w-64 min-w-[256px] max-w-[256px] sticky left-[144px] z-30 bg-card border-r border-white/10">
+                                Descrição
+                              </TableHead>
+                              <TableHead className="w-28 min-w-[112px] text-right">
+                                Custo Col D
+                              </TableHead>
+                              <TableHead className="min-w-[420px]">
+                                Candidatos Sugeridos (Catálogo)
+                              </TableHead>
+                              <TableHead className="w-36 min-w-[144px] text-right">Ação</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {filteredUnmatched.map((u, i) => {
+                              const isLinked = !!u.linkedProductId
+                              const hasCandidates = u.candidates && u.candidates.length > 0
+                              const isLinkingThis = linkingRowIndex === u.row.rowIndex
 
-                        return (
-                          <div
-                            key={i}
-                            className="p-4 space-y-3 bg-card/50 hover:bg-white/[0.02] transition-colors"
-                          >
-                            {/* Linha da Planilha */}
-                            <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
-                              <div className="flex items-center gap-3">
-                                <Badge
-                                  variant="outline"
-                                  className="font-mono text-xs bg-white/5 border-white/10"
-                                >
-                                  Linha {u.row.rowIndex}
-                                </Badge>
-                                <div>
-                                  <span className="font-mono font-bold text-sm text-foreground mr-2">
-                                    {u.row.model}
-                                  </span>
-                                  <span className="text-xs text-muted-foreground">
-                                    {u.row.description}
-                                  </span>
-                                </div>
-                              </div>
-                              <div className="flex items-center gap-3">
-                                <span className="text-xs text-muted-foreground">
-                                  Custo Planilha (Col D):
-                                </span>
-                                <span className="font-mono font-bold text-sm text-emerald-400">
-                                  {u.row.priceUsdSt !== null
-                                    ? `US$ ${u.row.priceUsdSt.toFixed(2)}`
-                                    : '—'}
-                                </span>
-                                {isLinked && (
-                                  <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-xs flex items-center gap-1">
-                                    <Check className="w-3 h-3" /> Vinculado a{' '}
-                                    {u.linkedProductSku || u.linkedProductName}
-                                  </Badge>
-                                )}
-                              </div>
-                            </div>
-
-                            {/* Busca por descrição pré-preenchida */}
-                            <div className="flex items-center gap-2 text-xs">
-                              <span className="text-muted-foreground shrink-0">
-                                Pesquisa sugerida:
-                              </span>
-                              <div className="relative flex-1 max-w-md">
-                                <Input
-                                  readOnly
-                                  value={u.row.description || u.row.model}
-                                  className="h-7 text-xs bg-background/50 border-white/10 font-mono text-zinc-300"
-                                />
-                              </div>
-                            </div>
-
-                            {/* Candidatos Ranqueados */}
-                            {hasCandidates ? (
-                              <div className="pl-4 border-l-2 border-primary/30 space-y-2 mt-2">
-                                <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-                                  {u.candidates.length} candidato(s) sugerido(s) do catálogo:
-                                </p>
-                                <div className="grid grid-cols-1 gap-2">
-                                  {u.candidates.map((cand) => (
-                                    <div
-                                      key={cand.productId}
-                                      className="p-2.5 rounded-lg bg-background/80 border border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
-                                    >
-                                      <div className="flex flex-col gap-0.5 min-w-0">
-                                        <div className="flex items-center gap-2">
-                                          <span className="font-mono font-semibold text-foreground">
-                                            {cand.productSku || 'Sem SKU'}
-                                          </span>
-                                          <span className="text-muted-foreground">•</span>
-                                          <span
-                                            className="font-medium text-foreground truncate max-w-sm"
-                                            title={cand.productName}
-                                          >
-                                            {cand.productName}
-                                          </span>
-                                          <Badge
-                                            variant="outline"
-                                            className="text-[10px] py-0 bg-primary/10 text-primary border-primary/20"
-                                          >
-                                            {cand.totalScore}% compatível
-                                          </Badge>
-                                        </div>
-                                        <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                                          <span>Motivo: {cand.matchReason}</span>
-                                          {cand.category && (
-                                            <>
-                                              <span>•</span>
-                                              <span>Cat: {cand.category}</span>
-                                            </>
-                                          )}
-                                          <span>•</span>
-                                          <span>
-                                            Custo atual:{' '}
-                                            {cand.currentCostUsd !== null
-                                              ? `US$ ${cand.currentCostUsd.toFixed(2)}`
-                                              : 'Não definido'}
-                                          </span>
-                                        </div>
-                                      </div>
-
-                                      <div className="flex items-center gap-2 shrink-0">
-                                        <Button
-                                          size="sm"
-                                          disabled={isLinkingThis || u.row.priceUsdSt === null}
-                                          onClick={() =>
-                                            handleLinkCandidate(u.row, cand, u.row.rowIndex)
-                                          }
-                                          className="h-8 px-3 text-xs bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
-                                        >
-                                          {isLinkingThis ? (
-                                            <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
-                                          ) : (
-                                            <Link2 className="w-3.5 h-3.5 mr-1.5" />
-                                          )}
-                                          Vincular a produto existente
-                                        </Button>
-                                      </div>
+                              return (
+                                <TableRow key={i} className="group align-top">
+                                  {/* Coluna 1 Fixa: Modelo */}
+                                  <TableCell className="w-36 min-w-[144px] max-w-[144px] sticky left-0 z-10 bg-card group-hover:bg-muted/50 border-r border-white/10 font-mono text-xs">
+                                    <div className="flex flex-col gap-1">
+                                      <span className="font-bold text-foreground">
+                                        {u.row.model}
+                                      </span>
+                                      <Badge
+                                        variant="outline"
+                                        className="w-fit text-[10px] py-0 bg-white/5 border-white/10 font-mono"
+                                      >
+                                        Linha {u.row.rowIndex}
+                                      </Badge>
+                                      {isLinked && (
+                                        <Badge className="w-fit bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-[10px] py-0 flex items-center gap-1">
+                                          <Check className="w-2.5 h-2.5" /> Vinculado
+                                        </Badge>
+                                      )}
                                     </div>
-                                  ))}
-                                </div>
-                              </div>
-                            ) : (
-                              <div className="p-2 text-xs text-muted-foreground italic bg-background/40 rounded border border-white/5">
-                                Nenhum candidato com similaridade suficiente encontrado no catálogo
-                                para este modelo.
-                              </div>
-                            )}
-                          </div>
-                        )
-                      })}
+                                  </TableCell>
+
+                                  {/* Coluna 2 Fixa: Descrição */}
+                                  <TableCell className="w-64 min-w-[256px] max-w-[256px] sticky left-[144px] z-10 bg-card group-hover:bg-muted/50 border-r border-white/10 text-xs">
+                                    <div className="flex flex-col gap-1">
+                                      <span
+                                        className="line-clamp-2 text-muted-foreground font-medium"
+                                        title={u.row.description}
+                                      >
+                                        {u.row.description}
+                                      </span>
+                                      {isLinked && (
+                                        <span className="text-[10px] text-emerald-400 font-mono truncate">
+                                          → {u.linkedProductSku || u.linkedProductName}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </TableCell>
+
+                                  {/* Custo Coluna D */}
+                                  <TableCell className="text-right font-mono font-bold text-xs text-emerald-400 whitespace-nowrap">
+                                    {u.row.priceUsdSt !== null
+                                      ? `US$ ${u.row.priceUsdSt.toFixed(2)}`
+                                      : '—'}
+                                  </TableCell>
+
+                                  {/* Candidatos Ranqueados */}
+                                  <TableCell className="text-xs">
+                                    {hasCandidates ? (
+                                      <div className="space-y-1.5">
+                                        {u.candidates.map((cand) => (
+                                          <div
+                                            key={cand.productId}
+                                            className="p-2 rounded bg-background/80 border border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+                                          >
+                                            <div className="flex flex-col min-w-0">
+                                              <div className="flex items-center gap-1.5 flex-wrap">
+                                                <span className="font-mono font-semibold text-foreground">
+                                                  {cand.productSku || 'Sem SKU'}
+                                                </span>
+                                                <span className="text-muted-foreground">•</span>
+                                                <span
+                                                  className="font-medium text-foreground truncate max-w-xs"
+                                                  title={cand.productName}
+                                                >
+                                                  {cand.productName}
+                                                </span>
+                                                <Badge
+                                                  variant="outline"
+                                                  className="text-[9px] py-0 bg-primary/10 text-primary border-primary/20"
+                                                >
+                                                  {cand.totalScore}%
+                                                </Badge>
+                                              </div>
+                                              <span className="text-[10px] text-muted-foreground mt-0.5">
+                                                {cand.matchReason}
+                                                {cand.currentCostUsd !== null &&
+                                                  ` · Custo atual: US$ ${cand.currentCostUsd.toFixed(2)}`}
+                                              </span>
+                                            </div>
+
+                                            <Button
+                                              size="sm"
+                                              disabled={isLinkingThis || u.row.priceUsdSt === null}
+                                              onClick={() =>
+                                                handleLinkCandidate(u.row, cand, u.row.rowIndex)
+                                              }
+                                              className="h-7 px-2 text-[11px] bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm shrink-0 self-start sm:self-center"
+                                            >
+                                              {isLinkingThis ? (
+                                                <Loader2 className="w-3 h-3 animate-spin mr-1" />
+                                              ) : (
+                                                <Link2 className="w-3 h-3 mr-1" />
+                                              )}
+                                              Vincular
+                                            </Button>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      <span className="text-muted-foreground italic text-[11px]">
+                                        Nenhum candidato com similaridade suficiente encontrado.
+                                      </span>
+                                    )}
+                                  </TableCell>
+
+                                  {/* Ação / Status */}
+                                  <TableCell className="text-right">
+                                    {isLinked ? (
+                                      <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-[11px]">
+                                        Vinculado
+                                      </Badge>
+                                    ) : (
+                                      <span className="text-[11px] text-muted-foreground">
+                                        Pendente
+                                      </span>
+                                    )}
+                                  </TableCell>
+                                </TableRow>
+                              )
+                            })}
+                          </TableBody>
+                        </Table>
+                      </div>
                     </div>
                   </TabsContent>
 
@@ -1085,121 +1127,134 @@ export function AdminScanSourcePage() {
                         <Download className="w-3.5 h-3.5 mr-1.5" /> Exportar em CSV
                       </Button>
                     </div>
-                    <div className="overflow-x-auto max-h-[480px]">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead className="w-36">SKU</TableHead>
-                            <TableHead>Nome</TableHead>
-                            <TableHead className="w-32">Categoria</TableHead>
-                            <TableHead className="w-32 text-right">Custo Atual</TableHead>
-                            <TableHead className="w-64">Linha Similar na Tabela</TableHead>
-                            <TableHead className="w-36 text-right">Ação</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {preview.missingFromCatalog.slice(0, 100).map((p) => {
-                            const topReverse = p.similarTableRows?.[0]
-                            return (
-                              <TableRow key={p.id}>
-                                <TableCell className="font-mono text-xs font-semibold">
-                                  {p.sku}
-                                </TableCell>
-                                <TableCell className="text-xs truncate max-w-xs" title={p.name}>
-                                  {p.name}
-                                </TableCell>
-                                <TableCell className="text-xs text-muted-foreground">
-                                  {p.category}
-                                </TableCell>
-                                <TableCell className="text-right font-mono text-xs">
-                                  {p.price_nationalized_cost !== null
-                                    ? `US$ ${p.price_nationalized_cost.toFixed(2)}`
-                                    : '—'}
-                                </TableCell>
-                                <TableCell>
-                                  {topReverse ? (
-                                    <div className="flex flex-col text-xs gap-0.5">
-                                      <div className="flex items-center gap-1.5">
-                                        <span className="font-mono font-bold text-foreground">
-                                          {topReverse.tableModel}
-                                        </span>
-                                        <Badge
-                                          variant="outline"
-                                          className="text-[9px] py-0 bg-primary/5 text-primary border-primary/20"
+                    <div className="w-full max-w-full overflow-hidden">
+                      <div className="overflow-auto max-h-[480px] w-full">
+                        <Table className="min-w-[960px]">
+                          <TableHeader className="sticky top-0 z-30 bg-card">
+                            <TableRow className="hover:bg-transparent">
+                              <TableHead className="w-36 min-w-[144px] max-w-[144px] sticky left-0 z-30 bg-card border-r border-white/10">
+                                SKU
+                              </TableHead>
+                              <TableHead className="w-64 min-w-[256px] max-w-[256px] sticky left-[144px] z-30 bg-card border-r border-white/10">
+                                Nome
+                              </TableHead>
+                              <TableHead className="w-32 min-w-[128px]">Categoria</TableHead>
+                              <TableHead className="w-32 min-w-[128px] text-right">
+                                Custo Atual
+                              </TableHead>
+                              <TableHead className="w-64 min-w-[256px]">
+                                Linha Similar na Tabela
+                              </TableHead>
+                              <TableHead className="w-36 min-w-[144px] text-right">Ação</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {preview.missingFromCatalog.slice(0, 100).map((p) => {
+                              const topReverse = p.similarTableRows?.[0]
+                              return (
+                                <TableRow key={p.id} className="group">
+                                  <TableCell className="w-36 min-w-[144px] max-w-[144px] sticky left-0 z-10 bg-card group-hover:bg-muted/50 border-r border-white/10 font-mono text-xs font-semibold">
+                                    {p.sku}
+                                  </TableCell>
+                                  <TableCell
+                                    className="w-64 min-w-[256px] max-w-[256px] sticky left-[144px] z-10 bg-card group-hover:bg-muted/50 border-r border-white/10 text-xs truncate"
+                                    title={p.name}
+                                  >
+                                    {p.name}
+                                  </TableCell>
+                                  <TableCell className="text-xs text-muted-foreground">
+                                    {p.category}
+                                  </TableCell>
+                                  <TableCell className="text-right font-mono text-xs">
+                                    {p.price_nationalized_cost !== null
+                                      ? `US$ ${p.price_nationalized_cost.toFixed(2)}`
+                                      : '—'}
+                                  </TableCell>
+                                  <TableCell>
+                                    {topReverse ? (
+                                      <div className="flex flex-col text-xs gap-0.5">
+                                        <div className="flex items-center gap-1.5">
+                                          <span className="font-mono font-bold text-foreground">
+                                            {topReverse.tableModel}
+                                          </span>
+                                          <Badge
+                                            variant="outline"
+                                            className="text-[9px] py-0 bg-primary/5 text-primary border-primary/20"
+                                          >
+                                            {topReverse.totalScore}%
+                                          </Badge>
+                                          <span className="font-mono text-emerald-400 text-xs font-semibold">
+                                            {topReverse.priceUsdSt !== null
+                                              ? `US$ ${topReverse.priceUsdSt.toFixed(2)}`
+                                              : ''}
+                                          </span>
+                                        </div>
+                                        <span
+                                          className="text-[10px] text-muted-foreground truncate max-w-xs"
+                                          title={topReverse.description}
                                         >
-                                          {topReverse.totalScore}%
-                                        </Badge>
-                                        <span className="font-mono text-emerald-400 text-xs font-semibold">
-                                          {topReverse.priceUsdSt !== null
-                                            ? `US$ ${topReverse.priceUsdSt.toFixed(2)}`
-                                            : ''}
+                                          {topReverse.description}
                                         </span>
                                       </div>
-                                      <span
-                                        className="text-[10px] text-muted-foreground truncate max-w-xs"
-                                        title={topReverse.description}
-                                      >
-                                        {topReverse.description}
+                                    ) : (
+                                      <span className="text-xs text-muted-foreground italic">
+                                        Nenhuma linha similar
                                       </span>
-                                    </div>
-                                  ) : (
-                                    <span className="text-xs text-muted-foreground italic">
-                                      Nenhuma linha similar
-                                    </span>
-                                  )}
-                                </TableCell>
-                                <TableCell className="text-right">
-                                  <div className="flex items-center justify-end gap-1.5">
-                                    {topReverse && topReverse.priceUsdSt !== null && (
+                                    )}
+                                  </TableCell>
+                                  <TableCell className="text-right">
+                                    <div className="flex items-center justify-end gap-1.5">
+                                      {topReverse && topReverse.priceUsdSt !== null && (
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          className="h-7 px-2 text-[11px] border-primary/30 text-primary hover:bg-primary/10"
+                                          title={`Vincular à linha ${topReverse.tableModel} (US$ ${topReverse.priceUsdSt.toFixed(2)})`}
+                                          onClick={() =>
+                                            handleLinkCandidate(
+                                              {
+                                                rowIndex: topReverse.sheetRowIndex,
+                                                model: topReverse.tableModel,
+                                                description: topReverse.description,
+                                                priceUsdSt: topReverse.priceUsdSt,
+                                              },
+                                              {
+                                                productId: p.id,
+                                                productName: p.name,
+                                                productSku: p.sku,
+                                              },
+                                              topReverse.sheetRowIndex,
+                                            )
+                                          }
+                                        >
+                                          <Link2 className="w-3 h-3 mr-1" />
+                                          Vincular
+                                        </Button>
+                                      )}
                                       <Button
                                         size="sm"
-                                        variant="outline"
-                                        className="h-7 px-2 text-[11px] border-primary/30 text-primary hover:bg-primary/10"
-                                        title={`Vincular à linha ${topReverse.tableModel} (US$ ${topReverse.priceUsdSt.toFixed(2)})`}
-                                        onClick={() =>
-                                          handleLinkCandidate(
-                                            {
-                                              rowIndex: topReverse.sheetRowIndex,
-                                              model: topReverse.tableModel,
-                                              description: topReverse.description,
-                                              priceUsdSt: topReverse.priceUsdSt,
-                                            },
-                                            {
-                                              productId: p.id,
-                                              productName: p.name,
-                                              productSku: p.sku,
-                                            },
-                                            topReverse.sheetRowIndex,
+                                        variant="ghost"
+                                        className="h-7 px-2 text-[11px] text-foreground hover:bg-white/5"
+                                        onClick={() => {
+                                          setManualCostModalProduct(p)
+                                          setManualCostValue(
+                                            p.price_nationalized_cost !== null
+                                              ? String(p.price_nationalized_cost)
+                                              : '',
                                           )
-                                        }
+                                        }}
                                       >
-                                        <Link2 className="w-3 h-3 mr-1" />
-                                        Vincular
+                                        <DollarSign className="w-3 h-3 mr-1" />
+                                        Informar custo
                                       </Button>
-                                    )}
-                                    <Button
-                                      size="sm"
-                                      variant="ghost"
-                                      className="h-7 px-2 text-[11px] text-foreground hover:bg-white/5"
-                                      onClick={() => {
-                                        setManualCostModalProduct(p)
-                                        setManualCostValue(
-                                          p.price_nationalized_cost !== null
-                                            ? String(p.price_nationalized_cost)
-                                            : '',
-                                        )
-                                      }}
-                                    >
-                                      <DollarSign className="w-3 h-3 mr-1" />
-                                      Informar custo
-                                    </Button>
-                                  </div>
-                                </TableCell>
-                              </TableRow>
-                            )
-                          })}
-                        </TableBody>
-                      </Table>
+                                    </div>
+                                  </TableCell>
+                                </TableRow>
+                              )
+                            })}
+                          </TableBody>
+                        </Table>
+                      </div>
                     </div>
                   </TabsContent>
 
@@ -1209,35 +1264,43 @@ export function AdminScanSourcePage() {
                       Linhas com preço zerado, negativo ou ausente na Coluna D. Elas{' '}
                       <strong>não alteram</strong> o custo existente do produto.
                     </div>
-                    <div className="overflow-x-auto max-h-[420px]">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead className="w-24">Linha</TableHead>
-                            <TableHead className="w-36">Modelo</TableHead>
-                            <TableHead>Descrição</TableHead>
-                            <TableHead className="w-48">Motivo da Anomalia</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {preview.anomalies.map((a, i) => (
-                            <TableRow key={i}>
-                              <TableCell className="font-mono text-xs text-muted-foreground">
-                                {a.rowIndex}
-                              </TableCell>
-                              <TableCell className="font-mono text-xs font-semibold">
-                                {a.model}
-                              </TableCell>
-                              <TableCell className="text-xs truncate max-w-sm">
-                                {a.description}
-                              </TableCell>
-                              <TableCell className="text-xs text-red-400">
-                                {a.anomalyReason || 'Preço inválido'}
-                              </TableCell>
+                    <div className="w-full max-w-full overflow-hidden">
+                      <div className="overflow-auto max-h-[420px] w-full">
+                        <Table className="min-w-[760px]">
+                          <TableHeader className="sticky top-0 z-30 bg-card">
+                            <TableRow className="hover:bg-transparent">
+                              <TableHead className="w-24 min-w-[96px] max-w-[96px] sticky left-0 z-30 bg-card border-r border-white/10">
+                                Linha
+                              </TableHead>
+                              <TableHead className="w-36 min-w-[144px] max-w-[144px] sticky left-[96px] z-30 bg-card border-r border-white/10">
+                                Modelo
+                              </TableHead>
+                              <TableHead className="min-w-[280px]">Descrição</TableHead>
+                              <TableHead className="w-48 min-w-[192px]">
+                                Motivo da Anomalia
+                              </TableHead>
                             </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
+                          </TableHeader>
+                          <TableBody>
+                            {preview.anomalies.map((a, i) => (
+                              <TableRow key={i} className="group">
+                                <TableCell className="w-24 min-w-[96px] max-w-[96px] sticky left-0 z-10 bg-card group-hover:bg-muted/50 border-r border-white/10 font-mono text-xs text-muted-foreground">
+                                  {a.rowIndex}
+                                </TableCell>
+                                <TableCell className="w-36 min-w-[144px] max-w-[144px] sticky left-[96px] z-10 bg-card group-hover:bg-muted/50 border-r border-white/10 font-mono text-xs font-semibold">
+                                  {a.model}
+                                </TableCell>
+                                <TableCell className="text-xs truncate max-w-sm">
+                                  {a.description}
+                                </TableCell>
+                                <TableCell className="text-xs text-red-400">
+                                  {a.anomalyReason || 'Preço inválido'}
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
                     </div>
                   </TabsContent>
                 </Tabs>

@@ -231,9 +231,10 @@ export const LEGACY_EXACT_MAP: Record<string, string> = {
   'production switcher': 'Production Switchers',
   'production switchers': 'Production Switchers',
   keyer: 'Production Switchers',
-  'control panel': 'Production Switchers',
-  controller: 'Production Switchers',
-  'broadcast panel': 'Production Switchers',
+  'control panel': 'Control Panels',
+  'control panels': 'Control Panels',
+  controller: 'Control Panels',
+  'broadcast panel': 'Control Panels',
 
   // Desktop Video
   'capture card': 'Desktop Video',
@@ -420,25 +421,48 @@ export function getProductCategorySuggestion(
     }
   }
 
-  // Production Switchers & Painéis de Controle
+  // Control Panels (Painéis de controle dedicados, superfícies de edição e PTZ controllers)
+  if (
+    fullText.includes('advanced panel') ||
+    fullText.includes('camera control panel') ||
+    fullText.includes('control panel') ||
+    fullText.includes('control surface') ||
+    fullText.includes('speed editor') ||
+    fullText.includes('micro panel') ||
+    fullText.includes('mini panel') ||
+    fullText.includes('micro color panel') ||
+    fullText.includes('ptz controller') ||
+    fullText.includes('rc-ip') ||
+    fullText.includes('rm-ip') ||
+    fullText.includes('broadcast panel') ||
+    fullText.includes('replay editor') ||
+    fullText.includes('editor keyboard')
+  ) {
+    const cpCat = categoriesByName.get('Control Panels')
+    if (cpCat) {
+      return {
+        level: 'medium',
+        categoryName: 'Control Panels',
+        categoryId: cpCat.id,
+        reason: 'Termos de painel de controle / superfície de edição / PTZ controller',
+      }
+    }
+  }
+
+  // Production Switchers
   if (
     fullText.includes('switcher') ||
     fullText.includes('atem') ||
     fullText.includes('constellation') ||
-    fullText.includes('television studio') ||
-    fullText.includes('advanced panel') ||
-    fullText.includes('camera control panel') ||
-    fullText.includes('control panel') ||
-    fullText.includes('broadcast panel')
+    fullText.includes('television studio')
   ) {
-    // Se a categoria Production Switchers existir, sugere ela; senão fallback para Streaming
     const prodSwitcherCat = categoriesByName.get('Production Switchers')
     if (prodSwitcherCat) {
       return {
         level: 'medium',
         categoryName: 'Production Switchers',
         categoryId: prodSwitcherCat.id,
-        reason: 'Termos de switcher de produção / painel de controle ATEM',
+        reason: 'Termos de switcher de produção broadcast',
       }
     }
     const cat = categoriesByName.get('Streaming')

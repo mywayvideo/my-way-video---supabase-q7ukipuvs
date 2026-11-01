@@ -241,6 +241,12 @@ describe('categoryTriageService - 2-Layer Suggestions & Cintel Rules', () => {
   })
 
   it('identifies Production Switchers and Control Panels correctly', () => {
+    const categoriesWithControlPanels = new Map(mockCategories)
+    categoriesWithControlPanels.set('Control Panels', {
+      id: 'cat-control-panels',
+      name: 'Control Panels',
+    })
+
     const atemSwitcher = {
       name: 'Blackmagic Design ATEM Mini Extreme ISO G2 Switcher',
       category: 'Switcher',
@@ -251,12 +257,12 @@ describe('categoryTriageService - 2-Layer Suggestions & Cintel Rules', () => {
       category: 'Control Panel',
       ncm: '85437099',
     }
-    const sugSwitcher = getProductCategorySuggestion(atemSwitcher, mockCategories)
-    const sugPanel = getProductCategorySuggestion(controlPanel, mockCategories)
+    const sugSwitcher = getProductCategorySuggestion(atemSwitcher, categoriesWithControlPanels)
+    const sugPanel = getProductCategorySuggestion(controlPanel, categoriesWithControlPanels)
 
     expect(sugSwitcher?.categoryName).toBe('Production Switchers')
     expect(sugSwitcher?.level).toBe('high')
-    expect(sugPanel?.categoryName).toBe('Production Switchers')
+    expect(sugPanel?.categoryName).toBe('Control Panels')
     expect(sugPanel?.level).toBe('high')
   })
 

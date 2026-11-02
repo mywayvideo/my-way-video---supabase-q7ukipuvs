@@ -440,4 +440,112 @@ export const categoryService = {
       throw delError
     }
   },
+
+  /**
+   * Exporta texto organizado de todas as categorias cadastradas e seus NCMs aceitáveis.
+   * Busca as descrições curtas em imp_sim_tax_rates para cada código NCM.
+   * Formata uma linha por NCM com formato "8544.42.00 — Descrição curta".
+   */
+  async exportCategoriesWithNcmsText(): Promise<string> {
+    // 1. Buscar todas as categorias ativas ordenadas por nome
+    const { data: categories, error: catError } = await (supabase.from('categories') as any)
+      .select('id, name, acceptable_ncms')
+      .order('name', { ascending: true })
+
+    if (catError) {
+      console.error('Erro ao buscar categorias para exportação:', catError)
+      throw new Error(catError.message || 'Falha ao buscar categorias.')
+    }
+
+    const catList = (categories || []) as Array<{
+      id: string
+      name: string
+      acceptable_ncms: string[] | null
+    }>
+
+    // 2. Extrair todos os NCMs únicos e limpar dígitos
+    const allNcmDigits = new Set<string>()
+    for (const cat of catList) {
+      if (Array.isArray(cat.acceptable_ncms)) {
+        for (const ncm of cat.acceptable_ncms) {
+          const digits = String(ncm).replace(/\D/g, '')
+          if (digits) {
+            allNcmDigits.add(digits)
+          }
+        }
+      }
+    }
+
+    // 3. Buscar descrições em imp_sim_tax_rates em lote
+    const ncmDescMap = new Map<string, string>()
+    if (allNcmDigits.size > 0) {
+      const digitsArray = Array.from(allNcmDigits)
+      // Chunks de até 100 para segurança de URL/in
+      for (let i = 0; i < digitsArray.length; i += 100) {
+        const chunk = digitsArray.slice(i, i + 100)
+        const { data: taxRates } = await (supabase.from('imp_sim_tax_rates') as any)
+          .select('ncm, ex, ncm_descricao, ncm_descricao_full')
+          .in('ncm', chunk)
+
+        if (taxRates && Array.isArray(taxRates)) {
+          for (const row of taxRates) {
+            // Priorizar registros sem ex-tarifário específico (ex nulo ou vazio)
+            const currentDesc = ncmDescMap.get(row.ncm)
+            const desc = (row.ncm_descricao || '').trim()
+            if (desc && (!currentDesc || (!row.ex && currentDesc === 'Sem descrição cadastrada'))) {
+              ncmDescMap.set(row.ncm, desc)
+            } else if (!currentDesc) {
+              // Se tiver ncm_descricao_full com pipe, pegar última parte como fallback
+              if (row.ncm_descricao_full) {
+                const parts = row.ncm_descricao_full.split('|').map((p: string) => p.trim())
+                const lastPart = parts[parts.length - 1] || parts[0]
+                ncmDescMap.set(row.ncm, lastPart || 'Sem descrição cadastrada')
+              } else {
+                ncmDescMap.set(row.ncm, 'Sem descrição cadastrada')
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Função de formatação para 8 dígitos: "8544.42.00"
+    const formatNcmCode = (raw: string) => {
+      const digits = String(raw).replace(/\D/g, '')
+      if (digits.length === 8) {
+        return `${digits.slice(0, 4)}.${digits.slice(4, 6)}.${digits.slice(6, 8)}`
+      }
+      if (digits.length === 6) {
+        return `${digits.slice(0, 4)}.${digits.slice(4, 6)}`
+      }
+      if (digits.length === 4) {
+        return digits
+      }
+      return raw.trim()
+    }
+
+    // 4. Montar texto simples e organizado agrupado por categoria
+    const sections: string[] = []
+
+    for (const cat of catList) {
+      const ncms = Array.isArray(cat.acceptable_ncms) ? cat.acceptable_ncms : []
+      const lines: string[] = []
+      lines.push(`[${cat.name}]`)
+
+      if (ncms.length === 0) {
+        lines.push('  (Nenhum NCM restrito cadastrado)')
+      } else {
+        for (const ncm of ncms) {
+          const digits = String(ncm).replace(/\D/g, '')
+          const formattedCode = formatNcmCode(ncm)
+          const desc = ncmDescMap.get(digits) || 'Sem descrição cadastrada'
+          lines.push(`  ${formattedCode} — ${desc}`)
+        }
+      }
+
+      sections.push(lines.join('\n'))
+    }
+
+    return sections.join('\n\n')
+  },
 }

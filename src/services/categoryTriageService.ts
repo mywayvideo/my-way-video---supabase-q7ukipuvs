@@ -178,14 +178,27 @@ export const LEGACY_EXACT_MAP: Record<string, string> = {
   'gate scanner cintel': 'Converters',
   'scanner de filme 4k/8k': 'Converters',
 
+  // Cable & Connectors
+  'cable & connectors': 'Cable & Connectors',
+  'cable and connectors': 'Cable & Connectors',
+  'cables & connectors': 'Cable & Connectors',
+  'cables and connectors': 'Cable & Connectors',
+  'cabos e conectores': 'Cable & Connectors',
+  cable: 'Cable & Connectors',
+  cables: 'Cable & Connectors',
+  cabo: 'Cable & Connectors',
+  cabos: 'Cable & Connectors',
+  connector: 'Cable & Connectors',
+  connectors: 'Cable & Connectors',
+  conector: 'Cable & Connectors',
+  conectores: 'Cable & Connectors',
+
   // Accessories
   accessory: 'Accessories',
   acessório: 'Accessories',
   'camera accessories': 'Accessories',
   'broadcast accessories': 'Accessories',
   'video cameras > camera accessories': 'Accessories',
-  cable: 'Accessories',
-  cabo: 'Accessories',
   adapter: 'Accessories',
   power: 'Accessories',
   'video cameras > camera accessories > batteries and power': 'Accessories',
@@ -601,10 +614,34 @@ export function getProductCategorySuggestion(
     }
   }
 
-  // Accessories (Fallback genérico com termos)
+  // Cable & Connectors
   if (
+    ncmDigits.startsWith('8544') ||
+    ncmDigits.startsWith('853669') ||
     fullText.includes('cable') ||
     fullText.includes('cabo') ||
+    fullText.includes('connector') ||
+    fullText.includes('conector') ||
+    fullText.includes('conectores') ||
+    fullText.includes('patch cord') ||
+    fullText.includes('bnc cable') ||
+    fullText.includes('hdmi cable') ||
+    fullText.includes('sdi cable') ||
+    fullText.includes('xlr cable')
+  ) {
+    const cableCat = categoriesByName.get('Cable & Connectors')
+    if (cableCat) {
+      return {
+        level: 'medium',
+        categoryName: 'Cable & Connectors',
+        categoryId: cableCat.id,
+        reason: 'NCM 8544 / 8536.69 ou termos de cabo/conector',
+      }
+    }
+  }
+
+  // Accessories (Fallback genérico com termos)
+  if (
     fullText.includes('case') ||
     fullText.includes('mount') ||
     fullText.includes('power supply') ||
@@ -616,7 +653,7 @@ export function getProductCategorySuggestion(
       level: 'medium',
       categoryName: 'Accessories',
       categoryId: cat?.id,
-      reason: 'Termos de cabo/suporte/adaptador/acessório',
+      reason: 'Termos de suporte/adaptador/acessório',
     }
   }
 

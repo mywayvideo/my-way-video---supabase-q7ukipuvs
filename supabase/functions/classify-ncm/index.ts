@@ -3115,6 +3115,8 @@ ${candidatesCatalogText}`
     // autônomos vendidos juntos (ex: transmissor + receptor), JAMAIS aparelho singular.
     // 12.A.0 CONJUNTO DE NCMS VETADOS (PROPAGAÇÃO DE VETO UNIVERSAL)
     const vetoedNcms = new Set<string>()
+    // Veto absoluto estático à NCM 8536.69.00 / 85366900 (inexistente na Receita Federal do Brasil)
+    vetoedNcms.add('85366900')
 
     // =========================================================================
     // 12.A.0.1 VETOS E DIRETRIZES DA TABELA ncm_support (Fase 2 / Auditor Revisor)
@@ -3193,6 +3195,18 @@ ${candidatesCatalogText}`
             })
           }
         }
+      }
+
+      // Veto preliminar: se a recomendação inicial caiu em 85366900 (inexistente), corrigir de imediato para 85366990
+      if (normalizeNcm(llmResponseJson.recommended_ncm) === '85366900') {
+        console.warn(
+          '[Veto 85366900]: Código 85366900 é inexistente na Receita Federal. Reenquadrando em 85366990.',
+        )
+        llmResponseJson.recommended_ncm = '85366990'
+        auditVerdict.action = 'VETA'
+        auditVerdict.corrected_ncm = '85366990'
+        auditVerdict.correction_reason =
+          'Código 8536.69.00 é inexistente na Receita Federal do Brasil; conectores avulsos enquadram-se na NCM 8536.69.90.'
       }
 
       // Se a recomendação da 1ª passada ou do auditor caiu em código vetado por ncm_support (8 dígitos exatos)

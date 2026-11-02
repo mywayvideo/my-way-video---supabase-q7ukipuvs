@@ -75,6 +75,8 @@ import {
   ShieldCheck,
   Loader2,
   ExternalLink,
+  FileText,
+  Copy,
 } from 'lucide-react'
 import { toast } from '@/hooks/use-toast'
 import { useDebounce } from '@/hooks/use-debounce'
@@ -140,6 +142,12 @@ export function AdminCategoriesPage() {
   // Modal de listagem detalhada de todas as categorias (acionado pelo box Total de Categorias)
   const [categoriesListModalOpen, setCategoriesListModalOpen] = useState(false)
   const [categoriesSearchInModal, setCategoriesSearchInModal] = useState('')
+
+  // Modal de Exportação em Texto Simples com NCMs e Botão Copiar
+  const [exportModalOpen, setExportModalOpen] = useState(false)
+  const [exportTextContent, setExportTextContent] = useState('')
+  const [isExporting, setIsExporting] = useState(false)
+  const [copied, setCopied] = useState(false)
 
   // CRUD Dialogs
   const [editDialogOpen, setEditDialogOpen] = useState(false)
@@ -372,6 +380,82 @@ export function AdminCategoriesPage() {
   }
 
   // CRUD Categorias
+  // Gerar e abrir exportação em texto simples
+  const handleOpenExportText = async () => {
+    setIsExporting(true)
+    setExportModalOpen(true)
+    setCopied(false)
+    try {
+      const text = await categoryService.exportCategoriesWithNcmsText()
+      setExportTextContent(text)
+    } catch (err: any) {
+      console.error('Erro ao gerar exportação de texto:', err)
+      toast({
+        title: 'Erro ao gerar exportação',
+        description: err.message || 'Falha ao buscar dados de categorias e NCMs.',
+        variant: 'destructive',
+      })
+      setExportTextContent('Erro ao gerar exportação de categorias e NCMs.')
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
+  // Copiar para clipboard com fallback compatível
+  const handleCopyExportText = async () => {
+    if (!exportTextContent) return
+    let succeeded = false
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(exportTextContent)
+        succeeded = true
+      } else {
+        // Fallback clássico usando textarea temporário
+        const textArea = document.createElement('textarea')
+        textArea.value = exportTextContent
+        textArea.style.position = 'fixed'
+        textArea.style.left = '-9999px'
+        textArea.style.top = '0'
+        document.body.appendChild(textArea)
+        textArea.focus()
+        textArea.select()
+        succeeded = document.execCommand('copy')
+        document.body.removeChild(textArea)
+      }
+    } catch (err) {
+      console.warn('Erro ao usar clipboard API, tentando fallback:', err)
+      try {
+        const textArea = document.createElement('textarea')
+        textArea.value = exportTextContent
+        textArea.style.position = 'fixed'
+        textArea.style.left = '-9999px'
+        textArea.style.top = '0'
+        document.body.appendChild(textArea)
+        textArea.focus()
+        textArea.select()
+        succeeded = document.execCommand('copy')
+        document.body.removeChild(textArea)
+      } catch (fallbackErr) {
+        succeeded = false
+      }
+    }
+
+    if (succeeded) {
+      setCopied(true)
+      toast({
+        title: 'Copiado para o clipboard!',
+        description: 'Texto de categorias e NCMs pronto para colar em qualquer editor.',
+      })
+      setTimeout(() => setCopied(false), 2500)
+    } else {
+      toast({
+        title: 'Falha ao copiar',
+        description: 'Selecione o texto e copie manualmente usando Ctrl+C.',
+        variant: 'destructive',
+      })
+    }
+  }
+
   const handleOpenCreateCategory = () => {
     setEditingCategory(null)
     setEditDialogOpen(true)
@@ -639,7 +723,17 @@ export function AdminCategoriesPage() {
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleOpenExportText}
+              disabled={loadingMetrics}
+              title="Exporta texto simples e organizado de todas as categorias cadastradas com seus acceptable_ncms"
+            >
+              <FileText className="w-4 h-4 mr-1.5 text-primary" />
+              Exportar (texto)
+            </Button>
             <Button
               variant="outline"
               size="sm"
@@ -1772,6 +1866,92 @@ export function AdminCategoriesPage() {
             >
               Fechar
             </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal de Exportação em Texto Simples com Botão Copiar */}
+      <Dialog open={exportModalOpen} onOpenChange={setExportModalOpen}>
+        <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col p-0 overflow-hidden">
+          <DialogHeader className="p-6 pb-3 border-b bg-muted/20">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div>
+                  <DialogTitle className="text-lg font-bold">
+                    Exportação de Categorias e NCMs Aceitáveis
+                  </DialogTitle>
+                  <DialogDescription className="text-xs text-muted-foreground mt-0.5">
+                    Texto simples organizado por categoria com descrições curtas da Receita
+                    (imp_sim_tax_rates). Pronto para visualização ou cópia para área de
+                    transferência.
+                  </DialogDescription>
+                </div>
+              </div>
+              <Button
+                variant={copied ? 'default' : 'outline'}
+                size="sm"
+                className="gap-1.5 shrink-0"
+                onClick={handleCopyExportText}
+                disabled={isExporting || !exportTextContent}
+              >
+                {copied ? (
+                  <>
+                    <Check className="w-4 h-4 text-emerald-300" />
+                    Copiado!
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-4 h-4" />
+                    Copiar
+                  </>
+                )}
+              </Button>
+            </div>
+          </DialogHeader>
+
+          <div className="flex-1 overflow-y-auto p-4 bg-muted/30">
+            {isExporting ? (
+              <div className="flex flex-col items-center justify-center py-16 text-muted-foreground gap-2">
+                <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                <span className="text-xs">Gerando texto das categorias e NCMs...</span>
+              </div>
+            ) : (
+              <textarea
+                readOnly
+                value={exportTextContent}
+                className="w-full h-[400px] p-3 text-xs font-mono bg-background border rounded-lg focus:outline-none focus:ring-1 focus:ring-primary resize-none leading-relaxed text-foreground select-all"
+                placeholder="Nenhum dado para exibir."
+              />
+            )}
+          </div>
+
+          <div className="p-3 border-t bg-muted/20 flex items-center justify-between text-xs text-muted-foreground">
+            <span className="text-[11px]">
+              Formato padronizado <code>NCM — Descrição</code> (8 dígitos com pontos)
+            </span>
+            <div className="flex items-center gap-2">
+              <Button
+                variant={copied ? 'default' : 'secondary'}
+                size="sm"
+                className="h-8 text-xs gap-1.5"
+                onClick={handleCopyExportText}
+                disabled={isExporting || !exportTextContent}
+              >
+                {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                {copied ? 'Copiado!' : 'Copiar'}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs"
+                onClick={() => setExportModalOpen(false)}
+              >
+                Fechar
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

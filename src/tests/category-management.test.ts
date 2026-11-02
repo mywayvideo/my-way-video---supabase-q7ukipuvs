@@ -266,6 +266,41 @@ describe('categoryTriageService - 2-Layer Suggestions & Cintel Rules', () => {
     expect(sugPanel?.level).toBe('high')
   })
 
+  it('identifies Cable & Connectors via exact legacy label and via keywords/NCM', () => {
+    const categoriesWithCables = new Map(mockCategories)
+    categoriesWithCables.set('Cable & Connectors', {
+      id: 'cat-cables',
+      name: 'Cable & Connectors',
+    })
+
+    const cableProd1 = {
+      name: 'Kondor Blue D-Tap to BMPCC 4K/6K Power Cable',
+      category: 'Cable',
+      ncm: '8544.42.00',
+    }
+    const connectorProd = {
+      name: 'Neutrik NC3MXX-B Male XLR Cable Connector',
+      category: 'Connectors',
+      ncm: '8536.69.90',
+    }
+    const keywordCable = {
+      name: 'Belden 1694A SDI RG6 BNC Cable 25ft',
+      category: null,
+      ncm: '8544.42.00',
+    }
+
+    const sug1 = getProductCategorySuggestion(cableProd1, categoriesWithCables)
+    const sug2 = getProductCategorySuggestion(connectorProd, categoriesWithCables)
+    const sug3 = getProductCategorySuggestion(keywordCable, categoriesWithCables)
+
+    expect(sug1?.categoryName).toBe('Cable & Connectors')
+    expect(sug1?.level).toBe('high')
+    expect(sug2?.categoryName).toBe('Cable & Connectors')
+    expect(sug2?.level).toBe('high')
+    expect(sug3?.categoryName).toBe('Cable & Connectors')
+    expect(sug3?.level).toBe('medium')
+  })
+
   it('prevents case/trim duplicate category names', () => {
     const existingCategories = [
       { id: '1', name: 'Production Switchers' },

@@ -123,4 +123,82 @@ describe('classify-ncm Regressão Completa de Produção + Control Panels', () =
     const acceptableNcms = ['84716090', '85437099', '85299090']
     expect(acceptableNcms).toContain(result.recommendation.ncm)
   }, 60000)
+
+  it('5. Cabo com conector -> 85444200 (Outros condutores com peças de conexão)', async () => {
+    const jwt = await getAuthToken()
+    const res = await fetch(`${supabaseUrl}/functions/v1/classify-ncm`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${jwt}`,
+      },
+      body: JSON.stringify({
+        product_description: 'Kondor Blue D-Tap to BMPCC 4K/6K Coiled Power Cable. Cabo de alimentação espiralado com conectores montados (D-Tap macho para conector 2 pinos Weipu SF6) para alimentação de câmeras Blackmagic Pocket Cinema.',
+        brand: 'Kondor Blue',
+        model: 'D-Tap to BMPCC 4K/6K',
+        category: 'Cable & Connectors',
+        top_n: 15,
+        save_log: true,
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    const result = await res.json()
+    expect(result.success).toBe(true)
+    expect(result.recommendation.ncm).toBe('85444200')
+    // Não pode auto-corrigir nem conter 85366900
+    const altNcms = (result.alternatives || []).map((a: any) => a.ncm)
+    expect(altNcms).not.toContain('85366900')
+  }, 60000)
+
+  it('6. Conector avulso -> 85366990 (NUNCA 8536.69.00 inexistente na Receita)', async () => {
+    const jwt = await getAuthToken()
+    const res = await fetch(`${supabaseUrl}/functions/v1/classify-ncm`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${jwt}`,
+      },
+      body: JSON.stringify({
+        product_description: 'Neutrik NC3MXX-B Male 3-Pin XLR Cable Connector. Conector XLR macho de 3 pinos avulso para montagem e soldagem em cabos balanceados de áudio e microfone profissional, corpo de zinco e contatos banhados a ouro.',
+        brand: 'Neutrik',
+        model: 'NC3MXX-B',
+        category: 'Cable & Connectors',
+        top_n: 15,
+        save_log: true,
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    const result = await res.json()
+    expect(result.success).toBe(true)
+    expect(result.recommendation.ncm).toBe('85366990')
+    expect(result.recommendation.ncm).not.toBe('85366900')
+    const altNcms = (result.alternatives || []).map((a: any) => a.ncm)
+    expect(altNcms).not.toContain('85366900')
+  }, 60000)
+
+  it('7. Dolly de tripé -> 9620 (artigos semelhantes de apoio mecânico de tripé)', async () => {
+    const jwt = await getAuthToken()
+    const res = await fetch(`${supabaseUrl}/functions/v1/classify-ncm`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${jwt}`,
+      },
+      body: JSON.stringify({
+        product_description: 'E-Image EI-7004 Heavy-Duty Universal Tripod Dolly. Carrinho com rodas de travamento para tripés de vídeo broadcast e cinema, base de suporte mecânico com travas individuais em cada roda.',
+        brand: 'E-Image',
+        model: 'EI-7004',
+        category: 'Tripods & Rigs',
+        top_n: 15,
+        save_log: true,
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    const result = await res.json()
+    expect(result.success).toBe(true)
+    expect(result.recommendation.ncm.startsWith('9620')).toBe(true)
+  }, 60000)
 })

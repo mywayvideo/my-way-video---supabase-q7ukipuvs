@@ -90,15 +90,29 @@ Este documento constitui a **Fonte Única da Verdade** (Knowledge Layer) para a 
 - **Monitores de Computador / Dados:** Enquadram-se na subposição **85285200** ("Capazes de serem conectados diretamente a uma máquina automática para processamento de dados da posição 84.71"). Códigos da série 8528.51.xx são extintos e inexistentes na TEC vigente.
 - **Iluminação e Luminárias:** Spots e luminárias não-LED profissionais devem ser direcionados para **94054200** (único código presente na base da família 9405.4x), incluindo o aviso padrão: _"confirmar vigência da divisão LED/não-LED no Siscomex"_.
 
-### 2.5. Tripés, Monopés e Suportes de Foto/Vídeo (Posição Mandatória 96.20 / 96200000)
+### 2.5. Tripés, Monopés, Dollies e Suportes de Foto/Vídeo (Posição Mandatória 96.20 / 96200000)
 
-- **Tripés mecânicos, monopés, pedestais manuais e cabeças fluidas manuais:** Enquadramento **MANDATÓRIO na posição 96.20 (código 96200000, Capítulo 96)** — "Monopés, bipés, tripés e artigos semelhantes".
-- **Decisão Vinculante:** "Tripé nada tem a ver com 85299090. Ele está em 9620". Tripés mecânicos de foto/vídeo e cabeças fluidas manuais são classificados em 9620 (Capítulo 96), **NUNCA em 85299090 como recomendação principal**.
+- **Tripés mecânicos, monopés, dollies de tripé, braços articulados de sustentação, pedestais manuais e cabeças fluidas manuais:** Enquadramento **MANDATÓRIO na posição 96.20 (código 96200000, Capítulo 96)** — "Monopés, bipés, tripés e artigos semelhantes".
+- **Dollies e braços articulados:** Carrinhos/rodas de tripé (dollies como E-Image EI-7003/7004, Sachtler Dolly S) e braços articulados mecânicos para sustentação de câmeras/monitores classificam-se na posição 96200000 (artigos semelhantes de apoio e sustentação mecânica).
+- **Decisão Vinculante:** "Tripé nada tem a ver com 85299090. Ele está em 9620". Tripés mecânicos de foto/vídeo, dollies e cabeças fluidas manuais são classificados em 9620 (Capítulo 96), **NUNCA em 85299090 como recomendação principal**.
 - **Aviso Obrigatório de Alíquota Siscomex:** Como a posição 96200000 está ausente da base local `imp_sim_tax_rates`, a resposta deve retornar as alíquotas com aviso explícito: _"Alíquotas indisponíveis na base local — verificar no Siscomex"_.
-- **Veto ao Capítulo 90:** É TERMINANTEMENTE PROIBIDO enquadrar tripés, cabeças fluidas ou suportes mecânicos no Capítulo 90 (como microscópios ou instrumentos ópticos 90.11) ou em posições de imagem/telecomunicações (85.25 / 85.28).
+- **Veto ao Capítulo 90:** É TERMINANTEMENTE PROIBIDO enquadrar tripés, dollies, braços articulados ou suportes mecânicos no Capítulo 90 (como microscópios ou instrumentos ópticos 90.11) ou em posições de imagem/telecomunicações (85.25 / 85.28).
 - **Alternativas:**
   - **85299090:** Pode constar apenas como alternativa de menor prioridade (parte/acessório reconhecível destinado aos aparelhos de vídeo).
-  - **85437099:** Alternativa apenas para suportes ou pedestais motorizados dotados de função elétrica autônoma comprovada (não se aplica a tripés puramente mecânicos).
+  - **85437099:** Alternativa apenas para suportes ou pedestais motorizados dotados de função elétrica autônoma comprovada (não se aplica a tripés/dollies puramente mecânicos).
+
+### 2.5.1. Cabos Elétricos/Ópticos e Conectores Avulsos (Posições 85.44 e 85.36)
+
+- **Cabo montado com conector / peças de conexão (áudio, vídeo, dados, alimentação, transmissão):**
+  - Enquadramento principal **MANDATÓRIO em 85444200** ("Outros condutores elétricos, para tensão não superior a 1.000 V: Munidos de peças de conexão").
+  - Cabos coaxiais/SDI sem conectores: 8544.20.00.
+  - Cabos de fibras ópticas: 8544.70.10.
+  - Outros condutores sem conectores: 8544.49.00.
+- **Conectores avulsos / peças de conexão sem cabo (plugs XLR, BNC, HDMI, speakON, conectores elétricos < 1.000 V):**
+  - Enquadramento principal **MANDATÓRIO em 85366990** ("Outros aparelhos para comutação ou ligação de circuitos elétricos — Outros").
+  - Tomadas polarizadas/blindadas: 85366910.
+  - **VETO ABSOLUTO AO CÓDIGO 8536.69.00 / 85366900:** O código 8536.69.00 é INEXISTENTE / EXTINTO na Receita Federal do Brasil (Simulador Aduaneiro retorna "NCM inexistente! 85366900"). É TERMINANTEMENTE PROIBIDO sugerir ou citar 85366900 em qualquer recomendação principal ou alternativa.
+- **Sem auto-correção:** Toda divergência ou análise é SEMPRE indicativa para decisão humana, sem auto-aplicação no catálogo.
 
 ### 2.6. Códigos Granulares Ausentes da Base Local
 

@@ -29,6 +29,11 @@ import {
   cleanPortugueseGenericWords,
   checkRecentProductsRelevance,
 } from './search-utils.ts'
+import {
+  analyzeQueryTokens,
+  applyUnifiedRelevanceFilter,
+  balanceProductsByManufacturer,
+} from './relevance-engine.ts'
 
 const IMAGE_PROXY_URL = `${Deno.env.get('SUPABASE_URL')}/functions/v1/image-proxy`
 
@@ -1142,47 +1147,25 @@ Deno.serve(async (req: Request) => {
             }
           }
 
-          // ═══ FILTRO DE INTENÇÃO usando stop_words do banco ═══
-          const queryForFilter = (enrichedQuery || query || '').toLowerCase()
-          const rawTokens = queryForFilter.split(' ').filter((t) => t.length > 2)
-          const { data: stopWordsData } = await supabase.from('stop_words').select('word')
-          const stopWordsSet = new Set(
-            (stopWordsData || []).map((sw: any) => sw.word.toLowerCase()),
+          // ═══ FILTRO DE RELEVÂNCIA UNIFICADO E DEDUPLICADO ═══
+          const queryAnalysis = analyzeQueryTokens(
+            enrichedQuery || query || '',
+            searchEntities,
+            classificationIntent || 'catalog',
           )
-          const intentTokens = rawTokens.filter((t) => !stopWordsSet.has(t))
-          if (intentTokens.length > 0) {
-            const before = level1Products.length
-            const filtered = level1Products.filter((p: any) => {
-              const name = (p.name || p.nome || '').toLowerCase()
-              return intentTokens.some((token: string) => name.includes(token))
-            })
-            if (filtered.length >= 3) {
-              level1Products = filtered
-              console.log(
-                `[curation] Intent filter applied tokens=[${intentTokens.join(',')}] before=${before} after=${filtered.length}`,
-              )
-            } else {
-              console.log(
-                `[curation] Intent filter removed too many (${filtered.length}/${before}), keeping original set`,
-              )
-            }
-          } else {
-            console.log('[curation] No intent tokens found, skipping filter')
-          }
+          console.log(
+            `[relevance-engine] Query tokens: objects=[${queryAnalysis.objectTokens.join(', ')}] qualifiers=[${queryAnalysis.qualifierTokens.join(', ')}] intent=${queryAnalysis.intent}`,
+          )
 
-          // ── STEP 1: Investigation Answers ──
-          // a) Yes, the curation block exists inline in the normal-mode (else) branch of Stage C.
-          //    It is the manufacturer balancing/diversity curation section.
-          // b) Yes — it filters, orders, and reduces the product array via a round-robin loop.
-          // c) No named function is called; the curation is inline code (not curateProducts).
-          // d) level1Products is read; featured and cards are overwritten with balancedProducts.
-          // e) The while loop with MAX_PER_MANUFACTURER=2 and MAX_TOTAL_CARDS=10 reduces the array.
-          //
-          // ── STEP 2: Curation Function Investigation ──
-          // a) The inline curation operates on level1Products (comparisonResults is empty in else).
-          // b) Yes — it returns a smaller list (max 10 total, max 2 per manufacturer).
-          // c) Yes — it groups products into a Map keyed by manufacturer name.
-          // d) MAX_PER_MANUFACTURER = 2 is the threshold; excess products per manufacturer are dropped.
+          const beforeUnifiedFilter = level1Products.length
+          const unifiedFilterResult = applyUnifiedRelevanceFilter(level1Products, queryAnalysis, {
+            minResults: 3,
+            minScore: 6,
+          })
+          level1Products = unifiedFilterResult.filtered
+          console.log(
+            `[curation] Unified relevance filter applied stage=${unifiedFilterResult.stageUsed} before=${beforeUnifiedFilter} after=${level1Products.length}`,
+          )
 
           // ── STEP 3: Diagnostic Logs (ANTES) ──
           console.log(
@@ -1246,46 +1229,18 @@ Deno.serve(async (req: Request) => {
             }
 
             function fallbackToBalancing() {
-              // ═══ Curadoria com diversidade de fabricantes (original) ═══
-              const MAX_PER_MANUFACTURER = 2
-              const MAX_TOTAL_CARDS = 10
-              const productsByManufacturer = new Map()
-              for (const product of level1Products) {
-                const manufacturer = (
-                  product.manufacturers?.name ||
-                  product.manufacturer ||
-                  product.brand ||
-                  'Outros'
-                ).trim()
-                if (!productsByManufacturer.has(manufacturer)) {
-                  productsByManufacturer.set(manufacturer, [])
-                }
-                productsByManufacturer.get(manufacturer).push(product)
-              }
-              const manufacturerEntries = Array.from(productsByManufacturer.entries())
-              manufacturerEntries.sort((a, b) => b[1].length - a[1].length)
-              const balancedProducts: any[] = []
-              let idx = 0
-              let allExhausted = false
-              while (balancedProducts.length < MAX_TOTAL_CARDS && !allExhausted) {
-                allExhausted = true
-                for (const [mfr, products] of manufacturerEntries) {
-                  if (idx < products.length && balancedProducts.length < MAX_TOTAL_CARDS) {
-                    const countForBrand = balancedProducts.filter(
-                      (p) => (p.manufacturer || p.brand || 'Outros').trim() === mfr,
-                    ).length
-                    if (countForBrand < MAX_PER_MANUFACTURER) {
-                      balancedProducts.push(products[idx])
-                      allExhausted = false
-                    }
-                  }
-                }
-                idx++
-              }
-              featured = balancedProducts
-              cards = balancedProducts
+              // ═══ Curadoria balanceada por fabricante: ordenando por relevância ANTES do round-robin ═══
+              const balanced = balanceProductsByManufacturer(
+                unifiedFilterResult.scored.filter((sp) =>
+                  level1Products.some((p: any) => p.id === sp.product.id),
+                ),
+                2,
+                10,
+              )
+              featured = balanced
+              cards = balanced
               console.log(
-                `[curation] total=${level1Products.length} balanced=${balancedProducts.length} manufacturers=[${manufacturerEntries.map(([m, p]) => `${m}(${p.length})`).join(', ')}]`,
+                `[curation] total=${level1Products.length} balanced=${balanced.length} (ordered by relevance score prior to round-robin)`,
               )
             }
           }
@@ -1298,35 +1253,15 @@ Deno.serve(async (req: Request) => {
             JSON.stringify((level1Products || featured).map((p: any) => p.id)),
           )
 
-          // ═══ Relevance filter: discard products whose name contains no significant query term ═══
-          const relevanceTerms = extractEntities(
-            applyCustomStopWords(
-              removeStopWords(removePunctuation(cleanPortugueseGenericWords(originalQuery))),
-              customStopWords,
-            ),
-          ).filter((t: string) => t.length > 2)
-
-          if (relevanceTerms.length > 0 && featured.length > 0) {
-            const beforeRelevance = featured.length
-            const relevanceFiltered = featured.filter((p: any) => {
-              const productName = (p.name || '').toLowerCase()
-              return relevanceTerms.some((term: string) => productName.includes(term.toLowerCase()))
-            })
-            if (relevanceFiltered.length === 0) {
-              console.log(
-                `[relevance-filter] All ${beforeRelevance} products discarded — no name contains terms [${relevanceTerms.join(', ')}]`,
-              )
-              featured = []
-              cards = []
-              level1Products = []
-            } else if (relevanceFiltered.length < beforeRelevance) {
-              console.log(
-                `[relevance-filter] Filtered ${beforeRelevance} → ${relevanceFiltered.length} products (terms: [${relevanceTerms.join(', ')}])`,
-              )
-              featured = relevanceFiltered
-              cards = relevanceFiltered
-              level1Products = relevanceFiltered
-            }
+          // ═══ Relevance filter unificado: usa o mesmo resultado do motor de relevância ═══
+          // Se após a curadoria balanceada houver produtos, featured e cards já estão calibrados.
+          // Degradação graciosa garante que featured nunca fique vazio se o catálogo continha produtos.
+          if (featured.length === 0 && level1Products.length > 0) {
+            console.log(
+              '[relevance-filter] featured was empty after curation, falling back to top level1Products',
+            )
+            featured = level1Products.slice(0, 10)
+            cards = featured
           }
 
           // ═══ Gerar resposta e retornar (only if products survived relevance filter) ═══

@@ -27,6 +27,7 @@ const formSchema = z.object({
   // ai_settings
   cache_expiration_days: z.coerce.number().min(0).optional(),
   price_threshold_usd: z.coerce.number().min(0),
+  max_products_per_manufacturer: z.coerce.number().min(1).max(8).default(2),
 
   // cache_settings
   mi_expiration_days: z.coerce.number().min(0).max(10000).default(365),
@@ -88,6 +89,7 @@ export default function AdminAISettings() {
     defaultValues: {
       cache_expiration_days: 30,
       price_threshold_usd: 5000,
+      max_products_per_manufacturer: 2,
       mi_expiration_days: 365,
       product_search_cache_expiration_days: 30,
       search_algorithm_sql: '',
@@ -171,6 +173,7 @@ export default function AdminAISettings() {
 
         form.reset({
           cache_expiration_days: aiSettingsData?.cache_expiration_days ?? 30,
+          max_products_per_manufacturer: aiSettingsData?.max_products_per_manufacturer ?? 2,
           mi_expiration_days: cacheSettingsData?.mi_expiration_days ?? 365,
           product_search_cache_expiration_days:
             cacheSettingsData?.product_search_cache_expiration_days ?? 30,
@@ -291,6 +294,7 @@ export default function AdminAISettings() {
       const aiSettingsPayload: any = {
         cache_expiration_days: values.cache_expiration_days,
         price_threshold_usd: values.price_threshold_usd,
+        max_products_per_manufacturer: values.max_products_per_manufacturer,
         search_algorithm_sql: values.search_algorithm_sql,
         result_component_config: parsedComponentConfig,
         ignore_stock_count: values.ignore_stock_count,
@@ -440,6 +444,24 @@ export default function AdminAISettings() {
                       <FormControl>
                         <Input type="number" step="0.01" {...field} />
                       </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="max_products_per_manufacturer"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Máx. produtos por fabricante na pesquisa IA</FormLabel>
+                      <FormControl>
+                        <Input type="number" min={1} max={8} step={1} placeholder="2" {...field} />
+                      </FormControl>
+                      <FormDescription>
+                        limita quantos produtos do mesmo fabricante aparecem nas cards da busca por
+                        IA; 2 = comportamento atual
+                      </FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}

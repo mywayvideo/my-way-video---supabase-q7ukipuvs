@@ -548,4 +548,70 @@ export const categoryService = {
 
     return sections.join('\n\n')
   },
+
+  /**
+   * Exporta SOMENTE a lista de categorias existentes (sem NCMs).
+   * Retorna texto simples (um por linha com contagem opcional) e dados para CSV.
+   */
+  async exportCategoriesOnlyList(): Promise<{
+    textList: string
+    csvContent: string
+    items: Array<{ name: string; productCount: number }>
+  }> {
+    // 1. Buscar todas as categorias ordenadas por nome
+    const { data: categories, error: catError } = await (supabase.from('categories') as any)
+      .select('id, name')
+      .order('name', { ascending: true })
+
+    if (catError) {
+      console.error('Erro ao buscar categorias:', catError)
+      throw new Error(catError.message || 'Falha ao buscar categorias.')
+    }
+
+    const catList = (categories || []) as Array<{ id: string; name: string }>
+
+    // 2. Contagem de produtos por categoria
+    const countsMap = new Map<string, number>()
+    try {
+      const { data: products } = await (supabase.from('products') as any).select('category_id')
+
+      if (Array.isArray(products)) {
+        for (const p of products) {
+          if (p.category_id) {
+            countsMap.set(p.category_id, (countsMap.get(p.category_id) || 0) + 1)
+          }
+        }
+      }
+    } catch (countErr) {
+      console.warn('Não foi possível obter contagem de produtos:', countErr)
+    }
+
+    const items = catList.map((c) => ({
+      name: c.name,
+      productCount: countsMap.get(c.id) || 0,
+    }))
+
+    // 3. Montar texto para cópia na área de transferência (sem NCMs)
+    const textLines = items.map(
+      (item) => `${item.name}${item.productCount > 0 ? ` (${item.productCount} produtos)` : ''}`,
+    )
+    const textList = textLines.join('\n')
+
+    // 4. Montar CSV (com cabeçalho e escape correto)
+    const csvHeader = 'Categoria,Produtos\n'
+    const csvRows = items.map((item) => {
+      const escapedName =
+        item.name.includes(',') || item.name.includes('"')
+          ? `"${item.name.replace(/"/g, '""')}"`
+          : item.name
+      return `${escapedName},${item.productCount}`
+    })
+    const csvContent = csvHeader + csvRows.join('\n')
+
+    return {
+      textList,
+      csvContent,
+      items,
+    }
+  },
 }

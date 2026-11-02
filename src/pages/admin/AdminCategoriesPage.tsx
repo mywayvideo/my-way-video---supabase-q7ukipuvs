@@ -77,6 +77,7 @@ import {
   ExternalLink,
   FileText,
   Copy,
+  Download,
 } from 'lucide-react'
 import { toast } from '@/hooks/use-toast'
 import { useDebounce } from '@/hooks/use-debounce'
@@ -148,6 +149,16 @@ export function AdminCategoriesPage() {
   const [exportTextContent, setExportTextContent] = useState('')
   const [isExporting, setIsExporting] = useState(false)
   const [copied, setCopied] = useState(false)
+
+  // Modal e Ações de "Copiar Categorias" (SOMENTE nomes, sem NCMs)
+  const [categoriesOnlyModalOpen, setCategoriesOnlyModalOpen] = useState(false)
+  const [categoriesOnlyText, setCategoriesOnlyText] = useState('')
+  const [categoriesOnlyCsv, setCategoriesOnlyCsv] = useState('')
+  const [categoriesOnlyItems, setCategoriesOnlyItems] = useState<
+    Array<{ name: string; productCount: number }>
+  >([])
+  const [isExportingCategoriesOnly, setIsExportingCategoriesOnly] = useState(false)
+  const [copiedCategoriesOnly, setCopiedCategoriesOnly] = useState(false)
 
   // CRUD Dialogs
   const [editDialogOpen, setEditDialogOpen] = useState(false)
@@ -377,6 +388,145 @@ export function AdminCategoriesPage() {
       title: 'Item adiado',
       description: 'O produto foi ocultado da fila nesta sessão e poderá ser revisado depois.',
     })
+  }
+
+  // Ação de Copiar Categorias (Apenas categorias, sem NCMs)
+  const handleCopyCategoriesOnlyDirect = async () => {
+    setIsExportingCategoriesOnly(true)
+    try {
+      const data = await categoryService.exportCategoriesOnlyList()
+      setCategoriesOnlyText(data.textList)
+      setCategoriesOnlyCsv(data.csvContent)
+      setCategoriesOnlyItems(data.items)
+
+      let succeeded = false
+      try {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(data.textList)
+          succeeded = true
+        } else {
+          const textArea = document.createElement('textarea')
+          textArea.value = data.textList
+          textArea.style.position = 'fixed'
+          textArea.style.left = '-9999px'
+          textArea.style.top = '0'
+          document.body.appendChild(textArea)
+          textArea.focus()
+          textArea.select()
+          succeeded = document.execCommand('copy')
+          document.body.removeChild(textArea)
+        }
+      } catch (clipErr) {
+        console.warn('Erro ao copiar diretamente para clipboard:', clipErr)
+      }
+
+      if (succeeded) {
+        setCopiedCategoriesOnly(true)
+        toast({
+          title: 'Categorias copiadas!',
+          description: `${data.items.length} categorias copiadas para a área de transferência (sem NCMs).`,
+        })
+        setTimeout(() => setCopiedCategoriesOnly(false), 2500)
+      } else {
+        // Se a API direta falhar (ex: foco de janela), abre o modal com o texto pronto
+        setCategoriesOnlyModalOpen(true)
+      }
+    } catch (err: any) {
+      console.error('Erro ao copiar categorias:', err)
+      toast({
+        title: 'Erro ao listar categorias',
+        description: err.message || 'Falha ao buscar categorias.',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsExportingCategoriesOnly(false)
+    }
+  }
+
+  const handleOpenCategoriesOnlyModal = async () => {
+    setIsExportingCategoriesOnly(true)
+    setCategoriesOnlyModalOpen(true)
+    setCopiedCategoriesOnly(false)
+    try {
+      const data = await categoryService.exportCategoriesOnlyList()
+      setCategoriesOnlyText(data.textList)
+      setCategoriesOnlyCsv(data.csvContent)
+      setCategoriesOnlyItems(data.items)
+    } catch (err: any) {
+      console.error('Erro ao gerar lista de categorias:', err)
+      toast({
+        title: 'Erro ao gerar lista',
+        description: err.message || 'Falha ao buscar categorias.',
+        variant: 'destructive',
+      })
+      setCategoriesOnlyText('Erro ao carregar lista de categorias.')
+    } finally {
+      setIsExportingCategoriesOnly(false)
+    }
+  }
+
+  const handleCopyCategoriesOnlyText = async () => {
+    if (!categoriesOnlyText) return
+    let succeeded = false
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(categoriesOnlyText)
+        succeeded = true
+      } else {
+        const textArea = document.createElement('textarea')
+        textArea.value = categoriesOnlyText
+        textArea.style.position = 'fixed'
+        textArea.style.left = '-9999px'
+        textArea.style.top = '0'
+        document.body.appendChild(textArea)
+        textArea.focus()
+        textArea.select()
+        succeeded = document.execCommand('copy')
+        document.body.removeChild(textArea)
+      }
+    } catch (err) {
+      console.warn('Erro ao copiar texto de categorias:', err)
+    }
+
+    if (succeeded) {
+      setCopiedCategoriesOnly(true)
+      toast({
+        title: 'Copiado para o clipboard!',
+        description: 'Lista de categorias copiada com sucesso.',
+      })
+      setTimeout(() => setCopiedCategoriesOnly(false), 2500)
+    } else {
+      toast({
+        title: 'Falha ao copiar',
+        description: 'Selecione o texto e copie manualmente usando Ctrl+C.',
+        variant: 'destructive',
+      })
+    }
+  }
+
+  const handleDownloadCategoriesOnlyCsv = () => {
+    if (!categoriesOnlyCsv) return
+    try {
+      const blob = new Blob([categoriesOnlyCsv], { type: 'text/csv;charset=utf-8;' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.setAttribute('href', url)
+      link.setAttribute('download', `categorias_myway_${new Date().toISOString().slice(0, 10)}.csv`)
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(url)
+      toast({
+        title: 'CSV baixado',
+        description: 'Arquivo de categorias gerado com sucesso.',
+      })
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao baixar CSV',
+        description: err.message || 'Falha ao gerar arquivo CSV.',
+        variant: 'destructive',
+      })
+    }
   }
 
   // CRUD Categorias
@@ -725,14 +875,30 @@ export function AdminCategoriesPage() {
 
           <div className="flex items-center gap-2 flex-wrap">
             <Button
+              variant="default"
+              size="sm"
+              onClick={handleOpenCategoriesOnlyModal}
+              disabled={loadingMetrics || isExportingCategoriesOnly}
+              className="bg-primary hover:bg-primary/90 text-primary-foreground shadow-xs gap-1.5"
+              title="Copia para a área de transferência ou baixa CSV da lista apenas com as categorias existentes (sem NCMs)"
+            >
+              {isExportingCategoriesOnly ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Copy className="w-4 h-4" />
+              )}
+              Copiar categorias
+            </Button>
+
+            <Button
               variant="outline"
               size="sm"
               onClick={handleOpenExportText}
               disabled={loadingMetrics}
               title="Exporta texto simples e organizado de todas as categorias cadastradas com seus acceptable_ncms"
             >
-              <FileText className="w-4 h-4 mr-1.5 text-primary" />
-              Exportar (texto)
+              <FileText className="w-4 h-4 mr-1.5 text-muted-foreground" />
+              Categorias com NCMs
             </Button>
             <Button
               variant="outline"
@@ -1948,6 +2114,118 @@ export function AdminCategoriesPage() {
                 size="sm"
                 className="h-8 text-xs"
                 onClick={() => setExportModalOpen(false)}
+              >
+                Fechar
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal de Copiar Categorias (SOMENTE Categorias, SEM NCMs + Baixar CSV) */}
+      <Dialog open={categoriesOnlyModalOpen} onOpenChange={setCategoriesOnlyModalOpen}>
+        <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col p-0 overflow-hidden">
+          <DialogHeader className="p-6 pb-3 border-b bg-muted/20">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
+                  <Copy className="w-5 h-5" />
+                </div>
+                <div>
+                  <DialogTitle className="text-lg font-bold">Lista de Categorias</DialogTitle>
+                  <DialogDescription className="text-xs text-muted-foreground mt-0.5">
+                    Lista com apenas os nomes das categorias e contagem de produtos vinculados (sem
+                    NCMs).
+                  </DialogDescription>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant={copiedCategoriesOnly ? 'default' : 'outline'}
+                  size="sm"
+                  className="gap-1.5 shrink-0"
+                  onClick={handleCopyCategoriesOnlyText}
+                  disabled={isExportingCategoriesOnly || !categoriesOnlyText}
+                >
+                  {copiedCategoriesOnly ? (
+                    <>
+                      <Check className="w-4 h-4 text-emerald-300" />
+                      Copiado!
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-4 h-4" />
+                      Copiar
+                    </>
+                  )}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 shrink-0"
+                  onClick={handleDownloadCategoriesOnlyCsv}
+                  disabled={isExportingCategoriesOnly || !categoriesOnlyCsv}
+                  title="Baixar lista em formato CSV"
+                >
+                  <Download className="w-4 h-4" />
+                  Baixar CSV
+                </Button>
+              </div>
+            </div>
+          </DialogHeader>
+
+          <div className="flex-1 overflow-y-auto p-4 bg-muted/30">
+            {isExportingCategoriesOnly ? (
+              <div className="flex flex-col items-center justify-center py-16 text-muted-foreground gap-2">
+                <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                <span className="text-xs">Carregando lista de categorias...</span>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <textarea
+                  readOnly
+                  value={categoriesOnlyText}
+                  className="w-full h-[360px] p-3 text-xs font-mono bg-background border rounded-lg focus:outline-none focus:ring-1 focus:ring-primary resize-none leading-relaxed text-foreground select-all"
+                  placeholder="Nenhuma categoria encontrada."
+                />
+              </div>
+            )}
+          </div>
+
+          <div className="p-3 border-t bg-muted/20 flex items-center justify-between text-xs text-muted-foreground">
+            <span>
+              Total de <strong>{categoriesOnlyItems.length}</strong> categorias cadastradas
+            </span>
+            <div className="flex items-center gap-2">
+              <Button
+                variant={copiedCategoriesOnly ? 'default' : 'secondary'}
+                size="sm"
+                className="h-8 text-xs gap-1.5"
+                onClick={handleCopyCategoriesOnlyText}
+                disabled={isExportingCategoriesOnly || !categoriesOnlyText}
+              >
+                {copiedCategoriesOnly ? (
+                  <Check className="w-3.5 h-3.5" />
+                ) : (
+                  <Copy className="w-3.5 h-3.5" />
+                )}
+                {copiedCategoriesOnly ? 'Copiado!' : 'Copiar'}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs gap-1.5"
+                onClick={handleDownloadCategoriesOnlyCsv}
+                disabled={isExportingCategoriesOnly || !categoriesOnlyCsv}
+              >
+                <Download className="w-3.5 h-3.5" />
+                Baixar CSV
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs"
+                onClick={() => setCategoriesOnlyModalOpen(false)}
               >
                 Fechar
               </Button>

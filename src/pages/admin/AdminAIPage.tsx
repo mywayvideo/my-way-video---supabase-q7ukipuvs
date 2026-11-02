@@ -18,10 +18,71 @@ export default function AdminAIPage() {
   const [companyInfo, setCompanyInfo] = useState<any>(null)
   const [footerInfo, setFooterInfo] = useState<any>(null)
   const [savingInfo, setSavingInfo] = useState(false)
+  const [maxProductsPerManufacturer, setMaxProductsPerManufacturer] = useState<number>(2)
+  const [savingSettings, setSavingSettings] = useState(false)
 
   useEffect(() => {
-    if (user) fetchCompanyInfo()
+    if (user) {
+      fetchCompanyInfo()
+      fetchAiSettings()
+    }
   }, [user])
+
+  const fetchAiSettings = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('ai_settings')
+        .select('id, max_products_per_manufacturer')
+        .maybeSingle()
+
+      if (!error && data?.max_products_per_manufacturer) {
+        setMaxProductsPerManufacturer(data.max_products_per_manufacturer)
+      }
+    } catch (e) {
+      console.error('Erro ao carregar ai_settings:', e)
+    }
+  }
+
+  const handleSaveAiSettings = async () => {
+    setSavingSettings(true)
+    try {
+      const cleanVal = Math.min(8, Math.max(1, Number(maxProductsPerManufacturer) || 2))
+      const { data: existing } = await supabase.from('ai_settings').select('id').maybeSingle()
+
+      if (existing?.id) {
+        const { error } = await supabase
+          .from('ai_settings')
+          .update({
+            max_products_per_manufacturer: cleanVal,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', existing.id)
+        if (error) throw error
+      } else {
+        const { error } = await supabase.from('ai_settings').insert([
+          {
+            max_products_per_manufacturer: cleanVal,
+          },
+        ])
+        if (error) throw error
+      }
+
+      setMaxProductsPerManufacturer(cleanVal)
+      toast({
+        title: 'Salvo',
+        description: 'Limite de produtos por fabricante atualizado com sucesso.',
+      })
+    } catch (err: any) {
+      console.error(err)
+      toast({
+        title: 'Erro ao salvar',
+        description: err.message || 'Falha ao atualizar limite de fabricante.',
+        variant: 'destructive',
+      })
+    } finally {
+      setSavingSettings(false)
+    }
+  }
 
   const fetchCompanyInfo = async () => {
     const { data: cData } = await supabase.from('company_info').select('*')
@@ -139,6 +200,48 @@ export default function AdminAIPage() {
             </Link>
           ))}
         </div>
+
+        <Card className="border-border/50 shadow-sm bg-card">
+          <CardHeader>
+            <CardTitle>Curadoria e Relevância da Pesquisa IA</CardTitle>
+            <CardDescription>
+              Ajuste as regras de exibição e balanceamento de resultados gerados pela pesquisa
+              inteligente.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="max-w-md space-y-2">
+              <Label htmlFor="max_products_per_manufacturer" className="text-base text-foreground">
+                Máx. produtos por fabricante na pesquisa IA
+              </Label>
+              <div className="flex items-center gap-3">
+                <input
+                  id="max_products_per_manufacturer"
+                  type="number"
+                  min={1}
+                  max={8}
+                  step={1}
+                  value={maxProductsPerManufacturer}
+                  onChange={(e) => setMaxProductsPerManufacturer(Number(e.target.value))}
+                  className="flex h-10 w-28 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                />
+                <Button
+                  onClick={handleSaveAiSettings}
+                  disabled={savingSettings}
+                  variant="secondary"
+                  className="shadow-sm"
+                >
+                  {savingSettings ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                  {savingSettings ? 'Salvando...' : 'Salvar limite'}
+                </Button>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                limita quantos produtos do mesmo fabricante aparecem nas cards da busca por IA; 2 =
+                comportamento atual
+              </p>
+            </div>
+          </CardContent>
+        </Card>
 
         <Card className="border-border/50 shadow-sm bg-card">
           <CardHeader>

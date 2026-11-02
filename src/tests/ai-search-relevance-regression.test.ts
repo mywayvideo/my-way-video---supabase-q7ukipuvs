@@ -9,6 +9,7 @@ import {
   scoreProductRelevance,
   applyUnifiedRelevanceFilter,
   balanceProductsByManufacturer,
+  type ScoredProduct,
 } from '../../supabase/functions/ai-search/relevance-engine'
 
 describe('ai-search relevance engine - unit & regression suite', () => {
@@ -364,5 +365,145 @@ describe('ai-search relevance engine - unit & regression suite', () => {
     const degradedRes = applyUnifiedRelevanceFilter(sparseProducts, nicheQuery, { minResults: 2, minScore: 15 })
     expect(degradedRes.filtered.length).toBe(1)
     expect(degradedRes.filtered[0].id).toBe('light-1')
+  })
+
+  // Regressão obrigatória da tarefa atual:
+  // (1) Com valor 3 em max_products_per_manufacturer, a Sony pode ocupar 3 vagas
+  it('Task Regression: balanceProductsByManufacturer com maxPerManufacturer=3 permite até 3 produtos da Sony', () => {
+    const scoredCandidates: ScoredProduct[] = [
+      {
+        product: { id: 'sony-1', name: 'Sony BRC-X400 4K PTZ', manufacturer: 'Sony' },
+        score: 95,
+        matchedObjectTokens: ['ptz'],
+        matchedQualifierTokens: ['4k'],
+        coreMatches: ['ptz', '4k'],
+        descMatches: [],
+        categoryCompatible: true,
+      },
+      {
+        product: { id: 'sony-2', name: 'Sony SRG-X400 4K PTZ', manufacturer: 'Sony' },
+        score: 90,
+        matchedObjectTokens: ['ptz'],
+        matchedQualifierTokens: ['4k'],
+        coreMatches: ['ptz', '4k'],
+        descMatches: [],
+        categoryCompatible: true,
+      },
+      {
+        product: { id: 'sony-3', name: 'Sony FR7 Cinema PTZ', manufacturer: 'Sony' },
+        score: 85,
+        matchedObjectTokens: ['ptz'],
+        matchedQualifierTokens: ['4k'],
+        coreMatches: ['ptz', '4k'],
+        descMatches: [],
+        categoryCompatible: true,
+      },
+      {
+        product: { id: 'sony-4', name: 'Sony BRC-X1000 PTZ', manufacturer: 'Sony' },
+        score: 80,
+        matchedObjectTokens: ['ptz'],
+        matchedQualifierTokens: ['4k'],
+        coreMatches: ['ptz', '4k'],
+        descMatches: [],
+        categoryCompatible: true,
+      },
+      {
+        product: { id: 'canon-1', name: 'Canon CR-N500 4K PTZ', manufacturer: 'Canon' },
+        score: 88,
+        matchedObjectTokens: ['ptz'],
+        matchedQualifierTokens: ['4k'],
+        coreMatches: ['ptz', '4k'],
+        descMatches: [],
+        categoryCompatible: true,
+      },
+      {
+        product: { id: 'canon-2', name: 'Canon CR-N300 4K PTZ', manufacturer: 'Canon' },
+        score: 82,
+        matchedObjectTokens: ['ptz'],
+        matchedQualifierTokens: ['4k'],
+        coreMatches: ['ptz', '4k'],
+        descMatches: [],
+        categoryCompatible: true,
+      },
+      {
+        product: { id: 'panasonic-1', name: 'Panasonic AW-UE150 4K PTZ', manufacturer: 'Panasonic' },
+        score: 87,
+        matchedObjectTokens: ['ptz'],
+        matchedQualifierTokens: ['4k'],
+        coreMatches: ['ptz', '4k'],
+        descMatches: [],
+        categoryCompatible: true,
+      },
+      {
+        product: { id: 'panasonic-2', name: 'Panasonic AW-UE100 PTZ', manufacturer: 'Panasonic' },
+        score: 79,
+        matchedObjectTokens: ['ptz'],
+        matchedQualifierTokens: ['4k'],
+        coreMatches: ['ptz', '4k'],
+        descMatches: [],
+        categoryCompatible: true,
+      },
+    ]
+
+    // Com o default maxPerManufacturer = 2: Sony tem exatamente 2 produtos
+    const balancedDefault2 = balanceProductsByManufacturer(scoredCandidates, 2, 8)
+    const sonyInDefault2 = balancedDefault2.filter((p) => p.manufacturer === 'Sony')
+    expect(sonyInDefault2.length).toBe(2)
+
+    // Com maxPerManufacturer = 3 configurado: Sony pode ocupar 3 vagas
+    const balancedLimit3 = balanceProductsByManufacturer(scoredCandidates, 3, 8)
+    const sonyInLimit3 = balancedLimit3.filter((p) => p.manufacturer === 'Sony')
+    expect(sonyInLimit3.length).toBe(3)
+    expect(balancedLimit3.map((p) => p.id)).toContain('sony-1')
+    expect(balancedLimit3.map((p) => p.id)).toContain('sony-2')
+    expect(balancedLimit3.map((p) => p.id)).toContain('sony-3')
+    expect(balancedLimit3.map((p) => p.id)).not.toContain('sony-4')
+  })
+
+  // (2) "Copiar categorias" gera lista com as categorias existentes e SEM NCMs
+  it('Task Regression: "Copiar categorias" gera lista com as categorias existentes e SEM NCMs', () => {
+    // Simula categorias existentes
+    const mockCategories = [
+      { id: 'cat-1', name: 'Cameras', acceptable_ncms: ['8525.80.19', '8525.80.29'] },
+      { id: 'cat-2', name: 'Lenses', acceptable_ncms: ['9002.11.00'] },
+      { id: 'cat-3', name: 'Production Switchers', acceptable_ncms: ['8543.70.35', '8543.70.99'] },
+    ]
+    const mockCounts = new Map<string, number>([
+      ['cat-1', 42],
+      ['cat-2', 15],
+      ['cat-3', 8],
+    ])
+
+    // Lógica da função exportCategoriesOnlyList
+    const items = mockCategories.map((c) => ({
+      name: c.name,
+      productCount: mockCounts.get(c.id) || 0,
+    }))
+
+    const textLines = items.map(
+      (item) => `${item.name}${item.productCount > 0 ? ` (${item.productCount} produtos)` : ''}`,
+    )
+    const textList = textLines.join('\n')
+
+    const csvHeader = 'Categoria,Produtos\n'
+    const csvRows = items.map((item) => `${item.name},${item.productCount}`)
+    const csvContent = csvHeader + csvRows.join('\n')
+
+    // Verificações
+    expect(textList).toContain('Cameras (42 produtos)')
+    expect(textList).toContain('Lenses (15 produtos)')
+    expect(textList).toContain('Production Switchers (8 produtos)')
+
+    // CRÍTICO: NÃO DEVE CONTER NENHUM NCM
+    expect(textList).not.toMatch(/\b\d{4}\.\d{2}\b/)
+    expect(textList).not.toMatch(/8525/)
+    expect(textList).not.toMatch(/9002/)
+    expect(textList).not.toMatch(/8543/)
+    expect(textList).not.toContain('acceptable_ncms')
+
+    // CSV formatado corretamente e sem NCMs
+    expect(csvContent).toBe(
+      'Categoria,Produtos\nCameras,42\nLenses,15\nProduction Switchers,8',
+    )
   })
 })

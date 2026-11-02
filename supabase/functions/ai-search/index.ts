@@ -368,6 +368,13 @@ Deno.serve(async (req: Request) => {
       .select('*')
       .maybeSingle()
     const { data: aiSettings } = await supabase.from('ai_settings').select('*').maybeSingle()
+    const rawMaxPerManufacturer = Number(aiSettings?.max_products_per_manufacturer)
+    const maxPerManufacturer =
+      Number.isInteger(rawMaxPerManufacturer) &&
+      rawMaxPerManufacturer >= 1 &&
+      rawMaxPerManufacturer <= 8
+        ? rawMaxPerManufacturer
+        : 2
     const customStopWords: string[] = Array.isArray(aiSettings?.custom_stop_words)
       ? aiSettings.custom_stop_words
       : []
@@ -1234,13 +1241,13 @@ Deno.serve(async (req: Request) => {
                 unifiedFilterResult.scored.filter((sp) =>
                   level1Products.some((p: any) => p.id === sp.product.id),
                 ),
-                2,
+                maxPerManufacturer,
                 10,
               )
               featured = balanced
               cards = balanced
               console.log(
-                `[curation] total=${level1Products.length} balanced=${balanced.length} (ordered by relevance score prior to round-robin)`,
+                `[curation] total=${level1Products.length} balanced=${balanced.length} maxPerManufacturer=${maxPerManufacturer} (ordered by relevance score prior to round-robin)`,
               )
             }
           }

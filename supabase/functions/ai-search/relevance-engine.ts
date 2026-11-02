@@ -6,6 +6,7 @@ export interface QueryAnalysis {
   allTokens: string[]
   objectTokens: string[]
   qualifierTokens: string[]
+  compoundTypeTokens?: string[]
 }
 
 export interface ScoredProduct {
@@ -80,17 +81,59 @@ export function isQualifierToken(token: string): boolean {
   )
     return true
 
+  // Multi-word specification terms injected by classifier or domain:
+  // e.g. "optical", "optico", "optica", "zoom", "servo", "digital", "analog", "analogico", "fluid", "fluido"
+  if (
+    /^(optico|optica|optical|zoom|servo|digital|analog|analogico|fluid|fluido|manual|motorized|motorizado)$/i.test(
+      t,
+    )
+  )
+    return true
+
   return false
 }
 
 /**
- * Dynamically derives object tokens vs qualifier tokens from:
- * - searchEntities (entities extracted from query / classifier terms)
- * - query tokens (words > 2 characters after removing stop words)
- *
- * Rules:
- * - Tokens matching qualifier patterns (numbers+units, technical specs) are qualifiers.
- * - Non-qualifier tokens from searchEntities / classifier are high-priority object tokens (e.g. camera, ptz, zoom, conversor, fibra, switcher, tripe).
+ * Checks if a multi-word phrase is a generic domain label (e.g. "audiovisual equipment", "equipamento audiovisual")
+ * which must be discarded from scoring rather than treated as an object.
+ */
+export function isGenericDomainLabel(phrase: string): boolean {
+  if (!phrase) return false
+  const p = normalizeToken(phrase)
+  return (
+    p === 'audiovisual equipment' ||
+    p === 'equipamento audiovisual' ||
+    p === 'equipamentos audiovisuais' ||
+    p === 'audio video equipment' ||
+    p === 'equipamento profissional' ||
+    p === 'professional equipment'
+  )
+}
+
+/**
+ * Checks if a phrase is a multi-word specification phrase (e.g. "optical zoom", "zoom optico", "servo lens", "fluid head")
+ */
+export function isSpecPhrase(phrase: string): boolean {
+  if (!phrase) return false
+  const p = normalizeToken(phrase)
+  return (
+    p.includes('optical zoom') ||
+    p.includes('zoom optico') ||
+    p.includes('zoom optical') ||
+    p.includes('digital servo') ||
+    p.includes('fluid head') ||
+    p.includes('cabeca fluida')
+  )
+}
+
+/**
+ * Dynamically derives object tokens vs qualifier tokens:
+ * (A) TOKENS-OBJETO só derivam do TIPO DE PRODUTO detectado na query.
+ * Tokens extraídos de frases de especificação multi-palavra injetadas pelo classificador
+ * (ex. 'optical zoom' -> 'zoom', 'otico') e de etiquetas genéricas de domínio
+ * (ex. 'audiovisual equipment') são SEMPRE qualificadores ou descartados, jamais objetos.
+ * (C) TIPO COMPOSTO: palavras adjacentes na query que qualificam o tipo (ex. 'camera ptz')
+ * formam um tipo composto único.
  */
 export function analyzeQueryTokens(
   query: string,
@@ -154,34 +197,106 @@ export function analyzeQueryTokens(
     'mais',
     'menos',
     'muito',
-    'optico',
-    'optica',
-    'optical',
     'profissa',
     'profissional',
     'melhor',
   ])
 
+  // Split query into tokens while preserving query-word order
   const cleanWords = rawWords.filter((w) => !stopWords.has(w) && w.length >= 2)
 
-  // Merge entities from classifier and clean query words
-  const entityWords = (searchEntities || [])
-    .map((e) => normalizeToken(e))
-    .flatMap((e) => e.split(/\s+/))
-    .filter((w) => !stopWords.has(w) && w.length >= 2)
+  // Identify spec words from query or entities that should NEVER be object tokens
+  // E.g. 'optical zoom' -> 'zoom', 'optico', 'optical'
+  const specWords = new Set<string>()
+  const discardedDomainWords = new Set<string>()
 
-  const allTokensList = Array.from(new Set([...cleanWords, ...entityWords]))
+  // Process searchEntities / classifier terms
+  for (const entity of searchEntities || []) {
+    const normEntity = normalizeToken(entity)
+    if (!normEntity) continue
 
-  const qualifierTokens: string[] = []
-  const objectTokens: string[] = []
+    if (isGenericDomainLabel(normEntity)) {
+      // Discard all words of generic domain labels (e.g. 'audiovisual equipment')
+      normEntity.split(/\s+/).forEach((w) => {
+        if (w.length >= 2) discardedDomainWords.add(w)
+      })
+      continue
+    }
 
-  for (const token of allTokensList) {
-    if (isQualifierToken(token)) {
-      qualifierTokens.push(token)
-    } else {
-      objectTokens.push(token)
+    if (isSpecPhrase(normEntity)) {
+      // Spec phrase words are always qualifiers, never objects
+      normEntity.split(/\s+/).forEach((w) => {
+        if (w.length >= 2 && !stopWords.has(w)) specWords.add(w)
+      })
+      continue
+    }
+
+    // Check if standalone entity token is a qualifier or spec word
+    for (const word of normEntity.split(/\s+/)) {
+      if (isQualifierToken(word) && !stopWords.has(word) && word.length >= 2) {
+        specWords.add(word)
+      }
     }
   }
+
+  // Also check query words against qualifier / spec patterns
+  for (const word of cleanWords) {
+    if (isQualifierToken(word)) {
+      specWords.add(word)
+    }
+  }
+
+  // Derive object tokens:
+  // ONLY product-type words from query (or non-spec/non-discarded entities if accessory/spec intent)
+  const objectTokens: string[] = []
+  const qualifierTokens: string[] = []
+
+  // If query is accessory intent, words like 'controle' / 'suporte' can be objects.
+  for (const word of cleanWords) {
+    if (discardedDomainWords.has(word)) continue
+    if (specWords.has(word) || isQualifierToken(word)) {
+      if (!qualifierTokens.includes(word)) qualifierTokens.push(word)
+    } else {
+      if (!objectTokens.includes(word)) objectTokens.push(word)
+    }
+  }
+
+  // Add remaining searchEntities that were not in cleanWords
+  for (const entity of searchEntities || []) {
+    const normEntity = normalizeToken(entity)
+    if (!normEntity || isGenericDomainLabel(normEntity)) continue
+
+    const words = normEntity.split(/\s+/).filter((w) => !stopWords.has(w) && w.length >= 2)
+    for (const w of words) {
+      if (discardedDomainWords.has(w)) continue
+      if (specWords.has(w) || isQualifierToken(w)) {
+        if (!qualifierTokens.includes(w)) qualifierTokens.push(w)
+      } else {
+        // Only add as object token if query didn't already have object tokens,
+        // or if it's not a generic catalog search
+        if (intent === 'accessory' || intent === 'compatibility' || objectTokens.length === 0) {
+          if (!objectTokens.includes(w)) objectTokens.push(w)
+        } else {
+          // In catalog search, external entities that are not in the query are treated as qualifiers
+          if (!qualifierTokens.includes(w)) qualifierTokens.push(w)
+        }
+      }
+    }
+  }
+
+  // Detect compound type: adjacent object tokens in cleanWords (e.g. 'camera' + 'ptz' -> ['camera', 'ptz'])
+  // Or 'conversor' + 'fibra' -> ['conversor', 'fibra']
+  const compoundTypeTokens: string[] = []
+  for (let i = 0; i < cleanWords.length - 1; i++) {
+    const w1 = cleanWords[i]
+    const w2 = cleanWords[i + 1]
+    if (objectTokens.includes(w1) && objectTokens.includes(w2)) {
+      if (!compoundTypeTokens.includes(w1)) compoundTypeTokens.push(w1)
+      if (!compoundTypeTokens.includes(w2)) compoundTypeTokens.push(w2)
+    }
+  }
+
+  const allTokensList = Array.from(new Set([...objectTokens, ...qualifierTokens]))
 
   return {
     rawQuery: query,
@@ -189,6 +304,7 @@ export function analyzeQueryTokens(
     allTokens: allTokensList,
     objectTokens,
     qualifierTokens,
+    compoundTypeTokens: compoundTypeTokens.length > 1 ? compoundTypeTokens : undefined,
   }
 }
 
@@ -212,10 +328,43 @@ export function tokenMatchesText(token: string, text: string): boolean {
 }
 
 /**
- * Dynamic category compatibility check without any hardcoded category names or lists:
+ * Checks if a category name is an accessory, support, bracket, cable, or parts category:
+ * Generic across all catalog segments (Accessories, Suporte, Mount, Bracket, Cabo, etc.)
+ */
+export function isAccessoryOrSupportCategory(rawCategory: string): boolean {
+  if (!rawCategory) return false
+  const norm = normalizeToken(rawCategory)
+  const accessoryKeywords = [
+    'accessori', // accessories, acessorios, acessorio, accessory
+    'suporte',
+    'bracket',
+    'mount',
+    'plate',
+    'cabo',
+    'cable',
+    'case',
+    'bolsa',
+    'bag',
+    'strap',
+    'alca',
+    'parasol',
+    'tampa',
+    'cover',
+    'adaptador',
+    'adapter',
+    'placa',
+  ]
+  return accessoryKeywords.some((kw) => norm.includes(kw))
+}
+
+/**
+ * Dynamic category compatibility check:
  * Compares the query's object tokens against the product's taxonomy/category.
- * If the product has a category, we test if any object token matches the category name,
- * OR if the category name tokens match the query's object tokens.
+ * If the product has a category:
+ * - If the query is looking for a primary product type (like camera, switcher, conversor, tripe, etc.)
+ *   and the product's category is an accessory / support category (Accessories, Suporte, Bracket, Mount, etc.),
+ *   it is clearly incompatible.
+ * - Otherwise, tests if any query object token matches the category name, or category tokens match object tokens.
  */
 export function checkCategoryCompatibility(product: any, analysis: QueryAnalysis): boolean {
   const rawCat = (product.category || product.category_name || '').trim()
@@ -226,6 +375,15 @@ export function checkCategoryCompatibility(product: any, analysis: QueryAnalysis
 
   const normCat = normalizeToken(rawCat)
   const catTokens = normCat.split(/\s+/).filter((w) => w.length >= 3)
+
+  // If query intent is catalog and has object tokens:
+  // Check if product is categorized as accessory/support while query is looking for primary equipment
+  if (analysis.intent === 'catalog' || analysis.intent === 'categorizar' || !analysis.intent) {
+    const isPrimaryQuery = analysis.objectTokens.some((obj) => !isAccessoryOrSupportCategory(obj))
+    if (isPrimaryQuery && isAccessoryOrSupportCategory(rawCat)) {
+      return false
+    }
+  }
 
   // If any query object token matches the category text
   const matchInCat = analysis.objectTokens.some((obj) => tokenMatchesText(obj, normCat))
@@ -357,6 +515,28 @@ export function applyUnifiedRelevanceFilter(
     if (sp.score < minScore) return false
 
     if (isCatalog) {
+      // (B) PRECEDÊNCIA DE CATEGORIA em intent=catalog:
+      // Se a categoria do produto é claramente incompatível com o tipo detectado (ex. Accessories/suporte
+      // quando o tipo é câmera PTZ), o produto é ELIMINADO no estágio strict MESMO que contenha token-objeto
+      // no nome-core — o match de token NÃO salva categoria incompatível.
+      const rawCat = (sp.product.category || sp.product.category_name || '').trim()
+      if (rawCat && !sp.categoryCompatible) {
+        return false
+      }
+
+      // (C) TIPO COMPOSTO:
+      // Se a query tem um tipo composto (ex. ['camera', 'ptz']), o produto DEVE ter o qualificador do composto
+      // no nome-core (ou na categoria) para sobreviver no estágio strict.
+      // Se não tiver todos os tokens do composto no nome-core, só sobrevive nos estágios relaxed.
+      if (analysis.compoundTypeTokens && analysis.compoundTypeTokens.length > 1) {
+        const hasAllCompoundInCore = analysis.compoundTypeTokens.every((ct) =>
+          sp.coreMatches.includes(ct),
+        )
+        if (!hasAllCompoundInCore) {
+          return false
+        }
+      }
+
       // In catalog search: category compatible OR object token matches in coreName
       const hasCoreObject = sp.coreMatches.some((t) => analysis.objectTokens.includes(t))
       return sp.categoryCompatible || hasCoreObject

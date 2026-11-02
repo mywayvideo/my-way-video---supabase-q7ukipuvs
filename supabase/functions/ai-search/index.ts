@@ -1147,7 +1147,9 @@ Deno.serve(async (req: Request) => {
             )
 
             if (!fetchError && fullProducts) {
-              const productMap = new Map(fullProducts.map((p: any) => [p.id, p]))
+              // Barreira dupla: descarta produtos descontinuados antes do filtro de relevância e curadoria
+              const activeFullProducts = fullProducts.filter((p: any) => p.is_discontinued !== true)
+              const productMap = new Map(activeFullProducts.map((p: any) => [p.id, p]))
               level1Products = orderedIds
                 .map((id: string) => productMap.get(id))
                 .filter((p: any) => p !== undefined)
@@ -1436,8 +1438,12 @@ Deno.serve(async (req: Request) => {
           )
           .in('id', result.referenced_internal_products)
         if (groundedProducts) {
+          // Barreira dupla: descarta produtos descontinuados da lista groundedProducts
+          const activeGroundedProducts = groundedProducts.filter(
+            (p: any) => p.is_discontinued !== true,
+          )
           const aiIdSet = new Set(aiReferencedProducts)
-          result.products = groundedProducts
+          result.products = activeGroundedProducts
             .map((p: any) => ({
               ...p,
               manufacturer: (p.manufacturer as any)?.name || (p as any).manufacturer_name || 'N/A',

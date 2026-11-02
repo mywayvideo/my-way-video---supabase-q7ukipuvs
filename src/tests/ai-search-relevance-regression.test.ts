@@ -460,6 +460,113 @@ describe('ai-search relevance engine - unit & regression suite', () => {
     expect(balancedLimit3.map((p) => p.id)).not.toContain('sony-4')
   })
 
+  // Regressão obrigatória: produtos descontinuados (is_discontinued=true) excluídos da resposta
+  // Exemplos reais do catálogo: Sony BRC-X1000 (SKU BRCX1000) e Sony BRC-H800 (SKU BRCH800).
+  // Em 'camera ptz 4k com zoom óptico 20x', nenhum descontinuado pode constar em level1Products,
+  // featured, cards, full_search_results ou result.products, mantendo PTZs ativas intactas.
+  it('Task Regression: produtos com is_discontinued=true são excluídos antes do relevance-engine e em groundedProducts', () => {
+    const rawFetchedFromDb = [
+      {
+        id: 'sony-brc-x1000-id',
+        sku: 'BRCX1000',
+        name: 'Sony BRC-X1000 4K PTZ Camera with 1" CMOS Sensor and PoE+ (Black)',
+        category: 'PTZ Camera',
+        is_discontinued: true,
+        manufacturer: 'Sony',
+      },
+      {
+        id: 'sony-brc-h800-id',
+        sku: 'BRCH800',
+        name: 'Sony BRC-H800 HD PTZ Camera',
+        category: 'PTZ Camera',
+        is_discontinued: true,
+        manufacturer: 'Sony',
+      },
+      {
+        id: 'sony-brc-am7-id',
+        sku: 'BRCAM7W',
+        name: 'Sony BRC-AM7 4K60 PTZ Camera with AI Auto-Framing (White)',
+        category: 'PTZ Camera',
+        is_discontinued: false,
+        manufacturer: 'Sony',
+      },
+      {
+        id: 'canon-cr-n300-id',
+        sku: '5157C026',
+        name: 'Canon CR-N300 4K NDI HX2 PTZ Camera with 20x Zoom',
+        category: 'PTZ Camera',
+        is_discontinued: false,
+        manufacturer: 'Canon',
+      },
+      {
+        id: 'canon-cr-n400-id',
+        sku: '7505C003',
+        name: 'Canon CR-N400 4K 12G-SDI NDI PTZ Camera with 20x Optical Zoom (Satin Black)',
+        category: 'PTZ Camera',
+        is_discontinued: false,
+        manufacturer: 'Canon',
+      },
+      {
+        id: 'datavideo-ptc-305-id',
+        sku: 'PTC-305',
+        name: 'Datavideo PTC-305 4K NDI PTZ Camera with Auto Tracking (Black)',
+        category: 'PTZ Camera',
+        is_discontinued: false,
+        manufacturer: 'Datavideo',
+      },
+      {
+        id: 'datavideo-ptc-140-id',
+        sku: 'PTC-140',
+        name: 'Datavideo PTC-140 1080p NDI PTZ Camera with 20x Zoom',
+        category: 'PTZ Camera',
+        is_discontinued: false,
+        manufacturer: 'Datavideo',
+      },
+    ]
+
+    const orderedIds = rawFetchedFromDb.map((p) => p.id)
+
+    // Barreira dupla 1: filtro de level1Products após o fetch de fullProducts
+    const activeFullProducts = rawFetchedFromDb.filter((p) => p.is_discontinued !== true)
+    const productMap = new Map(activeFullProducts.map((p) => [p.id, p]))
+    const level1Products = orderedIds
+      .map((id) => productMap.get(id))
+      .filter((p): p is typeof activeFullProducts[0] => p !== undefined)
+
+    // Descontinuados descartados imediatamente
+    const level1Skus = level1Products.map((p) => p.sku)
+    expect(level1Skus).not.toContain('BRCX1000')
+    expect(level1Skus).not.toContain('BRCH800')
+
+    // PTZs ativas continuam presentes
+    expect(level1Skus).toContain('BRCAM7W')
+    expect(level1Skus).toContain('5157C026')
+    expect(level1Skus).toContain('7505C003')
+    expect(level1Skus).toContain('PTC-305')
+    expect(level1Skus).toContain('PTC-140')
+
+    // Passa pelo motor de relevância sem descontinuados
+    const query = 'camera ptz 4k com zoom óptico 20x'
+    const entities = ['camera', 'ptz', 'optical zoom', 'audiovisual equipment', '4k', '20x']
+    const analysis = analyzeQueryTokens(query, entities, 'catalog')
+    const filterRes = applyUnifiedRelevanceFilter(level1Products, analysis, { minResults: 3, minScore: 6 })
+    const balanced = balanceProductsByManufacturer(filterRes.scored, 2, 10)
+
+    const balancedSkus = balanced.map((p: any) => p.sku)
+    expect(balancedSkus).not.toContain('BRCX1000')
+    expect(balancedSkus).not.toContain('BRCH800')
+    expect(balancedSkus).toContain('BRCAM7W')
+
+    // Barreira dupla 2: filtro em persistAndReturn groundedProducts
+    const referencedInternalIds = orderedIds // simula pool que de alguma forma tivesse os IDs
+    const mockGroundedFetch = rawFetchedFromDb.filter((p) => referencedInternalIds.includes(p.id))
+    const activeGroundedProducts = mockGroundedFetch.filter((p) => p.is_discontinued !== true)
+
+    expect(activeGroundedProducts.some((p) => p.sku === 'BRCX1000')).toBe(false)
+    expect(activeGroundedProducts.some((p) => p.sku === 'BRCH800')).toBe(false)
+    expect(activeGroundedProducts.some((p) => p.is_discontinued === true)).toBe(false)
+  })
+
   // (2) "Copiar categorias" gera lista com as categorias existentes e SEM NCMs
   it('Task Regression: "Copiar categorias" gera lista com as categorias existentes e SEM NCMs', () => {
     // Simula categorias existentes

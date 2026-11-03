@@ -1519,9 +1519,12 @@ Deno.serve(async (req: Request) => {
       JSON.stringify({
         status: 'ok',
         function: 'classify-ncm',
-        version: '3.8.0-build.653',
+        version: '3.8.0-build.655',
         knowledge_base_version: '4.0',
         features: [
+          'bilingual_category_bridge',
+          'category_acceptable_ncms_injection',
+          'imp_sim_server_side_category_resolution',
           'current_ncm_assessment',
           'ncm_support_layer',
           'knowledge_layer_direct_acceptance',
@@ -1679,10 +1682,13 @@ Deno.serve(async (req: Request) => {
   // 3. Senão, campo category enviado no payload
   // 4. Senão, nenhuma ("")
   let effectiveCategory = rawRequestCategory
+  let effectiveCategoryId: string | null = null
   let effectiveCategoryOrigin:
     | 'linked_category'
     | 'product_legacy_category'
     | 'request_payload'
+    | 'imp_sim_link'
+    | 'imp_sim_sku'
     | 'none' = rawRequestCategory ? 'request_payload' : 'none'
 
   if (productId) {
@@ -1702,6 +1708,7 @@ Deno.serve(async (req: Request) => {
             .maybeSingle()
           if (catRow && catRow.name && catRow.name.trim()) {
             effectiveCategory = catRow.name.trim()
+            effectiveCategoryId = catRow.id || null
             effectiveCategoryOrigin = 'linked_category'
           }
         }
@@ -1712,6 +1719,90 @@ Deno.serve(async (req: Request) => {
       }
     } catch (prodCatErr) {
       console.warn('Aviso: falha não-fatal ao resolver categoria do produto:', prodCatErr)
+    }
+  }
+
+  // (3) RESOLUÇÃO SERVER-SIDE PARA IMP_SIM (OPÇÃO A APROVADA PELO TIME MW MP):
+  // Quando a chamada traz imp_sim_product_id, resolver a categoria do produto do MW MP Administrativo
+  // no próprio servidor — primeiro pelo vínculo source_site_product_id → products.category_id → categories.name;
+  // fallback por SKU normalizado SOMENTE se não houver vínculo E o SKU casar com EXATAMENTE UM produto do site
+  // (match múltiplo ou inexistente → sem categoria herdada, mantendo o comportamento atual por texto+embeddings).
+  // A origem fica registrada em effective_category_origin ('imp_sim_link' / 'imp_sim_sku' / 'none').
+  if (!effectiveCategory && impSimProductId) {
+    try {
+      const { data: impRow } = await supabaseAdmin
+        .from('imp_sim_products')
+        .select('id, name, source_site_product_id, sku')
+        .eq('id', impSimProductId)
+        .maybeSingle()
+
+      if (impRow) {
+        if (impRow.source_site_product_id) {
+          const { data: linkedProd } = await supabaseAdmin
+            .from('products')
+            .select('id, category_id')
+            .eq('id', impRow.source_site_product_id)
+            .maybeSingle()
+          if (linkedProd?.category_id) {
+            const { data: impCatRow } = await supabaseAdmin
+              .from('categories')
+              .select('id, name')
+              .eq('id', linkedProd.category_id)
+              .maybeSingle()
+            if (impCatRow?.name && impCatRow.name.trim()) {
+              effectiveCategory = impCatRow.name.trim()
+              effectiveCategoryId = impCatRow.id || null
+              effectiveCategoryOrigin = 'imp_sim_link'
+            }
+          }
+        }
+        if (!effectiveCategory && impRow.sku && String(impRow.sku).trim()) {
+          const normSku = (s: string) =>
+            String(s || '')
+              .toUpperCase()
+              .replace(/[^A-Z0-9]/g, '')
+          const impSkuNorm = normSku(String(impRow.sku))
+          if (impSkuNorm) {
+            let skuCandidates: any[] = []
+            const { data: exactSkuRows } = await supabaseAdmin
+              .from('products')
+              .select('id, sku, category_id')
+              .eq('sku', String(impRow.sku).trim())
+              .limit(5)
+            skuCandidates = exactSkuRows || []
+            if (skuCandidates.length === 0) {
+              const { data: likeSkuRows } = await supabaseAdmin
+                .from('products')
+                .select('id, sku, category_id')
+                .ilike('sku', `%${impSkuNorm}%`)
+                .limit(20)
+              skuCandidates = (likeSkuRows || []).filter((r: any) => normSku(r.sku) === impSkuNorm)
+            }
+            const distinctSkuIds = new Set(skuCandidates.map((r: any) => r.id))
+            if (distinctSkuIds.size === 1) {
+              const onlyMatch = skuCandidates[0]
+              if (onlyMatch?.category_id) {
+                const { data: skuCatRow } = await supabaseAdmin
+                  .from('categories')
+                  .select('id, name')
+                  .eq('id', onlyMatch.category_id)
+                  .maybeSingle()
+                if (skuCatRow?.name && skuCatRow.name.trim()) {
+                  effectiveCategory = skuCatRow.name.trim()
+                  effectiveCategoryId = skuCatRow.id || null
+                  effectiveCategoryOrigin = 'imp_sim_sku'
+                }
+              }
+            } else if (distinctSkuIds.size > 1) {
+              console.warn(
+                `[classify-ncm: imp_sim SKU fallback] SKU ${impRow.sku} casou com ${distinctSkuIds.size} produtos do site — sem categoria herdada (match múltiplo).`,
+              )
+            }
+          }
+        }
+      }
+    } catch (impSimCatErr) {
+      console.warn('Aviso: falha não-fatal ao resolver categoria do produto imp_sim:', impSimCatErr)
     }
   }
 
@@ -1844,6 +1935,23 @@ Deno.serve(async (req: Request) => {
         .map((t) => t.trim())
         .filter((t) => t.length >= 3 && !/^(para|com|sem|das|dos|the|and|for|with|pro)$/i.test(t))
 
+      // (1) PONTE BILÍNGUE DE CATEGORIA (EN↔PT) POR RADICAL GENÉRICO:
+      // As categorias do catálogo do site são em inglês e as famílias da ncm_support em português.
+      // Sem a ponte, 'Tripods & Rigs', 'Lenses', 'Monitors', 'Recorders' e 'Cables & Connectors'
+      // não casam por categoria e caem apenas no match textual. Equivalências genéricas por radical —
+      // sem listas por marca ou produto.
+      const bilingualCategoryRadicals: Array<{ en: string; pt: string }> = [
+        { en: 'tripod', pt: 'tripe' },
+        { en: 'monopod', pt: 'monope' },
+        { en: 'lens', pt: 'objetiva' },
+        { en: 'recorder', pt: 'gravador' },
+        { en: 'cable', pt: 'cabo' },
+        { en: 'connector', pt: 'conector' },
+        { en: 'microphone', pt: 'microfone' },
+        { en: 'switcher', pt: 'misturador' },
+        { en: 'light', pt: 'iluminac' },
+      ]
+
       const { data: allSupportRows, error: suppErr } = await supabaseAdmin
         .from('ncm_support')
         .select(
@@ -1867,13 +1975,34 @@ Deno.serve(async (req: Request) => {
           const rowMainNcm = normalizeNcm(row.ncm_principal || '')
 
           // CASAMENTO POR CATEGORIA EFETIVA (status = 'ativa'):
-          // Similaridade por termos entre effectiveCategory e row.familia (ou row.categoria)
+          // Similaridade por termos entre effectiveCategory e row.familia / row.categoria /
+          // row.palavras_chave (ponte bilíngue EN↔PT por radical genérico).
           if (effectiveCategoryTerms.length > 0 && row.status === 'ativa') {
+            const kwNorms = kwList.map((k: string) =>
+              String(k || '')
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, ''),
+            )
+            const rowHaystacks = [famNorm, catNorm, ...kwNorms].filter(Boolean)
             let catTermHits = 0
             for (const cTerm of effectiveCategoryTerms) {
-              if (famNorm.includes(cTerm) || catNorm.includes(cTerm)) {
-                catTermHits++
+              let termHit = rowHaystacks.some((h) => h.includes(cTerm))
+              if (!termHit) {
+                // Ponte bilíngue: termo EN da categoria casa radical PT da família/palavras_chave
+                // (e vice-versa), sempre por início/contenção de radical — nunca por marca/produto.
+                for (const pair of bilingualCategoryRadicals) {
+                  const catIsEn = cTerm.includes(pair.en)
+                  const catIsPt = cTerm.includes(pair.pt)
+                  if (
+                    (catIsEn && rowHaystacks.some((h) => h.includes(pair.pt))) ||
+                    (catIsPt && rowHaystacks.some((h) => h.includes(pair.en)))
+                  ) {
+                    termHit = true
+                    break
+                  }
+                }
               }
+              if (termHit) catTermHits++
             }
             // Similaridade sem exigir igualdade exata:
             // Se pelo menos 1 termo forte casar (ou match de substring direta)
@@ -2030,6 +2159,144 @@ ${alts}
       targetMachines: compositionAnalysis.targetMachines,
       topN,
     })
+
+    // (2) INJEÇÃO DE ACCEPTABLE_NCMS DA CATEGORIA EFETIVA (categories.acceptable_ncms):
+    // Injetar como candidatos os NCMs aceitáveis da categoria efetiva do produto, com match por prefixo
+    // de 4, 6 ou 8 dígitos (ignorando pontuação), flag própria de origem 'category_acceptable' e alíquotas
+    // resolvidas em imp_sim_tax_rates_effective (com fallback imp_sim_tax_rates), como os demais candidatos.
+    // CAMADA PURAMENTE INDICATIVA: não altera a recomendação, apenas enriquece candidatos e justificativas.
+    const normalizeNcmDigits = (s: any) => String(s || '').replace(/\D/g, '')
+    const categoryAcceptableNcmCodes: string[] = []
+    const injectedAcceptableCodesForLog: string[] = []
+    let categoryAcceptableSourceLabel = ''
+    if (effectiveCategoryId) {
+      try {
+        const { data: catRowAcc } = await supabaseAdmin
+          .from('categories')
+          .select('id, name, acceptable_ncms')
+          .eq('id', effectiveCategoryId)
+          .maybeSingle()
+        if (
+          catRowAcc &&
+          Array.isArray(catRowAcc.acceptable_ncms) &&
+          catRowAcc.acceptable_ncms.length > 0
+        ) {
+          categoryAcceptableNcmCodes = catRowAcc.acceptable_ncms
+            .map((c: any) => normalizeNcmDigits(c))
+            .filter(Boolean)
+          categoryAcceptableSourceLabel = catRowAcc.name || effectiveCategory || ''
+        } else if (effectiveCategory) {
+          const { data: catRowsByName } = await supabaseAdmin
+            .from('categories')
+            .select('id, name, acceptable_ncms')
+            .ilike('name', effectiveCategory)
+            .limit(1)
+          const catByName = (catRowsByName || [])[0]
+          if (
+            catByName &&
+            Array.isArray(catByName.acceptable_ncms) &&
+            catByName.acceptable_ncms.length > 0
+          ) {
+            categoryAcceptableNcmCodes = catByName.acceptable_ncms
+              .map((c: any) => normalizeNcmDigits(c))
+              .filter(Boolean)
+            categoryAcceptableSourceLabel = catByName.name || ''
+            if (!effectiveCategoryId) {
+              effectiveCategoryId = catByName.id || null
+            }
+          }
+        }
+      } catch (accNcmErr) {
+        console.warn('Erro não-fatal ao ler categories.acceptable_ncms:', accNcmErr)
+      }
+    }
+
+    if (categoryAcceptableNcmCodes.length > 0) {
+      // Deduplicar códigos já presentes na lista de candidatos (com ou sem Ex)
+      const existingNcmCodes = new Set(candidates.map((c: any) => normalizeNcmDigits(c.ncm)))
+      const injectedAcceptableCodes: string[] = []
+      for (const rawAccCode of categoryAcceptableNcmCodes) {
+        const accCode = normalizeNcmDigits(rawAccCode)
+        if (!accCode || existingNcmCodes.has(accCode)) continue
+
+        // Match por prefixo de 4, 6 ou 8 dígitos, ignorando pontuação (padrão aprovado no projeto)
+        const accLen = accCode.length
+        const accPrefixLens = accLen >= 8 ? [8, 6, 4] : accLen >= 6 ? [6, 4] : [4]
+        let accTaxRow: any = null
+        try {
+          for (const plen of accPrefixLens) {
+            const prefix = accCode.slice(0, plen)
+            const { data: accRows } = await supabaseAdmin
+              .from('imp_sim_tax_rates_effective')
+              .select('*')
+              .not('ncm', 'is', null)
+              .gte('ncm', prefix)
+              .lt('ncm', `${prefix}\uffff`)
+              .limit(20)
+            const matchingRows = (accRows || []).filter((r: any) =>
+              normalizeNcmDigits(r.ncm).startsWith(prefix),
+            )
+            const exact = matchingRows.find(
+              (r: any) => normalizeNcmDigits(r.ncm) === accCode && !r.ex,
+            )
+            accTaxRow = exact || matchingRows[0] || null
+            if (accTaxRow) break
+          }
+          if (!accTaxRow) {
+            const { data: accBaseRows } = await supabaseAdmin
+              .from('imp_sim_tax_rates')
+              .select('*')
+              .not('ncm', 'is', null)
+              .gte('ncm', accCode.slice(0, 4))
+              .lt('ncm', `${accCode.slice(0, 4)}\uffff`)
+              .limit(30)
+            const exactBase = (accBaseRows || []).find(
+              (r: any) => normalizeNcmDigits(r.ncm) === accCode && !r.ex,
+            )
+            accTaxRow =
+              exactBase ||
+              (accBaseRows || []).find((r: any) => normalizeNcmDigits(r.ncm) === accCode) ||
+              null
+          }
+        } catch (accTaxErr) {
+          console.warn(
+            `Erro não-fatal ao resolver alíquotas do acceptable_ncm ${accCode}:`,
+            accTaxErr,
+          )
+        }
+
+        const accCandidate: any = {
+          ncm: accCode,
+          ex: accTaxRow?.ex || '',
+          ncm_descricao_full:
+            accTaxRow?.ncm_descricao_full ||
+            accTaxRow?.ncm_descricao ||
+            `NCM ${accCode} (aceitável pela categoria ${categoryAcceptableSourceLabel})`,
+          ncm_descricao: accTaxRow?.ncm_descricao || `NCM ${accCode}`,
+          ex_descricao: accTaxRow?.ex_descricao || '',
+          ii_rate: accTaxRow?.ii_rate ?? null,
+          ipi_rate: accTaxRow?.ipi_rate ?? null,
+          pis_rate: accTaxRow?.pis_rate ?? null,
+          cofins_rate: accTaxRow?.cofins_rate ?? null,
+          ii_efetivo: accTaxRow?.ii_efetivo ?? null,
+          has_ex_tarifario: Boolean(accTaxRow?.has_ex_tarifario || accTaxRow?.ex),
+          is_category_acceptable: true,
+          acceptable_origin_category: categoryAcceptableSourceLabel,
+          score: 0.97,
+        }
+        candidates.unshift(accCandidate)
+        injectedAcceptableCodes.push(accCode)
+        injectedAcceptableCodesForLog.push(accCode)
+        existingNcmCodes.add(accCode)
+        console.log(
+          `[classify-ncm: Injeção acceptable_ncms] NCM ${accCode} injetado como candidato (origem category_acceptable, categoria ${categoryAcceptableSourceLabel}).`,
+        )
+      }
+
+      if (injectedAcceptableCodes.length > 0) {
+        ncmSupportPromptBlock = `${ncmSupportPromptBlock}${ncmSupportPromptBlock ? '\n\n' : ''}[NCMs Aceitáveis pela Categoria "${categoryAcceptableSourceLabel}"]: ${injectedAcceptableCodes.join(', ')} — candidatos indicativos adicionais (origem category_acceptable); a escolha final permanece sujeita à função essencial e à revisão humana.`
+      }
+    }
 
     // (c) INJEÇÃO FÍSICA DE CANDIDATOS DA CAMADA DE APOIO (ncm_support):
     // Para cada família casada (por categoria ou por match textual forte/relevante), buscar os códigos
@@ -4366,6 +4633,8 @@ ${candidatesCatalogText}`
       is_target_machine_parts: Boolean(c.is_target_machine_parts),
       is_parts_indirect_linking: Boolean(c.is_parts_indirect_linking),
       matched_parts_ranges: c.matched_parts_ranges || null,
+      is_category_acceptable: Boolean(c.is_category_acceptable),
+      acceptable_origin_category: c.acceptable_origin_category || null,
     }))
 
     // =========================================================================
@@ -4499,6 +4768,9 @@ ${candidatesCatalogText}`
       sufficient_info: sufficiencyCheck.isSufficient,
       effective_category: effectiveCategory || null,
       effective_category_origin: effectiveCategoryOrigin,
+      category_acceptable_ncms: categoryAcceptableNcmCodes,
+      category_acceptable_source: categoryAcceptableSourceLabel || null,
+      category_acceptable_injected: injectedAcceptableCodesForLog,
       matched_family: activeGoverningFamily ? activeGoverningFamily.matchedFamilyName : null,
       ncm_support_divergence: ncmSupportDivergence,
       web_sources: webSources,
@@ -4520,7 +4792,7 @@ ${candidatesCatalogText}`
       composition_analysis: compositionAnalysis,
       checklist_log: checklistLog,
       parts_indirect_logic: partsTelemetry,
-      version: '3.8.0-build.654',
+      version: '3.8.0-build.655',
       timestamp: new Date().toISOString(),
     }
 

@@ -1519,7 +1519,7 @@ Deno.serve(async (req: Request) => {
       JSON.stringify({
         status: 'ok',
         function: 'classify-ncm',
-        version: '3.8.0-build.655',
+        version: '3.8.0-build.656',
         knowledge_base_version: '4.0',
         features: [
           'bilingual_category_bridge',
@@ -1950,6 +1950,10 @@ Deno.serve(async (req: Request) => {
         { en: 'microphone', pt: 'microfone' },
         { en: 'switcher', pt: 'misturador' },
         { en: 'light', pt: 'iluminac' },
+        // Cognatos e pares adicionais genéricos (mesma natureza, grafias EN/PT):
+        { en: 'monitor', pt: 'monitor' },
+        { en: 'battery', pt: 'bateria' },
+        { en: 'charger', pt: 'carregador' },
       ]
 
       const { data: allSupportRows, error: suppErr } = await supabaseAdmin
@@ -1999,6 +2003,16 @@ Deno.serve(async (req: Request) => {
                   ) {
                     termHit = true
                     break
+                  }
+                }
+                if (!termHit) {
+                  // Fallback genérico de plural: 'monitors' -> 'monitor', 'lenses' -> 'lens',
+                  // 'cables' -> 'cabl', 'recorders' -> 'recorder'. Radical de no mínimo 4
+                  // caracteres contra os mesmos haystacks (família/categoria/palavras_chave),
+                  // sempre por contenção de radical — nunca por marca ou produto específico.
+                  const radicalTerm = cTerm.replace(/(es|s)$/, '')
+                  if (radicalTerm.length >= 4 && radicalTerm !== cTerm) {
+                    termHit = rowHaystacks.some((h) => h.includes(radicalTerm))
                   }
                 }
               }
@@ -4792,7 +4806,7 @@ ${candidatesCatalogText}`
       composition_analysis: compositionAnalysis,
       checklist_log: checklistLog,
       parts_indirect_logic: partsTelemetry,
-      version: '3.8.0-build.655',
+      version: '3.8.0-build.656',
       timestamp: new Date().toISOString(),
     }
 

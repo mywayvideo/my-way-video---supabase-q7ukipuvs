@@ -82,6 +82,7 @@ import {
 } from 'lucide-react'
 import { toast } from '@/hooks/use-toast'
 import { useDebounce } from '@/hooks/use-debounce'
+import { useUserRole } from '@/hooks/use-user-role'
 import { cn } from '@/lib/utils'
 
 const PAGE_SIZE = 50
@@ -89,6 +90,11 @@ const PAGE_SIZE = 50
 type ViewFilterTab = 'all' | 'triage_queue' | 'no_category' | 'assigned'
 
 export function AdminCategoriesPage() {
+  // Perfil do usuário: o CRUD de categorias é exclusivo do admin.
+  // O bloqueio efetivo é do banco (RLS); aqui só evitamos oferecer o botão.
+  const { isAdmin, isReviewer, loading: roleLoading } = useUserRole()
+  const canManageCategories = isAdmin
+
   // Estado das Métricas e Categorias
   const [metrics, setMetrics] = useState<CategoryOverviewMetrics | null>(null)
   const [loadingMetrics, setLoadingMetrics] = useState(true)
@@ -611,18 +617,44 @@ export function AdminCategoriesPage() {
   }
 
   const handleOpenCreateCategory = () => {
+    if (!canManageCategories) {
+      toast({
+        title: 'Ação restrita ao administrador',
+        description:
+          'Seu perfil é de revisor: você classifica produtos e indica mudanças, mas criar categorias exige um administrador.',
+        variant: 'destructive',
+      })
+      return
+    }
     setEditingCategory(null)
     setEditDialogOpen(true)
   }
 
   const handleOpenEditCategory = (cat: CategorySummaryGroup, e: React.MouseEvent) => {
     e.stopPropagation()
+    if (!canManageCategories) {
+      toast({
+        title: 'Ação restrita ao administrador',
+        description:
+          'Seu perfil é de revisor: editar nome, NCMs aceitáveis ou status da categoria exige um administrador.',
+        variant: 'destructive',
+      })
+      return
+    }
     setEditingCategory(cat)
     setEditDialogOpen(true)
   }
 
   const handleDeleteCategoryPrompt = (cat: CategorySummaryGroup, e: React.MouseEvent) => {
     e.stopPropagation()
+    if (!canManageCategories) {
+      toast({
+        title: 'Ação restrita ao administrador',
+        description: 'Seu perfil é de revisor: excluir categorias exige um administrador.',
+        variant: 'destructive',
+      })
+      return
+    }
     setDeleteCandidate(cat)
   }
 
@@ -859,6 +891,21 @@ export function AdminCategoriesPage() {
   return (
     <AdminLayout breadcrumb="Gerenciamento de Categorias">
       <div className="space-y-6 pb-12">
+        {/* Aviso de perfil: revisor só classifica, não faz CRUD de categoria */}
+        {!roleLoading && isReviewer && (
+          <div className="flex items-start gap-3 rounded-lg border border-blue-500/30 bg-blue-500/10 px-4 py-3">
+            <ShieldCheck className="w-5 h-5 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+            <div className="text-sm">
+              <p className="font-medium text-foreground">Perfil: Revisor de Categorias e NCMs</p>
+              <p className="text-muted-foreground mt-0.5">
+                Você pode confirmar e trocar a categoria dos produtos, fazer migração em massa e
+                exportar listas. Criar, editar ou excluir categorias e alterar NCMs exige um
+                administrador — o banco recusa essas operações para o seu perfil.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Cabeçalho da Página */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b pb-4">
           <div>
@@ -931,10 +978,12 @@ export function AdminCategoriesPage() {
               />
               Atualizar
             </Button>
-            <Button size="sm" onClick={handleOpenCreateCategory}>
-              <Plus className="w-4 h-4 mr-2" />
-              Nova Categoria
-            </Button>
+            {canManageCategories && (
+              <Button size="sm" onClick={handleOpenCreateCategory}>
+                <Plus className="w-4 h-4 mr-2" />
+                Nova Categoria
+              </Button>
+            )}
           </div>
         </div>
 
@@ -1099,26 +1148,28 @@ export function AdminCategoriesPage() {
                     <span className="font-semibold text-xs truncate leading-snug" title={cat.name}>
                       {cat.name}
                     </span>
-                    <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6 text-muted-foreground hover:text-foreground"
-                        onClick={(e) => handleOpenEditCategory(cat, e)}
-                        title="Editar categoria e NCMs aceitáveis"
-                      >
-                        <Edit2 className="w-3 h-3" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6 text-muted-foreground hover:text-destructive"
-                        onClick={(e) => handleDeleteCategoryPrompt(cat, e)}
-                        title="Excluir categoria"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </Button>
-                    </div>
+                    {canManageCategories && (
+                      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                          onClick={(e) => handleOpenEditCategory(cat, e)}
+                          title="Editar categoria e NCMs aceitáveis"
+                        >
+                          <Edit2 className="w-3 h-3" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                          onClick={(e) => handleDeleteCategoryPrompt(cat, e)}
+                          title="Excluir categoria"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </Button>
+                      </div>
+                    )}
                   </div>
 
                   {/* Badges de contagem e NCMs */}
@@ -2017,18 +2068,20 @@ export function AdminCategoriesPage() {
                     >
                       Ver produtos
                     </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                      onClick={(e) => {
-                        setCategoriesListModalOpen(false)
-                        handleOpenEditCategory(cat, e)
-                      }}
-                      title="Editar categoria e NCMs aceitáveis"
-                    >
-                      <Edit2 className="w-3.5 h-3.5" />
-                    </Button>
+                    {canManageCategories && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                        onClick={(e) => {
+                          setCategoriesListModalOpen(false)
+                          handleOpenEditCategory(cat, e)
+                        }}
+                        title="Editar categoria e NCMs aceitáveis"
+                      >
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </Button>
+                    )}
                   </div>
                 </div>
               ))}

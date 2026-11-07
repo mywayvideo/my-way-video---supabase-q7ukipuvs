@@ -1,11 +1,24 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase/client'
 
+/**
+ * Papéis do sistema:
+ *  - admin    : acesso completo (CRUD de categorias e produtos)
+ *  - reviewer : Revisor de Categorias e NCMs — lê tudo, classifica produtos,
+ *               exporta listas, mas NÃO cria/edita/exclui categoria nem produto.
+ *
+ * O bloqueio real é feito no banco (RLS). Este hook existe para a UI não
+ * oferecer botões que o banco irá recusar.
+ */
+export type UserRole = 'admin' | 'reviewer' | 'customer' | null
+
 export function useUserRole() {
-  const [role, setRole] = useState<string | null>(null)
+  const [role, setRole] = useState<UserRole>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    let mounted = true
+
     const fetchRole = async () => {
       try {
         const timeoutPromise = new Promise<{ user: any }>((resolve) => {
@@ -17,6 +30,8 @@ export function useUserRole() {
           .catch(() => ({ user: null }))
 
         const { user } = await Promise.race([getUserPromise, timeoutPromise])
+
+        if (!mounted) return
 
         if (!user) {
           setRole(null)
@@ -30,13 +45,14 @@ export function useUserRole() {
           .eq('user_id', user.id)
           .maybeSingle()
 
+        if (!mounted) return
         if (!error && data) {
-          setRole(data.role)
+          setRole((data.role as UserRole) ?? 'customer')
         }
       } catch (err) {
         console.error('Error fetching user role:', err)
       } finally {
-        setLoading(false)
+        if (mounted) setLoading(false)
       }
     }
 
@@ -53,9 +69,15 @@ export function useUserRole() {
     })
 
     return () => {
+      mounted = false
       subscription.unsubscribe()
     }
   }, [])
 
-  return { role, loading }
+  const isAdmin = role === 'admin'
+  const isReviewer = role === 'reviewer'
+  /** Staff = admin ou reviewer (ambos enxergam o painel administrativo). */
+  const isStaff = isAdmin || isReviewer
+
+  return { role, loading, isAdmin, isReviewer, isStaff }
 }

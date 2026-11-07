@@ -5,9 +5,27 @@ import { supabase } from '@/lib/supabase/client'
 import { Loader2 } from 'lucide-react'
 import { clearOrphanSession, markSessionExpiredNotice } from '@/utils/session-utils'
 
-export default function ProtectedRoute({ children }: { children: React.ReactNode }) {
+type AllowedRole = 'admin' | 'reviewer'
+
+/**
+ * Protege rotas administrativas.
+ *
+ * Por padrão exige `admin` (comportamento histórico). Rotas que também devem
+ * aceitar o Revisor de Categorias e NCMs passam `allow="staff"`.
+ *
+ * A restrição é de INTERFACE. O bloqueio efetivo de gravação é do banco (RLS):
+ * o perfil `reviewer` não tem policy de INSERT/UPDATE/DELETE em categories nem
+ * em products.
+ */
+export default function ProtectedRoute({
+  children,
+  allow = 'admin',
+}: {
+  children: React.ReactNode
+  allow?: AllowedRole | 'staff'
+}) {
   const { currentUser: user, loading: authLoading } = useAuthContext()
-  const [isAdmin, setIsAdmin] = useState<boolean | null>(null)
+  const [role, setRole] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [sessionInvalid, setSessionInvalid] = useState(false)
 
@@ -18,13 +36,13 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
 
     if (!user) {
       if (isMounted) {
-        setIsAdmin(false)
+        setRole(null)
         setLoading(false)
       }
       return
     }
 
-    const checkAdminStatus = async () => {
+    const checkRole = async () => {
       try {
         // Validação com timeout de 8s no servidor
         const roleTimeoutPromise = new Promise<any>((_, reject) => {
@@ -42,7 +60,7 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
         if (error) throw error
 
         if (isMounted) {
-          setIsAdmin(data?.role === 'admin')
+          setRole((data?.role as string) ?? 'customer')
         }
       } catch (error: any) {
         console.error('Error fetching user role:', error)
@@ -60,7 +78,7 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
           }
         }
         if (isMounted) {
-          setIsAdmin(false)
+          setRole(null)
         }
       } finally {
         if (isMounted) {
@@ -69,12 +87,12 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
       }
     }
 
-    checkAdminStatus()
+    checkRole()
 
     return () => {
       isMounted = false
     }
-  }, [user, authLoading])
+  }, [user, authLoading, allow])
 
   if (sessionInvalid) {
     return <Navigate to="/login" replace />
@@ -88,7 +106,9 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
     )
   }
 
-  if (!isAdmin) {
+  const allowed = allow === 'staff' ? role === 'admin' || role === 'reviewer' : role === allow
+
+  if (!allowed) {
     return <Navigate to="/" replace />
   }
 

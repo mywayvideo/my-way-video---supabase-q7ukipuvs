@@ -32,8 +32,8 @@ import { cn } from '@/lib/utils'
  *   3. Faça tudo no mesmo commit da feature.
  */
 
-export const HELP_VERSION = 'v0.0.745'
-export const HELP_LAST_UPDATED = '04/11/2026'
+export const HELP_VERSION = 'v0.0.746'
+export const HELP_LAST_UPDATED = '07/11/2026'
 
 export type HelpBlockType =
   | 'paragraph'
@@ -224,10 +224,41 @@ export const CATEGORIES_HELP_TOPICS: HelpTopic[] = [
     ],
   },
   {
+    id: 'perfis-permissoes',
+    icon: '🔐',
+    title: 'Perfis de acesso: administrador e revisor',
+    blocks: [
+      {
+        type: 'paragraph',
+        text: 'O módulo distingue dois perfis. O bloqueio é feito no BANCO DE DADOS (RLS), não apenas na tela: esconder um botão não é proteção — o banco recusa a operação de qualquer forma.',
+      },
+      {
+        type: 'bullets',
+        items: [
+          'Administrador (role = admin): acesso completo. Cria, renomeia, desativa e exclui categorias, ajusta os NCMs aceitáveis e edita produtos, incluindo o NCM.',
+          'Revisor de Categorias e NCMs (role = reviewer): confirma e troca a categoria dos produtos na fila de triagem e na tabela, executa migração em massa e exporta listas. NÃO cria, renomeia, desativa nem exclui categorias, e NÃO altera NCM, preço ou qualquer outro dado do produto.',
+          'Cliente (role = customer): não acessa o painel administrativo.',
+        ],
+      },
+      {
+        type: 'warning',
+        text: 'Para o revisor, os botões "Nova Categoria", lápis e lixeira não aparecem — e, se a operação for tentada por outro caminho, o banco devolve erro de permissão. O perfil é gravado em customers.role e só um administrador pode alterá-lo.',
+      },
+      {
+        type: 'info',
+        text: 'Como o revisor não pode corrigir NCM, a revisão de NCM é sempre indicativa: ele registra o NCM correto e a justificativa, e o administrador aplica no cadastro do produto.',
+      },
+    ],
+  },
+  {
     id: 'crud',
     icon: '🛠️',
     title: 'CRUD de categorias (criar, editar, excluir)',
     blocks: [
+      {
+        type: 'paragraph',
+        text: 'Disponível APENAS para o perfil administrador. Para o revisor, os controles de CRUD não são exibidos.',
+      },
       {
         type: 'steps',
         items: [

@@ -15,6 +15,7 @@ import {
   SuggestionConfidence,
 } from '@/services/categoryTriageService'
 import { CategoryEditDialog } from '@/components/admin/CategoryEditDialog'
+import { CategoriesHelpModal } from '@/content/help/categoriesHelp'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -167,6 +168,9 @@ export function AdminCategoriesPage() {
   // Delete Dialog
   const [deleteCandidate, setDeleteCandidate] = useState<CategorySummaryGroup | null>(null)
   const [isDeletingCategory, setIsDeletingCategory] = useState(false)
+
+  // Modal de instruções de uso do módulo
+  const [helpModalOpen, setHelpModalOpen] = useState(false)
 
   // Mapas rápidos
   const categoriesList = useMemo(() => metrics?.categories || [], [metrics])
@@ -874,6 +878,16 @@ export function AdminCategoriesPage() {
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setHelpModalOpen(true)}
+              title="Abre as instruções de uso do módulo (tópicos, passo a passo e regras)"
+              className="gap-1.5"
+            >
+              <HelpCircle className="w-4 h-4 text-muted-foreground" />? Instruções
+            </Button>
+
             <Button
               variant="default"
               size="sm"
@@ -2272,6 +2286,9 @@ export function AdminCategoriesPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Modal de Instruções de Uso do módulo */}
+      <CategoriesHelpModal open={helpModalOpen} onOpenChange={setHelpModalOpen} />
     </AdminLayout>
   )
 }

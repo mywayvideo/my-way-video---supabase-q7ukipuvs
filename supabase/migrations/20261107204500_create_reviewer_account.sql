@@ -30,6 +30,20 @@ DECLARE
   v_user_id uuid;
   v_cust_id uuid;
 BEGIN
+  -- O CHECK constraint original de customers.role só aceitava 'admin' e
+  -- 'customer'. Sem ampliá-lo, o INSERT do perfil reviewer falha com 23514.
+  IF EXISTS (
+    SELECT 1 FROM pg_constraint
+     WHERE conrelid = 'public.customers'::regclass
+       AND conname  = 'customers_role_check'
+  ) THEN
+    ALTER TABLE public.customers DROP CONSTRAINT customers_role_check;
+  END IF;
+
+  ALTER TABLE public.customers
+    ADD CONSTRAINT customers_role_check
+    CHECK (role IS NULL OR role IN ('admin', 'reviewer', 'customer'));
+
   SELECT id INTO v_user_id FROM auth.users WHERE lower(email) = v_email LIMIT 1;
 
   IF v_user_id IS NULL THEN

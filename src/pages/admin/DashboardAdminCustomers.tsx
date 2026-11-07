@@ -124,16 +124,30 @@ export function DashboardAdminCustomers(props: any) {
                       variant={
                         customer.role === 'admin'
                           ? 'default'
-                          : customer.role === 'collaborator'
+                          : customer.role === 'reviewer'
                             ? 'secondary'
-                            : 'outline'
+                            : customer.role === 'collaborator'
+                              ? 'secondary'
+                              : 'outline'
+                      }
+                      className={
+                        customer.role === 'reviewer'
+                          ? 'bg-blue-500/10 text-blue-600 hover:bg-blue-500/20 border-blue-500/30'
+                          : ''
+                      }
+                      title={
+                        customer.role === 'reviewer'
+                          ? 'Revisor de Conteúdo — classifica o catálogo, sem CRUD de categorias'
+                          : undefined
                       }
                     >
                       {customer.role === 'admin'
                         ? 'Admin'
-                        : customer.role === 'collaborator'
-                          ? 'Colaborador'
-                          : 'Cliente'}
+                        : customer.role === 'reviewer'
+                          ? 'Revisor'
+                          : customer.role === 'collaborator'
+                            ? 'Colaborador'
+                            : 'Cliente'}
                     </Badge>
                   </TableCell>
                   <TableCell>

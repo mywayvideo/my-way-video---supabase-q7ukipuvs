@@ -205,6 +205,7 @@ export function EditCustomerModal({ open, onOpenChange, customer, setCustomer, o
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="admin">Admin</SelectItem>
+                        <SelectItem value="reviewer">Revisor de Conteúdo</SelectItem>
                         <SelectItem value="collaborator">Colaborador</SelectItem>
                         <SelectItem value="customer">Cliente</SelectItem>
                       </SelectContent>

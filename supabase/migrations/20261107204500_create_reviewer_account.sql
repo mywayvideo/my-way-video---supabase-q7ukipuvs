@@ -22,7 +22,9 @@
 DO $$
 DECLARE
   v_email   text := 'lara.revisora@mywayvideo.com';
-  v_name    text := 'Lara — Revisora de Conteúdo';
+  -- Nome em ASCII simples: o gatilho validate_customer_signup recusa
+  -- caracteres "incomuns" (travessão, acentos) no full_name do cadastro.
+  v_name    text := 'Lara Revisora';
   -- bcrypt (custo 10) da senha entregue ao proprietário
   v_hash    text := '$2b$10$r9L1h/wL21ndbMxws0MFtuLj0tjiTAyfj/f2o4VSoUkYMb13WMZ.e';
   v_user_id uuid;

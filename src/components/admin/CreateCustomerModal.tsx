@@ -65,6 +65,7 @@ export function CreateCustomerModal({ open, onOpenChange, customer, setCustomer,
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="admin">Admin</SelectItem>
+                  <SelectItem value="reviewer">Revisor de Conteúdo</SelectItem>
                   <SelectItem value="collaborator">Colaborador</SelectItem>
                   <SelectItem value="customer">Cliente</SelectItem>
                 </SelectContent>

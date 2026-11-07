@@ -243,6 +243,9 @@ export const categoryService = {
     categoryName: string,
   ): Promise<void> {
     const nowIso = new Date().toISOString()
+
+    // A trilha de auditoria (category_audit_log) é gravada por gatilho no banco:
+    // ela registra quem, quando e de→para sem depender do cliente.
     const { error } = await supabase
       .from('products')
       .update({

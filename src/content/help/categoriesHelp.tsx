@@ -32,7 +32,7 @@ import { cn } from '@/lib/utils'
  *   3. Faça tudo no mesmo commit da feature.
  */
 
-export const HELP_VERSION = 'v0.0.746'
+export const HELP_VERSION = 'v0.0.747'
 export const HELP_LAST_UPDATED = '07/11/2026'
 
 export type HelpBlockType =
@@ -220,6 +220,30 @@ export const CATEGORIES_HELP_TOPICS: HelpTopic[] = [
       {
         type: 'info',
         text: 'A seleção em massa funciona em todas as abas, não só na fila de triagem. A seleção é limpa após a migração ou ao trocar de aba/página.',
+      },
+    ],
+  },
+  {
+    id: 'auditoria',
+    icon: '📋',
+    title: 'Trilha de auditoria das mudanças de categoria',
+    blocks: [
+      {
+        type: 'paragraph',
+        text: 'Toda mudança de categoria de um produto fica registrada automaticamente, para qualquer perfil — admin ou revisor. O registro guarda quem alterou, quando, de qual categoria para qual e o motivo informado.',
+      },
+      {
+        type: 'bullets',
+        items: [
+          'Tabela category_audit_log: histórico completo, somente leitura.',
+          'View v_category_audit_recent: últimas mudanças com o nome legível das categorias (de → para).',
+          'O histórico é append-only: não é possível editar nem apagar um registro, nem por um administrador.',
+          'Se a categoria for alterada sem motivo informado, o registro existe mesmo assim, com o campo de motivo vazio.',
+        ],
+      },
+      {
+        type: 'info',
+        text: 'Para auditar o trabalho do perfil revisor, filtre por changed_role = reviewer. Isso mostra exatamente o que foi classificado pela revisão, quando e com qual justificativa.',
       },
     ],
   },

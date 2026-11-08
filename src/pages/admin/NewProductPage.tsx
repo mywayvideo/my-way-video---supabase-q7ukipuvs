@@ -58,6 +58,7 @@ import {
 import { Label } from '@/components/ui/label'
 import { supabase } from '@/lib/supabase/client'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { ProductFormHelpModal } from '@/content/help/productFormHelp'
 
 export default function NewProductPage() {
   const navigate = useNavigate()
@@ -73,6 +74,7 @@ export default function NewProductPage() {
   const [imageUploadError, setImageUploadError] = useState<string | null>(null)
   const [localPreviewUrl, setLocalPreviewUrl] = useState<string | null>(null)
   const [isNcmSuggestOpen, setIsNcmSuggestOpen] = useState(false)
+  const [isHelpOpen, setIsHelpOpen] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const { toast } = useToast()
 
@@ -335,7 +337,21 @@ export default function NewProductPage() {
             Catálogo / {isEditMode ? 'Editar' : 'Adicionar'} produto
           </p>
         </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="ml-auto h-9 text-xs gap-1.5 shrink-0"
+          onClick={() => setIsHelpOpen(true)}
+          aria-label="Abrir instruções de uso do formulário de produto"
+        >
+          ? Instruções
+        </Button>
       </div>
+
+      {/* Modal de instruções de uso do formulário (conteúdo centralizado em
+          src/content/help/productFormHelp.tsx — mesma convenção do categoriesHelp) */}
+      <ProductFormHelpModal open={isHelpOpen} onOpenChange={setIsHelpOpen} />
 
       <Card>
         <CardHeader>

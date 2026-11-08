@@ -26,32 +26,72 @@ import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { useAuthContext } from '@/contexts/AuthContext'
 import { cn } from '@/lib/utils'
 import { useSidebarVisibility } from '@/hooks/use-sidebar-state'
+import { useUserRole, type UserRole } from '@/hooks/use-user-role'
 
-const navigation = [
-  { name: 'Dashboard', href: '/admin', icon: LayoutDashboard },
-  { name: 'Gerenciamento de Pedidos', href: '/admin/orders', icon: ShoppingCart },
-  { name: 'Gerenciar Clientes', href: '/admin/customers', icon: Users },
-  { name: 'Métricas e Relatórios', href: '/admin/metrics', icon: BarChart3 },
-  { name: 'IA & Inteligência Artificial', href: '/admin/ai', icon: Brain },
-  { name: 'Testador de Busca', href: '/admin/search-test', icon: Search },
-  { name: 'Catálogo & Produtos', href: '/admin/catalog', icon: Package },
-  { name: 'Importação ScanSource', href: '/admin/scansource', icon: DollarSign },
-  { name: 'Revisão de Importação', href: '/admin/import-review', icon: CheckCircle2 },
-  { name: 'Gerenciar Categorias', href: '/admin/categories', icon: Tag },
-  { name: 'Central de Duplicidades', href: '/admin/sku-standardization', icon: Sparkles },
-  { name: 'Atualização B&H', href: '/admin/bh-update', icon: RefreshCw },
-  { name: 'Verificação de Preços', href: '/admin/price-checks', icon: RefreshCw },
-  { name: 'Regras Relacionados', href: '/admin/related-rules', icon: Sparkles },
-  { name: 'Revisão Relacionados', href: '/admin/related-review', icon: CheckCircle2 },
-  { name: 'Tabela de Apoio NCM', href: '/admin/ncm-support', icon: BookOpen },
-  { name: 'Cache de Produtos', href: '/admin/product-cache', icon: Database },
-  { name: 'Dicionário AVPRO', href: '/admin/avpro-keywords', icon: Sparkles },
-  { name: 'Market Intelligence', href: '/admin/nab-hub', icon: Sparkles },
-  { name: 'Preços & Câmbio', href: '/admin/pricing', icon: DollarSign },
-  { name: 'Fretes & Shipping', href: '/admin/shipping-config', icon: Truck },
-  { name: 'Descontos & Promoções', href: '/admin/discounts', icon: Tag },
-  { name: 'Configurar Pagamentos', href: '/admin/payment-config', icon: CreditCard },
-  { name: 'Configurações Globais', href: '/admin/settings', icon: Settings },
+/**
+ * Menu do painel administrativo, com o papel exigido por item.
+ *
+ * `roles` lista quem PODE ver o item. A ausência cai em ['admin'], que é o
+ * padrão histórico. Isso evita o problema de o gestor de catálogo ver telas
+ * (pedidos, clientes, pagamentos) cujo conteúdo o banco vai recusar.
+ *
+ * Perfis:
+ *   admin           — vê tudo
+ *   reviewer        — vê categorias (sua função)
+ *   catalog_manager — vê catálogo, importação, B&H, preços, NCM, duplicidades
+ */
+type NavItem = {
+  name: string
+  href: string
+  icon: React.ComponentType<{ className?: string }>
+  roles?: UserRole[]
+}
+
+const ADMIN: UserRole[] = ['admin']
+const CATALOG: UserRole[] = ['admin', 'catalog_manager']
+const REVIEW: UserRole[] = ['admin', 'reviewer']
+const STAFF: UserRole[] = ['admin', 'reviewer', 'catalog_manager']
+
+const navigation: NavItem[] = [
+  { name: 'Dashboard', href: '/admin', icon: LayoutDashboard, roles: ADMIN },
+  { name: 'Gerenciamento de Pedidos', href: '/admin/orders', icon: ShoppingCart, roles: ADMIN },
+  { name: 'Gerenciar Clientes', href: '/admin/customers', icon: Users, roles: ADMIN },
+  { name: 'Métricas e Relatórios', href: '/admin/metrics', icon: BarChart3, roles: ADMIN },
+  { name: 'IA & Inteligência Artificial', href: '/admin/ai', icon: Brain, roles: ADMIN },
+  { name: 'Testador de Busca', href: '/admin/search-test', icon: Search, roles: ADMIN },
+  { name: 'Catálogo & Produtos', href: '/admin/catalog', icon: Package, roles: CATALOG },
+  { name: 'Importação ScanSource', href: '/admin/scansource', icon: DollarSign, roles: ADMIN },
+  {
+    name: 'Revisão de Importação',
+    href: '/admin/import-review',
+    icon: CheckCircle2,
+    roles: CATALOG,
+  },
+  { name: 'Gerenciar Categorias', href: '/admin/categories', icon: Tag, roles: REVIEW },
+  {
+    name: 'Central de Duplicidades',
+    href: '/admin/sku-standardization',
+    icon: Sparkles,
+    roles: CATALOG,
+  },
+  { name: 'Atualização B&H', href: '/admin/bh-update', icon: RefreshCw, roles: CATALOG },
+  { name: 'Verificação de Preços', href: '/admin/price-checks', icon: RefreshCw, roles: CATALOG },
+  { name: 'Regras Relacionados', href: '/admin/related-rules', icon: Sparkles, roles: ADMIN },
+  {
+    name: 'Revisão Relacionados',
+    href: '/admin/related-review',
+    icon: CheckCircle2,
+    roles: CATALOG,
+  },
+  { name: 'Tabela de Apoio NCM', href: '/admin/ncm-support', icon: BookOpen, roles: STAFF },
+  { name: 'Cache de Produtos', href: '/admin/product-cache', icon: Database, roles: ADMIN },
+  { name: 'Dicionário AVPRO', href: '/admin/avpro-keywords', icon: Sparkles, roles: ADMIN },
+  { name: 'Market Intelligence', href: '/admin/nab-hub', icon: Sparkles, roles: ADMIN },
+  { name: 'Preços & Câmbio', href: '/admin/pricing', icon: DollarSign, roles: ADMIN },
+  { name: 'Fretes & Shipping', href: '/admin/shipping-config', icon: Truck, roles: ADMIN },
+  { name: 'Descontos & Promoções', href: '/admin/discounts', icon: Tag, roles: ADMIN },
+  { name: 'Configurar Pagamentos', href: '/admin/payment-config', icon: CreditCard, roles: ADMIN },
+  { name: 'Configurações Globais', href: '/admin/settings', icon: Settings, roles: ADMIN },
 ]
 export function AdminLayout({
   children,
@@ -62,11 +102,16 @@ export function AdminLayout({
 }) {
   const { currentUser: user } = useAuthContext()
   const location = useLocation()
+  const { role } = useUserRole()
   const { isSidebarVisible, toggleSidebar } = useSidebarVisibility()
+
+  // Só os itens que o papel do usuário pode acessar. Enquanto o papel carrega,
+  // a lista sai vazia (o banco continua sendo a barreira real).
+  const visibleNavigation = navigation.filter((item) => (item.roles ?? ADMIN).includes(role))
 
   const NavLinks = () => (
     <div className="flex flex-col gap-2">
-      {navigation.map((item) => {
+      {visibleNavigation.map((item) => {
         const isActive =
           location.pathname === item.href ||
           (item.href !== '/admin' && location.pathname.startsWith(item.href)) ||

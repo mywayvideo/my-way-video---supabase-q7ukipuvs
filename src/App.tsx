@@ -173,7 +173,7 @@ const App = () => {
                     <Route
                       path="/admin/import-review"
                       element={
-                        <ProtectedRoute>
+                        <ProtectedRoute allow="catalog">
                           <AdminImportReviewPage />
                         </ProtectedRoute>
                       }
@@ -221,7 +221,7 @@ const App = () => {
                     <Route
                       path="/admin/price-checks"
                       element={
-                        <ProtectedRoute>
+                        <ProtectedRoute allow="catalog">
                           <AdminPriceChecksPage />
                         </ProtectedRoute>
                       }
@@ -245,7 +245,7 @@ const App = () => {
                     <Route
                       path="/admin/products"
                       element={
-                        <ProtectedRoute>
+                        <ProtectedRoute allow="catalog">
                           <ProductsPage />
                         </ProtectedRoute>
                       }
@@ -253,7 +253,7 @@ const App = () => {
                     <Route
                       path="/products/new"
                       element={
-                        <ProtectedRoute>
+                        <ProtectedRoute allow="catalog">
                           <NewProductPage />
                         </ProtectedRoute>
                       }
@@ -261,7 +261,7 @@ const App = () => {
                     <Route
                       path="/products/edit/:id"
                       element={
-                        <ProtectedRoute>
+                        <ProtectedRoute allow="catalog">
                           <NewProductPage />
                         </ProtectedRoute>
                       }

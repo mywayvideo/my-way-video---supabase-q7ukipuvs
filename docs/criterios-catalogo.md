@@ -8,19 +8,29 @@
 
 ## 1. Escopo do perfil
 
-| Ação                                                                                         | Permitido                                 |
-| -------------------------------------------------------------------------------------------- | ----------------------------------------- |
-| Editar campos de produto (nome, descrição, specs, imagem, preço, NCM, estoque, relacionados) | ✅ Sim                                    |
-| Editar `price_usd`                                                                           | ✅ Sim — com a regra da seção 3           |
-| Aplicar NCM após revisão de coerência                                                        | ✅ Sim                                    |
-| Marcar "Marcar como revisado"                                                                | ✅ Sim, só após conferência real          |
-| Marcar Descontinuado                                                                         | ✅ Sim, com confirmação da B&H/fabricante |
-| **Cadastrar produto novo**                                                                   | ❌ Não — exige admin                      |
-| **Excluir produto**                                                                          | ❌ Não                                    |
-| **Criar/editar/excluir categoria**                                                           | ❌ Não                                    |
-| **Alterar SKU de produto existente**                                                         | ❌ Não — sinalizar ao administrador       |
+| Ação                                                                                         | Permitido                                              |
+| -------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| Editar campos de produto (nome, descrição, specs, imagem, preço, NCM, estoque, relacionados) | ✅ Sim                                                 |
+| Editar `price_usd`                                                                           | ✅ Sim — com a regra da seção 3                        |
+| Aplicar NCM após revisão de coerência                                                        | ✅ Sim                                                 |
+| Marcar "Marcar como revisado"                                                                | ✅ Sim, só após conferência real                       |
+| Marcar Descontinuado                                                                         | ✅ Sim, com confirmação da B&H/fabricante              |
+| **Cadastrar produto novo**                                                                   | ✅ Sim — desde 08/11/2026 (migration `20261108193000`) |
+| **Excluir produto**                                                                          | ❌ Não                                                 |
+| **Criar/editar/excluir categoria**                                                           | ❌ Não                                                 |
+| **Alterar SKU de produto existente**                                                         | ❌ Não — sinalizar ao administrador                    |
 
-O SKU é gravável apenas na criação (que é ato de admin). Em produto existente, o campo está travado por regra de negócio.
+O SKU é gravável na criação (é o identificador do cadastro) e fica travado depois. SKU existente não muda: sinalizar ao administrador.
+
+### O que o banco exige no cadastro (imposto por gatilho, não pela tela)
+
+- `category_id` válido e existente — produto não entra sem categoria
+- `name` não vazio
+- `sku` não vazio (a unicidade é por `manufacturer_id + sku`)
+- `price_usd` não negativo (zero é aceito, mas entra no relatório de pendências)
+- `is_special`, `is_discontinued`, `price_nationalized_currency` têm default
+
+O campo `category` (texto) é **sobrescrito pelo nome real da categoria** apontada por `category_id`. Isso impede o produto de ficar com rótulo divergente da FK.
 
 ---
 

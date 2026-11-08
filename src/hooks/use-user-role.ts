@@ -3,14 +3,18 @@ import { supabase } from '@/lib/supabase/client'
 
 /**
  * Papéis do sistema:
- *  - admin    : acesso completo (CRUD de categorias e produtos)
- *  - reviewer : Revisor de Categorias e NCMs — lê tudo, classifica produtos,
- *               exporta listas, mas NÃO cria/edita/exclui categoria nem produto.
+ *  - admin           : acesso completo (CRUD de categorias e produtos)
+ *  - reviewer        : Revisor de Categorias e NCMs — lê tudo, classifica
+ *                      produtos, exporta listas, mas NÃO cria/edita/exclui
+ *                      categoria nem produto.
+ *  - catalog_manager : Gestor de Catálogo — cadastra e edita produto (inclusive
+ *                      price_usd) e acessa as telas de cadastro/importação.
+ *                      NÃO exclui produto e NÃO mexe em categorias.
  *
  * O bloqueio real é feito no banco (RLS). Este hook existe para a UI não
  * oferecer botões que o banco irá recusar.
  */
-export type UserRole = 'admin' | 'reviewer' | 'customer' | null
+export type UserRole = 'admin' | 'reviewer' | 'catalog_manager' | 'customer' | null
 
 export function useUserRole() {
   const [role, setRole] = useState<UserRole>(null)
@@ -76,8 +80,12 @@ export function useUserRole() {
 
   const isAdmin = role === 'admin'
   const isReviewer = role === 'reviewer'
-  /** Staff = admin ou reviewer (ambos enxergam o painel administrativo). */
-  const isStaff = isAdmin || isReviewer
+  const isCatalogManager = role === 'catalog_manager'
+  /**
+   * Staff = quem enxerga o painel administrativo.
+   * admin, reviewer e catalog_manager.
+   */
+  const isStaff = isAdmin || isReviewer || isCatalogManager
 
-  return { role, loading, isAdmin, isReviewer, isStaff }
+  return { role, loading, isAdmin, isReviewer, isCatalogManager, isStaff }
 }

@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase/client'
 import { Loader2 } from 'lucide-react'
 import { clearOrphanSession, markSessionExpiredNotice } from '@/utils/session-utils'
 
-type AllowedRole = 'admin' | 'reviewer'
+type AllowedRole = 'admin' | 'reviewer' | 'catalog_manager'
 
 /**
  * Protege rotas administrativas.
@@ -13,16 +13,18 @@ type AllowedRole = 'admin' | 'reviewer'
  * Por padrão exige `admin` (comportamento histórico). Rotas que também devem
  * aceitar o Revisor de Categorias e NCMs passam `allow="staff"`.
  *
- * A restrição é de INTERFACE. O bloqueio efetivo de gravação é do banco (RLS):
- * o perfil `reviewer` não tem policy de INSERT/UPDATE/DELETE em categories nem
- * em products.
+ * `allow="catalog"` aceita admin e catalog_manager — usado nas telas de
+ * cadastro/edição de produto e importação, que o gestor de catálogo opera mas
+ * onde o revisor não tem o que fazer.
+ *
+ * A restrição é de INTERFACE. O bloqueio efetivo de gravação é do banco (RLS).
  */
 export default function ProtectedRoute({
   children,
   allow = 'admin',
 }: {
   children: React.ReactNode
-  allow?: AllowedRole | 'staff'
+  allow?: AllowedRole | 'staff' | 'catalog'
 }) {
   const { currentUser: user, loading: authLoading } = useAuthContext()
   const [role, setRole] = useState<string | null>(null)
@@ -106,7 +108,12 @@ export default function ProtectedRoute({
     )
   }
 
-  const allowed = allow === 'staff' ? role === 'admin' || role === 'reviewer' : role === allow
+  const allowed =
+    allow === 'staff'
+      ? role === 'admin' || role === 'reviewer' || role === 'catalog_manager'
+      : allow === 'catalog'
+        ? role === 'admin' || role === 'catalog_manager'
+        : role === allow
 
   if (!allowed) {
     return <Navigate to="/" replace />

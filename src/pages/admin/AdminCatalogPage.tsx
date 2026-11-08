@@ -1914,15 +1914,6 @@ export default function AdminCatalogPage() {
                 onClose={() => setShowRecalcModal(false)}
                 onSuccess={fetchData}
               />
-                </div>
-                </div>
-                </div>
-                </div>
-                </div>
-                </div>
-                </div>
-                </div>
-                </div>
             </TabsContent>
           </Tabs>
         </div>

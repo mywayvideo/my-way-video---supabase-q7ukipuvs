@@ -32,6 +32,7 @@ import {
   RefreshCw,
   Tag,
   Sparkles,
+  ListChecks,
 } from 'lucide-react'
 import { Link, Navigate } from 'react-router-dom'
 import { toast } from '@/hooks/use-toast'
@@ -132,6 +133,8 @@ export default function AdminCatalogPage() {
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [selectedProductIds, setSelectedProductIds] = useState<string[]>([])
+  const [isSelectingAll, setIsSelectingAll] = useState(false)
+  const [isExporting, setIsExporting] = useState(false)
   const [isDeletingBulk, setIsDeletingBulk] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
@@ -449,25 +452,24 @@ export default function AdminCatalogPage() {
     }
   }
 
-  const fetchProductsData = async (searchTerm?: string) => {
-    let pQuery = supabase
-      .from('products')
-      .select('*, manufacturer:manufacturers(*)', { count: 'exact' })
-
+  // Aplica os filtros atuais da tela a qualquer query de products — usado pela listagem,
+  // pelo "Selecionar todos" e pela exportação, garantindo que operem sobre o MESMO conjunto.
+  const applyCatalogFilters = (query: any, searchTerm?: string) => {
+    let q = query
     if (searchTerm && searchTerm.trim()) {
       const safeTerm = searchTerm.trim().replace(/,/g, ' ')
-      pQuery = pQuery.or(
+      q = q.or(
         `name.ilike.%${safeTerm}%,sku.ilike.%${safeTerm}%,description.ilike.%${safeTerm}%`,
       )
     }
 
     if (filterNoImage) {
-      pQuery = pQuery.or('image_url.is.null,image_url.eq.')
+      q = q.or('image_url.is.null,image_url.eq.')
     }
 
     if (filterActiveRebate) {
       const nowIso = new Date().toISOString()
-      pQuery = pQuery.gt('price_usa_rebate', 0).or(`date_rebate.is.null,date_rebate.gte.${nowIso}`)
+      q = q.gt('price_usa_rebate', 0).or(`date_rebate.is.null,date_rebate.gte.${nowIso}`)
     }
 
     if (filterUnreviewedMonths !== 'all') {
@@ -475,9 +477,18 @@ export default function AdminCatalogPage() {
       if (!isNaN(months) && months > 0) {
         const thresholdDate = new Date()
         thresholdDate.setMonth(thresholdDate.getMonth() - months)
-        pQuery = pQuery.lte('last_reviewed_at', thresholdDate.toISOString())
+        q = q.lte('last_reviewed_at', thresholdDate.toISOString())
       }
     }
+
+    return q
+  }
+
+  const fetchProductsData = async (searchTerm?: string) => {
+    let pQuery = applyCatalogFilters(
+      supabase.from('products').select('*, manufacturer:manufacturers(*)', { count: 'exact' }),
+      searchTerm,
+    )
 
     if (sortColumn !== 'brand') {
       pQuery = pQuery.order(sortColumn, { ascending: sortDirection === 'asc', nullsFirst: false })
@@ -594,6 +605,8 @@ export default function AdminCatalogPage() {
   const isAllVisibleSelected =
     filteredProducts.length > 0 && filteredProducts.every((p) => selectedProductIds.includes(p.id))
 
+  const someVisibleSelected = filteredProducts.some((p) => selectedProductIds.includes(p.id))
+
   const toggleSelectAll = () => {
     const currentFilteredIds = filteredProducts.map((p) => p.id)
     if (isAllVisibleSelected) {
@@ -611,6 +624,36 @@ export default function AdminCatalogPage() {
   }
 
   const clearSelection = () => setSelectedProductIds([])
+
+  // Seleciona o conjunto INTEIRO do filtro atual (todas as páginas), buscando os ids
+  // diretamente do banco com os mesmos filtros da listagem.
+  const handleSelectAllFiltered = async () => {
+    setIsSelectingAll(true)
+    try {
+      const q = applyCatalogFilters(supabase.from('products').select('id'), debouncedSearch)
+      const { data, error } = await q
+      if (error) throw error
+      const ids = ((data as { id: string }[] | null) || []).map((r) => r.id)
+      setSelectedProductIds(ids)
+      if (ids.length === 0) {
+        toast({ title: 'Aviso', description: 'Nenhum produto encontrado no filtro atual.' })
+      } else {
+        toast({
+          title: 'Seleção atualizada',
+          description: `${ids.length} produtos selecionados (todas as páginas do filtro atual).`,
+        })
+      }
+    } catch (e) {
+      console.error('Erro ao selecionar todos os produtos do filtro:', e)
+      toast({
+        title: 'Erro',
+        description: 'Não foi possível selecionar todos os produtos. Tente novamente.',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsSelectingAll(false)
+    }
+  }
 
   const handleAddManufacturer = async (name: string) => {
     const { data, error } = await supabase.from('manufacturers').insert({ name }).select().single()
@@ -683,9 +726,39 @@ export default function AdminCatalogPage() {
     }
   }
 
-  const executeExportCSV = () => {
-    const selectedProducts = products.filter((p) => selectedProductIds.includes(p.id))
-    const headers = ALL_EXPORT_FIELDS.filter((f) => selectedExportFields.includes(f))
+  const executeExportCSV = async () => {
+    if (selectedProductIds.length === 0) return
+    setIsExporting(true)
+    try {
+      // Busca do banco TODOS os produtos selecionados (a seleção acumula entre páginas,
+      // então as linhas podem não estar carregadas na página corrente).
+      const CHUNK_SIZE = 500
+      const fetched: Product[] = []
+      for (let i = 0; i < selectedProductIds.length; i += CHUNK_SIZE) {
+        const chunk = selectedProductIds.slice(i, i + CHUNK_SIZE)
+        const { data, error } = await supabase
+          .from('products')
+          .select('*, manufacturer:manufacturers(*)')
+          .in('id', chunk)
+        if (error) throw error
+        if (data) fetched.push(...(data as Product[]))
+      }
+
+      // Mantém a ordem da seleção e descarta ids que não existem mais no banco.
+      const byId = new Map(fetched.map((p) => [p.id, p]))
+      const selectedProducts = selectedProductIds
+        .map((id) => byId.get(id))
+        .filter((p): p is Product => Boolean(p))
+      if (selectedProducts.length === 0) {
+        toast({
+          title: 'Aviso',
+          description: 'Nenhum dos produtos selecionados foi encontrado.',
+          variant: 'destructive',
+        })
+        return
+      }
+
+      const headers = ALL_EXPORT_FIELDS.filter((f) => selectedExportFields.includes(f))
 
     const escapeCsv = (val: any) => {
       if (val === null || val === undefined) return '""'
@@ -703,24 +776,38 @@ export default function AdminCatalogPage() {
         .join(',')
     })
 
-    const csvContent = [headers.join(','), ...csvRows].join('\n')
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
-    const link = document.createElement('a')
-    const url = URL.createObjectURL(blob)
+      const csvContent = [headers.join(','), ...csvRows].join('\n')
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+      const link = document.createElement('a')
+      const url = URL.createObjectURL(blob)
 
-    const now = new Date()
-    const pad = (n: number) => n.toString().padStart(2, '0')
-    const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`
+      const now = new Date()
+      const pad = (n: number) => n.toString().padStart(2, '0')
+      const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`
 
-    link.setAttribute('href', url)
-    link.setAttribute('download', `produtos-export-${timestamp}.csv`)
-    link.style.visibility = 'hidden'
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
+      link.setAttribute('href', url)
+      link.setAttribute('download', `produtos-export-${timestamp}.csv`)
+      link.style.visibility = 'hidden'
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(url)
 
-    toast({ title: 'Sucesso', description: 'Exportação concluída. Arquivo baixado.' })
-    setShowExportModal(false)
+      toast({
+        title: 'Sucesso',
+        description: `Exportação concluída: ${selectedProducts.length} produtos no arquivo.`,
+      })
+      setShowExportModal(false)
+    } catch (e) {
+      console.error('Erro ao exportar CSV:', e)
+      toast({
+        title: 'Erro',
+        description: 'Erro ao exportar CSV. Tente novamente.',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsExporting(false)
+    }
   }
 
   const handleDelete = async (id: string) => {
@@ -1053,6 +1140,24 @@ export default function AdminCatalogPage() {
                   <h2 className="font-semibold text-foreground">
                     Inventário ({filteredProducts.length} itens)
                   </h2>
+                </div>
+                <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleSelectAllFiltered}
+                    disabled={isSelectingAll}
+                    className="h-9 whitespace-nowrap"
+                    title="Seleciona todos os produtos do filtro atual, incluindo todas as páginas"
+                  >
+                    {isSelectingAll ? (
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    ) : (
+                      <ListChecks className="w-4 h-4 mr-2" />
+                    )}
+                    Selecionar todos
+                  </Button>
+                  <div className="flex items-center gap-2">
                   <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
                     <div className="flex items-center gap-2">
                       <Select
@@ -1223,7 +1328,13 @@ export default function AdminCatalogPage() {
                         <TableHead className="sticky left-0 z-20 w-[280px] min-w-[280px] max-w-[320px] bg-card shadow-[2px_0_6px_-2px_rgba(0,0,0,0.12)]">
                           <div className="flex items-center gap-3">
                             <Checkbox
-                              checked={isAllVisibleSelected}
+                              checked={
+                                isAllVisibleSelected
+                                  ? true
+                                  : someVisibleSelected
+                                    ? 'indeterminate'
+                                    : false
+                              }
                               onCheckedChange={toggleSelectAll}
                             />
                             <span className="font-semibold text-foreground">Produto</span>
@@ -1686,7 +1797,9 @@ export default function AdminCatalogPage() {
                   <DialogHeader>
                     <DialogTitle>Exportar CSV de Produtos</DialogTitle>
                     <DialogDescription>
-                      Selecione os campos que deseja incluir no arquivo exportado.
+                      Selecione os campos que deseja incluir no arquivo exportado. Serão exportados
+                      todos os {selectedProductIds.length} produtos selecionados (incluindo os de
+                      outras páginas).
                     </DialogDescription>
                   </DialogHeader>
                   <div className="py-4 space-y-4">
@@ -1731,8 +1844,14 @@ export default function AdminCatalogPage() {
                     <Button variant="outline" onClick={() => setShowExportModal(false)}>
                       Cancelar
                     </Button>
-                    <Button onClick={executeExportCSV} disabled={selectedExportFields.length === 0}>
-                      Confirmar Exportação
+                    <Button
+                      onClick={executeExportCSV}
+                      disabled={isExporting || selectedExportFields.length === 0}
+                    >
+                      {isExporting ? (
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      ) : null}
+                      {isExporting ? 'Exportando...' : 'Confirmar Exportação'}
                     </Button>
                   </DialogFooter>
                 </DialogContent>

@@ -458,9 +458,7 @@ export default function AdminCatalogPage() {
     let q = query
     if (searchTerm && searchTerm.trim()) {
       const safeTerm = searchTerm.trim().replace(/,/g, ' ')
-      q = q.or(
-        `name.ilike.%${safeTerm}%,sku.ilike.%${safeTerm}%,description.ilike.%${safeTerm}%`,
-      )
+      q = q.or(`name.ilike.%${safeTerm}%,sku.ilike.%${safeTerm}%,description.ilike.%${safeTerm}%`)
     }
 
     if (filterNoImage) {
@@ -760,21 +758,21 @@ export default function AdminCatalogPage() {
 
       const headers = ALL_EXPORT_FIELDS.filter((f) => selectedExportFields.includes(f))
 
-    const escapeCsv = (val: any) => {
-      if (val === null || val === undefined) return '""'
-      const str = String(val)
-      return `"${str.replace(/"/g, '""')}"`
-    }
+      const escapeCsv = (val: any) => {
+        if (val === null || val === undefined) return '""'
+        const str = String(val)
+        return `"${str.replace(/"/g, '""')}"`
+      }
 
-    const csvRows = selectedProducts.map((p) => {
-      return headers
-        .map((header) => {
-          if (header === 'ncm') return escapeCsv(formatNCM(p.ncm))
-          const val = p[header as keyof Product]
-          return escapeCsv(val)
-        })
-        .join(',')
-    })
+      const csvRows = selectedProducts.map((p) => {
+        return headers
+          .map((header) => {
+            if (header === 'ncm') return escapeCsv(formatNCM(p.ncm))
+            const val = p[header as keyof Product]
+            return escapeCsv(val)
+          })
+          .join(',')
+      })
 
       const csvContent = [headers.join(','), ...csvRows].join('\n')
       const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
@@ -1136,28 +1134,27 @@ export default function AdminCatalogPage() {
               />
 
               <div className="bg-card border border-border/50 rounded-xl overflow-hidden shadow-sm relative">
-                <div className="p-4 border-b border-border/50 bg-muted/20 flex flex-col sm:flex-row justify-between sm:items-center gap-4">
-                  <h2 className="font-semibold text-foreground">
-                    Inventário ({filteredProducts.length} itens)
-                  </h2>
-                </div>
-                <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleSelectAllFiltered}
-                    disabled={isSelectingAll}
-                    className="h-9 whitespace-nowrap"
-                    title="Seleciona todos os produtos do filtro atual, incluindo todas as páginas"
-                  >
-                    {isSelectingAll ? (
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    ) : (
-                      <ListChecks className="w-4 h-4 mr-2" />
-                    )}
-                    Selecionar todos
-                  </Button>
-                  <div className="flex items-center gap-2">
+                <div className="p-4 border-b border-border/50 bg-muted/20 flex flex-col gap-4">
+                  <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3">
+                    <h2 className="font-semibold text-foreground">
+                      Inventário ({filteredProducts.length} itens)
+                    </h2>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleSelectAllFiltered}
+                      disabled={isSelectingAll}
+                      className="h-9 whitespace-nowrap self-start sm:self-auto"
+                      title="Seleciona todos os produtos do filtro atual, incluindo todas as páginas"
+                    >
+                      {isSelectingAll ? (
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      ) : (
+                        <ListChecks className="w-4 h-4 mr-2" />
+                      )}
+                      Selecionar todos
+                    </Button>
+                  </div>
                   <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
                     <div className="flex items-center gap-2">
                       <Select
@@ -1848,9 +1845,7 @@ export default function AdminCatalogPage() {
                       onClick={executeExportCSV}
                       disabled={isExporting || selectedExportFields.length === 0}
                     >
-                      {isExporting ? (
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      ) : null}
+                      {isExporting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
                       {isExporting ? 'Exportando...' : 'Confirmar Exportação'}
                     </Button>
                   </DialogFooter>

@@ -129,14 +129,14 @@ DECLARE
   v_canonicas text;
 BEGIN
   -- trava 1: alguma delas tem produto?
-  SELECT string_agg(c.name || ' (' || cnt || ')', ', ')
+  SELECT string_agg(s.name || ' (' || s.cnt || ')', ', ')
     INTO v_ocupadas
   FROM (
-    SELECT c.name, count(p.id) AS cnt
-      FROM categories c
-      LEFT JOIN products p ON p.category_id = c.id
-     WHERE c.id = ANY(v_alvo::uuid[])
-     GROUP BY c.name
+    SELECT cat.name, count(p.id) AS cnt
+      FROM categories cat
+      LEFT JOIN products p ON p.category_id = cat.id
+     WHERE cat.id = ANY(v_alvo::uuid[])
+     GROUP BY cat.name
     HAVING count(p.id) > 0
   ) s;
 

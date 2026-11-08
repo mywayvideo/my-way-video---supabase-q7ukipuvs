@@ -131,6 +131,94 @@ Deno.serve(async (req: Request) => {
 
     const extractedData = firecrawlResponse.data.json || firecrawlResponse.data
 
+    /**
+     * technical_info: FORÇA o formato TABELA MARKDOWN.
+     *
+     * O schema pede uma string, mas o LLM às vezes devolve array/objeto JSON
+     * ("[{\"Especificação\":\"...\",\"Detalhes\":\"...\"}]"). Quando isso é
+     * gravado cru, o TechnicalInfoModal não reconhece a tabela e cai no
+     * formatObjectToMarkdown, que renderiza como LISTA ("- **X:** Y") em vez
+     * da tabela do padrão do catálogo. Foi o que aconteceu com 141 produtos
+     * até 08/11/2026 (corrigidos por script, mas a origem precisa parar aqui).
+     */
+    const toTechnicalInfoTable = (raw: unknown): string => {
+      if (raw === null || raw === undefined) return ''
+      const LIMPA = (v: unknown): string => {
+        if (v === null || v === undefined) return ''
+        return String(v)
+          .replace(/\\r/g, ' ')
+          .replace(/\\n/g, ' ')
+          .replace(/\\|/g, '\\\\|')
+          .replace(/\\s{2,}/g, ' ')
+          .trim()
+      }
+      const extrairPares = (obj: unknown): Array<[string, string]> => {
+        const out: Array<[string, string]> = []
+        if (Array.isArray(obj)) {
+          for (const item of obj) {
+            if (item && typeof item === 'object') {
+              const low: Record<string, unknown> = {}
+              for (const [k, v] of Object.entries(item as Record<string, unknown>)) {
+                low[String(k).trim().toLowerCase()] = v
+              }
+              const label =
+                low['especificação'] ??
+                low['especificacao'] ??
+                low['spec'] ??
+                low['label'] ??
+                low['name'] ??
+                low['chave'] ??
+                low['key'] ??
+                ''
+              const value =
+                low['detalhes'] ??
+                low['detalhe'] ??
+                low['value'] ??
+                low['valor'] ??
+                low['details'] ??
+                ''
+              if (label !== '' || value !== '') out.push([String(label), String(value)])
+            } else if (item !== null && item !== undefined && String(item).trim() !== '') {
+              out.push(['', String(item)])
+            }
+          }
+        } else if (typeof obj === 'object') {
+          for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
+            out.push([k, v !== null && typeof v === 'object' ? JSON.stringify(v) : String(v ?? '')])
+          }
+        }
+        return out
+      }
+
+      let valor: unknown = raw
+      if (typeof raw === 'string') {
+        const s = raw.trim()
+        if (!s) return ''
+        if (s.startsWith('|')) return raw // já é tabela
+        if (s[0] === '[' || s[0] === '{') {
+          try {
+            valor = JSON.parse(s)
+          } catch {
+            return raw // não é JSON válido: mantém
+          }
+        } else {
+          return raw // texto livre: mantém
+        }
+      }
+
+      const pares = extrairPares(valor).filter(([a, b]) => LIMPA(a) !== '' || LIMPA(b) !== '')
+      if (pares.length === 0) return typeof raw === 'string' ? raw : ''
+
+      const largA = Math.min(Math.max(12, ...pares.map(([a]) => LIMPA(a).length), 13), 42)
+      const largB = Math.min(Math.max(10, ...pares.map(([, b]) => LIMPA(b).length), 8), 70)
+      const linhas = [
+        `| ${'Especificação'.padEnd(largA)} | ${'Detalhes'.padEnd(largB)} |`,
+        `|${'-'.repeat(largA + 2)}|${'-'.repeat(largB + 2)}|`,
+        ...pares.map(([a, b]) => `| ${LIMPA(a).padEnd(largA)} | ${LIMPA(b).padEnd(largB)} |`),
+      ]
+      return linhas.join('\\n')
+    }
+
     let name = extractedData.name || ''
     let sku = extractedData.sku || ''
     if (typeof sku === 'string') {
@@ -330,7 +418,7 @@ RULES:
       image_url: image_url || '',
       ncm: '',
       is_special: 'false',
-      technical_info: technical_info || '',
+      technical_info: toTechnicalInfoTable(technical_info),
       is_discontinued: is_discontinued,
       partial_data: !technical_info,
     }

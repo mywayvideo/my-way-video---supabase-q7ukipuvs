@@ -42,14 +42,14 @@ describe('classify-ncm — camada de categoria (ponte bilíngue EN↔PT) — reg
     return res.json()
   }
 
-  it('Health check confirma build 3.8.0-build.656 com bilingual_category_bridge ativa', async () => {
+  it('Health check confirma build 3.8.1-build.657 com bilingual_category_bridge ativa', async () => {
     const res = await fetch(`${supabaseUrl}/functions/v1/classify-ncm?health=true`, {
       method: 'GET',
     })
     expect(res.status).toBe(200)
     const data = await res.json()
     console.log('[HEALTH CHECK PONTE BILÍNGUE]:', data)
-    expect(data.version).toBe('3.8.0-build.656')
+    expect(data.version).toBe('3.8.1-build.657')
     expect(data.features).toContain('bilingual_category_bridge')
     expect(data.features).toContain('category_acceptable_ncms_injection')
   })

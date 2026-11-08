@@ -25,7 +25,7 @@ describe('classify-ncm Parte 1 - Regressão Obrigatória Produção', () => {
     expect(res.status).toBe(200)
     const data = await res.json()
     console.log('[HEALTH CHECK PRODUCTION]:', data)
-    expect(data.version).toBe('3.8.0-build.656')
+    expect(data.version).toBe('3.8.1-build.657')
     expect(data.features).toContain('ncm_support_layer')
   })
 

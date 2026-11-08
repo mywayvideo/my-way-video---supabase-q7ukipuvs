@@ -1,4 +1,4 @@
-// Deploy trigger build 652 - classify-ncm v3.8.0-build.652 - TDZ fixed
+// Deploy trigger build 657 - classify-ncm v3.8.1-build.657 - runtime fix: execution budget 40s, per-provider timeouts (LLM 18s, web 8s, embedding 8s), analyst->auditor cross-fallback on 1st pass
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
 import { createClient } from 'npm:@supabase/supabase-js@2'
 
@@ -1519,9 +1519,10 @@ Deno.serve(async (req: Request) => {
       JSON.stringify({
         status: 'ok',
         function: 'classify-ncm',
-        version: '3.8.0-build.656',
+        version: '3.8.1-build.657',
         knowledge_base_version: '4.0',
         features: [
+          'runtime_execution_budget_40s',
           'bilingual_category_bridge',
           'category_acceptable_ncms_injection',
           'imp_sim_server_side_category_resolution',
@@ -1574,6 +1575,12 @@ Deno.serve(async (req: Request) => {
     )
   }
   const startTime = Date.now()
+  // ORÇAMENTO GLOBAL DE TEMPO: manter a execução inteira dentro do limite da plataforma de edge functions
+  // (a instância é cancelada ~50s após o início; abort 'The signal has been aborted' aos ~43s).
+  // Todas as fases (resoluções de DB, busca web, embeddings, 1ª passada, auditoria) respeitam este budget.
+  const EXECUTION_BUDGET_MS = 40_000
+  const elapsedMs = () => Date.now() - startTime
+  const remainingBudgetMs = () => Math.max(0, EXECUTION_BUDGET_MS - elapsedMs())
 
   // 1. Validação de método HTTP
   if (req.method !== 'POST') {
@@ -1844,7 +1851,11 @@ Deno.serve(async (req: Request) => {
           .join(' ')
           .slice(0, 150)
 
-        const searchResults = await searchWebTechnicalSpecs(searchQuery)
+        // Busca web com timeout interno, reservando folga para a inferência LLM dentro do orçamento global
+        const searchResults = await searchWebTechnicalSpecs(
+          searchQuery,
+          Math.max(2_000, Math.min(8_000, remainingBudgetMs() - 25_000)),
+        )
         for (const item of searchResults) {
           webSources.push(item)
         }
@@ -2158,7 +2169,11 @@ ${alts}
           .filter(Boolean)
           .join(' ')
 
-        queryEmbedding = await generateEmbedding(embeddingInput, openAiKey)
+        queryEmbedding = await generateEmbedding(
+          embeddingInput,
+          openAiKey,
+          Math.max(2_000, Math.min(8_000, remainingBudgetMs() - 25_000)),
+        )
       } catch (embErr) {
         console.warn('Falha ao gerar embedding para assinatura enxuta NCM:', embErr)
       }
@@ -2660,12 +2675,23 @@ ${candidatesCatalogText}
 Construa a FASE 0 obrigatória no campo 'product_understanding' com a sentença canônica "o produto é um [tipo] que [função essencial], destinado a [máquina]", avalie todos os candidatos e forneça o JSON estruturado conforme o protocolo aduaneiro.`
 
     // 10. Chamada ao LLM com cascata de fallback (1ª Passada - Análise Técnica)
+    // CORREÇÃO DE RUNTIME (HTTP 502 aos ~43s): a cascata usa TODOS os provedores ativos ordenados por
+    // prioridade, com a lista do papel (analyst primeiro) — assim, se o provedor analyst (ex.: OpenAI
+    // GPT-4o-mini) abortar por tempo, o auditor (DeepSeek) é realmente tentado na 1ª passada e a
+    // requisição responde em vez de devolver 502 'Falha na inferência dos provedores de IA ativos'.
+    // O timeout por provedor é min(18s, orçamento restante), para caber pelo menos duas tentativas
+    // dentro do budget global de 40s.
     let llmResponseJson: any = null
     let analystModelUsed = ''
     let auditorModelUsed = ''
     const providerErrors: string[] = []
 
-    for (const provider of primaryAnalystProviders) {
+    const analystOrder = [...primaryAnalystProviders]
+    for (const p of primaryAuditorProviders) {
+      if (!analystOrder.includes(p)) analystOrder.push(p)
+    }
+
+    for (const provider of analystOrder) {
       const apiKey = Deno.env.get(provider.api_key_secret_name) || ''
       if (!apiKey) {
         const missingKeyMsg = `${provider.provider_name}: chave ${provider.api_key_secret_name} ausente no ambiente`
@@ -2674,13 +2700,21 @@ Construa a FASE 0 obrigatória no campo 'product_understanding' com a sentença 
         continue
       }
 
+      const providerTimeoutMs = Math.max(5_000, Math.min(18_000, remainingBudgetMs() - 2_000))
+      if (providerTimeoutMs <= 5_000) {
+        const budgetMsg = `${provider.provider_name}: orçamento de tempo esgotado antes da tentativa (${elapsedMs()}ms decorridos).`
+        providerErrors.push(budgetMsg)
+        console.warn(budgetMsg)
+        break
+      }
+
       try {
         const rawContent = await invokeLLMWithTimeout(
           provider,
           apiKey,
           systemPrompt,
           userPrompt,
-          25000,
+          providerTimeoutMs,
         )
 
         const parsed = parseLLMJsonResponse(rawContent)
@@ -2801,7 +2835,10 @@ Construa a FASE 0 obrigatória no campo 'product_understanding' com a sentença 
           const targetedQuery = [brand, model, activeExCandidate.ex_descricao.slice(0, 60)]
             .filter(Boolean)
             .join(' ')
-          const addlSources = await searchWebTechnicalSpecs(targetedQuery)
+          const addlSources = await searchWebTechnicalSpecs(
+            targetedQuery,
+            Math.max(2_000, Math.min(8_000, remainingBudgetMs() - 15_000)),
+          )
           for (const s of addlSources) webSources.push(s)
           if (addlSources.length > 0) {
             const addlSummary = addlSources
@@ -3031,13 +3068,23 @@ ${candidatesCatalogText}`
         const apiKey = Deno.env.get(provider.api_key_secret_name) || ''
         if (!apiKey) continue
 
+        // Auditoria também respeita o orçamento global: se não sobrar tempo confortável
+        // para a 2ª passada, seguir com a recomendação da 1ª passada (nunca abortar aos ~43s).
+        const auditTimeoutMs = Math.max(5_000, Math.min(15_000, remainingBudgetMs() - 3_000))
+        if (auditTimeoutMs <= 5_000) {
+          console.warn(
+            `[classify-ncm] Orçamento de tempo insuficiente para auditoria (${elapsedMs()}ms decorridos); seguindo com recomendação da 1ª passada.`,
+          )
+          break
+        }
+
         try {
           const auditRawContent = await invokeLLMWithTimeout(
             provider,
             apiKey,
             auditorSystemPrompt,
             auditorUserPrompt,
-            20000,
+            auditTimeoutMs,
           )
           const parsedAudit = parseLLMJsonResponse(auditRawContent)
           if (parsedAudit && (parsedAudit.action === 'APROVA' || parsedAudit.action === 'VETA')) {
@@ -4806,7 +4853,7 @@ ${candidatesCatalogText}`
       composition_analysis: compositionAnalysis,
       checklist_log: checklistLog,
       parts_indirect_logic: partsTelemetry,
-      version: '3.8.0-build.656',
+      version: '3.8.1-build.657',
       timestamp: new Date().toISOString(),
     }
 
@@ -6414,8 +6461,13 @@ function evaluateInformationSufficiency(params: {
 /**
  * Busca web complementar para especificações técnicas e datasheets
  */
-async function searchWebTechnicalSpecs(query: string): Promise<WebSource[]> {
+async function searchWebTechnicalSpecs(query: string, timeoutMs = 8000): Promise<WebSource[]> {
   const sources: WebSource[] = []
+
+  // CONTROLADOR DE ABORT PRÓPRIO: toda chamada externa de busca web respeita um timeout interno
+  // bem menor que o orçamento total da edge function, para nunca estourar o limite da plataforma.
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
 
   // Tentativa 1: Firecrawl se tiver chave configurada
   const firecrawlKey = Deno.env.get('FIRECRAWL_API_KEY') || ''
@@ -6427,12 +6479,12 @@ async function searchWebTechnicalSpecs(query: string): Promise<WebSource[]> {
           Authorization: `Bearer ${firecrawlKey}`,
           'Content-Type': 'application/json',
         },
+        signal: controller.signal,
         body: JSON.stringify({
           query,
           limit: 3,
         }),
       })
-
       if (res.ok) {
         const json = await res.json()
         const items = json?.data || []
@@ -6461,6 +6513,7 @@ async function searchWebTechnicalSpecs(query: string): Promise<WebSource[]> {
         'User-Agent':
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       },
+      signal: controller.signal,
     })
 
     if (res.ok) {
@@ -6496,6 +6549,8 @@ async function searchWebTechnicalSpecs(query: string): Promise<WebSource[]> {
     }
   } catch (ddgErr) {
     console.warn('DuckDuckGo search error:', ddgErr)
+  } finally {
+    clearTimeout(timeoutId)
   }
 
   return sources
@@ -6644,26 +6699,39 @@ function parseLLMJsonResponse(rawText: string): any {
 /**
  * Gera embedding único usando OpenAI text-embedding-3-small
  */
-async function generateEmbedding(text: string, apiKey: string): Promise<number[]> {
-  const res = await fetch('https://api.openai.com/v1/embeddings', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'text-embedding-3-small',
-      input: text,
-      dimensions: 1536,
-    }),
-  })
+async function generateEmbedding(
+  text: string,
+  apiKey: string,
+  timeoutMs = 8000,
+): Promise<number[]> {
+  // CONTROLADOR DE ABORT PRÓPRIO: embedding com timeout interno menor que o orçamento total
+  // da edge function — não pode consumir o tempo dos provedores de IA nem estourar o limite.
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    const res = await fetch('https://api.openai.com/v1/embeddings', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: 'text-embedding-3-small',
+        input: text,
+        dimensions: 1536,
+      }),
+    })
 
-  if (!res.ok) {
-    throw new Error(`OpenAI Embedding error: ${await res.text()}`)
+    if (!res.ok) {
+      throw new Error(`OpenAI Embedding error: ${await res.text()}`)
+    }
+
+    const json = await res.json()
+    return json.data[0].embedding
+  } finally {
+    clearTimeout(timeoutId)
   }
-
-  const json = await res.json()
-  return json.data[0].embedding
 }
 
 // =============================================================================

@@ -32,8 +32,8 @@ import { cn } from '@/lib/utils'
  *   3. Faça tudo no mesmo commit da feature.
  */
 
-export const HELP_VERSION = 'v0.0.747'
-export const HELP_LAST_UPDATED = '07/11/2026'
+export const HELP_VERSION = 'v0.0.773'
+export const HELP_LAST_UPDATED = '09/11/2026'
 
 export type HelpBlockType =
   | 'paragraph'
@@ -380,6 +380,34 @@ export const CATEGORIES_HELP_TOPICS: HelpTopic[] = [
       {
         type: 'info',
         text: 'Todos os contadores são recalculados ao vivo a cada confirmação/migração/CRUD — não precisa recarregar a página. O botão "Atualizar" força a recarga de métricas e tabela.',
+      },
+    ],
+  },
+  {
+    id: 'campo-texto-categoria',
+    icon: '🔗',
+    title: 'O rótulo de categoria do produto é derivado',
+    blocks: [
+      {
+        type: 'paragraph',
+        text: 'Cada produto guarda a categoria de duas formas: o vínculo oficial (category_id, uma chave estrangeira para a tabela de categorias) e um rótulo em texto (category). A partir de 09/11/2026 o rótulo NÃO é mais digitado nem sincronizado à mão: o banco o recalcula a partir do vínculo em toda gravação.',
+      },
+      {
+        type: 'bullets',
+        items: [
+          'O vínculo oficial é a única fonte de verdade. O texto é consequência dele.',
+          'Ao salvar um produto, o rótulo é automaticamente ajustado ao nome da categoria vinculada — mesmo que o cliente envie um rótulo diferente.',
+          'Ao RENOMEAR uma categoria, o novo nome é propagado automaticamente para todos os produtos vinculados. Não é mais preciso corrigir produto por produto.',
+          'Produto sem vínculo de categoria mantém o próprio texto (pode ser a pista usada pela Fila de Triagem).',
+        ],
+      },
+      {
+        type: 'info',
+        text: 'Por que não apagar o campo: o rótulo alimenta a busca do site (coluna gerada search_text) e é lido por várias telas. Mantê-lo derivado preserva a busca e elimina a divergência.',
+      },
+      {
+        type: 'warning',
+        text: 'Se você vir um rótulo diferente do nome da categoria, não é preciso corrigir à mão: a próxima gravação do produto o alinha. Para alinhar em lote, peça a sincronização — ela reescreve apenas as linhas divergentes.',
       },
     ],
   },

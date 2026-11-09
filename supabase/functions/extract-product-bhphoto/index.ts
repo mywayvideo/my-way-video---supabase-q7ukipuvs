@@ -146,10 +146,10 @@ Deno.serve(async (req: Request) => {
       const LIMPA = (v: unknown): string => {
         if (v === null || v === undefined) return ''
         return String(v)
-          .replace(/\\r/g, ' ')
-          .replace(/\\n/g, ' ')
-          .replace(/\\|/g, '\\\\|')
-          .replace(/\\s{2,}/g, ' ')
+          .replace(/\r/g, ' ')
+          .replace(/\n/g, ' ')
+          .replace(/\|/g, '\\|')
+          .replace(/\s{2,}/g, ' ')
           .trim()
       }
       const extrairPares = (obj: unknown): Array<[string, string]> => {
@@ -216,7 +216,7 @@ Deno.serve(async (req: Request) => {
         `|${'-'.repeat(largA + 2)}|${'-'.repeat(largB + 2)}|`,
         ...pares.map(([a, b]) => `| ${LIMPA(a).padEnd(largA)} | ${LIMPA(b).padEnd(largB)} |`),
       ]
-      return linhas.join('\\n')
+      return linhas.join('\n')
     }
 
     let name = extractedData.name || ''

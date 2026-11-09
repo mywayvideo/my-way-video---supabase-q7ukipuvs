@@ -19,27 +19,60 @@ Deno.serve(async (req: Request) => {
     const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? ''
     const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? ''
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+    const authToken = authHeader.replace(/^Bearer\s+/i, '').trim()
 
     let supabaseClient
     let isServiceRole = false
 
-    if (serviceRoleKey && authHeader === `Bearer ${serviceRoleKey}`) {
+    // --- CAMINHO 1: a chave bate exatamente com o env var da função ---------
+    // Mantido como estava: é o caminho original e continua sendo o mais rápido.
+    if (serviceRoleKey && authToken === serviceRoleKey) {
       isServiceRole = true
       supabaseClient = createClient(supabaseUrl, serviceRoleKey)
     } else {
-      supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
-        global: {
-          headers: { Authorization: authHeader },
-        },
+      // --- CAMINHO 2: o token recebido é uma service_role DE VERDADE? ------
+      // CORRIGIDO EM 09/11/2026. Antes, a função só comparava a STRING do
+      // header com o env var. Se as duas chaves divergissem — env var vazia,
+      // rotacionada ou de outro projeto — a chamada legítima do pg_cron caía
+      // no caminho de admin, e `is_admin()` com token de service_role falha
+      // porque esse JWT não tem a claim `sub`. Resultado: 403 e o câmbio parava
+      // de atualizar SEM NINGUÉM SER AVISADO (o cron não reporta erro).
+      //
+      // A verificação agora é EMPÍRICA, não textual: tenta uma operação que só
+      // service_role consegue fazer. Se funcionar, o token é service_role e
+      // passa a ser usado como credencial. Isso NÃO abre brecha: um JWT
+      // forjado não passa, porque /auth/v1/admin/* exige a chave real.
+      const candidate = createClient(supabaseUrl, authToken, {
+        auth: { persistSession: false, autoRefreshToken: false },
       })
 
-      const { data: isAdmin, error: adminError } = await supabaseClient.rpc('is_admin')
+      const { error: adminProbeError } = await candidate.auth.admin.listUsers({
+        page: 1,
+        perPage: 1,
+      })
 
-      if (adminError || !isAdmin) {
-        return new Response(JSON.stringify({ error: 'Unauthorized: Admin privileges required.' }), {
-          status: 403,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      if (!adminProbeError) {
+        isServiceRole = true
+        supabaseClient = candidate
+      } else {
+        // --- CAMINHO 3: usuário comum — exige perfil admin (botão da tela) --
+        supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
+          global: {
+            headers: { Authorization: authHeader },
+          },
         })
+
+        const { data: isAdmin, error: adminError } = await supabaseClient.rpc('is_admin')
+
+        if (adminError || !isAdmin) {
+          return new Response(
+            JSON.stringify({ error: 'Unauthorized: Admin privileges required.' }),
+            {
+              status: 403,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            },
+          )
+        }
       }
     }
 

@@ -54,14 +54,15 @@ Deno.serve(async (req: Request) => {
     })
 
     if (createError) {
-      if (
-        createError.message.toLowerCase().includes('already registered') ||
-        createError.message.toLowerCase().includes('already exists')
-      ) {
-        return new Response(JSON.stringify({ error: 'Este e-mail já está cadastrado' }), {
-          status: 409,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        })
+      const msg = (createError.message || '').toLowerCase()
+      if (msg.includes('already registered') || msg.includes('already exists')) {
+        return new Response(
+          JSON.stringify({ error: 'Já existe um usuário cadastrado com este e-mail.' }),
+          {
+            status: 409,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          },
+        )
       }
       throw createError
     }

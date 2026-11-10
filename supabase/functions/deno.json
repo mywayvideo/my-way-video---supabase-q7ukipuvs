@@ -15,7 +15,7 @@
     "change-admin-password": 1132,
     "change-customer-password": 1132,
     "create-customer-public": 65,
-    "create-customer": 1132,
+    "create-customer": 1133,
     "create-discount-coupon": 1132,
     "create-payment-intent": 1135,
     "create-paypal-payment-intent": 64,

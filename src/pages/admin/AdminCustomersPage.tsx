@@ -67,7 +67,7 @@ export default function AdminCustomersPage() {
   const handleSaveCreate = async (e: React.FormEvent) => {
     e.preventDefault()
     try {
-      const { error } = await supabase.functions.invoke('create-customer', {
+      const { data, error } = await supabase.functions.invoke('create-customer', {
         body: {
           email: newCustomer.email,
           password: newCustomer.password,
@@ -75,7 +75,10 @@ export default function AdminCustomersPage() {
           role: newCustomer.role,
         },
       })
-      if (error) throw new Error(error.message || 'Erro ao criar cliente')
+      // A edge function responde 409 com { error } quando o e-mail já está registrado no Supabase Auth.
+      const fnErrorMessage =
+        (error && error.message) || (data && typeof data.error === 'string' ? data.error : '')
+      if (fnErrorMessage) throw new Error(fnErrorMessage)
       toast({ title: 'Sucesso', description: 'Cliente criado com sucesso.' })
       setIsCreateModalOpen(false)
       customerParams.refreshCustomers()

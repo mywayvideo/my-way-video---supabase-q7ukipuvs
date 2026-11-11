@@ -10,6 +10,7 @@ import { useToast } from '@/hooks/use-toast'
 import { Button } from '@/components/ui/button'
 import { Upload } from 'lucide-react'
 import { SpamCleanupReport } from '@/components/admin/SpamCleanupReport'
+import { SetCustomerPasswordModal } from '@/components/admin/SetCustomerPasswordModal'
 
 export default function AdminCustomersPage() {
   const customerParams = useCustomerManagement()
@@ -17,6 +18,13 @@ export default function AdminCustomersPage() {
 
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const [editingCustomer, setEditingCustomer] = useState<any>(null)
+  const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false)
+  const [passwordCustomer, setPasswordCustomer] = useState<any>(null)
+
+  const handleSetPassword = (customer: any) => {
+    setPasswordCustomer(customer)
+    setIsPasswordModalOpen(true)
+  }
 
   const handleEditCustomer = (customer: any) => {
     setEditingCustomer(customer)
@@ -109,9 +117,16 @@ export default function AdminCustomersPage() {
           {...customerParams}
           handleEditCustomer={handleEditCustomer}
           handleCreateCustomer={handleCreateCustomer}
+          handleSetPassword={handleSetPassword}
         />
 
         <SpamCleanupReport />
+
+        <SetCustomerPasswordModal
+          open={isPasswordModalOpen}
+          onOpenChange={setIsPasswordModalOpen}
+          customer={passwordCustomer}
+        />
 
         <EditCustomerModal
           open={isEditModalOpen}

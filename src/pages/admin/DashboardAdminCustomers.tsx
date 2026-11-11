@@ -18,7 +18,16 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
-import { Search, Plus, MoreHorizontal, ShieldAlert, Edit, Trash2, ShoppingCart } from 'lucide-react'
+import {
+  Search,
+  Plus,
+  MoreHorizontal,
+  ShieldAlert,
+  Edit,
+  Trash2,
+  ShoppingCart,
+  KeyRound,
+} from 'lucide-react'
 import { Link } from 'react-router-dom'
 import {
   DropdownMenu,
@@ -44,6 +53,7 @@ export function DashboardAdminCustomers(props: any) {
     handleEditCustomer,
     handleDeleteCustomer,
     handleReset2FA,
+    handleSetPassword,
     handleCreateCustomer,
   } = props
 
@@ -194,6 +204,11 @@ export function DashboardAdminCustomers(props: any) {
                           onClick={() => handleReset2FA && handleReset2FA(customer)}
                         >
                           <ShieldAlert className="w-4 h-4 mr-2" /> Resetar 2FA
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => handleSetPassword && handleSetPassword(customer)}
+                        >
+                          <KeyRound className="w-4 h-4 mr-2" /> Definir nova senha
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem

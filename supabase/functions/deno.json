@@ -70,6 +70,7 @@
     "check-price-bhphoto": 10,
     "firecrawl-credits": 5,
     "match-tr-item": 13,
-    "firecrawl-usage": 4
+    "firecrawl-usage": 4,
+    "set-user-password": 1
   }
 }

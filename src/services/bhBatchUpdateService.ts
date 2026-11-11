@@ -528,6 +528,12 @@ export const bhBatchUpdateService = {
           variant: 'outline',
           className: 'border-yellow-500/30 bg-yellow-500/15 text-yellow-400',
         }
+      case 'url_usado':
+        return {
+          label: 'URL de Produto Usado',
+          variant: 'outline',
+          className: 'border-slate-500/30 bg-slate-500/15 text-slate-300',
+        }
       case 'erro':
         return {
           label: 'Falha / Erro',

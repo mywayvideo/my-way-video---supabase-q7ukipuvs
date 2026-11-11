@@ -117,6 +117,7 @@ export const BhPriceChecker: React.FC<BhPriceCheckerProps> = ({
       const finalStatus =
         res.status === 'descontinuado' ||
         res.status === 'sem_url_confirmada' ||
+        res.status === 'url_usado' ||
         res.status === 'erro'
           ? res.status
           : evalRes.status
@@ -124,6 +125,7 @@ export const BhPriceChecker: React.FC<BhPriceCheckerProps> = ({
       const finalMessage =
         res.status === 'descontinuado' ||
         res.status === 'sem_url_confirmada' ||
+        res.status === 'url_usado' ||
         res.status === 'erro'
           ? res.message
           : evalRes.message
@@ -429,6 +431,12 @@ export const BhPriceChecker: React.FC<BhPriceCheckerProps> = ({
         return (
           <Badge className="bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 flex items-center gap-1">
             <HelpCircle className="w-3.5 h-3.5" /> URL Não Confirmada
+          </Badge>
+        )
+      case 'url_usado':
+        return (
+          <Badge className="bg-slate-500/20 text-slate-300 border border-slate-500/30 flex items-center gap-1">
+            <HelpCircle className="w-3.5 h-3.5" /> URL de Produto Usado
           </Badge>
         )
       case 'erro':

@@ -46,6 +46,50 @@ function parsePrice(raw: any): number | null {
   return isNaN(num) || num <= 0 ? null : num
 }
 
+/**
+ * Detecta URL de produto USADO na B&H: .../c/product/803532490-USE/... ou /c/used/...
+ * Preço de item usado não serve para comparar com o preço de item novo do catálogo.
+ */
+function isUsedProductUrl(url: string | null | undefined): boolean {
+  if (!url) return false
+  let pathname = ''
+  try {
+    pathname = new URL(String(url)).pathname
+  } catch {
+    pathname = String(url)
+  }
+  const normalized = pathname.toLowerCase()
+  if (/\/c\/used(\/|$)/.test(normalized)) return true
+  // "-USE" aparece no slug do produto: /c/product/803532490-USE/blackmagic_...
+  return /-use(\/|$|\.)/.test(normalized)
+}
+
+/**
+ * Só aceita texto que realmente parece uma data de vigência de oferta.
+ * O LLM às vezes devolve frase da página ("ends on your computer and making sure...") no
+ * campo rebate_end_date; isso não pode ser gravado como prazo.
+ */
+function sanitizeRebateEndDate(raw: string | null | undefined): string | null {
+  if (raw == null) return null
+  const text = String(raw).replace(/\s+/g, ' ').trim()
+  if (!text) return null
+  if (text.length > 60) return null
+  if (text.split(' ').length > 8) return null
+
+  const hasDateShape =
+    /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{1,2}\b/i.test(text) ||
+    /\b\d{1,2}\/\d{1,2}(\/\d{2,4})?\b/.test(text) ||
+    /\b\d{4}-\d{2}-\d{2}\b/.test(text)
+  if (!hasDateShape) return null
+
+  const cleaned = text
+    .replace(/^(offer\s+ends|ends|valid\s+thru|valid\s+through|expires)\s*:?\s*/i, '')
+    .replace(/\s+at\s+\d{1,2}(:\d{2})?\s*(am|pm)?\s*(et|est|edt|ct|cst|cdt|pt|pst|pdt)?\s*$/i, '')
+    .trim()
+  if (isNaN(Date.parse(cleaned))) return null
+  return text
+}
+
 function isDiscontinuedValue(val: any, availability?: any): boolean {
   if (val === true || String(val).toLowerCase() === 'true') return true
   const availText = String(availability || '').toLowerCase()
@@ -113,15 +157,17 @@ function parseBhMarkdown(content: string): ScrapedData | null {
 
   // 4. Detecção de Rebate / Instant Savings / Savings
   // Padrões B&H: "Instant Savings: $123.00", "Savings: $123.00", "Save $123", "Instant Savings $123"
+  // O rebate NÃO é decidido aqui: só a comparação preço cheio × preço com desconto (feita no
+  // handler) pode afirmar que existe economia real. Aqui apenas coletamos os números da página.
   let rebate_active = false
   let rebate_savings: number | null = null
   const savingsMatch =
     text.match(/(?:Instant\s*Savings|Savings|Save)\s*:?\s*\$([0-9,]+(?:\.[0-9]{2})?)/i) ||
     text.match(/\$([0-9,]+(?:\.[0-9]{2})?)\s*(?:Instant\s*Savings|Savings)/i)
   if (savingsMatch) {
-    rebate_savings = parseFloat(savingsMatch[1].replace(/,/g, ''))
-    if (!isNaN(rebate_savings) && rebate_savings > 0) {
-      rebate_active = true
+    const parsedSavings = parseFloat(savingsMatch[1].replace(/,/g, ''))
+    if (!isNaN(parsedSavings) && parsedSavings > 0) {
+      rebate_savings = parsedSavings
     }
   }
 
@@ -129,15 +175,10 @@ function parseBhMarkdown(content: string): ScrapedData | null {
   // Ex: "Offer ends Oct 11 at 11:59 PM ET", "Ends Apr 15", "Offer ends May 31, 2026", "Valid thru 10/11/2025"
   let rebate_end_date: string | null = null
   const offerEndMatch = text.match(
-    /(?:Offer\s*ends|Ends|Valid\s*thru|Expires)\s*:?\s*([A-Za-z0-9,\s.:/]+?(?:(?:AM|PM)\s*(?:ET|EST|EDT)?)?)(?:\.|\n|$)/i,
+    /(?:Offer\s*ends|Ends|Valid\s*thru|Valid\s*through|Expires)\s*:?\s*((?:[A-Za-z]{3,9}\.?\s+\d{1,2}(?:,\s*\d{4})?)|(?:\d{1,2}\/\d{1,2}(?:\/\d{2,4})?))\b(?:\s*(?:at\s*)?\d{1,2}(?::\d{2})?\s*(?:AM|PM)\s*(?:ET|EST|EDT|CT|CST|CDT|PT|PST|PDT)?)?/i,
   )
   if (offerEndMatch) {
-    const rawMatch = offerEndMatch[0].trim()
-    // Limita tamanho para evitar pegar parágrafos inteiros
-    if (rawMatch.length <= 80) {
-      rebate_end_date = rawMatch
-      rebate_active = true
-    }
+    rebate_end_date = sanitizeRebateEndDate(offerEndMatch[0].trim())
   }
 
   // 5. Preço regular (preço original / list price / strikethrough)
@@ -158,7 +199,6 @@ function parseBhMarkdown(content: string): ScrapedData | null {
     const parsedReg = parseFloat(m[1].replace(/,/g, ''))
     if (!isNaN(parsedReg) && parsedReg > 0) {
       price_regular = parsedReg
-      rebate_active = true
       break
     }
   }
@@ -179,6 +219,11 @@ function parseBhMarkdown(content: string): ScrapedData | null {
     const preceding = text.slice(Math.max(0, matchIndex - 60), matchIndex).toLowerCase()
     // Descarta se em contexto de financiamento/parcelamento
     if (/suggested\s+(?:monthly\s+)?payments?|financing|payboo|cardmember/i.test(preceding)) {
+      continue
+    }
+    // "Regular/List/Original Price: $X" e "Was $X" são o preço CHEIO, não o preço de venda:
+    // aceitá-los aqui fazia price === price_regular e mascarava o desconto real.
+    if (/(?:regular|list|original|retail|was)\s*$/i.test(preceding)) {
       continue
     }
     const p = parseFloat(match[1].replace(/,/g, ''))
@@ -520,7 +565,8 @@ async function searchBhUrls(
       const parsed = new URL(u)
       return (
         parsed.hostname.includes('bhphotovideo.com') &&
-        (parsed.pathname.includes('/c/product/') || parsed.pathname.includes('/product/'))
+        (parsed.pathname.includes('/c/product/') || parsed.pathname.includes('/product/')) &&
+        !isUsedProductUrl(u)
       )
     } catch {
       return false
@@ -557,6 +603,12 @@ function rankCandidateUrls(urls: string[], manufacturer: string, targetSku: stri
     // /c/product/ tem preferência sobre páginas genéricas
     if (a.includes('/c/product/')) scoreA += 2
     if (b.includes('/c/product/')) scoreB += 2
+
+    // Produto NOVO tem preferência; página de usado é sempre preterida
+    if (/-REG\//i.test(a) || /-reg\./i.test(a)) scoreA += 5
+    if (/-REG\//i.test(b) || /-reg\./i.test(b)) scoreB += 5
+    if (isUsedProductUrl(a)) scoreA -= 50
+    if (isUsedProductUrl(b)) scoreB -= 50
 
     return scoreB - scoreA
   })
@@ -661,6 +713,14 @@ Deno.serve(async (req: Request) => {
     raw?: any
   }) => {
     try {
+      // 'url_usado' não é gravado: price_checks tem CHECK constraint com os status antigos e o
+      // evento não é divergência de preço. Fica apenas no log e na resposta.
+      if (payload.status === 'url_usado') {
+        console.log(
+          `[check-price-bhphoto] Status url_usado (não gravado em price_checks): ${payload.message}`,
+        )
+        return
+      }
       const { error: insertErr } = await supabase.from('price_checks').insert({
         product_id: product.id,
         checked_at: new Date().toISOString(),
@@ -686,6 +746,33 @@ Deno.serve(async (req: Request) => {
   try {
     // Se foi fornecida manual_url para validação (análise manual de link para produto sem link ou duvidoso)
     if (cleanManualUrl && cleanManualUrl.startsWith('http')) {
+      // Link de produto USADO não serve para comparar com o preço de item novo do catálogo
+      if (isUsedProductUrl(cleanManualUrl)) {
+        const usedMsg =
+          'O link informado é de um produto USADO na B&H (caminho -USE). Preço de item usado não é comparável com o preço do catálogo; nada foi gravado e nenhum preço foi comparado.'
+        await recordCheck({
+          status: 'url_usado',
+          price_db: product.price_usd != null ? Number(product.price_usd) : null,
+          price_bh: null,
+          diff_usd: null,
+          diff_pct: null,
+          url_used: cleanManualUrl,
+          url_discovered: false,
+          message: usedMsg,
+        })
+        return new Response(
+          JSON.stringify({
+            status: 'url_usado',
+            message: usedMsg,
+            price_usd_cadastrado: product.price_usd != null ? Number(product.price_usd) : null,
+            price_bh: null,
+            url_used: cleanManualUrl,
+            url_discovered: false,
+            sku_matched: false,
+          }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        )
+      }
       console.log(`[check-price-bhphoto] Analisando URL informada manualmente: ${cleanManualUrl}`)
       const scrapeRes = await scrapeBhUrl(cleanManualUrl, firecrawlToken)
       if (!scrapeRes.success || !scrapeRes.data) {
@@ -800,8 +887,9 @@ Deno.serve(async (req: Request) => {
       // CAMINHO B: Produto SEM website_url -> buscar por Fabricante + SKU
       console.log(`[check-price-bhphoto] Caminho B: produto sem URL, iniciando busca...`)
       if (!targetSku) {
-        const msg =
-          'Produto sem SKU cadastrado e sem URL da B&H. Preencha o SKU ou a URL para verificar.'
+        const msg = rejectedUsedUrl
+          ? `A URL cadastrada é de produto USADO na B&H (${rejectedUsedUrl}) e foi descartada. Sem SKU cadastrado não é possível procurar a página do produto novo; informe uma URL de item novo ou o SKU.`
+          : 'Produto sem SKU cadastrado e sem URL da B&H. Preencha o SKU ou a URL para verificar.'
         await recordCheck({
           status: 'sem_url_confirmada',
           price_db: product.price_usd != null ? Number(product.price_usd) : null,
@@ -850,8 +938,38 @@ Deno.serve(async (req: Request) => {
         )
       }
 
+      // Nenhuma página de produto USADO entra na disputa: só item novo é comparável
+      const newOnlyUrls = searchRes.urls.filter((u) => !isUsedProductUrl(u))
+      if (newOnlyUrls.length === 0) {
+        const usedMsg =
+          'A busca na B&H só retornou páginas de produto USADO (-USE). Preço de usado não é comparável com o preço do catálogo e nada foi gravado.'
+        await recordCheck({
+          status: 'url_usado',
+          price_db: product.price_usd != null ? Number(product.price_usd) : null,
+          price_bh: null,
+          diff_usd: null,
+          diff_pct: null,
+          url_used: searchRes.urls[0] || null,
+          url_discovered: false,
+          message: usedMsg,
+          raw: { candidates: searchRes.urls },
+        })
+        return new Response(
+          JSON.stringify({
+            status: 'url_usado',
+            message: usedMsg,
+            price_usd_cadastrado: product.price_usd != null ? Number(product.price_usd) : null,
+            price_bh: null,
+            url_used: searchRes.urls[0] || null,
+            url_discovered: false,
+            sku_matched: false,
+          }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        )
+      }
+
       // Ordena candidatos para testar prioritariamente aquele cuja URL tem maior correlação com o SKU
-      const rankedCandidates = rankCandidateUrls(searchRes.urls, manufacturerName, targetSku)
+      const rankedCandidates = rankCandidateUrls(newOnlyUrls, manufacturerName, targetSku)
       const candidatesToTest = rankedCandidates.slice(0, 3)
 
       // Testar 1 candidato por vez — parar imediatamente no 1º match confirmado para economizar créditos
@@ -879,6 +997,12 @@ Deno.serve(async (req: Request) => {
           (normalizedTargetSku && candMfrSku && normalizedTargetSku.includes(candMfrSku))
 
         if (matchesSku) {
+          if (isUsedProductUrl(candidateUrl)) {
+            console.log(
+              `[check-price-bhphoto] Candidato ${i + 1} é página de produto USADO e foi descartado: ${candidateUrl}`,
+            )
+            continue
+          }
           console.log(
             `[check-price-bhphoto] SKU confirmado com sucesso no candidato ${i + 1}! Cadastro: "${normalizedTargetSku}", B&H MFR: "${candMfrSku}", B&H SKU: "${candBhSku}"`,
           )
@@ -892,9 +1016,11 @@ Deno.serve(async (req: Request) => {
       }
 
       if (!candidateMatch) {
-        const msg = `Encontradas páginas na B&H para "${searchQuery}", mas o SKU não pôde ser confirmado com precisão. Revise a URL manualmente.`
+        const msg = rejectedUsedUrl
+          ? `A URL cadastrada é de produto USADO na B&H (${rejectedUsedUrl}) e foi descartada; nenhuma página de produto NOVO confirmou o SKU "${targetSku}" na busca. Revise a URL manualmente.`
+          : `Encontradas páginas na B&H para "${searchQuery}", mas o SKU não pôde ser confirmado com precisão. Revise a URL manualmente.`
         await recordCheck({
-          status: 'sem_url_confirmada',
+          status: rejectedUsedUrl ? 'url_usado' : 'sem_url_confirmada',
           price_db: product.price_usd != null ? Number(product.price_usd) : null,
           price_bh: null,
           diff_usd: null,
@@ -906,9 +1032,9 @@ Deno.serve(async (req: Request) => {
         })
         return new Response(
           JSON.stringify({
-            status: 'sem_url_confirmada',
+            status: rejectedUsedUrl ? 'url_usado' : 'sem_url_confirmada',
             message: msg,
-            url_used: searchRes.urls[0] || null,
+            url_used: rejectedUsedUrl || searchRes.urls[0] || null,
             url_discovered: false,
           }),
           { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
@@ -935,15 +1061,35 @@ Deno.serve(async (req: Request) => {
     const priceDb = product.price_usd != null ? Number(product.price_usd) : null
     const priceBh = parsePrice(scrapedResult.price)
     const priceRegular = parsePrice(scrapedResult.price_regular)
-    const rebateSavings = parsePrice(scrapedResult.rebate_savings)
-    const rebateActive =
-      scrapedResult.rebate_active === true ||
-      String(scrapedResult.rebate_active).toLowerCase() === 'true' ||
-      Boolean(priceRegular && priceBh && priceRegular > priceBh) ||
-      Boolean(rebateSavings && rebateSavings > 0)
-    const rebateEndDate = scrapedResult.rebate_end_date
-      ? String(scrapedResult.rebate_end_date).trim()
-      : null
+    const rebateSavingsFromPage = parsePrice(scrapedResult.rebate_savings)
+
+    // REGRA DO REBATE (11/11/2026): só é rebate real quando rebate_savings > 0 E
+    // price_full > price_with_rebate. O que a página diz sozinha (flag do LLM, "Regular Price"
+    // solto, frase de oferta) NÃO ativa rebate — era isso que criava 3 de 8 falsos positivos.
+    const derivedSavings =
+      priceRegular != null && priceBh != null && priceRegular > priceBh
+        ? Number((priceRegular - priceBh).toFixed(2))
+        : null
+    const rebateSavings =
+      derivedSavings != null && derivedSavings > 0 ? derivedSavings : rebateSavingsFromPage
+
+    const priceFullCandidate =
+      priceRegular != null && priceBh != null && priceRegular > priceBh
+        ? priceRegular
+        : priceBh != null && rebateSavings != null && rebateSavings > 0
+          ? Number((priceBh + rebateSavings).toFixed(2))
+          : null
+
+    const rebateActive = Boolean(
+      rebateSavings != null &&
+      rebateSavings > 0 &&
+      priceFullCandidate != null &&
+      priceBh != null &&
+      priceFullCandidate > priceBh,
+    )
+    const rebateEndDate = sanitizeRebateEndDate(
+      scrapedResult.rebate_end_date ? String(scrapedResult.rebate_end_date) : null,
+    )
     let rebateEndDateIso: string | null = null
 
     // Tentar normalizar data ISO se identificável
@@ -966,13 +1112,8 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // Preço cheio original (se houver rebate) e preço final
-    const priceFull =
-      rebateActive && priceRegular && priceRegular > (priceBh || 0)
-        ? priceRegular
-        : rebateActive && priceBh && rebateSavings
-          ? Number((priceBh + rebateSavings).toFixed(2))
-          : priceRegular || priceBh
+    // Preço cheio original e preço com desconto — derivados da regra acima
+    const priceFull = rebateActive ? priceFullCandidate : priceRegular || priceBh
     const priceWithRebate = rebateActive ? priceBh : null
 
     // Avaliar rebate nativo do produto (price_usa_rebate + date_rebate)

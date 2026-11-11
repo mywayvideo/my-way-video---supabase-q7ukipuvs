@@ -2,7 +2,13 @@ import { supabase } from '@/lib/supabase/client'
 import { rebateDiscountService, ExistingRebateRule } from '@/services/rebateDiscountService'
 import { calculateDiscountedPrice } from '@/services/discountApplicationService'
 
-export type PriceCheckStatus = 'ok' | 'divergente' | 'descontinuado' | 'sem_url_confirmada' | 'erro'
+export type PriceCheckStatus =
+  | 'ok'
+  | 'divergente'
+  | 'descontinuado'
+  | 'sem_url_confirmada'
+  | 'erro'
+  | 'url_usado'
 
 export interface PricePairComparison {
   label: string
@@ -151,6 +157,7 @@ export function resolvePairedEvaluation(params: {
   if (
     baseStatus === 'descontinuado' ||
     baseStatus === 'sem_url_confirmada' ||
+    baseStatus === 'url_usado' ||
     baseStatus === 'erro'
   ) {
     return {

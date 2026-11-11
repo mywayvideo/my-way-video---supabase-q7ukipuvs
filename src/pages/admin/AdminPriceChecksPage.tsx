@@ -85,6 +85,11 @@ const STATUS_CONFIG: Record<
     className: 'bg-rose-500/15 text-rose-400 border-rose-500/30',
     icon: XCircle,
   },
+  url_usado: {
+    label: 'URL de Usado',
+    className: 'bg-slate-500/15 text-slate-300 border-slate-500/30',
+    icon: HelpCircle,
+  },
 }
 
 const PAGE_SIZE = 30

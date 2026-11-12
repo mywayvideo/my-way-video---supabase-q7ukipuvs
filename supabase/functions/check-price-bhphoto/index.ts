@@ -697,12 +697,23 @@ Deno.serve(async (req: Request) => {
   const cleanManualUrl = manual_url && typeof manual_url === 'string' ? manual_url.trim() : null
   let finalUrl: string | null =
     cleanManualUrl || (product.website_url ? String(product.website_url).trim() : null)
+  // A website_url cadastrada pode ser de um produto USADO (-USE). Preço de usado não é
+  // comparável com o preço de item novo do catálogo: descarta a URL e cai no Caminho B
+  // (descoberta por Fabricante + SKU). O link manual já é validado logo abaixo.
+  let rejectedUsedUrl: string | null = null
+  if (!cleanManualUrl && finalUrl && isUsedProductUrl(finalUrl)) {
+    rejectedUsedUrl = finalUrl
+    finalUrl = null
+    console.log(
+      `[check-price-bhphoto] website_url cadastrada é de produto USADO e foi descartada: ${rejectedUsedUrl}`,
+    )
+  }
   let urlDiscovered = false
   let scrapedResult: ScrapedData | null = null
 
   // Helper para salvar no histórico de checagens
   const recordCheck = async (payload: {
-    status: 'ok' | 'divergente' | 'descontinuado' | 'sem_url_confirmada' | 'erro'
+    status: 'ok' | 'divergente' | 'descontinuado' | 'sem_url_confirmada' | 'url_usado' | 'erro'
     price_db: number | null
     price_bh: number | null
     diff_usd: number | null

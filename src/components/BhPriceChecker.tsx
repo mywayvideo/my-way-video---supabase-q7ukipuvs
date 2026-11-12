@@ -30,6 +30,14 @@ import { rebateDiscountService, ExistingRebateRule } from '@/services/rebateDisc
 import { RebateDiscountModal } from '@/components/admin/RebateDiscountModal'
 import { ProductBatchItem } from '@/services/bhBatchUpdateService'
 
+// Converte valores vindos do banco/resultados (string, null, undefined) para número de forma segura.
+// Retorna null quando o valor não representa um número válido — evita crash em .toFixed().
+const toSafeNumber = (value: unknown): number | null => {
+  if (value === null || value === undefined || value === '') return null
+  const n = Number(value)
+  return Number.isFinite(n) ? n : null
+}
+
 interface BhPriceCheckerProps {
   productId: string
   productName?: string | null | undefined
@@ -208,7 +216,9 @@ export const BhPriceChecker: React.FC<BhPriceCheckerProps> = ({
   }
 
   const handleApplyPrice = async () => {
-    const targetPrice = targetApplyPrice ?? currentResult?.price_bh ?? lastRecord?.price_bh
+    const targetPrice = toSafeNumber(
+      targetApplyPrice ?? currentResult?.price_bh ?? lastRecord?.price_bh,
+    )
     if (!targetPrice || targetPrice <= 0) return
 
     setIsApplying(true)
@@ -335,11 +345,12 @@ export const BhPriceChecker: React.FC<BhPriceCheckerProps> = ({
 
   // Dados para exibição: resultado atual ou último salvo
   const activeStatus: PriceCheckStatus | null = currentResult?.status ?? lastRecord?.status ?? null
-  const displayPriceDb =
-    currentResult?.price_usd_cadastrado ?? lastRecord?.price_db ?? currentPriceUsd ?? null
-  const displayPriceBh = currentResult?.price_bh ?? lastRecord?.price_bh ?? null
-  const displayDiffUsd = currentResult?.diff_usd ?? lastRecord?.diff_usd ?? null
-  const displayDiffPct = currentResult?.diff_pct ?? lastRecord?.diff_pct ?? null
+  const displayPriceDb = toSafeNumber(
+    currentResult?.price_usd_cadastrado ?? lastRecord?.price_db ?? currentPriceUsd,
+  )
+  const displayPriceBh = toSafeNumber(currentResult?.price_bh ?? lastRecord?.price_bh)
+  const displayDiffUsd = toSafeNumber(currentResult?.diff_usd ?? lastRecord?.diff_usd)
+  const displayDiffPct = toSafeNumber(currentResult?.diff_pct ?? lastRecord?.diff_pct)
   const displayUrl = currentResult?.url_used ?? lastRecord?.url_used ?? websiteUrl ?? null
   const isDiscovered = currentResult?.url_discovered ?? lastRecord?.url_discovered ?? false
   const checkedAt = currentResult?.checked_at ?? lastRecord?.checked_at ?? null
@@ -372,8 +383,20 @@ export const BhPriceChecker: React.FC<BhPriceCheckerProps> = ({
     defaultMessage: displayMessage,
   })
 
-  const targetApplyPrice =
-    rebatePriceFull != null && isBhRebateActive ? rebatePriceFull : displayPriceBh
+  const targetApplyPrice = toSafeNumber(
+    rebatePriceFull != null && isBhRebateActive ? rebatePriceFull : displayPriceBh,
+  )
+
+  // Valores pareados convertidos para número de forma segura antes de qualquer .toFixed()
+  const fullPair = pairedEval?.fullPair ?? null
+  const rebatePair = pairedEval?.rebatePair ?? null
+  const fullPairPriceBh = toSafeNumber(fullPair?.priceBh)
+  const fullPairDiffUsd = toSafeNumber(fullPair?.diffUsd)
+  const fullPairDiffPct = toSafeNumber(fullPair?.diffPct)
+  const rebatePairPriceBh = toSafeNumber(rebatePair?.priceBh)
+  const rebatePairDiffUsd = toSafeNumber(rebatePair?.diffUsd)
+  const rebatePairDiffPct = toSafeNumber(rebatePair?.diffPct)
+  const catalogEffectivePrice = toSafeNumber(pairedEval?.catalogEffectivePrice)
 
   const canApplyPrice =
     targetApplyPrice != null &&
@@ -528,8 +551,8 @@ export const BhPriceChecker: React.FC<BhPriceCheckerProps> = ({
                       B&H Preço Regular
                     </span>
                     <span className="text-sm font-bold font-mono text-blue-400 mt-0.5 block">
-                      {pairedEval.fullPair?.priceBh != null
-                        ? `US$ ${pairedEval.fullPair.priceBh.toFixed(2)}`
+                      {fullPairPriceBh != null
+                        ? `US$ ${fullPairPriceBh.toFixed(2)}`
                         : 'Não reportado'}
                     </span>
                   </div>
@@ -547,8 +570,8 @@ export const BhPriceChecker: React.FC<BhPriceCheckerProps> = ({
                             : 'text-amber-400'
                       }`}
                     >
-                      {pairedEval.fullPair?.diffUsd != null
-                        ? `${pairedEval.fullPair.diffUsd > 0 ? '+' : ''}US$ ${pairedEval.fullPair.diffUsd.toFixed(2)} (${pairedEval.fullPair.diffPct != null && pairedEval.fullPair.diffPct > 0 ? '+' : ''}${pairedEval.fullPair.diffPct?.toFixed(2)}%)`
+                      {fullPairDiffUsd != null
+                        ? `${fullPairDiffUsd > 0 ? '+' : ''}US$ ${fullPairDiffUsd.toFixed(2)} (${fullPairDiffPct != null && fullPairDiffPct > 0 ? '+' : ''}${fullPairDiffPct != null ? fullPairDiffPct.toFixed(2) : '0.00'}%)`
                         : '—'}
                     </span>
                   </div>
@@ -579,8 +602,8 @@ export const BhPriceChecker: React.FC<BhPriceCheckerProps> = ({
                       Cadastrado com Desconto
                     </span>
                     <span className="text-sm font-bold font-mono text-purple-300 mt-0.5 block">
-                      {pairedEval.catalogEffectivePrice != null
-                        ? `US$ ${pairedEval.catalogEffectivePrice.toFixed(2)}`
+                      {catalogEffectivePrice != null
+                        ? `US$ ${catalogEffectivePrice.toFixed(2)}`
                         : 'US$ —'}
                     </span>
                   </div>
@@ -590,9 +613,7 @@ export const BhPriceChecker: React.FC<BhPriceCheckerProps> = ({
                       B&H com Rebate
                     </span>
                     <span className="text-sm font-bold font-mono text-emerald-400 mt-0.5 block">
-                      {pairedEval.rebatePair?.priceBh != null
-                        ? `US$ ${pairedEval.rebatePair.priceBh.toFixed(2)}`
-                        : 'US$ —'}
+                      {rebatePairPriceBh != null ? `US$ ${rebatePairPriceBh.toFixed(2)}` : 'US$ —'}
                     </span>
                   </div>
 
@@ -609,8 +630,8 @@ export const BhPriceChecker: React.FC<BhPriceCheckerProps> = ({
                             : 'text-amber-400'
                       }`}
                     >
-                      {pairedEval.rebatePair?.diffUsd != null
-                        ? `${pairedEval.rebatePair.diffUsd > 0 ? '+' : ''}US$ ${pairedEval.rebatePair.diffUsd.toFixed(2)} (${pairedEval.rebatePair.diffPct != null && pairedEval.rebatePair.diffPct > 0 ? '+' : ''}${pairedEval.rebatePair.diffPct?.toFixed(2)}%)`
+                      {rebatePairDiffUsd != null
+                        ? `${rebatePairDiffUsd > 0 ? '+' : ''}US$ ${rebatePairDiffUsd.toFixed(2)} (${rebatePairDiffPct != null && rebatePairDiffPct > 0 ? '+' : ''}${rebatePairDiffPct != null ? rebatePairDiffPct.toFixed(2) : '0.00'}%)`
                         : '—'}
                     </span>
                   </div>

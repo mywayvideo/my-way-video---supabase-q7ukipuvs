@@ -17,6 +17,14 @@ import { ProductBatchItem } from '@/services/bhBatchUpdateService'
 import { rebateDiscountService, ExistingRebateRule } from '@/services/rebateDiscountService'
 import { toast } from '@/hooks/use-toast'
 
+// Mesmo padrão de BhPriceChecker: valores numéricos podem chegar do banco como
+// string (ou null/undefined) — converte com segurança antes de qualquer .toFixed().
+function toSafeNumber(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null
+  const n = Number(value)
+  return Number.isFinite(n) ? n : null
+}
+
 interface RebateDiscountModalProps {
   isOpen: boolean
   onClose: () => void
@@ -46,13 +54,15 @@ export function RebateDiscountModal({
     setStartDate(nowIso)
 
     const checkRes = product.checkResult
-    const priceFull = checkRes?.price_full || product.price_usd || 0
-    const priceWithRebate = checkRes?.price_with_rebate || checkRes?.price_bh || 0
+    const priceFull = toSafeNumber(checkRes?.price_full) ?? toSafeNumber(product.price_usd) ?? 0
+    const priceWithRebate =
+      toSafeNumber(checkRes?.price_with_rebate) ?? toSafeNumber(checkRes?.price_bh) ?? 0
     const savings =
-      checkRes?.rebate_savings || (priceFull > priceWithRebate ? priceFull - priceWithRebate : 0)
+      toSafeNumber(checkRes?.rebate_savings) ??
+      (priceFull > priceWithRebate ? priceFull - priceWithRebate : 0)
 
     // Se o produto já possui rebate nativo nos campos do produto
-    const nativeRebatePrice = product.price_usa_rebate
+    const nativeRebatePrice = toSafeNumber(product.price_usa_rebate)
     const nativeDateRebate = product.date_rebate
 
     if (nativeRebatePrice != null && nativeRebatePrice > 0 && priceFull > 0) {
@@ -95,8 +105,11 @@ export function RebateDiscountModal({
       const pct = Number(((savings / priceFull) * 100).toFixed(2))
       setDiscountType('percentage')
       setDiscountValue(pct)
-    } else if (checkRes?.price_with_rebate && priceFull > checkRes.price_with_rebate) {
-      const diff = priceFull - checkRes.price_with_rebate
+    } else if (
+      toSafeNumber(checkRes?.price_with_rebate) != null &&
+      priceFull > Number(checkRes?.price_with_rebate)
+    ) {
+      const diff = priceFull - Number(checkRes?.price_with_rebate)
       const pct = Number(((diff / priceFull) * 100).toFixed(2))
       setDiscountType('percentage')
       setDiscountValue(pct)
@@ -136,8 +149,9 @@ export function RebateDiscountModal({
   if (!product) return null
 
   const checkRes = product.checkResult
-  const priceFull = checkRes?.price_full || product.price_usd || 0
-  const savings = checkRes?.rebate_savings
+  const priceFull = toSafeNumber(checkRes?.price_full) ?? toSafeNumber(product.price_usd) ?? 0
+  const savings = toSafeNumber(checkRes?.rebate_savings)
+  const priceUsdSafe = toSafeNumber(product.price_usd)
 
   const handleSave = async () => {
     if (!discountValue || discountValue <= 0) {
@@ -176,7 +190,7 @@ export function RebateDiscountModal({
 
       toast({
         title: hasRebateAlready ? 'Rebate Fabricante atualizado!' : 'Rebate Fabricante ativado!',
-        description: `Rebate nativo gravado no produto "${product.name}" (price_usa_rebate: US$ ${result.priceUsaRebate.toFixed(2)}). Preço FOB base US$ ${product.price_usd?.toFixed(2)} preservado.`,
+        description: `Rebate nativo gravado no produto "${product.name}" (price_usa_rebate: US$ ${result.priceUsaRebate.toFixed(2)}). Preço FOB base US$ ${priceUsdSafe !== null ? priceUsdSafe.toFixed(2) : '—'} preservado.`,
       })
 
       onSuccess()
@@ -223,7 +237,9 @@ export function RebateDiscountModal({
             </div>
             <div className="flex items-center justify-between text-muted-foreground pt-1 border-t border-border/40">
               <span>SKU: {product.sku || '—'}</span>
-              <span>Preço DB (FOB): US$ {product.price_usd?.toFixed(2) || '—'}</span>
+              <span>
+                Preço DB (FOB): US$ {priceUsdSafe !== null ? priceUsdSafe.toFixed(2) : '—'}
+              </span>
             </div>
             {checkRes && (
               <div className="flex items-center justify-between bg-purple-500/10 text-purple-300 p-2 rounded border border-purple-500/20">

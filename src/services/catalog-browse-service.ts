@@ -7,7 +7,14 @@ import { supabase } from '@/lib/supabase/client'
  *  - grade de categorias na home
  *  - ordenação por preço em USD
  *  - filtro de fabricante mostra SÓ os fabricantes com produto na categoria
+ *
+ * REGRA DE COERÊNCIA: a contagem da vitrine tem de ser a mesma da listagem.
+ * Por isso TODAS as contagens ignoram produto descontinuado, igual à listagem.
+ * Sem isso o card dizia 243 e a página mostrava 240.
  */
+
+/** Produto descontinuado não entra na navegação (nem na contagem). */
+const escopoAtivo = (tabela: any) => tabela.eq('is_discontinued', false)
 
 export interface CategoryWithCount {
   id: string
@@ -75,8 +82,10 @@ export async function getCategoriesWithCounts(): Promise<CategoryWithCount[]> {
 export async function getManufacturersForCategory(
   categoryId: string,
 ): Promise<ManufacturerWithCount[]> {
-  const { data, error } = await (
-    supabase.from('products').select('manufacturer_id, manufacturer:manufacturers(id, name)') as any
+  const { data, error } = await escopoAtivo(
+    supabase
+      .from('products')
+      .select('manufacturer_id, manufacturer:manufacturers(id, name)') as any,
   ).eq('category_id', categoryId)
 
   if (error) throw error
@@ -101,23 +110,23 @@ export async function getProductsByCategory(opts: {
 }): Promise<CatalogProduct[]> {
   const { categoryId, manufacturerIds, order = 'asc' } = opts
 
-  let query = (supabase.from('products') as any)
-    .select(
-      'id, name, sku, image_url, price_usd, price_brl, price_nationalized_sales, ' +
-        'price_nationalized_cost, price_nationalized_currency, stock, is_discontinued, ' +
-        'category, category_id, manufacturer_id, weight, manufacturer:manufacturers(id, name)',
-    )
-    .eq('category_id', categoryId)
+  let query = (supabase.from('products') as any).select(
+    'id, name, sku, image_url, price_usd, price_brl, price_nationalized_sales, ' +
+      'price_nationalized_cost, price_nationalized_currency, stock, is_discontinued, ' +
+      'category, category_id, manufacturer_id, weight, manufacturer:manufacturers(id, name)',
+  )
 
-  if (!opts.includeDiscontinued) query = query.eq('is_discontinued', false)
+  if (!opts.includeDiscontinued) query = escopoAtivo(query)
+  query = query.eq('category_id', categoryId)
+
   if (manufacturerIds && manufacturerIds.length > 0) {
     query = query.in('manufacturer_id', manufacturerIds)
   }
 
-  // ordenação por preço em USD; nulos por último usando nullsFirst: false
+  // ordenação por preço em USD; nulos por último
   query = query.order('price_usd', { ascending: order === 'asc', nullsFirst: false })
 
-  const { data, error } = await query
+  const { data, error } = await query.limit(1000)
   if (error) throw error
   return (data || []) as CatalogProduct[]
 }
@@ -129,9 +138,9 @@ async function fetchAllProductRefs(): Promise<
   const PAGE = 1000
   const out: { category_id: string | null; manufacturer_id: string | null }[] = []
   for (let from = 0; ; from += PAGE) {
-    const { data, error } = await (supabase.from('products') as any)
-      .select('category_id, manufacturer_id')
-      .range(from, from + PAGE - 1)
+    const { data, error } = await escopoAtivo(
+      supabase.from('products').select('category_id, manufacturer_id') as any,
+    ).range(from, from + PAGE - 1)
     if (error) throw error
     if (!data || data.length === 0) break
     out.push(...data)

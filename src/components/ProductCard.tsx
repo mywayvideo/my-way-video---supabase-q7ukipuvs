@@ -283,7 +283,7 @@ export function ProductCard({
               </span>
             )
           })()}
-          <h3 className="font-medium text-sm md:text-base line-clamp-2 text-foreground hover:text-primary transition-colors leading-tight">
+          <h3 className="font-medium text-sm md:text-base line-clamp-2 break-words text-foreground hover:text-primary transition-colors leading-tight">
             {productName}
           </h3>
         </Link>
@@ -296,11 +296,12 @@ export function ProductCard({
                 {mainPriceVal !== null && (
                   <div className="flex flex-col">
                     {showSavings && mainOriginalVal !== null && (
-                      <span className="text-xs line-through text-muted-foreground font-medium whitespace-nowrap">
+                      <span className="text-xs line-through text-muted-foreground font-medium break-words">
                         {formatCurrency(mainOriginalVal, mainCurrency)}
                       </span>
                     )}
-                    <div className="flex items-baseline gap-1.5 whitespace-nowrap">
+                    {/* Em tela estreita o preço quebra em vez de ser cortado na borda */}
+                    <div className="flex items-baseline gap-x-1.5 gap-y-0 flex-wrap">
                       <span className="text-lg font-bold text-green-500">
                         {formatCurrency(mainPriceVal, mainCurrency)}
                       </span>
@@ -309,7 +310,7 @@ export function ProductCard({
                       </span>
                     </div>
                     {showSavings && (
-                      <span className="text-[11px] font-medium text-green-600 dark:text-green-400 mt-0.5 whitespace-nowrap animate-pulse">
+                      <span className="text-[11px] font-medium text-green-600 dark:text-green-400 mt-0.5 animate-pulse break-words">
                         Economize {formatCurrency(savingsValue, mainCurrency)}
                       </span>
                     )}
@@ -318,7 +319,7 @@ export function ProductCard({
 
                 {/* Secondary Price — ou o selo, quando não há como calcular o Brasil */}
                 {secPriceVal !== null ? (
-                  <div className="flex items-baseline gap-1.5 whitespace-nowrap mt-1 opacity-70">
+                  <div className="flex items-baseline gap-x-1.5 flex-wrap mt-1 opacity-70">
                     <span className="text-xs font-semibold text-foreground">
                       {formatCurrency(secPriceVal, secCurrency)}
                     </span>
@@ -328,7 +329,7 @@ export function ProductCard({
                   </div>
                 ) : mostrarSeloBrasil ? (
                   <div className="mt-1">
-                    <span className="inline-flex items-center gap-1.5 bg-accent/15 border border-accent/40 text-accent text-[10px] font-bold px-2 py-[3px] rounded-md tracking-wide whitespace-nowrap">
+                    <span className="inline-flex items-center gap-1.5 bg-accent/15 border border-accent/40 text-accent text-[10px] font-bold px-2 py-[3px] rounded-md tracking-wide">
                       <span className="w-1 h-1 rounded-full bg-current" />
                       Brasil: sob consulta
                     </span>

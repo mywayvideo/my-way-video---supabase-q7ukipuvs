@@ -15,6 +15,47 @@
 }
 
 /* --------------------------------------------------------------------------
+   ANTI-TRANSBORDO (todos os tamanhos)
+   A resposta da IA não pode ficar mais larga que o cartão que a contém: era
+   isso que cortava o nome do produto e o preço na borda da tela do celular
+   ("US$ 2,01" era um valor maior cortado). Nada aqui muda conteúdo nem
+   ordem — só impede o texto de vazar para fora.
+   -------------------------------------------------------------------------- */
+.md-mobile {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.md-mobile .md-p,
+.md-mobile .md-list li,
+.md-mobile .md-cell {
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+/* tabela nunca empurra o cartão: rola dentro do próprio quadro */
+.md-mobile .md-tablewrap {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.md-mobile .md-tablewrap table {
+  max-width: 100%;
+}
+
+/* bloco de código também fica contido */
+.md-mobile pre {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+/* imagem e mídia nunca passam da largura disponível */
+.md-mobile img {
+  max-width: 100%;
+  height: auto;
+}
+
+/* --------------------------------------------------------------------------
    CELULAR (< 640px)
    -------------------------------------------------------------------------- */
 @media (max-width: 639px) {

@@ -1,14 +1,24 @@
 /* ==========================================================================
    Ajuste estético da RESPOSTA DA IA no celular.
    SOMENTE APARÊNCIA — não mexe em conteúdo, ordem, parsing nem imagens.
-   Desktop: as classes .md-* não trazem nenhuma propriedade, então nada muda.
+
+   IMPORTANTE: o padding das células de tabela saiu do estilo inline e veio
+   para cá. Por isso a regra BASE abaixo é obrigatória: sem ela o desktop
+   ficaria sem espaçamento nas células.
    ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   BASE (todos os tamanhos) — repõe o que estava inline: 10px 14px
+   -------------------------------------------------------------------------- */
+.md-cell {
+  padding: 10px 14px;
+}
 
 /* --------------------------------------------------------------------------
    CELULAR (< 640px)
    -------------------------------------------------------------------------- */
 @media (max-width: 639px) {
-  /* respiro lateral e altura de linha mais confortável para leitura */
+  /* altura de linha mais confortável para leitura */
   .md-mobile {
     font-size: 14.5px;
     line-height: 1.65;
@@ -46,7 +56,7 @@
   }
 
   .md-mobile .md-cell {
-    padding: 7px 9px !important;
+    padding: 7px 9px;
     font-size: 13px;
     line-height: 1.45;
   }
@@ -72,20 +82,11 @@
   }
 
   .md-mobile .md-cell {
-    padding: 6px 7px !important;
+    padding: 6px 7px;
     font-size: 12.5px;
   }
 
   .md-mobile .md-list {
     padding-left: 1em;
-  }
-}
-
-/* --------------------------------------------------------------------------
-   Toque: realce discreto do alvo de rolagem, sem alterar layout
-   -------------------------------------------------------------------------- */
-@media (hover: none) {
-  .md-mobile .md-tablewrap {
-    position: relative;
   }
 }

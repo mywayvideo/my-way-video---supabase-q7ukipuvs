@@ -189,6 +189,14 @@ export function ProductCard({
     mainOriginalVal !== null && mainPriceVal !== null && mainOriginalVal > mainPriceVal
   const savingsValue = showSavings ? mainOriginalVal! - mainPriceVal! : 0
 
+  /**
+   * Linha do preço Brasil fica vazia quando o produto tem preço em dólar mas
+   * não tem peso — o site calcula o Brasil a partir do peso (use-pricing).
+   * Nesse caso mostramos o selo "Brasil: sob consulta" para a linha não ficar
+   * em branco e o card não parecer incompleto. Formato do card não muda.
+   */
+  const mostrarSeloBrasil = !isNationalized && hasUsaPrice && !estimatedBrlPrice
+
   return (
     <Card className="flex flex-col h-full overflow-hidden group bg-card border-transparent transition-all duration-300 relative shadow-sm hover:shadow-xl hover:-translate-y-1 rounded-xl">
       <CardHeader className="p-0 relative bg-white dark:bg-zinc-950">
@@ -308,8 +316,8 @@ export function ProductCard({
                   </div>
                 )}
 
-                {/* Secondary Price */}
-                {secPriceVal !== null && (
+                {/* Secondary Price — ou o selo, quando não há como calcular o Brasil */}
+                {secPriceVal !== null ? (
                   <div className="flex items-baseline gap-1.5 whitespace-nowrap mt-1 opacity-70">
                     <span className="text-xs font-semibold text-foreground">
                       {formatCurrency(secPriceVal, secCurrency)}
@@ -318,7 +326,14 @@ export function ProductCard({
                       {secLabel}
                     </span>
                   </div>
-                )}
+                ) : mostrarSeloBrasil ? (
+                  <div className="mt-1">
+                    <span className="inline-flex items-center gap-1.5 bg-accent/15 border border-accent/40 text-accent text-[10px] font-bold px-2 py-[3px] rounded-md tracking-wide whitespace-nowrap">
+                      <span className="w-1 h-1 rounded-full bg-current" />
+                      Brasil: sob consulta
+                    </span>
+                  </div>
+                ) : null}
               </div>
             ) : (
               <div className="flex items-center justify-center gap-2 text-muted-foreground bg-muted/50 px-3 py-3 rounded-md w-full border border-border/50 h-[60px]">

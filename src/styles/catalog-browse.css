@@ -1,0 +1,374 @@
+/* ==========================================================================
+   Home — três acessos + grade de categorias (layout aprovado 12/11/2026)
+   Cores puxadas de main.css: accent 46 65% 52% (#D4AF37), card 222 47% 8%
+   ========================================================================== */
+
+/* ---------- três acessos ---------- */
+.catalog-access-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 18px;
+  margin-top: 2.5rem;
+}
+
+@media (max-width: 900px) {
+  .catalog-access-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+}
+
+.acc {
+  position: relative;
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  border-radius: 18px;
+  padding: 26px 24px 22px;
+  overflow: hidden;
+  transition:
+    transform 0.22s ease,
+    border-color 0.22s ease,
+    box-shadow 0.22s ease;
+  min-height: 216px;
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+  color: inherit;
+  width: 100%;
+  font: inherit;
+  cursor: pointer;
+}
+
+.acc:hover {
+  transform: translateY(-4px);
+  border-color: hsl(var(--accent) / 0.55);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
+}
+
+.acc-on {
+  border-color: hsl(var(--accent));
+  box-shadow:
+    0 0 0 1px hsl(var(--accent) / 0.35),
+    0 16px 44px rgba(0, 0, 0, 0.6);
+}
+
+.acc-art {
+  position: absolute;
+  right: -18px;
+  top: -14px;
+  width: 150px;
+  height: 150px;
+  opacity: 0.5;
+  color: hsl(var(--accent));
+  pointer-events: none;
+  transition: opacity 0.22s ease;
+}
+
+.acc-art svg {
+  width: 100%;
+  height: 100%;
+}
+
+.acc:hover .acc-art,
+.acc-on .acc-art {
+  opacity: 0.85;
+}
+
+.acc-glyph {
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  border: 1px solid hsl(var(--accent) / 0.32);
+  background: hsl(var(--accent) / 0.09);
+  margin-bottom: 16px;
+  position: relative;
+  z-index: 2;
+}
+
+.acc-glyph svg {
+  width: 23px;
+  height: 23px;
+  stroke: hsl(var(--accent));
+}
+
+.acc-title {
+  font-size: 17px;
+  font-weight: 750;
+  letter-spacing: -0.01em;
+  position: relative;
+  z-index: 2;
+  color: hsl(var(--foreground));
+}
+
+.acc-text {
+  font-size: 13.2px;
+  color: hsl(var(--muted-foreground));
+  line-height: 1.55;
+  margin-top: 8px;
+  flex: 1;
+  position: relative;
+  z-index: 2;
+}
+
+.acc-go {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: hsl(var(--accent));
+  margin-top: 14px;
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.acc-glow {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 2px;
+  width: 100%;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+  background: linear-gradient(90deg, transparent, hsl(var(--accent)), transparent);
+}
+
+.acc:hover .acc-glow,
+.acc-on .acc-glow {
+  opacity: 1;
+}
+
+/* ---------- cabeçalho do painel ---------- */
+.catalog-panel {
+  margin-top: 20px;
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  border-radius: 18px;
+  padding: 28px;
+}
+
+@media (max-width: 640px) {
+  .catalog-panel {
+    padding: 18px;
+  }
+}
+
+.catalog-pbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: hsl(var(--muted-foreground));
+  margin-bottom: 22px;
+  flex-wrap: wrap;
+}
+
+.catalog-pbar b {
+  color: hsl(var(--foreground));
+  font-weight: 700;
+}
+
+.catalog-pill {
+  background: hsl(var(--accent) / 0.12);
+  color: hsl(var(--accent));
+  border: 1px solid hsl(var(--accent) / 0.3);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 11px;
+  border-radius: 999px;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
+/* ---------- grade de categorias ---------- */
+.cat-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+@media (max-width: 1200px) {
+  .cat-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 860px) {
+  .cat-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 480px) {
+  .cat-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.cat-card {
+  position: relative;
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  border-radius: 13px;
+  padding: 16px 16px 14px;
+  overflow: hidden;
+  transition:
+    border-color 0.18s ease,
+    background 0.18s ease,
+    transform 0.18s ease;
+  min-height: 96px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  text-decoration: none;
+  color: inherit;
+}
+
+.cat-card:hover {
+  border-color: hsl(var(--accent) / 0.5);
+  background: hsl(var(--secondary) / 0.45);
+  transform: translateY(-2px);
+}
+
+.cat-shape {
+  position: absolute;
+  right: -22px;
+  bottom: -26px;
+  width: 96px;
+  height: 96px;
+  opacity: 0.16;
+  color: hsl(var(--accent));
+  pointer-events: none;
+  transition: opacity 0.18s ease;
+}
+
+.cat-shape svg {
+  width: 100%;
+  height: 100%;
+}
+
+.cat-card:hover .cat-shape {
+  opacity: 0.32;
+}
+
+.cat-name {
+  font-size: 13.6px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+  position: relative;
+  z-index: 2;
+}
+
+.cat-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 14px;
+  position: relative;
+  z-index: 2;
+}
+
+.cat-count {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  color: hsl(var(--accent));
+  font-weight: 700;
+}
+
+.cat-arrow {
+  color: hsl(var(--accent));
+  font-size: 13px;
+  opacity: 0.55;
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease;
+}
+
+.cat-card:hover .cat-arrow {
+  opacity: 1;
+  transform: translateX(2px);
+}
+
+.cat-bar {
+  height: 2px;
+  background: hsl(var(--border));
+  border-radius: 2px;
+  margin-top: 10px;
+  overflow: hidden;
+  position: relative;
+  z-index: 2;
+}
+
+.cat-bar i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, hsl(var(--accent)), hsl(var(--accent) / 0.35));
+}
+
+/* ---------- listagem por categoria ---------- */
+.cat-page-head {
+  border-bottom: 1px solid hsl(var(--border));
+  padding-bottom: 18px;
+  margin-bottom: 22px;
+}
+
+.cat-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 22px;
+}
+
+.cat-chip {
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--card));
+  color: hsl(var(--muted-foreground));
+  font-size: 12.5px;
+  padding: 7px 13px;
+  border-radius: 999px;
+  transition:
+    border-color 0.15s ease,
+    color 0.15s ease,
+    background 0.15s ease;
+  cursor: pointer;
+}
+
+.cat-chip:hover {
+  border-color: hsl(var(--accent) / 0.5);
+  color: hsl(var(--foreground));
+}
+
+.cat-chip-on {
+  background: hsl(var(--accent) / 0.14);
+  border-color: hsl(var(--accent) / 0.55);
+  color: hsl(var(--accent));
+  font-weight: 700;
+}
+
+/* ---------- selo "sob consulta" (linha do preço Brasil) ---------- */
+.selo-consulta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: hsl(var(--accent) / 0.13);
+  border: 1px solid hsl(var(--accent) / 0.42);
+  color: hsl(var(--accent));
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 5px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.selo-consulta::before {
+  content: '';
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+}

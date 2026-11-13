@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { getProxiedImageUrl, proxyMarkdownImages } from '@/lib/image-proxy'
 import { debugLog, debugGroup, debugGroupEnd } from '@/utils/debug-front'
 import { removeOrphanBoldMarkers } from '@/utils/markdown-cleanup'
+import '@/styles/ai-answer-mobile.css'
 
 function extractOriginalFromProxy(url: string): string | null {
   try {
@@ -118,7 +119,7 @@ const ProductImageSkeleton: React.FC<{ src: string; alt: string; thumbnail?: boo
         <img
           src={currentSrc}
           alt={alt}
-          className="max-w-full h-auto rounded-lg max-h-48"
+          className="md-figure max-w-full h-auto rounded-lg"
           style={{ display: status === 'loading' ? 'none' : 'block' }}
           onLoad={() => setStatus('loaded')}
           onError={handleError}
@@ -255,7 +256,6 @@ const TableBlock: React.FC<TableBlockProps> = ({ rows }) => {
     backgroundColor: '#1e293b',
     color: '#f1f5f9',
     border: '1px solid #475569',
-    padding: '10px 14px',
     textAlign: 'left',
     fontWeight: 600,
     verticalAlign: 'top',
@@ -263,7 +263,6 @@ const TableBlock: React.FC<TableBlockProps> = ({ rows }) => {
   }
   const tdStyle: React.CSSProperties = {
     border: '1px solid #475569',
-    padding: '10px 14px',
     verticalAlign: 'top',
     overflowWrap: 'break-word',
   }
@@ -272,12 +271,12 @@ const TableBlock: React.FC<TableBlockProps> = ({ rows }) => {
   const headerCellCount = rows[0].cells.length
 
   return (
-    <div style={{ overflowX: 'auto', width: '100%', margin: '1em 0' }}>
+    <div className="md-tablewrap" style={{ overflowX: 'auto', width: '100%', margin: '1em 0' }}>
       <table style={{ borderCollapse: 'collapse', width: '100%', tableLayout: 'auto' }}>
         <thead>
           <tr>
             {rows[0].cells.map((header, index) => (
-              <th key={index} style={thStyle}>
+              <th key={index} style={thStyle} className="md-cell">
                 {parseInline(header, true)}
               </th>
             ))}
@@ -287,7 +286,7 @@ const TableBlock: React.FC<TableBlockProps> = ({ rows }) => {
           {rows.slice(1).map((row, rowIndex) => (
             <tr key={rowIndex}>
               {Array.from({ length: headerCellCount }).map((_, cellIndex) => (
-                <td key={cellIndex} style={tdStyle}>
+                <td key={cellIndex} style={tdStyle} className="md-cell">
                   {parseInline(row.cells[cellIndex] || '', true)}
                 </td>
               ))}
@@ -426,15 +425,11 @@ const parseMarkdown = (lines: string[]): React.ReactNode[] => {
 
       const listKey = `list-${currentI}`
       const listElement = isOrdered ? (
-        <ol
-          key={listKey}
-          className="list-decimal"
-          style={{ margin: '0.5em 0', paddingLeft: '1.5em' }}
-        >
+        <ol key={listKey} className="list-decimal md-list" style={{ margin: '0.5em 0' }}>
           {listItems}
         </ol>
       ) : (
-        <ul key={listKey} className="list-disc" style={{ margin: '0.5em 0', paddingLeft: '1.5em' }}>
+        <ul key={listKey} className="list-disc md-list" style={{ margin: '0.5em 0' }}>
           {listItems}
         </ul>
       )
@@ -472,7 +467,7 @@ const parseMarkdown = (lines: string[]): React.ReactNode[] => {
       .join(' ')
       .trim()
     elements.push(
-      <p key={elements.length} style={{ margin: '0.5em 0' }}>
+      <p key={elements.length} className="md-p">
         {parseInline(paraText)}
       </p>,
     )
@@ -733,7 +728,7 @@ const MarkdownWithTablesBase: React.FC<MarkdownWithTablesProps> = ({
 
   return (
     <div
-      className={className}
+      className={['md-mobile', className].filter(Boolean).join(' ')}
       style={{
         fontFamily: 'sans-serif',
         lineHeight: 1.6,

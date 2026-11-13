@@ -40,7 +40,7 @@ export function ResponseFormatter({
     debugGroup('ResponseFormatter:process')
     debugLog(
       'ResponseFormatter:rawContent',
-      `len=${safeLen(content)} products=${products?.length || 0}`,
+      `len=${safeLen(content)} products=${products?.length || 0} hideProductImages=${hideProductImages}`,
     )
     const productImageInfos: ProductImageInfo[] = (products || [])
       .filter((p: any) => p?.id && p?.name && p?.image_url)
@@ -53,17 +53,28 @@ export function ResponseFormatter({
       'ResponseFormatter:preparedImages',
       `count=${productImageInfos.length} names=[${productImageInfos.map((p) => p.name).join(', ')}]`,
     )
-    const result = processProductImages(content, productImageInfos)
+    const result = processProductImages(content, hideProductImages ? [] : productImageInfos)
     debugLog(
       'ResponseFormatter:processedContent',
       `inputLen=${safeLen(content)} outputLen=${safeLen(result.content)} insertedIds=${result.insertedProductIds.length} mentionedIds=${result.mentionedProductIds.length}`,
     )
     debugGroupEnd()
+    // REGRA (13/11/2026): hideProductImages significa SEM imagens inline no texto.
+    // O processador não injeta (lista vazia), mas o modelo pode ter emitido
+    // ![imagem](url) por conta própria e placeholders [PRODUCT:uuid] podem ter
+    // sobrado — tudo isso é removido aqui. Os cards ReferencedProducts continuam.
+    let finalContent = result.content
+    if (hideProductImages) {
+      finalContent = finalContent
+        .replace(/<!--\s*PRODUCT(?:_IMAGE)?:([0-9a-fA-F-]{36})\s*-->/g, '')
+        .replace(/\[PRODUCT:([0-9a-fA-F-]{36})\]/g, '')
+        .replace(/!\[[^\]]*\]\([^)]+\)/g, '')
+    }
     return {
-      cleanedContent: result.content,
+      cleanedContent: finalContent,
       mentionedProductIds: result.mentionedProductIds,
     }
-  }, [content, products])
+  }, [content, products, hideProductImages])
 
   const allReferencedIds = useMemo(() => {
     return [...new Set(mentionedProductIds)].filter((id) => id !== currentProductId)

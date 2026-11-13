@@ -116,14 +116,26 @@ const ProductImageSkeleton: React.FC<{ src: string; alt: string; thumbnail?: boo
           <span className="text-zinc-500 text-xs">Imagem indisponível</span>
         </span>
       ) : (
-        <img
-          src={currentSrc}
-          alt={alt}
-          className="md-figure max-w-full h-auto rounded-lg"
-          style={{ display: status === 'loading' ? 'none' : 'block' }}
-          onLoad={() => setStatus('loaded')}
-          onError={handleError}
-        />
+        <a
+          href={currentSrc}
+          target="_blank"
+          rel="noopener noreferrer"
+          title="Abrir imagem em tamanho real"
+          className="block cursor-zoom-in"
+        >
+          <img
+            src={currentSrc}
+            alt={alt}
+            className="md-figure max-w-full rounded-lg"
+            style={{
+              display: status === 'loading' ? 'none' : 'block',
+              maxHeight: '10rem',
+              width: 'auto',
+            }}
+            onLoad={() => setStatus('loaded')}
+            onError={handleError}
+          />
+        </a>
       )}
     </span>
   )

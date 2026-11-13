@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
-import { Sparkles, Search as SearchIcon, X, Loader2, Database, Check } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { Sparkles, Search as SearchIcon, X, Loader2, Database } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { supabase } from '@/lib/supabase/client'
 import { ProductCard } from '@/components/ProductCard'
@@ -19,24 +20,23 @@ import '@/styles/catalog-browse.css'
 type Access = AccessKind | null
 
 export default function Index() {
-  // ---------- acesso escolhido ----------
   const [access, setAccess] = useState<Access>('cat')
 
-  // ---------- IA (lógica original preservada) ----------
+  // IA — lógica original preservada
   const [query, setQuery] = useState('')
   const { search, isLoading, results, error, clearResults } = useAiSearch()
 
-  // ---------- Banco de dados ----------
+  // Banco de dados
   const [dbQuery, setDbQuery] = useState('')
   const [dbResults, setDbResults] = useState<any[]>([])
   const [dbLoading, setDbLoading] = useState(false)
   const [dbBuscaFeita, setDbBuscaFeita] = useState(false)
 
-  // ---------- Categorias ----------
+  // Categorias
   const [categorias, setCategorias] = useState<CategoryCardData[]>([])
   const [catLoading, setCatLoading] = useState(true)
 
-  // ---------- Destaques ----------
+  // Destaques
   const [featuredProducts, setFeaturedProducts] = useState<any[]>([])
   const featuredDiscounts = useMultipleProductDiscounts(featuredProducts)
 
@@ -84,7 +84,6 @@ export default function Index() {
       }
     : null
 
-  // ---------- carregar categorias e destaques ----------
   useEffect(() => {
     ;(async () => {
       try {
@@ -172,10 +171,6 @@ export default function Index() {
       setDbLoading(false)
     }
   }, [dbQuery])
-
-  /* ------------------------------------------------------------------ */
-  /*  PAINÉIS                                                           */
-  /* ------------------------------------------------------------------ */
 
   const painelIA = (
     <div className="catalog-panel">
@@ -321,7 +316,6 @@ export default function Index() {
           <p className="text-base">Nenhum produto encontrado para “{dbQuery}”.</p>
         </div>
       ) : (
-        /* estado vazio: nenhum produto fixo antes da busca */
         <div className="text-center py-12 px-5 mt-5 rounded-2xl border border-dashed border-border bg-secondary/15">
           <SearchIcon className="w-8 h-8 mx-auto text-muted-foreground/25" />
           <p className="text-sm font-semibold text-muted-foreground mt-4">
@@ -416,18 +410,16 @@ export default function Index() {
         </div>
       </section>
 
-      {/* Resultado da IA com produtos extras (mantido do original) */}
       {!isLoading && results && section2Products.length > 0 && access === 'ia' && (
         <section className="container mx-auto px-4 pb-16">
           <HPProductSections
-            section1Ids={[]}
+            section1Ids={section1Ids}
             section2Results={section2Products}
             allProductsData={allProductsData}
           />
         </section>
       )}
 
-      {/* Destaques */}
       {featuredProducts.length > 0 ? (
         <section className="container mx-auto px-4 pb-16">
           <div className="flex items-center justify-between gap-4 flex-wrap mb-8">

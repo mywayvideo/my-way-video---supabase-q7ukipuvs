@@ -175,6 +175,13 @@ function buildSystemPrompt(context: GenerateContext): string {
     parts.push(context.agentSettings.system_prompt)
   }
 
+  // CORRECAO (13/11/2026): o painel Admin (AdminAISystemPrompt) edita
+  // ai_settings.system_prompt_template acreditando que controla a home —
+  // mas este fluxo nunca leu o campo. Agora le, depois da identidade.
+  if (context.aiSettings?.system_prompt_template) {
+    parts.push(context.aiSettings.system_prompt_template)
+  }
+
   if (context.productPagePrompt) {
     parts.push(context.productPagePrompt)
   }
@@ -211,6 +218,10 @@ function buildSystemPrompt(context: GenerateContext): string {
 
   parts.push(
     `INSTRUÇÃO ESTRUTURAL FIXA (NÃO REMOVER): Na seção "Análise por Produto", insira imediatamente após cada título de produto o marcador <!-- PRODUCT_IMAGE:UUID --> usando o UUID exato do token [PRODUCT:UUID] fornecido no contexto. Na seção "Comparativo Técnico", insira o mesmo marcador <!-- PRODUCT_IMAGE:UUID --> dentro da célula correspondente a cada produto na tabela. O UUID deve ser o identificador exato fornecido nos tokens [PRODUCT:UUID].`,
+  )
+
+  parts.push(
+    `REGRA DE RIQUEZA TÉCNICA (OBRIGATÓRIO): As especificações que você citar devem vir PRIMEIRO da "Ficha técnica" de cada produto recebida no contexto — sensor, montagem, resolução, frame rates, codecs, faixa dinâmica, zoom, saídas, alimentação, peso, conforme o dado existir. Só complemente com conhecimento geral quando a ficha não trouxer o dado, e nesses casos não apresente valor aproximado como se fosse oficial. A resposta deve ter a estrutura: abertura direta (1-2 frases), "### Análise por Produto" (bloco por produto com 4-6 specs + contexto prático de uso + preço FOB), "### Comparativo Técnico" em tabela markdown quando houver 2 ou mais produtos (com parágrafo final de recomendação "escolha X se...; escolha Y se...") e fechamento com próximo passo. NUNCA emita imagem markdown (![...](...)): o sistema insere as imagens automaticamente a partir dos tokens [PRODUCT:UUID].`,
   )
 
   parts.push(
@@ -308,7 +319,12 @@ function buildMessages(
   let userContent = query
 
   if (context.products && context.products.length > 0) {
-    userContent += '\n\nProdutos relevantes do catálogo:\n'
+    // CORRECAO (13/11/2026): a ficha tecnica agora vai ao modelo. Antes o array
+    // levava so nome + precos e o modelo improvisava especificacoes de memoria.
+    // A ficha (technical_info) e a descricao ja sao buscadas do banco pelo
+    // ai-search/index.ts (select inclui technical_info) — faltava inclui-las aqui.
+    userContent +=
+      '\n\nProdutos relevantes do catálogo (com ficha técnica para citar nas respostas):\n'
     for (const p of context.products) {
       const usdPrice = formatPrice(p.price_usd, 'USD')
       const natPrice = formatPrice(
@@ -324,6 +340,21 @@ function buildMessages(
       if (brlRefPrice)
         userContent += ` | [INTERNO - não exibir a menos que solicitado] Ref. Brasil: ${brlRefPrice}`
       if (!usdPrice && !natPrice && !brlRefPrice) userContent += ` | Preço: Sob Consulta`
+
+      // Ficha técnica e descrição (limitadas para não estourar o contexto)
+      let tech = ''
+      if (p.technical_info) {
+        tech =
+          typeof p.technical_info === 'object'
+            ? JSON.stringify(p.technical_info)
+            : String(p.technical_info)
+      } else if (p.description) {
+        tech = String(p.description)
+      }
+      if (tech && tech.trim() && tech !== 'Não disponível') {
+        userContent += `\n  Ficha técnica: ${tech.replace(/\s+/g, ' ').trim().slice(0, 600)}`
+      }
+      if (p.category) userContent += `\n  Categoria: ${p.category}`
     }
   }
 

@@ -191,7 +191,11 @@ async function callAIProvider(
     }
   } else if (
     provider.provider_type === 'anthropic' ||
-    provider.provider_name.toLowerCase().includes('anthropic')
+    provider.provider_type === 'custom' ||
+    (provider.model_id || '').toLowerCase().includes('claude') ||
+    (provider.custom_endpoint || '').includes('anthropic') ||
+    provider.provider_name.toLowerCase().includes('anthropic') ||
+    provider.provider_name.toLowerCase().includes('claude')
   ) {
     endpoint = provider.custom_endpoint || 'https://api.anthropic.com/v1/messages'
     headers = {
@@ -508,6 +512,7 @@ function buildDynamicSystemPrompt(
         '   (d) PROIBIDO sugerir/recomendar produtos incompativeis com a camera da pagina: em perguntas de compatibilidade, os unicos produtos permitidos no array referenced_internal_products e nas recomendacoes sao os da MESMA familia de bateria/montagem da camera atual (ex: para PXW-Z200 / BP-U, o carregador compativel existente no catalogo e o Sony BC-U1A [PRODUCT:b0dc1986-20cf-4185-bc01-916347073ad4]; NUNCA o BC-QZ1).',
         '   (e) SO CITAR COMO ALTERNATIVA DE COMPRA PRODUTOS QUE EXISTAM NO CATALOGO A BAIXO: O modelo BC-U2A NAO existe atualmente no catalogo My Way (ha apenas o BC-U1A). Voce pode citar modelos nao cadastrados apenas a titulo de informacao tecnica de conhecimento geral, mas NUNCA os ofereca como produto disponivel no catalogo e NUNCA invente tags [PRODUCT:...]. Recomende para compra EXCLUSIVAMENTE os itens presentes na lista do catalogo.',
         '   (f) REGRA ANTI-DESVIO E ANTI-VITRINE: E terminantemente proibido abrir a resposta com titulos de vitrine ("Analise de Produtos Recomendados", "Produtos em Destaque", "Destaques do Catalogo") quando o usuario fez uma pergunta de compatibilidade. O veredito tecnico vem primeiro.',
+        '   (g) PROIBIDO emitir imagem markdown (![...](...)) no campo message: o sistema insere as imagens automaticamente a partir dos tokens [PRODUCT:uuid]. Use apenas texto, listas e tabelas.',
       ]
         .filter(Boolean)
         .join('\n'),

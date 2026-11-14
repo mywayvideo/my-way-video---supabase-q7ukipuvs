@@ -74,6 +74,16 @@ const formSchema = z.object({
 
 type FormValues = z.infer<typeof formSchema>
 
+/**
+ * OCULTO EM 13/11/2026: campos que nao sao lidos por nenhum fluxo do site
+ * (whatsapp_trigger_*, confidence_threshold_for_whatsapp, max_web_search_attempts,
+ * search_algorithm_sql, result_component_config, intent_mapping, technical_bridge,
+ * ignore_stock_count) davam a impressao de configurar algo e nao configuravam.
+ * Ficam fora do painel; os valores continuam intactos no banco.
+ * Para voltar a exibir: troque para `const MOSTRAR_CAMPOS_SEM_EFEITO = true`.
+ */
+const MOSTRAR_CAMPOS_SEM_EFEITO = false
+
 export default function AdminAISettings() {
   const { toast } = useToast()
   const [isLoading, setIsLoading] = useState(true)
@@ -516,7 +526,7 @@ export default function AdminAISettings() {
           {/* OCULTO (13/11/2026): campos whatsapp_trigger_* / confidence_threshold /
               max_web_search_attempts nao sao lidos por nenhum fluxo. Mantidos no banco,
               fora do painel. Reativar = trocar {false && ...} por nada. */}
-          {false && (
+          {MOSTRAR_CAMPOS_SEM_EFEITO && (
             <Card>
               <CardHeader>
                 <CardTitle>Seção C (Gatilhos do WhatsApp)</CardTitle>
@@ -730,7 +740,7 @@ export default function AdminAISettings() {
           </Card>
 
           {/* OCULTO (13/11/2026): result_component_config nao e lido por nenhum fluxo. */}
-          {false && (
+          {MOSTRAR_CAMPOS_SEM_EFEITO && (
             <Card>
               <CardHeader>
                 <CardTitle>Seção F (Configuração de Exibição)</CardTitle>
@@ -786,7 +796,7 @@ export default function AdminAISettings() {
 
           {/* OCULTO (13/11/2026): intent_mapping so e lido pelo fluxo WhatsApp (call-ai-agent),
               nao pelo site. Fora do painel para nao sugerir efeito que nao existe aqui. */}
-          {false && (
+          {MOSTRAR_CAMPOS_SEM_EFEITO && (
             <Card>
               <CardHeader>
                 <CardTitle>Seção H (Mapeamento Semântico de Intenção)</CardTitle>

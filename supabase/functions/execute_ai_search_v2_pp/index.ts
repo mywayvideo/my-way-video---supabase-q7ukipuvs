@@ -547,6 +547,7 @@ function buildDynamicSystemPrompt(
         '6. REGRAS DE PRECO: price_usd (Miami) e o UNICO preco exibido por padrao, em USD (US$). price_nationalized_sales e price_brl SO devem ser mencionados quando o cliente perguntar explicitamente sobre preco de entrega no Brasil. price_nationalized_currency define se o valor esta em BRL (R$) ou USD (US$). price_brl e sempre em USD e so usado se nao houver price_nationalized_sales.',
         '7. PROIBIDO escrever a tag literal [PRODUCT:UUID] como texto generico ou placeholder. Use SEMPRE o UUID real do produto fornecido no catalogo abaixo. O formato correto e [PRODUCT:uuid-real-do-produto].',
         '7b. FOTO E CARD OBRIGATORIOS DO PRODUTO CITADO: sempre que voce mencionar pelo nome um produto que esteja no catalogo abaixo — em recomendacao, comparacao ou mera informacao tecnica (ex: lista de modelos compativeis) — anexe imediatamente o token [PRODUCT:uuid] logo apos a primeira mencao do nome. EXCECAO UNICA: o produto da pagina atual NAO recebe token (ele ja tem foto na pagina). NUNCA emita token de produto ausente do catalogo abaixo. O sistema usa estes tokens para exibir a foto do produto dentro do texto e o card dele abaixo da resposta.',
+        '7c. RELEVANCIA ANTI-ALUCINACAO (obrigatorio): a lista do catalogo abaixo e resultado de BUSCA por palavra-chave — a presenca de um item nela NAO significa que ele sirva para o produto da pagina. Antes de recomendar qualquer item, verifique se ha EVIDENCIA de compatibilidade: o nome/ficha do item cita o produto atual ou sua familia (ex: "BMPCC", "FX5"), OU o item e consumivel universal (midia de gravacao, bateria/carregador do sistema correto, cabo padrao), OU a ficha tecnica declara compatibilidade. Itens de rig/suporte/tripe/dolly/pedestal/montagem NAO sao universais: so recomende se a ficha citar a camera da pagina. Se nao houver evidencia, NAO recomende — e prefira dizer "nao localizei acessorio especifico no catalogo" a sugerir item sem relacao. PROIBIDO recomendar por associacao vaga de categoria (ex: "e suporte de tripe, entao serve para qualquer camera").',
         '8. REGRA CRITICA DE COMPATIBILIDADE E VEREDITO IMEDIATO (SEM VITRINE FAKE):',
         'Quando a pergunta for de compatibilidade, indicacao ou encaixe ("e indicado para essa camera?", "serve para", "e compativel com", "posso usar", "funciona com"):',
         '   (a) ABRIR OBRIGATORIAMENTE com o VEREDITO CLARO no primeiro paragrafo: "Nao, o [Produto] nao e indicado/compativel com [Camera/Produto Atual]" ou "Sim, o [Produto] e compativel com...". NUNCA trate pergunta de compatibilidade como vitrine de compras ou "Analise de Produtos Recomendados".',
@@ -1519,6 +1520,136 @@ serve(async (req: Request) => {
       (id: string) => validIds.has(id) && (!currentProductId || id !== currentProductId),
     )
     console.log(`[LOG] IDs validados: ${result.referenced_internal_products.join(',')}`)
+
+    // ANTI-ALUCINACAO DE RECOMENDACAO (14/11/2026): o modelo recomendou para a
+    // FX5 um suporte de tripe da Blackmicro (produto de OUTRA camera) e uma dolly
+    // de estudio — itens reais do catalogo, mas sem relacao com a pergunta.
+    // Causa: a busca por termo generico ("memory card", "tripod") retorna
+    // produtos de qualquer fabricante/categoria e o modelo os apresentou como
+    // se fossem para a camera da pagina. Filtro deterministico no servidor:
+    // quando ha produto atual e a pergunta pede acessorio/compativel, um item
+    // so entra em referenced_internal_products se passar por UMA das provas:
+    //   (a) o nome/descricao/ficha cita explicitamente o produto atual ou sua
+    //       familia (ex: "BMPCC", "FX5", "Micro Studio Camera 4K");
+    //   (b) pertence a uma categoria de consumo/acessorio universal (midia,
+    //       bateria/carregador, cabo) — util para qualquer camera;
+    //   (c) e da mesma familia de bateria declarada no Product Cache.
+    // Itens de rig/tripe/dolly/pedestal NAO sao universais (dependem de furo,
+    // peso, padrao de base) e ficam de fora se nao citarem a camera.
+    const isAccessoryQuestion =
+      /\b(acessori|accessor|indicad|recomend|compat[ií]vel|compatible|kit|preciso de|o que (comprar|levar|usar))\b/i.test(
+        query,
+      ) || isCompatibilityQuestion
+    if (lastReferencedProductId && isAccessoryQuestion && currentProductId) {
+      try {
+        const { data: currentProd } = await supabase
+          .from('products')
+          .select('id, name, category, description, technical_info')
+          .eq('id', currentProductId)
+          .maybeSingle()
+        const currentName: string = String(currentProd?.name || '')
+        const currentCategory: string = String(currentProd?.category || '')
+        // Familia do produto atual: palavras do nome que identificam o modelo
+        // (ex: "FX5", "BMPCC", "Pocket", "Studio 4K") — 3+ chars, nao generica.
+        const GENERIC = new Set([
+          'sony',
+          'blackmagic',
+          'canon',
+          'panasonic',
+          'nikon',
+          'dji',
+          'e-image',
+          'manfrotto',
+          'sennheiser',
+          'shure',
+          'rode',
+          'with',
+          'unit',
+          'camera',
+          'cinema',
+          'digital',
+          'pro',
+          'kit',
+          'series',
+          'type',
+          'for',
+          'and',
+          'the',
+        ])
+        const familyTokens = currentName
+          .toLowerCase()
+          .replace(/\([^)]*\)/g, ' ')
+          .split(/[^a-z0-9]+/)
+          .filter((w) => w.length >= 3 && !GENERIC.has(w))
+        // Categorias universalmente uteis (consumo/acessorio generico)
+        const UNIVERSAL = new Set([
+          'memory cards & media',
+          'batteries & chargers',
+          'cables & connectors',
+          'card readers',
+          'media',
+        ])
+        const keep: string[] = []
+        const rejected: string[] = []
+        for (const id of result.referenced_internal_products) {
+          const p = (allFoundProducts as any[]).find((x) => String(x.id) === String(id))
+          const name: string = String(p?.name || '')
+          const desc: string = String(p?.description || '')
+          let tech: string = p?.technical_info
+            ? typeof p.technical_info === 'object'
+              ? JSON.stringify(p.technical_info)
+              : String(p.technical_info)
+            : ''
+          if (!tech) {
+            // buscar ficha do banco se nao veio na busca
+            const { data: tp } = await supabase
+              .from('products')
+              .select('technical_info, description, category')
+              .eq('id', id)
+              .maybeSingle()
+            tech = String((tp as any)?.technical_info ?? '')
+          }
+          const haystack = `${name} ${desc} ${tech}`.toLowerCase()
+          const citesFamily = familyTokens.some((t) => haystack.includes(t))
+          const cat = String(p?.category || '').toLowerCase()
+          const isUniversal = UNIVERSAL.has(cat)
+          // prova (c): mesma familia de bateria via Product Cache
+          let sameBattery = false
+          const currentBatteryMatch = currentProductCacheContext.match(
+            /battery_system:\s*([^\n\r]+)/i,
+          )
+          if (currentBatteryMatch) {
+            const curBat = currentBatteryMatch[1].trim().toUpperCase()
+            if (curBat && curBat !== 'NULL') {
+              const { data: batRows } = await supabase
+                .from('product_cache')
+                .select('spec_value')
+                .eq('product_id', id)
+                .eq('spec_key', 'battery_system')
+                .gt('expires_at', new Date().toISOString())
+                .limit(1)
+              const bat = String(batRows?.[0]?.spec_value || '').toUpperCase()
+              sameBattery = Boolean(bat) && (curBat.includes(bat) || bat.includes(curBat))
+            }
+          }
+          if (citesFamily || isUniversal || sameBattery) {
+            keep.push(id)
+          } else {
+            rejected.push(
+              `${name || id} (cat=${cat || '?'}, familia=${citesFamily}, universal=${isUniversal}, bateria=${sameBattery})`,
+            )
+          }
+        }
+        if (rejected.length > 0) {
+          console.log(
+            `[ANTI_HALLUCINATION] mantidos: ${keep.length} | descartados: ${rejected.join(' ; ')}`,
+          )
+          result.referenced_internal_products = keep
+        }
+      } catch (antiErr) {
+        console.log(`[ANTI_HALLUCINATION][ERROR] ${antiErr?.message || antiErr}`)
+      }
+    }
 
     // FOTO E CARD GARANTIDOS (13/11/2026): o modelo as vezes cita o produto pelo
     // nome mas esquece o token [PRODUCT:uuid] — sem token nao ha foto inline nem

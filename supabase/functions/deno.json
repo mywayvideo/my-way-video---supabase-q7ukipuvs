@@ -21,7 +21,7 @@
     "create-paypal-payment-intent": 64,
     "ai-search": 1259,
     "update-exchange-rate": 1123,
-    "execute_ai_search_v2_pp": 66,
+    "execute_ai_search_v2_pp": 68,
     "lookup-address": 1123,
     "square-payment": 47,
     "send-email": 1111,

@@ -657,7 +657,7 @@ export default function AdminAISettings() {
           )}
 
           {/* OCULTO (13/11/2026): search_algorithm_sql nao e lido por nenhum fluxo. */}
-          {false && (
+          {MOSTRAR_CAMPOS_SEM_EFEITO && (
             <Card>
               <CardHeader>
                 <CardTitle>Seção D (Algoritmo SQL)</CardTitle>
@@ -884,7 +884,7 @@ export default function AdminAISettings() {
           )}
 
           {/* OCULTO (13/11/2026): technical_bridge so e lido pelo fluxo WhatsApp (call-ai-agent). */}
-          {false && (
+          {MOSTRAR_CAMPOS_SEM_EFEITO && (
             <Card>
               <CardHeader>
                 <CardTitle>Seção I (Ponte de Soluções Técnicas)</CardTitle>

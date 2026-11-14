@@ -175,11 +175,17 @@ function buildSystemPrompt(context: GenerateContext): string {
     parts.push(context.agentSettings.system_prompt)
   }
 
-  // CORRECAO (13/11/2026): o painel Admin (AdminAISystemPrompt) edita
-  // ai_settings.system_prompt_template acreditando que controla a home —
-  // mas este fluxo nunca leu o campo. Agora le, depois da identidade.
+  // CORRECAO (13/11/2026): o painel Admin ("Instruções da IA") edita
+  // ai_agent_settings.system_prompt — a identidade lida acima. O
+  // system_prompt_template (ai_settings) era lido só pelo fluxo da página de
+  // produto; a home agora lê a parte de estrutura técnica, MAS sem o contrato
+  // JSON (exclusivo da página de produto — a home responde em markdown com
+  // tokens [PRODUCT:uuid] inline; JSON aqui quebraria a exibição).
   if (context.aiSettings?.system_prompt_template) {
-    parts.push(context.aiSettings.system_prompt_template)
+    let tpl: string = context.aiSettings.system_prompt_template
+    const start = tpl.indexOf('COMO MONTAR')
+    if (start > 0) tpl = tpl.slice(start)
+    parts.push(tpl)
   }
 
   if (context.productPagePrompt) {

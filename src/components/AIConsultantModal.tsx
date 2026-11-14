@@ -230,14 +230,25 @@ export function AIConsultantModal({
             .filter(Boolean)
         : []
 
-      if (finalProducts.length === 0 && refIds.length > 0) {
+      // REFERENCIA PELO TEXTO (13/11/2026): o modelo pode citar produtos com o
+      // token [PRODUCT:uuid] sem inclui-los no array referenced_internal_products.
+      // Extrai os tokens do proprio texto para que foto inline e cards funcionem
+      // sempre. O produto da pagina atual fica de fora (ja tem foto na pagina).
+      const msgContent: string = data.message || data.content || ''
+      const tokenMatches = msgContent.match(/\[PRODUCT:([0-9a-fA-F-]{36})\]/g) || []
+      const tokenIds = tokenMatches.map((t) => t.replace('[PRODUCT:', '').replace(']', ''))
+      const allRefIds = [...new Set([...refIds, ...tokenIds])].filter(
+        (id: string) => id && id !== activeProductId,
+      )
+
+      if (finalProducts.length === 0 && allRefIds.length > 0) {
         // Ignoring price_usa, slug, discount_percentage and manufacturer to avoid PostgREST error as they don't exist in products table
         const { data: groundedProducts } = await supabase
           .from('products')
           .select(
             'id, name, price_usd, price_brl, price_nationalized_sales, price_nationalized_currency, image_url, category, description, sku, weight, is_discontinued, price_usa_rebate, date_rebate, manufacturer_id, manufacturer:manufacturers(name)',
           )
-          .in('id', refIds)
+          .in('id', allRefIds)
         finalProducts = groundedProducts || []
       }
 
@@ -251,10 +262,10 @@ export function AIConsultantModal({
       }))
 
       const aiResultData: AIConsultantResult = {
-        referenced_internal_products: refIds.filter((id: string) => id !== activeProductId),
-        ai_referenced_products: (data.ai_referenced_products || []).filter(
-          (id: string) => id !== activeProductId,
-        ),
+        referenced_internal_products: allRefIds,
+        ai_referenced_products: [
+          ...new Set([...(data.ai_referenced_products || []), ...allRefIds]),
+        ].filter((id: string) => id !== activeProductId),
         products: finalProducts.filter((p: any) => p.id !== activeProductId),
       }
       onAIResult?.(aiResultData)
@@ -264,9 +275,7 @@ export function AIConsultantModal({
         role: 'assistant',
         content: data.message || data.content || 'Desculpe, não consegui processar sua requisição.',
         products: finalProducts.filter((p: any) => p.id !== activeProductId),
-        referenced_internal_products: (data.referenced_internal_products || refIds).filter(
-          (id: string) => id !== activeProductId,
-        ),
+        referenced_internal_products: allRefIds,
         should_show_whatsapp_button: data.should_show_whatsapp_button,
         tier: data.tier || 1,
       }
@@ -372,7 +381,6 @@ export function AIConsultantModal({
                       }
                       onWhatsAppClick={handleWhatsappClick}
                       onProductClick={onClose}
-                      hideProductImages
                     />
                   )}
                 </div>

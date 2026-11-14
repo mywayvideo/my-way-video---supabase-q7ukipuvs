@@ -157,7 +157,16 @@ export function ResponseFormatter({
 
   return (
     <div className="space-y-4 w-full">
-      <div className="prose prose-sm prose-invert max-w-none break-words">
+      <div
+        className="prose prose-sm prose-invert max-w-none break-words
+          [&_h1]:text-[15px] [&_h1]:font-semibold [&_h1]:tracking-tight [&_h1]:mb-2
+          [&_h2]:text-[15px] [&_h2]:font-semibold [&_h2]:tracking-tight [&_h2]:mt-5 [&_h2]:mb-2
+          [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:mt-4 [&_h3]:mb-1.5
+          [&_p]:my-2.5 [&_p]:leading-relaxed [&_p]:text-zinc-200
+          [&_ul]:my-2.5 [&_ol]:my-2.5 [&_li]:my-1 [&_li]:leading-relaxed
+          [&_hr]:my-4 [&_hr]:border-zinc-800
+          [&_strong]:text-zinc-100 [&_strong]:font-semibold"
+      >
         <MarkdownWithTables markdown={cleanedContent} />
       </div>
 

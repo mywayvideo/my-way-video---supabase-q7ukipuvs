@@ -383,6 +383,48 @@ async function hashQuery(query: string, context: string = ''): Promise<string> {
   return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('')
 }
 
+// CORRECAO (13/11/2026): extrai o PRIMEIRO objeto JSON balanceado de um texto
+// que pode vir embrulhado em ```json, com texto antes/depois ou truncado.
+// Antes o parse falhava nesses casos e o JSON cru vazava como mensagem.
+function extractJsonObject(text: string): any | null {
+  if (!text || typeof text !== 'string') return null
+  const direct = safeJSONParse(text, null)
+  if (direct && typeof direct === 'object') return direct
+  const cleaned = text.replace(/```json/gi, '```').trim()
+  const start = cleaned.indexOf('{')
+  if (start === -1) return null
+  let depth = 0
+  let inString = false
+  let escaped = false
+  for (let i = start; i < cleaned.length; i++) {
+    const ch = cleaned[i]
+    if (escaped) {
+      escaped = false
+      continue
+    }
+    if (ch === '\\\\') {
+      escaped = true
+      continue
+    }
+    if (ch === '"') {
+      inString = !inString
+      continue
+    }
+    if (inString) continue
+    if (ch === '{') depth++
+    else if (ch === '}') {
+      depth--
+      if (depth === 0) {
+        const candidate = cleaned.slice(start, i + 1)
+        const parsed = safeJSONParse(candidate, null)
+        if (parsed && typeof parsed === 'object') return parsed
+        return null
+      }
+    }
+  }
+  return null
+}
+
 function safeJSONParse(str: string, fallback: any = null): any {
   if (!str || typeof str !== 'string') return fallback
   try {
@@ -1340,6 +1382,19 @@ serve(async (req: Request) => {
     // Se não houve tool calls (pergunta técnica pura), a resposta já está em aiMessage.content
     // Mas pode não estar em JSON. Forçamos se necessário.
     let rawContent = aiMessage?.content || '{}'
+
+    // CORRECAO (13/11/2026): o modelo devolve JSON embrulhado em ```json ... ```
+    // e startsWith('{') dava false — o JSON inteiro era empacotado DENTRO de
+    // message (vazava na tela como texto) e should_show_whatsapp_button era
+    // forçado a false (por isso o botão nunca aparecia).
+    // Agora tenta extrair o objeto antes de decidir embrulhar.
+    if (typeof aiMessage?.content === 'string') {
+      const extracted = extractJsonObject(aiMessage.content)
+      if (extracted && typeof extracted.message === 'string') {
+        aiMessage.content = JSON.stringify(extracted)
+        rawContent = aiMessage.content
+      }
+    }
 
     // Se não parece JSON e estamos na página de produto, empacotamos
     if (lastReferencedProductId && !rawContent.trim().startsWith('{')) {

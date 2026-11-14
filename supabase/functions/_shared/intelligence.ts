@@ -398,6 +398,50 @@ function buildMessages(
 }
 
 function parseAIResponse(content: string, context: GenerateContext): any {
+  // CORRECAO (13/11/2026): o modelo às vezes devolve o objeto JSON embrulhado
+  // em ```json ... ``` ou com texto depois. Sem desembrulhar, o JSON cru vira
+  // o texto da resposta (vazava na tela) e a flag do WhatsApp se perdia.
+  if (typeof content === 'string' && content.trim().startsWith('```')) {
+    const unfenced = content
+      .replace(/^[\s`]*json\s*/i, '')
+      .replace(/```[\s\S]*$/, '')
+      .trim()
+    const jStart = unfenced.indexOf('{')
+    if (jStart !== -1) {
+      let depth = 0
+      let inStr = false
+      let esc = false
+      for (let i = jStart; i < unfenced.length; i++) {
+        const ch = unfenced[i]
+        if (esc) {
+          esc = false
+          continue
+        }
+        if (ch === '\\') {
+          esc = true
+          continue
+        }
+        if (ch === '"') {
+          inStr = !inStr
+          continue
+        }
+        if (inStr) continue
+        if (ch === '{') depth++
+        else if (ch === '}') {
+          depth--
+          if (depth === 0) {
+            try {
+              const parsed = JSON.parse(unfenced.slice(jStart, i + 1))
+              if (parsed && typeof parsed.content === 'string') content = parsed.content
+              else if (parsed && typeof parsed.message === 'string') content = parsed.message
+            } catch {}
+            break
+          }
+        }
+      }
+    }
+  }
+
   const productIds: string[] = []
   const idRegex = /(?:\[PRODUCT:|<!--\s*PRODUCT(?:_IMAGE)?:\s*)([0-9a-fA-F-]{36})(?:\s*-->|\])/g
   let match: RegExpExecArray | null
@@ -411,8 +455,16 @@ function parseAIResponse(content: string, context: GenerateContext): any {
   const hasProductMatch = productIds.length > 0
   const confidenceLevel = hasProductMatch ? 'high' : 'medium'
 
+  // CORRECAO (13/11/2026): a regra estava invertida para um site comercial —
+  // só mostrava o botão quando NÃO encontrava produto. O botão serve para o
+  // cliente falar com especialista justamente quando HÁ produto para negociar
+  // (ou quando a pergunta é institucional/comercial). Mantém oculto apenas em
+  // resposta puramente técnica sem produto e sem viés comercial.
   const shouldShowWhatsApp =
-    confidenceLevel === 'low' || (!hasProductMatch && !context.institutionalContext)
+    hasProductMatch ||
+    confidenceLevel === 'low' ||
+    Boolean(context.institutionalContext) ||
+    Boolean(context.agentSettings?.whatsapp_trigger_expensive_product)
 
   const filteredProductIds = productIds.filter((id) => id !== context.currentProductId)
 
@@ -444,12 +496,23 @@ export async function generateResponse(
   return parseAIResponse(content, context)
 }
 
+// OBSERVABILIDADE (13/11/2026): guarda qual provedor realmente respondeu.
+// O loop abaixo faz fallback silencioso (continue) quando a chave não existe
+// ou a API recusa — sem isso não há como saber qual modelo gerou a resposta.
+let lastProviderUsed: { provider_name: string; model_id: string; provider_type: string } | null =
+  null
+
+export function getLastProviderUsed() {
+  return lastProviderUsed
+}
+
 async function _callAIProvider(
   messages: Array<{ role: string; content: string }>,
   options: { temperature?: number } = {},
   supabase?: any,
 ): Promise<string> {
   const temperature = options.temperature ?? 0.3
+  lastProviderUsed = null
   const providers = await getActiveAgents(supabase)
 
   if (providers.length === 0) {
@@ -474,7 +537,14 @@ async function _callAIProvider(
 
       const data = await response.json()
       const content = extractContent(agent, data)
-      if (content) return content
+      if (content) {
+        lastProviderUsed = {
+          provider_name: agent.provider_name,
+          model_id: agent.model_id,
+          provider_type: agent.provider_type,
+        }
+        return content
+      }
     } catch {
       continue
     }
@@ -498,6 +568,11 @@ async function _callAIProvider(
       })
       if (response.ok) {
         const data = await response.json()
+        lastProviderUsed = {
+          provider_name: 'openai (fallback direto)',
+          model_id: 'gpt-4o-mini',
+          provider_type: 'openai',
+        }
         return data.choices?.[0]?.message?.content || ''
       }
     } catch {}

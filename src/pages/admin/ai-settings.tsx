@@ -513,159 +513,169 @@ export default function AdminAISettings() {
             </CardContent>
           </Card>
 
-          {/* Seção C */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Seção C (Gatilhos do WhatsApp)</CardTitle>
-              <CardDescription>
-                Alternadores (switches) para controle de comportamento baseado em confiança e
-                palavras-chave.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <FormField
-                  control={form.control}
-                  name="whatsapp_trigger_low_confidence"
-                  render={({ field }) => (
-                    <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-                      <div className="space-y-0.5">
-                        <FormLabel className="text-base">Baixa Confiança</FormLabel>
-                        <FormDescription>
-                          Acionar especialista quando a confiança for baixa
-                        </FormDescription>
-                      </div>
-                      <FormControl>
-                        <Switch checked={field.value} onCheckedChange={field.onChange} />
-                      </FormControl>
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="whatsapp_trigger_expensive_product"
-                  render={({ field }) => (
-                    <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-                      <div className="space-y-0.5">
-                        <FormLabel className="text-base">Produto de Alto Valor</FormLabel>
-                        <FormDescription>
-                          Acionar se o preço passar do limite definido
-                        </FormDescription>
-                      </div>
-                      <FormControl>
-                        <Switch checked={field.value} onCheckedChange={field.onChange} />
-                      </FormControl>
-                    </FormItem>
-                  )}
-                />
-              </div>
+          {/* OCULTO (13/11/2026): campos whatsapp_trigger_* / confidence_threshold /
+              max_web_search_attempts nao sao lidos por nenhum fluxo. Mantidos no banco,
+              fora do painel. Reativar = trocar {false && ...} por nada. */}
+          {false && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Seção C (Gatilhos do WhatsApp)</CardTitle>
+                <CardDescription>
+                  Alternadores (switches) para controle de comportamento baseado em confiança e
+                  palavras-chave.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <FormField
+                    control={form.control}
+                    name="whatsapp_trigger_low_confidence"
+                    render={({ field }) => (
+                      <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                        <div className="space-y-0.5">
+                          <FormLabel className="text-base">Baixa Confiança</FormLabel>
+                          <FormDescription>
+                            Acionar especialista quando a confiança for baixa
+                          </FormDescription>
+                        </div>
+                        <FormControl>
+                          <Switch checked={field.value} onCheckedChange={field.onChange} />
+                        </FormControl>
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="whatsapp_trigger_expensive_product"
+                    render={({ field }) => (
+                      <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                        <div className="space-y-0.5">
+                          <FormLabel className="text-base">Produto de Alto Valor</FormLabel>
+                          <FormDescription>
+                            Acionar se o preço passar do limite definido
+                          </FormDescription>
+                        </div>
+                        <FormControl>
+                          <Switch checked={field.value} onCheckedChange={field.onChange} />
+                        </FormControl>
+                      </FormItem>
+                    )}
+                  />
+                </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
-                <FormField
-                  control={form.control}
-                  name="whatsapp_trigger_purchase_keywords"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Palavras de Intenção de Compra (separadas por vírgula)</FormLabel>
-                      <FormControl>
-                        <Input {...field} placeholder="Ex: comprar, orçamento" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="whatsapp_trigger_project_keywords"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Palavras de Projetos Complexos (separadas por vírgula)</FormLabel>
-                      <FormControl>
-                        <Input {...field} placeholder="Ex: projeto, instalação" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+                  <FormField
+                    control={form.control}
+                    name="whatsapp_trigger_purchase_keywords"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>
+                          Palavras de Intenção de Compra (separadas por vírgula)
+                        </FormLabel>
+                        <FormControl>
+                          <Input {...field} placeholder="Ex: comprar, orçamento" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="whatsapp_trigger_project_keywords"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>
+                          Palavras de Projetos Complexos (separadas por vírgula)
+                        </FormLabel>
+                        <FormControl>
+                          <Input {...field} placeholder="Ex: projeto, instalação" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
 
-              <div className="mt-4">
-                <FormField
-                  control={form.control}
-                  name="whatsapp_trigger_keywords"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>
-                        Outras Palavras-chave de Acionamento (separadas por vírgula)
-                      </FormLabel>
-                      <FormControl>
-                        <Input {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
+                <div className="mt-4">
+                  <FormField
+                    control={form.control}
+                    name="whatsapp_trigger_keywords"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>
+                          Outras Palavras-chave de Acionamento (separadas por vírgula)
+                        </FormLabel>
+                        <FormControl>
+                          <Input {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <FormField
-                  control={form.control}
-                  name="confidence_threshold_for_whatsapp"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Limiar de Confiança</FormLabel>
-                      <FormControl>
-                        <Input {...field} placeholder="ex: low" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="max_web_search_attempts"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Tentativas de Busca Web</FormLabel>
-                      <FormControl>
-                        <Input type="number" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-            </CardContent>
-          </Card>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="confidence_threshold_for_whatsapp"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Limiar de Confiança</FormLabel>
+                        <FormControl>
+                          <Input {...field} placeholder="ex: low" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="max_web_search_attempts"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Tentativas de Busca Web</FormLabel>
+                        <FormControl>
+                          <Input type="number" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
-          {/* Seção D */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Seção D (Algoritmo SQL)</CardTitle>
-              <CardDescription>
-                Editor do SQL bruto para busca de produtos. O sistema executará exatamente o que
-                estiver aqui.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <FormField
-                control={form.control}
-                name="search_algorithm_sql"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormControl>
-                      <Textarea
-                        {...field}
-                        className="font-mono text-sm min-h-[150px]"
-                        placeholder="Ex: ORDER BY price_usa DESC, stock DESC"
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </CardContent>
-          </Card>
+          {/* OCULTO (13/11/2026): search_algorithm_sql nao e lido por nenhum fluxo. */}
+          {false && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Seção D (Algoritmo SQL)</CardTitle>
+                <CardDescription>
+                  Editor do SQL bruto para busca de produtos. O sistema executará exatamente o que
+                  estiver aqui.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <FormField
+                  control={form.control}
+                  name="search_algorithm_sql"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormControl>
+                        <Textarea
+                          {...field}
+                          className="font-mono text-sm min-h-[150px]"
+                          placeholder="Ex: ORDER BY price_usa DESC, stock DESC"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </CardContent>
+            </Card>
+          )}
 
           {/* Seção E */}
           <Card>
@@ -719,31 +729,35 @@ export default function AdminAISettings() {
             </CardContent>
           </Card>
 
-          {/* Seção F */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Seção F (Configuração de Exibição)</CardTitle>
-              <CardDescription>Editor JSON para definir colunas (desktop/mobile).</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <FormField
-                control={form.control}
-                name="result_component_config"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormControl>
-                      <Textarea
-                        {...field}
-                        className="font-mono text-sm min-h-[150px]"
-                        placeholder={'{\n  "desktop_columns": 4,\n  "mobile_columns": 2\n}'}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </CardContent>
-          </Card>
+          {/* OCULTO (13/11/2026): result_component_config nao e lido por nenhum fluxo. */}
+          {false && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Seção F (Configuração de Exibição)</CardTitle>
+                <CardDescription>
+                  Editor JSON para definir colunas (desktop/mobile).
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <FormField
+                  control={form.control}
+                  name="result_component_config"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormControl>
+                        <Textarea
+                          {...field}
+                          className="font-mono text-sm min-h-[150px]"
+                          placeholder={'{\n  "desktop_columns": 4,\n  "mobile_columns": 2\n}'}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </CardContent>
+            </Card>
+          )}
 
           {/* Seção G */}
           <Card>
@@ -752,23 +766,7 @@ export default function AdminAISettings() {
               <CardDescription>Regras de entrega/origem e toggle de estoque.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              <FormField
-                control={form.control}
-                name="ignore_stock_count"
-                render={({ field }) => (
-                  <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-                    <div className="space-y-0.5">
-                      <FormLabel className="text-base">Ignorar Contagem de Estoque</FormLabel>
-                      <FormDescription>
-                        Se ativado, a busca SQL não incluirá 'AND stock &gt; 0'
-                      </FormDescription>
-                    </div>
-                    <FormControl>
-                      <Switch checked={field.value} onCheckedChange={field.onChange} />
-                    </FormControl>
-                  </FormItem>
-                )}
-              />
+              {/* OCULTO (13/11/2026): ignore_stock_count nao e lido por nenhum fluxo. */}
 
               <FormField
                 control={form.control}
@@ -786,193 +784,198 @@ export default function AdminAISettings() {
             </CardContent>
           </Card>
 
-          {/* Seção H */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Seção H (Mapeamento Semântico de Intenção)</CardTitle>
-              <CardDescription>
-                Defina palavras-chave que acionam termos de busca adicionais para melhorar os
-                resultados.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {intentFields.length === 0 ? (
-                <div className="text-center p-6 border rounded-lg bg-muted/50">
-                  <p className="text-sm text-muted-foreground mb-4">
-                    Nenhum mapeamento configurado.
-                  </p>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => appendIntent({ trigger: '', expansion: '' })}
-                  >
-                    <Plus className="w-4 h-4 mr-2" />
-                    Adicionar Mapeamento
-                  </Button>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {intentFields.map((field, index) => (
-                    <div key={field.id} className="flex gap-4 items-start">
-                      <FormField
-                        control={form.control}
-                        name={`intent_mapping.${index}.trigger`}
-                        render={({ field }) => (
-                          <FormItem className="flex-1">
-                            <FormLabel className="sr-only">Termo Gatilho</FormLabel>
-                            <FormControl>
-                              <Input
-                                {...field}
-                                value={field.value || ''}
-                                placeholder="Termo Gatilho (ex: Produção)"
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={form.control}
-                        name={`intent_mapping.${index}.expansion`}
-                        render={({ field }) => (
-                          <FormItem className="flex-[2]">
-                            <FormLabel className="sr-only">Palavras-chave de Expansão</FormLabel>
-                            <FormControl>
-                              <Input
-                                {...field}
-                                value={field.value || ''}
-                                placeholder="Palavras de Expansão (ex: Câmera, Lente, Tripé)"
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => removeIntent(index)}
-                        className="text-destructive"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  ))}
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => appendIntent({ trigger: '', expansion: '' })}
-                  >
-                    <Plus className="w-4 h-4 mr-2" />
-                    Adicionar Mapeamento
-                  </Button>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          {/* OCULTO (13/11/2026): intent_mapping so e lido pelo fluxo WhatsApp (call-ai-agent),
+              nao pelo site. Fora do painel para nao sugerir efeito que nao existe aqui. */}
+          {false && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Seção H (Mapeamento Semântico de Intenção)</CardTitle>
+                <CardDescription>
+                  Defina palavras-chave que acionam termos de busca adicionais para melhorar os
+                  resultados.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {intentFields.length === 0 ? (
+                  <div className="text-center p-6 border rounded-lg bg-muted/50">
+                    <p className="text-sm text-muted-foreground mb-4">
+                      Nenhum mapeamento configurado.
+                    </p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => appendIntent({ trigger: '', expansion: '' })}
+                    >
+                      <Plus className="w-4 h-4 mr-2" />
+                      Adicionar Mapeamento
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {intentFields.map((field, index) => (
+                      <div key={field.id} className="flex gap-4 items-start">
+                        <FormField
+                          control={form.control}
+                          name={`intent_mapping.${index}.trigger`}
+                          render={({ field }) => (
+                            <FormItem className="flex-1">
+                              <FormLabel className="sr-only">Termo Gatilho</FormLabel>
+                              <FormControl>
+                                <Input
+                                  {...field}
+                                  value={field.value || ''}
+                                  placeholder="Termo Gatilho (ex: Produção)"
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name={`intent_mapping.${index}.expansion`}
+                          render={({ field }) => (
+                            <FormItem className="flex-[2]">
+                              <FormLabel className="sr-only">Palavras-chave de Expansão</FormLabel>
+                              <FormControl>
+                                <Input
+                                  {...field}
+                                  value={field.value || ''}
+                                  placeholder="Palavras de Expansão (ex: Câmera, Lente, Tripé)"
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => removeIntent(index)}
+                          className="text-destructive"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => appendIntent({ trigger: '', expansion: '' })}
+                    >
+                      <Plus className="w-4 h-4 mr-2" />
+                      Adicionar Mapeamento
+                    </Button>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
-          {/* Seção I */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Seção I (Ponte de Soluções Técnicas)</CardTitle>
-              <CardDescription>
-                Defina regras para dependências técnicas (ex: conversão HDMI para SDI).
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {bridgeFields.length === 0 ? (
-                <div className="text-center p-6 border rounded-lg bg-muted/50">
-                  <p className="text-sm text-muted-foreground mb-4">
-                    Nenhuma ponte técnica configurada.
-                  </p>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => appendBridge({ source: '', target: '', bridge: '' })}
-                  >
-                    <Plus className="w-4 h-4 mr-2" />
-                    Adicionar Regra
-                  </Button>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {bridgeFields.map((field, index) => (
-                    <div key={field.id} className="flex gap-4 items-start">
-                      <FormField
-                        control={form.control}
-                        name={`technical_bridge.${index}.source`}
-                        render={({ field }) => (
-                          <FormItem className="flex-1">
-                            <FormLabel className="sr-only">Protocolo Origem</FormLabel>
-                            <FormControl>
-                              <Input
-                                {...field}
-                                value={field.value || ''}
-                                placeholder="Origem (ex: HDMI)"
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={form.control}
-                        name={`technical_bridge.${index}.target`}
-                        render={({ field }) => (
-                          <FormItem className="flex-1">
-                            <FormLabel className="sr-only">Protocolo Destino</FormLabel>
-                            <FormControl>
-                              <Input
-                                {...field}
-                                value={field.value || ''}
-                                placeholder="Destino (ex: SDI)"
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={form.control}
-                        name={`technical_bridge.${index}.bridge`}
-                        render={({ field }) => (
-                          <FormItem className="flex-[2]">
-                            <FormLabel className="sr-only">Solução (Ponte)</FormLabel>
-                            <FormControl>
-                              <Input
-                                {...field}
-                                value={field.value || ''}
-                                placeholder="Ponte (ex: Micro Converter BiDirectional)"
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => removeBridge(index)}
-                        className="text-destructive"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  ))}
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => appendBridge({ source: '', target: '', bridge: '' })}
-                  >
-                    <Plus className="w-4 h-4 mr-2" />
-                    Adicionar Regra
-                  </Button>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          {/* OCULTO (13/11/2026): technical_bridge so e lido pelo fluxo WhatsApp (call-ai-agent). */}
+          {false && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Seção I (Ponte de Soluções Técnicas)</CardTitle>
+                <CardDescription>
+                  Defina regras para dependências técnicas (ex: conversão HDMI para SDI).
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {bridgeFields.length === 0 ? (
+                  <div className="text-center p-6 border rounded-lg bg-muted/50">
+                    <p className="text-sm text-muted-foreground mb-4">
+                      Nenhuma ponte técnica configurada.
+                    </p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => appendBridge({ source: '', target: '', bridge: '' })}
+                    >
+                      <Plus className="w-4 h-4 mr-2" />
+                      Adicionar Regra
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {bridgeFields.map((field, index) => (
+                      <div key={field.id} className="flex gap-4 items-start">
+                        <FormField
+                          control={form.control}
+                          name={`technical_bridge.${index}.source`}
+                          render={({ field }) => (
+                            <FormItem className="flex-1">
+                              <FormLabel className="sr-only">Protocolo Origem</FormLabel>
+                              <FormControl>
+                                <Input
+                                  {...field}
+                                  value={field.value || ''}
+                                  placeholder="Origem (ex: HDMI)"
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name={`technical_bridge.${index}.target`}
+                          render={({ field }) => (
+                            <FormItem className="flex-1">
+                              <FormLabel className="sr-only">Protocolo Destino</FormLabel>
+                              <FormControl>
+                                <Input
+                                  {...field}
+                                  value={field.value || ''}
+                                  placeholder="Destino (ex: SDI)"
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name={`technical_bridge.${index}.bridge`}
+                          render={({ field }) => (
+                            <FormItem className="flex-[2]">
+                              <FormLabel className="sr-only">Solução (Ponte)</FormLabel>
+                              <FormControl>
+                                <Input
+                                  {...field}
+                                  value={field.value || ''}
+                                  placeholder="Ponte (ex: Micro Converter BiDirectional)"
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => removeBridge(index)}
+                          className="text-destructive"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => appendBridge({ source: '', target: '', bridge: '' })}
+                    >
+                      <Plus className="w-4 h-4 mr-2" />
+                      Adicionar Regra
+                    </Button>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
           {/* Seção J */}
           <Card>

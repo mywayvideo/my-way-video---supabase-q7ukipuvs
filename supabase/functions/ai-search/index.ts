@@ -8,7 +8,7 @@ const corsHeaders = {
     'authorization, x-client-info, x-supabase-client-platform, apikey, content-type',
 }
 
-import { getActiveAgents, generateResponse } from '../_shared/intelligence.ts'
+import { getActiveAgents, generateResponse, getLastProviderUsed } from '../_shared/intelligence.ts'
 import { classifyIntent } from './intention.ts'
 import {
   sanitizeInput,
@@ -1413,6 +1413,17 @@ Deno.serve(async (req: Request) => {
 
       if (typeof result.content === 'string') {
         result.content = result.content.trim()
+        // LIMPEZA (13/11/2026): o modelo às vezes vaza as chaves do contrato
+        // JSON como texto markdown no fim da resposta ("**should_show_whatsapp_button:** true").
+        // Isso aparecia na tela. Remove a linha e separadores órfãos.
+        result.content = result.content
+          .replace(
+            /^[\s\-*_`]*(should_show_whatsapp_button|confidence_level|referenced_internal_products|ai_referenced_products)\s*[\*_`]*\s*:\s*[\s\S]{0,40}?$/gim,
+            '',
+          )
+          .replace(/\n{3,}/g, '\n\n')
+          .replace(/\s*\n\s*---\s*$/, '')
+          .trim()
         if (result.content.startsWith('{') && result.content.includes('"content"')) {
           try {
             const parsed = JSON.parse(result.content)
@@ -1635,6 +1646,15 @@ Deno.serve(async (req: Request) => {
         '[DEBUG FINAL] result.products IDs:',
         JSON.stringify(result.products?.map((p: any) => p.id)),
       )
+
+      // DIAGNOSTICO (13/11/2026): declara o modelo que realmente respondeu.
+      // O fallback do _callAIProvider é silencioso (continue quando a chave
+      // falta ou a API recusa) e os logs da function vêm sem corpo, então
+      // sem este campo não há como saber quem gerou a resposta.
+      try {
+        ;(result as any)._ai_provider = getLastProviderUsed()
+      } catch (_) {}
+
       return new Response(JSON.stringify(result), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         status: 200,

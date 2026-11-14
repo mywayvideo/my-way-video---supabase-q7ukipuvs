@@ -15,6 +15,57 @@ export function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
+/**
+ * Se o texto da resposta veio como envelope JSON (o modelo devolveu
+ * {"message": "...", "should_show_whatsapp_button": true}), devolve só o
+ * conteúdo. Aplica também quando o JSON está dentro de ```json.
+ * Devolve o texto original quando não reconhece envelope.
+ */
+function unwrapJsonEnvelope(raw: string): string {
+  if (!raw || typeof raw !== 'string') return raw
+  const trimmed = raw.trim()
+  const looksJson =
+    trimmed.startsWith('{') || trimmed.startsWith('```json') || trimmed.startsWith('```')
+  if (!looksJson) return raw
+  const unfenced = trimmed.replace(/^```(?:json)?\s*/i, '').trim()
+  const start = unfenced.indexOf('{')
+  if (start === -1) return raw
+  let depth = 0
+  let inStr = false
+  let esc = false
+  for (let i = start; i < unfenced.length; i++) {
+    const ch = unfenced[i]
+    if (esc) {
+      esc = false
+      continue
+    }
+    if (ch === '\\') {
+      esc = true
+      continue
+    }
+    if (ch === '"') {
+      inStr = !inStr
+      continue
+    }
+    if (inStr) continue
+    if (ch === '{') depth++
+    else if (ch === '}') {
+      depth--
+      if (depth === 0) {
+        try {
+          const parsed = JSON.parse(unfenced.slice(start, i + 1))
+          const body = parsed?.message ?? parsed?.content
+          if (typeof body === 'string' && body.trim()) return body
+        } catch {
+          /* não é envelope: devolve como veio */
+        }
+        return raw
+      }
+    }
+  }
+  return raw
+}
+
 interface ResponseFormatterProps {
   content: string
   products?: any[]
@@ -70,6 +121,23 @@ export function ResponseFormatter({
         .replace(/\[PRODUCT:([0-9a-fA-F-]{36})\]/g, '')
         .replace(/!\[[^\]]*\]\([^)]+\)/g, '')
     }
+
+    // REDE DE SEGURANÇA (13/11/2026): o modelo às vezes vaza as chaves do
+    // contrato JSON como texto ("**should_show_whatsapp_button:** true"),
+    // que aparecia para o cliente. Remove em qualquer resposta.
+    finalContent = finalContent
+      .replace(
+        /^[\s\-*_`]*(should_show_whatsapp_button|confidence_level|referenced_internal_products|ai_referenced_products)\s*[*_`]*\s*:\s*[\s\S]{0,40}?$/gim,
+        '',
+      )
+      .replace(/\n{3,}/g, '\n\n')
+      .trim()
+
+    // REDE DE SEGURANÇA (13/11/2026): se o modelo devolveu o envelope JSON como
+    // texto (vazava na tela como {"should_show_whatsapp_button": true} ...),
+    // extrai o campo de conteúdo e descarta o resto. A causa foi corrigida nas
+    // edge functions; isto protege o que já estiver em cache/em voo.
+    finalContent = unwrapJsonEnvelope(finalContent)
     return {
       cleanedContent: finalContent,
       mentionedProductIds: result.mentionedProductIds,

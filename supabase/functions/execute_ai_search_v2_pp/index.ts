@@ -546,6 +546,7 @@ function buildDynamicSystemPrompt(
         '5. Se nao encontrar acessorios compativeis, seja honesto: "Nao localizei acessorios compativeis especificos para este produto em nosso catalogo."',
         '6. REGRAS DE PRECO: price_usd (Miami) e o UNICO preco exibido por padrao, em USD (US$). price_nationalized_sales e price_brl SO devem ser mencionados quando o cliente perguntar explicitamente sobre preco de entrega no Brasil. price_nationalized_currency define se o valor esta em BRL (R$) ou USD (US$). price_brl e sempre em USD e so usado se nao houver price_nationalized_sales.',
         '7. PROIBIDO escrever a tag literal [PRODUCT:UUID] como texto generico ou placeholder. Use SEMPRE o UUID real do produto fornecido no catalogo abaixo. O formato correto e [PRODUCT:uuid-real-do-produto].',
+        '7b. FOTO E CARD OBRIGATORIOS DO PRODUTO CITADO: sempre que voce mencionar pelo nome um produto que esteja no catalogo abaixo — em recomendacao, comparacao ou mera informacao tecnica (ex: lista de modelos compativeis) — anexe imediatamente o token [PRODUCT:uuid] logo apos a primeira mencao do nome. EXCECAO UNICA: o produto da pagina atual NAO recebe token (ele ja tem foto na pagina). NUNCA emita token de produto ausente do catalogo abaixo. O sistema usa estes tokens para exibir a foto do produto dentro do texto e o card dele abaixo da resposta.',
         '8. REGRA CRITICA DE COMPATIBILIDADE E VEREDITO IMEDIATO (SEM VITRINE FAKE):',
         'Quando a pergunta for de compatibilidade, indicacao ou encaixe ("e indicado para essa camera?", "serve para", "e compativel com", "posso usar", "funciona com"):',
         '   (a) ABRIR OBRIGATORIAMENTE com o VEREDITO CLARO no primeiro paragrafo: "Nao, o [Produto] nao e indicado/compativel com [Camera/Produto Atual]" ou "Sim, o [Produto] e compativel com...". NUNCA trate pergunta de compatibilidade como vitrine de compras ou "Analise de Produtos Recomendados".',
@@ -1518,6 +1519,96 @@ serve(async (req: Request) => {
       (id: string) => validIds.has(id) && (!currentProductId || id !== currentProductId),
     )
     console.log(`[LOG] IDs validados: ${result.referenced_internal_products.join(',')}`)
+
+    // FOTO E CARD GARANTIDOS (13/11/2026): o modelo as vezes cita o produto pelo
+    // nome mas esquece o token [PRODUCT:uuid] — sem token nao ha foto inline nem
+    // card. Para todo produto VALIDADO (passou por validIds e pelo filtro de
+    // compatibilidade) cujo nome aparece na mensagem, injeta o token apos a
+    // primeira mencao e garante o id na lista. O produto da pagina atual nunca
+    // recebe token (ja tem foto na pagina) e seu token, se o modelo emitir, e
+    // removido do texto.
+    try {
+      const currentIdNorm = String(currentProductId || '')
+        .toLowerCase()
+        .trim()
+      if (typeof result.message === 'string' && result.message) {
+        if (currentIdNorm) {
+          result.message = result.message.replace(
+            new RegExp(`\\s*\\[PRODUCT:${currentIdNorm}\\]`, 'gi'),
+            '',
+          )
+        }
+        if (allFoundProducts?.length) {
+          for (const p of allFoundProducts) {
+            const pid = String(p?.id || '')
+              .toLowerCase()
+              .trim()
+            if (!pid || pid === currentIdNorm) continue
+            if (!p?.name) continue
+            if (result.message.includes(`[PRODUCT:${pid}]`)) continue
+            const baseName = String(p.name)
+              .replace(/(\s*\([^)]*\))+\s*$/i, '')
+              .trim()
+            if (!baseName) continue
+            const idx = result.message.toLowerCase().indexOf(baseName.toLowerCase())
+            if (idx === -1) continue
+            result.message =
+              result.message.slice(0, idx + baseName.length) +
+              ` [PRODUCT:${pid}]` +
+              result.message.slice(idx + baseName.length)
+            if (!result.referenced_internal_products.includes(pid)) {
+              result.referenced_internal_products.push(pid)
+            }
+          }
+        }
+
+        // MENCAO POR NOME (13/11/2026): o modelo cita produtos do catalogo pelo
+        // nome (ex: lista de cameras compativeis) sem emitir token e sem que
+        // tenham vindo na busca — ficavam sem foto e sem card. Detecta sequencias
+        // capitalizadas no texto, resolve contra o catalogo e injeta o token
+        // apos a mencao + o id na lista (limite 8, produto da pagina excluido).
+        const nameRegex = /\b([A-Z][A-Za-z0-9]+(?:\s+[A-Z][A-Za-z0-9]+){1,4})\b/g
+        const cands: { name: string; index: number }[] = []
+        let mm: RegExpExecArray | null
+        while ((mm = nameRegex.exec(result.message)) !== null) {
+          const cand = mm[1].trim()
+          if (cand.length < 6) continue
+          if (
+            /^(The|And|Nota|Recomend|Especific|Sistema|Compat|Produto|Preco|Preço|Kit|Proximo|Próximo|Passo|Blackmagic Pocket Camera Battery Grip)/i.test(
+              cand,
+            )
+          )
+            continue
+          cands.push({ name: cand, index: mm.index })
+          if (cands.length >= 10) break
+        }
+        const resolved: { pid: string; at: number }[] = []
+        for (const c of cands) {
+          if (resolved.length >= 8) break
+          const { data: named } = await supabase
+            .from('products')
+            .select('id, name')
+            .ilike('name', `%${c.name}%`)
+            .limit(1)
+          const p = named?.[0]
+          const pid = String(p?.id || '')
+            .toLowerCase()
+            .trim()
+          if (!pid || pid === currentIdNorm) continue
+          if (result.referenced_internal_products.includes(pid)) continue
+          if (result.message.includes(`[PRODUCT:${pid}]`)) continue
+          resolved.push({ pid, at: c.index + c.name.length })
+        }
+        resolved.sort((a, b) => b.at - a.at)
+        for (const r of resolved) {
+          result.message =
+            result.message.slice(0, r.at) + ` [PRODUCT:${r.pid}]` + result.message.slice(r.at)
+          result.referenced_internal_products.push(r.pid)
+        }
+      }
+    } catch (injectErr) {
+      console.log(`[TOKEN_INJECT][ERROR] ${injectErr?.message || injectErr}`)
+    }
 
     // LOG ANTES do strip (para validar se IA gera markdown)
     console.log('[DEBUG_MSG_RAW_BEFORE] message field:', (result.message || '').substring(0, 300))

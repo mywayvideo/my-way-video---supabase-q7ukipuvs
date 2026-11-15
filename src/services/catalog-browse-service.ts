@@ -11,6 +11,9 @@ import { supabase } from '@/lib/supabase/client'
  * REGRA DE COERÊNCIA: a contagem da vitrine tem de ser a mesma da listagem.
  * Por isso TODAS as contagens ignoram produto descontinuado, igual à listagem.
  * Sem isso o card dizia 243 e a página mostrava 240.
+ *
+ * Fase 3: "Produtos (N)" do card conta só NÃO-acessórios; acessórios da
+ * categoria viram o badge "N acessórios" (e a aba da página da categoria).
  */
 
 /** Produto descontinuado não entra na navegação (nem na contagem). */
@@ -21,7 +24,16 @@ export interface CategoryWithCount {
   name: string
   description: string | null
   productCount: number
+  accessoryCount: number
 }
+
+/**
+ * Categoria aposentada pela reestruturação (Fase 1): acessório virou atributo
+ * do produto (products.is_accessory) e esta categoria está sendo desativada.
+ * A navegação pública a trata como desativada MESMO enquanto o usuário ainda
+ * não terminou de zerá-la/reativar o flag no banco.
+ */
+export const APOSENTADA_ACCESSORIES = 'Accessories'
 
 export interface ManufacturerWithCount {
   id: string
@@ -57,23 +69,33 @@ export async function getCategoriesWithCounts(): Promise<CategoryWithCount[]> {
 
   if (catErr) throw catErr
 
+  // categorias fora da navegação pública: desativadas + a aposentada Accessories
+  const foraDoAr = new Set<string>()
+  for (const c of (cats || []) as any[]) {
+    if (c.is_active === false || c.name === APOSENTADA_ACCESSORIES) foraDoAr.add(c.id)
+  }
+
   const counts = new Map<string, number>()
+  const accCounts = new Map<string, number>()
   for (const p of products) {
     const key = p.category_id || '__sem__'
-    counts.set(key, (counts.get(key) || 0) + 1)
+    if (foraDoAr.has(key)) continue
+    if (p.is_accessory === true) accCounts.set(key, (accCounts.get(key) || 0) + 1)
+    else counts.set(key, (counts.get(key) || 0) + 1)
   }
 
   return (
     (cats || [])
-      .filter((c: any) => c.is_active !== false)
+      .filter((c: any) => c.is_active !== false && c.name !== APOSENTADA_ACCESSORIES)
       .map((c: any) => ({
         id: c.id,
         name: c.name,
         description: c.description ?? null,
         productCount: counts.get(c.id) || 0,
+        accessoryCount: accCounts.get(c.id) || 0,
       }))
       // categoria sem produto não entra na grade: não prometer o que não há
-      .filter((c: CategoryWithCount) => c.productCount > 0)
+      .filter((c: CategoryWithCount) => c.productCount > 0 || c.accessoryCount > 0)
       .sort((a: CategoryWithCount, b: CategoryWithCount) => b.productCount - a.productCount)
   )
 }
@@ -107,6 +129,8 @@ export async function getProductsByCategory(opts: {
   manufacturerIds?: string[]
   order?: 'asc' | 'desc'
   includeDiscontinued?: boolean
+  /** undefined = todos; false = só não-acessórios; true = só acessórios (products.is_accessory). */
+  isAccessory?: boolean
 }): Promise<CatalogProduct[]> {
   const { categoryId, manufacturerIds, order = 'asc' } = opts
 
@@ -118,6 +142,9 @@ export async function getProductsByCategory(opts: {
 
   if (!opts.includeDiscontinued) query = escopoAtivo(query)
   query = query.eq('category_id', categoryId)
+  if (typeof opts.isAccessory === 'boolean') {
+    query = query.eq('is_accessory', opts.isAccessory)
+  }
 
   if (manufacturerIds && manufacturerIds.length > 0) {
     query = query.in('manufacturer_id', manufacturerIds)
@@ -133,13 +160,21 @@ export async function getProductsByCategory(opts: {
 
 /** Só os campos mínimos, para contar categoria sem trazer o produto inteiro. */
 async function fetchAllProductRefs(): Promise<
-  { category_id: string | null; manufacturer_id: string | null }[]
+  {
+    category_id: string | null
+    manufacturer_id: string | null
+    is_accessory: boolean | null
+  }[]
 > {
   const PAGE = 1000
-  const out: { category_id: string | null; manufacturer_id: string | null }[] = []
+  const out: {
+    category_id: string | null
+    manufacturer_id: string | null
+    is_accessory: boolean | null
+  }[] = []
   for (let from = 0; ; from += PAGE) {
     const { data, error } = await escopoAtivo(
-      supabase.from('products').select('category_id, manufacturer_id') as any,
+      supabase.from('products').select('category_id, manufacturer_id, is_accessory') as any,
     ).range(from, from + PAGE - 1)
     if (error) throw error
     if (!data || data.length === 0) break

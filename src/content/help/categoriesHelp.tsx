@@ -32,7 +32,7 @@ import { cn } from '@/lib/utils'
  *   3. Faça tudo no mesmo commit da feature.
  */
 
-export const HELP_VERSION = 'v0.0.818'
+export const HELP_VERSION = 'v0.0.819'
 export const HELP_LAST_UPDATED = '15/11/2026'
 
 export type HelpBlockType =
@@ -396,7 +396,7 @@ export const CATEGORIES_HELP_TOPICS: HelpTopic[] = [
       {
         type: 'bullets',
         items: [
-          'Checkbox "É acessório?" no formulário de produto: marque-o para indicar que o produto é um acessório (ex.: parasol, case, cabo dedicado). Ele é um COMPLEMENTO da categoria, não um substituto — a categoria-mãe (Lenses, Cameras...) continua OBRIGATÓRIA; o formulário recusa salvar acessório sem categoria principal.',
+          'Checkbox "É acessório?" no formulário de produto (junto ao campo Categoria): marque-o para indicar que o produto é um acessório (ex.: parasol, case, cabo dedicado). Ele é um COMPLEMENTO da categoria, não um substituto — a categoria-mãe (Lenses, Cameras...) continua OBRIGATÓRIA; o formulário recusa salvar acessório sem categoria principal.',
           'No card da categoria, o acessório aparece em "Acessórios (N)", separado dos demais produtos — nunca soma em "Produtos (N)".',
           'Regra human-in-the-loop: a IA apenas SUGERE a categoria-mãe de cada acessório, com justificativa. Nada é aplicado automaticamente; cada destino é editável e a aprovação é explicitamente sua.',
         ],
@@ -419,6 +419,30 @@ export const CATEGORIES_HELP_TOPICS: HelpTopic[] = [
       {
         type: 'info',
         text: 'Desativar só é possível com a categoria zerada ("Restantes" = 0). A categoria desativada recebe o badge "Inativa" no card e não é apagada — pode ser reativada depois pelo CRUD de categorias.',
+      },
+    ],
+  },
+  {
+    id: 'navegacao-publica',
+    icon: '🧭',
+    title: 'Fase 3 — Navegação pública por categorias',
+    blocks: [
+      {
+        type: 'paragraph',
+        text: 'No site, a navegação por categorias não exibe mais a categoria "Accessories": ela é tratada como desativada em toda a navegação pública (grade de categorias da home, filtros de busca e breadcrumbs). Os acessórios continuam visíveis, agora amarrados à própria categoria-mãe.',
+      },
+      {
+        type: 'bullets',
+        items: [
+          'Card de categoria na home: além de "N itens" (só não-acessórios), mostra o badge discreto "N acessórios" quando a categoria tem acessórios marcados.',
+          'Página da categoria: o topo traz as abas "Produtos (N)" e "Acessórios (N)". A aba padrão é Produtos; a de Acessórios lista somente os produtos com o flag de acessório daquela categoria-mãe. Ambas usam os mesmos filtros de fabricante e ordenação de preço.',
+          'Selo "tem acessórios" (aba Produtos): quando um acessório da MESMA categoria referencia o produto pelo nome/modelo, o card ganha o selo; clicar nele abre a lista dos acessórios compatíveis. A tabela de compatibilidade oficial chega na Fase 2 — até lá a compatibilidade é por referência de nome.',
+          'A página do PRODUTO não muda: RelatedProducts/AccessCard continuam exatamente como estavam.',
+        ],
+      },
+      {
+        type: 'info',
+        text: 'O admin continua vendo a Accessories em /admin/categories, com o badge "Inativa" — a regra de esconder vale só para a navegação pública do site.',
       },
     ],
   },

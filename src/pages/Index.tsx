@@ -100,7 +100,14 @@ export default function Index() {
     ;(async () => {
       try {
         const cats = await catalogBrowseService.getCategoriesWithCounts()
-        setCategorias(cats.map((c) => ({ id: c.id, name: c.name, productCount: c.productCount })))
+        setCategorias(
+          cats.map((c) => ({
+            id: c.id,
+            name: c.name,
+            productCount: c.productCount,
+            accessoryCount: c.accessoryCount,
+          })),
+        )
       } catch (err) {
         console.error('Error fetching categories:', err)
       } finally {

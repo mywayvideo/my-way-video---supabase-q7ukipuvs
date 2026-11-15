@@ -8,9 +8,11 @@ import {
   type CatalogProduct,
   type ManufacturerWithCount,
 } from '@/services/catalog-browse-service'
+import { acessorioReferenciaProduto } from '@/utils/accessory-match'
 import '@/styles/catalog-browse.css'
 
 type Ordem = 'asc' | 'desc'
+type Aba = 'produtos' | 'acessorios'
 
 export default function CategoryPage() {
   const { id } = useParams<{ id: string }>()
@@ -18,7 +20,9 @@ export default function CategoryPage() {
   const [fabricantes, setFabricantes] = useState<ManufacturerWithCount[]>([])
   const [selecionados, setSelecionados] = useState<string[]>([])
   const [ordem, setOrdem] = useState<Ordem>('asc')
+  const [aba, setAba] = useState<Aba>('produtos')
   const [produtos, setProdutos] = useState<CatalogProduct[]>([])
+  const [acessorios, setAcessorios] = useState<CatalogProduct[]>([])
   const [carregando, setCarregando] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
 
@@ -45,20 +49,30 @@ export default function CategoryPage() {
     }
   }, [id])
 
-  // produtos: refaz a consulta quando filtro ou ordem mudam
+  // produtos + acessórios: refaz a consulta quando filtro ou ordem mudam
   useEffect(() => {
     if (!id) return
     let cancelado = false
     setCarregando(true)
     ;(async () => {
       try {
-        const lista = await catalogBrowseService.getProductsByCategory({
-          categoryId: id,
-          manufacturerIds: selecionados,
-          order: ordem,
-        })
+        const [lista, accs] = await Promise.all([
+          catalogBrowseService.getProductsByCategory({
+            categoryId: id,
+            manufacturerIds: selecionados,
+            order: ordem,
+            isAccessory: false,
+          }),
+          catalogBrowseService.getProductsByCategory({
+            categoryId: id,
+            manufacturerIds: selecionados,
+            order: ordem,
+            isAccessory: true,
+          }),
+        ])
         if (!cancelado) {
           setProdutos(lista)
+          setAcessorios(accs)
           setErro(null)
         }
       } catch (e: any) {
@@ -74,11 +88,26 @@ export default function CategoryPage() {
 
   const totalFabricantes = useMemo(() => fabricantes.length, [fabricantes])
 
+  // Fase 3 (provisório): compatibilidade por referência de nome — a tabela de
+  // compatibilidade só existe na Fase 2.
+  const acessoriosPorProduto = useMemo(() => {
+    const mapa = new Map<string, CatalogProduct[]>()
+    for (const p of produtos) {
+      const compativeis = acessorios.filter((a) =>
+        acessorioReferenciaProduto(a.name || '', p.name || ''),
+      )
+      if (compativeis.length > 0) mapa.set(p.id, compativeis)
+    }
+    return mapa
+  }, [produtos, acessorios])
+
   const alternarFabricante = (mid: string) => {
     setSelecionados((atual) =>
       atual.includes(mid) ? atual.filter((x) => x !== mid) : [...atual, mid],
     )
   }
+
+  const listaAtual = aba === 'produtos' ? produtos : acessorios
 
   if (!id) return null
 
@@ -96,11 +125,31 @@ export default function CategoryPage() {
           {nomeCategoria || 'Categoria'}
         </h1>
         <p className="text-sm text-muted-foreground mt-2">
-          {carregando ? 'Carregando…' : `${produtos.length} produto(s) nesta seleção`}
+          {carregando
+            ? 'Carregando…'
+            : `${listaAtual.length} ${aba === 'produtos' ? 'produto(s)' : 'acessório(s)'} nesta seleção`}
         </p>
       </div>
 
-      {totalFabricantes > 1 && (
+      {/* Abas Produtos / Acessórios (Fase 3) */}
+      <div className="cat-tabs">
+        <button
+          type="button"
+          onClick={() => setAba('produtos')}
+          className={`cat-tab ${aba === 'produtos' ? 'cat-tab-on' : ''}`}
+        >
+          Produtos ({produtos.length.toLocaleString('pt-BR')})
+        </button>
+        <button
+          type="button"
+          onClick={() => setAba('acessorios')}
+          className={`cat-tab ${aba === 'acessorios' ? 'cat-tab-on' : ''}`}
+        >
+          Acessórios ({acessorios.length.toLocaleString('pt-BR')})
+        </button>
+      </div>
+
+      {aba === 'produtos' && totalFabricantes > 1 && (
         <div className="cat-toolbar">
           <span className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
             Fabricante
@@ -157,10 +206,14 @@ export default function CategoryPage() {
         <div className="flex justify-center items-center py-24">
           <Loader2 className="h-10 w-10 animate-spin text-primary" />
         </div>
-      ) : produtos.length === 0 ? (
+      ) : listaAtual.length === 0 ? (
         <div className="text-center py-20 text-muted-foreground">
           <PackageX className="w-12 h-12 mx-auto mb-4 opacity-30" />
-          <p className="text-lg">Nenhum produto nesta seleção.</p>
+          <p className="text-lg">
+            {aba === 'produtos'
+              ? 'Nenhum produto nesta seleção.'
+              : 'Nenhum acessório nesta seleção.'}
+          </p>
           {selecionados.length > 0 && (
             <button
               type="button"
@@ -173,8 +226,14 @@ export default function CategoryPage() {
         </div>
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 lg:gap-6">
-          {produtos.map((p) => (
-            <ProductCard key={p.id} product={p} />
+          {listaAtual.map((p) => (
+            <ProductCard
+              key={p.id}
+              product={p}
+              acessoriosCompativeis={
+                aba === 'produtos' ? acessoriosPorProduto.get(p.id) : undefined
+              }
+            />
           ))}
         </div>
       )}

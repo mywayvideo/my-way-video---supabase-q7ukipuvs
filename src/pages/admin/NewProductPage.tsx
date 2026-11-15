@@ -609,6 +609,27 @@ export default function NewProductPage() {
                           </SelectContent>
                         </Select>
                         <FormMessage />
+                        <FormField
+                          control={form.control}
+                          name="is_accessory"
+                          render={({ field }) => (
+                            <FormItem className="flex items-center space-x-3 space-y-0 pt-1">
+                              <FormControl>
+                                <Checkbox
+                                  checked={field.value}
+                                  onCheckedChange={field.onChange}
+                                  disabled={isBusy}
+                                />
+                              </FormControl>
+                              <FormLabel className="cursor-pointer">
+                                É acessório?
+                                <span className="block text-xs font-normal text-muted-foreground">
+                                  A categoria principal (categoria-mãe) continua obrigatória.
+                                </span>
+                              </FormLabel>
+                            </FormItem>
+                          )}
+                        />
                       </FormItem>
                     )}
                   />
@@ -1411,27 +1432,6 @@ export default function NewProductPage() {
                           </FormControl>
                           <FormLabel className="cursor-pointer text-destructive">
                             Descontinuado
-                          </FormLabel>
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name="is_accessory"
-                      render={({ field }) => (
-                        <FormItem className="flex items-center space-x-3 space-y-0">
-                          <FormControl>
-                            <Checkbox
-                              checked={field.value}
-                              onCheckedChange={field.onChange}
-                              disabled={isBusy}
-                            />
-                          </FormControl>
-                          <FormLabel className="cursor-pointer">
-                            É acessório?
-                            <span className="block text-xs font-normal text-muted-foreground">
-                              A categoria principal (categoria-mãe) continua obrigatória.
-                            </span>
                           </FormLabel>
                         </FormItem>
                       )}

@@ -4,6 +4,7 @@ export interface CategoryCardData {
   id: string
   name: string
   productCount: number
+  accessoryCount: number
 }
 
 /** Formas geométricas de fundo — variam por card, sem depender de foto. */
@@ -49,7 +50,8 @@ const SHAPES = [
 
 /**
  * Card de categoria: texto + arte geométrica, SEM foto de produto.
- * Mostra só nome e quantidade — fabricante fica no filtro, dentro da categoria.
+ * Mostra nome, quantidade e o badge discreto "N acessórios" (Fase 3).
+ * Fabricante fica no filtro, dentro da categoria.
  */
 export function CategoryCard({
   category,
@@ -68,7 +70,14 @@ export function CategoryCard({
       <div className="cat-shape">{shape}</div>
       <div className="cat-name">{category.name}</div>
       <div className="cat-foot">
-        <div className="cat-count">{category.productCount.toLocaleString('pt-BR')} itens</div>
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="cat-count">{category.productCount.toLocaleString('pt-BR')} itens</span>
+          {category.accessoryCount > 0 && (
+            <span className="cat-accessory-badge">
+              {category.accessoryCount.toLocaleString('pt-BR')} acessórios
+            </span>
+          )}
+        </div>
         <div className="cat-arrow">→</div>
       </div>
       <div className="cat-bar">

@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase/client'
 import { CategoryItem, CategoryProductItem, normalizeNcmDigits } from './categoryTriageService'
+import { ACCESSORY_CATEGORY_NAME } from './accessoryService'
 
 export interface CategorySummaryGroup {
   id: string
@@ -18,6 +19,8 @@ export interface CategoryOverviewMetrics {
   totalProducts: number
   withCategoryId: number
   withLegacyOnly: number
+  /** Acessórios (is_accessory = true) ainda com category_id = categoria "Accessories". */
+  withAccessoriesPending: number
   noCategory: number
   categories: CategorySummaryGroup[]
 }
@@ -79,7 +82,14 @@ export const categoryService = {
     }
     let withCategoryId = 0
     let withLegacyOnly = 0
+    let withAccessoriesPending = 0
     let noCategory = 0
+
+    // A categoria "Accessories" foi aposentada pela Fase 1: acessório virou o
+    // atributo products.is_accessory. Enquanto os acessórios não forem
+    // recategorizados para a categoria-mãe, eles seguem com category_id
+    // apontando para Accessories — e são exatamente os pendentes da fila.
+    const accessoriesCatId = categoriesList.find((c) => c.name === ACCESSORY_CATEGORY_NAME)?.id
 
     const catCountMap = new Map<string, number>()
     const accCountMap = new Map<string, number>()
@@ -104,6 +114,9 @@ export const categoryService = {
         // pendente), o valor chega undefined e cai no contador de produtos comum.
         if (p.is_accessory === true) {
           accCountMap.set(p.category_id, (accCountMap.get(p.category_id) || 0) + 1)
+          if (accessoriesCatId && p.category_id === accessoriesCatId) {
+            withAccessoriesPending++
+          }
         } else {
           catCountMap.set(p.category_id, (catCountMap.get(p.category_id) || 0) + 1)
         }
@@ -152,6 +165,7 @@ export const categoryService = {
       totalProducts: products.length,
       withCategoryId,
       withLegacyOnly,
+      withAccessoriesPending,
       noCategory,
       categories: categoryGroups,
     }
@@ -184,7 +198,84 @@ export const categoryService = {
     if (categoryFilterType === 'by_category' && categoryId) {
       query = query.eq('category_id', categoryId)
     } else if (categoryFilterType === 'triage_legacy') {
-      query = query.is('category_id', null).neq('category', '').not('category', 'is', null)
+      // Fila de triagem = pendências reais:
+      //  a) legado: category_id IS NULL com rótulo textual (category) preenchido
+      //  b) acessórios: is_accessory = true ainda com category_id na categoria
+      //     "Accessories" (aposentada), aguardando recategorização p/ categoria-mãe
+      const { data: accCat, error: accCatError } = await supabase
+        .from('categories')
+        .select('id')
+        .eq('name', ACCESSORY_CATEGORY_NAME)
+        .maybeSingle()
+      if (accCatError) {
+        console.error('Erro ao buscar categoria Accessories:', accCatError)
+        throw accCatError
+      }
+
+      let legacyQuery = query
+        .is('category_id', null)
+        .neq('category', '')
+        .not('category', 'is', null)
+      let accQuery: any = null
+      if (accCat?.id) {
+        accQuery = supabase
+          .from('products')
+          .select(
+            'id, name, sku, ncm, category, category_id, manufacturer_id, image_url, price_usd, price_brl, stock, created_at, updated_at, last_reviewed_at, is_accessory, manufacturer:manufacturers(id, name)',
+            { count: 'exact' },
+          )
+          .eq('is_accessory', true)
+          .eq('category_id', accCat.id)
+      }
+
+      // Busca textual aplicada aos dois braços
+      const cleanSearch = search.trim()
+      const applySearch = (q: any) => {
+        if (!cleanSearch) return q
+        return q.or(
+          `name.ilike.%${cleanSearch}%,sku.ilike.%${cleanSearch}%,category.ilike.%${cleanSearch}%,ncm.ilike.%${cleanSearch}%`,
+        )
+      }
+      legacyQuery = applySearch(legacyQuery)
+      if (accQuery) accQuery = applySearch(accQuery)
+
+      const from = (page - 1) * pageSize
+      const to = from + pageSize - 1
+
+      // Executa os dois braços e intercala por nome (ordem única p/ paginação)
+      const [legacyRes, accRes] = await Promise.all([
+        legacyQuery.order('name', { ascending: true }).range(0, 10000),
+        accQuery
+          ? accQuery.order('name', { ascending: true }).range(0, 10000)
+          : Promise.resolve({ data: [], count: 0, error: null } as any),
+      ])
+
+      if (legacyRes.error) {
+        console.error('Erro ao buscar produtos legados da fila:', legacyRes.error)
+        throw legacyRes.error
+      }
+      if (accRes.error) {
+        console.error('Erro ao buscar acessórios pendentes da fila:', accRes.error)
+        throw accRes.error
+      }
+
+      const legacyItems = ((legacyRes.data as any) || []).map((p: any) => ({
+        ...p,
+        __triage: 'legacy' as const,
+      }))
+      const accItems = ((accRes.data as any) || []).map((p: any) => ({
+        ...p,
+        __triage: 'accessory' as const,
+      }))
+
+      const merged = [...legacyItems, ...accItems].sort((a: any, b: any) =>
+        (a.name || '').localeCompare(b.name || '', 'pt-BR'),
+      )
+
+      return {
+        items: merged.slice(from, to + 1) as any,
+        totalCount: (legacyRes.count || 0) + (accRes.count || 0),
+      }
     } else if (categoryFilterType === 'triage_none') {
       // Sem categoria nenhuma
       query = query.is('category_id', null).or('category.is.null,category.eq.""')

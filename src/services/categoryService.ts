@@ -9,6 +9,7 @@ export interface CategorySummaryGroup {
   is_active: boolean
   created_at: string
   product_count: number
+  accessory_count: number
   legacy_pending_count: number
   out_of_standard_count: number
 }
@@ -58,7 +59,7 @@ export const categoryService = {
     // 2. Buscar contagem geral e agregação por category_id e por rótulo legado
     const { data: productsData, error: prodError } = await (supabase
       .from('products')
-      .select('id, category_id, category, ncm') as any)
+      .select('id, category_id, category, ncm, is_accessory') as any)
 
     if (prodError) {
       console.error('Erro ao buscar produtos para métricas de categorias:', prodError)
@@ -71,6 +72,7 @@ export const categoryService = {
     let noCategory = 0
 
     const catCountMap = new Map<string, number>()
+    const accCountMap = new Map<string, number>()
     const legacyCountMap = new Map<string, number>()
     const outOfStandardMap = new Map<string, number>()
 
@@ -88,6 +90,12 @@ export const categoryService = {
       if (hasCatId) {
         withCategoryId++
         catCountMap.set(p.category_id, (catCountMap.get(p.category_id) || 0) + 1)
+        // Acessórios contam separados: products.is_accessory = true naquela categoria.
+        // Se a coluna is_accessory ainda não existir no banco (migration manual
+        // pendente), o valor chega undefined e cai no contador de produtos comum.
+        if (p.is_accessory === true) {
+          accCountMap.set(p.category_id, (accCountMap.get(p.category_id) || 0) + 1)
+        }
 
         // Verificar se NCM está fora do padrão
         const cat = catById.get(p.category_id)
@@ -124,6 +132,7 @@ export const categoryService = {
       is_active: c.is_active !== false,
       created_at: c.created_at || '',
       product_count: catCountMap.get(c.id) || 0,
+      accessory_count: accCountMap.get(c.id) || 0,
       legacy_pending_count: legacyCountMap.get(c.id) || 0,
       out_of_standard_count: outOfStandardMap.get(c.id) || 0,
     }))

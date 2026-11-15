@@ -44,6 +44,7 @@ const productSchema = z.object({
     .any()
     .transform((v) => (typeof v === 'string' ? v : v ? JSON.stringify(v, null, 2) : '')),
   is_discontinued: z.boolean().catch(false).default(false),
+  is_accessory: z.boolean().catch(false).default(false),
   manual_related_ids: z.array(z.string()).catch([]).default([]),
   ai_related_ids: z.array(z.string()).catch([]).default([]),
   price_usa_rebate: z.preprocess(
@@ -111,6 +112,7 @@ export function useProductForm(props?: UseProductFormProps) {
       is_special: false,
       technical_info: '',
       is_discontinued: false,
+      is_accessory: false,
       manual_related_ids: [],
       ai_related_ids: [],
       price_usa_rebate: null,
@@ -177,6 +179,7 @@ export function useProductForm(props?: UseProductFormProps) {
         is_special: props.initialData.is_special || false,
         technical_info: props.initialData.technical_info || '',
         is_discontinued: props.initialData.is_discontinued || false,
+        is_accessory: props.initialData.is_accessory || false,
         manual_related_ids: props.initialData.manual_related_ids || [],
         ai_related_ids: props.initialData.ai_related_ids || [],
         price_usa_rebate: props.initialData.price_usa_rebate ?? null,
@@ -222,6 +225,7 @@ export function useProductForm(props?: UseProductFormProps) {
               is_special: data.is_special || false,
               technical_info: data.technical_info || '',
               is_discontinued: data.is_discontinued || false,
+              is_accessory: (data as any).is_accessory || false,
               manual_related_ids: data.manual_related_ids || [],
               ai_related_ids: data.ai_related_ids || [],
               price_usa_rebate: data.price_usa_rebate ?? null,

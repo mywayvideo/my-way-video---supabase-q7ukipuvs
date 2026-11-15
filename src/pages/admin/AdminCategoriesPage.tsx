@@ -1178,8 +1178,19 @@ export function AdminCategoriesPage() {
                       <Badge
                         variant={cat.product_count > 0 ? 'secondary' : 'outline'}
                         className="px-1.5 py-0 h-5 font-mono text-[10px]"
+                        title="Produtos (não acessórios) nesta categoria"
                       >
-                        {cat.product_count} {cat.product_count === 1 ? 'prod' : 'prods'}
+                        Produtos ({cat.product_count})
+                      </Badge>
+                      <Badge
+                        variant={cat.accessory_count > 0 ? 'default' : 'outline'}
+                        className={cn(
+                          'px-1.5 py-0 h-5 font-mono text-[10px]',
+                          cat.accessory_count === 0 && 'text-muted-foreground',
+                        )}
+                        title="Acessórios (products.is_accessory = true) nesta categoria"
+                      >
+                        Acessórios ({cat.accessory_count})
                       </Badge>
                       {cat.legacy_pending_count > 0 && (
                         <TooltipProvider>
@@ -2009,8 +2020,17 @@ export function AdminCategoriesPage() {
                         variant={cat.product_count > 0 ? 'secondary' : 'outline'}
                         className="text-[11px] px-2 py-0 font-mono"
                       >
-                        {cat.product_count}{' '}
-                        {cat.product_count === 1 ? 'produto vinculado' : 'produtos vinculados'}
+                        Produtos ({cat.product_count})
+                      </Badge>
+                      <Badge
+                        variant={cat.accessory_count > 0 ? 'default' : 'outline'}
+                        className={cn(
+                          'text-[11px] px-2 py-0 font-mono',
+                          cat.accessory_count === 0 && 'text-muted-foreground',
+                        )}
+                        title="Acessórios (products.is_accessory = true) nesta categoria"
+                      >
+                        Acessórios ({cat.accessory_count})
                       </Badge>
                       {cat.legacy_pending_count > 0 && (
                         <Badge

@@ -15,6 +15,8 @@ import {
   SuggestionConfidence,
 } from '@/services/categoryTriageService'
 import { CategoryEditDialog } from '@/components/admin/CategoryEditDialog'
+import { AccessoryReclassDialog } from '@/components/admin/AccessoryReclassDialog'
+import { accessoryService, ACCESSORY_CATEGORY_NAME } from '@/services/accessoryService'
 import { CategoriesHelpModal } from '@/content/help/categoriesHelp'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -178,6 +180,9 @@ export function AdminCategoriesPage() {
   // Modal de instruções de uso do módulo
   const [helpModalOpen, setHelpModalOpen] = useState(false)
 
+  // Reclassificação assistida de acessórios (categoria Accessories)
+  const [accessoryReclassOpen, setAccessoryReclassOpen] = useState(false)
+
   // Mapas rápidos
   const categoriesList = useMemo(() => metrics?.categories || [], [metrics])
   const categoriesById = useMemo(() => {
@@ -191,6 +196,15 @@ export function AdminCategoriesPage() {
     categoriesList.forEach((c) => map.set(c.name, c))
     return map
   }, [categoriesList])
+
+  // Reclassificação assistida de acessórios (categoria Accessories)
+  const accessoriesCategory = useMemo(
+    () => categoriesList.find((c) => c.name === ACCESSORY_CATEGORY_NAME) || null,
+    [categoriesList],
+  )
+  const accessoriesPendingCount =
+    (accessoriesCategory?.product_count || 0) + (accessoriesCategory?.accessory_count || 0)
+  const accessoriesInactive = accessoriesCategory ? accessoriesCategory.is_active === false : false
 
   // Carregar visão geral
   const loadOverview = useCallback(async (silent = false) => {
@@ -951,6 +965,25 @@ export function AdminCategoriesPage() {
               Copiar categorias
             </Button>
 
+            {canManageCategories && accessoriesCategory && !accessoriesInactive && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setAccessoryReclassOpen(true)}
+                disabled={loadingMetrics}
+                title="Reclassifica os acessórios hoje em Accessories para a categoria-mãe correta, com sugestão da IA"
+                className="gap-1.5"
+              >
+                <MoveRight className="w-4 h-4 text-muted-foreground" />
+                Reclassificar acessórios
+                {accessoriesPendingCount > 0 && (
+                  <Badge variant="secondary" className="ml-1 px-1.5 py-0 h-4 text-[10px] font-mono">
+                    {accessoriesPendingCount}
+                  </Badge>
+                )}
+              </Button>
+            )}
+
             <Button
               variant="outline"
               size="sm"
@@ -1182,6 +1215,15 @@ export function AdminCategoriesPage() {
                       >
                         Produtos ({cat.product_count})
                       </Badge>
+                      {cat.name === ACCESSORY_CATEGORY_NAME && !cat.is_active && (
+                        <Badge
+                          variant="outline"
+                          className="px-1.5 py-0 h-5 text-[9px] text-muted-foreground"
+                          title="Categoria desativada — não recebe novos produtos"
+                        >
+                          Inativa
+                        </Badge>
+                      )}
                       <Badge
                         variant={cat.accessory_count > 0 ? 'default' : 'outline'}
                         className={cn(
@@ -1246,6 +1288,16 @@ export function AdminCategoriesPage() {
             })}
           </div>
         </div>
+
+        {/* Reclassificação assistida de acessórios */}
+        <AccessoryReclassDialog
+          open={accessoryReclassOpen}
+          onOpenChange={setAccessoryReclassOpen}
+          onChanged={() => {
+            loadOverview(true)
+            loadProducts()
+          }}
+        />
 
         {/* ========================================================
             BARRA DE FERRAMENTAS & MIGRAÇÃO EM MASSA (REQUISITO 3)

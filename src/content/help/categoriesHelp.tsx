@@ -32,8 +32,8 @@ import { cn } from '@/lib/utils'
  *   3. Faça tudo no mesmo commit da feature.
  */
 
-export const HELP_VERSION = 'v0.0.773'
-export const HELP_LAST_UPDATED = '09/11/2026'
+export const HELP_VERSION = 'v0.0.818'
+export const HELP_LAST_UPDATED = '15/11/2026'
 
 export type HelpBlockType =
   | 'paragraph'
@@ -374,12 +374,51 @@ export const CATEGORIES_HELP_TOPICS: HelpTopic[] = [
           'Sem Categoria — produtos sem category_id e sem rótulo legado aproveitável.',
           'Oficiais Vinculados — produtos com category_id gravado. Quanto maior em relação ao total, mais organizado está o catálogo.',
           'Total de Categorias — quantidade de categorias cadastradas (clicável: abre a lista completa).',
-          'Contadores por categoria (na grade): "N prods" = produtos vinculados; "+N leg" = aguardando na triagem com rótulo legado desta categoria; N com alerta = produtos com NCM fora do padrão dos prefixos aceitáveis.',
+          'Contadores por categoria (na grade): "Produtos (N)" = produtos vinculados que NÃO são acessórios; "Acessórios (N)" = produtos da categoria marcados com o checkbox "É acessório?" (products.is_accessory = true); "+N leg" = aguardando na triagem com rótulo legado desta categoria; N com alerta = produtos com NCM fora do padrão dos prefixos aceitáveis.',
+          'Um produto marcado como "É acessório?" conta APENAS no contador "Acessórios (N)" da sua categoria-mãe — nunca em "Produtos (N)".',
         ],
       },
       {
         type: 'info',
         text: 'Todos os contadores são recalculados ao vivo a cada confirmação/migração/CRUD — não precisa recarregar a página. O botão "Atualizar" força a recarga de métricas e tabela.',
+      },
+    ],
+  },
+  {
+    id: 'acessorios',
+    icon: '🧩',
+    title: 'Acessórios: checkbox no produto e reclassificação assistida',
+    blocks: [
+      {
+        type: 'paragraph',
+        text: '"Acessório" passou a ser um ATRIBUTO do produto (checkbox "É acessório?" no formulário de produto, coluna products.is_accessory), não mais uma categoria genérica. A categoria "Accessories" está sendo aposentada: os 243 produtos que hoje estão nela precisam ser reclassificados para a categoria-mãe correta (Lenses, Cameras, Monitors...) mantendo a marcação de acessório.',
+      },
+      {
+        type: 'bullets',
+        items: [
+          'Checkbox "É acessório?" no formulário de produto: marque-o para indicar que o produto é um acessório (ex.: parasol, case, cabo dedicado). Ele é um COMPLEMENTO da categoria, não um substituto — a categoria-mãe (Lenses, Cameras...) continua OBRIGATÓRIA; o formulário recusa salvar acessório sem categoria principal.',
+          'No card da categoria, o acessório aparece em "Acessórios (N)", separado dos demais produtos — nunca soma em "Produtos (N)".',
+          'Regra human-in-the-loop: a IA apenas SUGERE a categoria-mãe de cada acessório, com justificativa. Nada é aplicado automaticamente; cada destino é editável e a aprovação é explicitamente sua.',
+        ],
+      },
+      {
+        type: 'steps',
+        items: [
+          'Abra o fluxo pelo botão "Reclassificar acessórios" no cabeçalho (aparece para administradores enquanto a categoria Accessories estiver ativa e com produtos).',
+          'O diálogo carrega um lote de até 100 acessórios ainda em Accessories e consulta a IA em blocos de 20 — as sugestões (categoria + justificativa) aparecem conforme chegam, com barra de progresso.',
+          'Para cada produto, leia a justificativa da IA ao lado da linha e confirme ou troque o destino no seletor editável. O item "Deixar para depois" (×) só o remove desta rodada, sem alterar o banco.',
+          'Produtos que a IA não sugeriu nada caem na fila separada "sem decisão" (contorno âmbar, badge no topo): escolha o destino manualmente para poder aprová-los.',
+          'Clique em "Aprovar (N)" para gravar em bloco (blocos de no máximo 100): o produto sai de Accessories, passa a apontar para a categoria escolhida e é mantido com is_accessory = true. Os contadores dos cards se atualizam na hora.',
+          'Repita com "Recarregar lote" até zerar. Quando "Restantes" chegar a 0, o botão "Desativar Accessories" é habilitado — ele desativa (não apaga) a categoria, com confirmação.',
+        ],
+      },
+      {
+        type: 'warning',
+        text: 'A revisão é SEMPRE por produto: a sugestão da IA é indicativa, nunca aplicada em massa automática. Só clique em Aprovar depois de conferir os destinos do bloco — o lote gravado sai de Accessories imediatamente.',
+      },
+      {
+        type: 'info',
+        text: 'Desativar só é possível com a categoria zerada ("Restantes" = 0). A categoria desativada recebe o badge "Inativa" no card e não é apagada — pode ser reativada depois pelo CRUD de categorias.',
       },
     ],
   },

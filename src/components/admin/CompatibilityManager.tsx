@@ -137,7 +137,7 @@ export function CompatibilityManager() {
             value={accessoryTerm}
             onChange={(e) => setAccessoryTerm(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && runAccessorySearch()}
-            placeholder="Nome ou SKU do acessório (mín. 2 letras)"
+            placeholder="Nome ou SKU do acessório (somente is_accessory = true, mín. 2 letras)"
             className="h-9"
           />
           <Button size="sm" onClick={runAccessorySearch} disabled={searchingAccessory}>
@@ -229,7 +229,7 @@ export function CompatibilityManager() {
                 value={productTerm}
                 onChange={(e) => setProductTerm(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && runProductSearch()}
-                placeholder="Nome ou SKU do produto (mín. 2 letras)"
+                placeholder="Nome ou SKU do produto principal (somente is_accessory = false, mín. 2 letras)"
                 className="h-9"
               />
               <Button size="sm" onClick={runProductSearch} disabled={searchingProduct}>
@@ -254,7 +254,6 @@ export function CompatibilityManager() {
                         <div className="truncate">{item.name}</div>
                         <div className="text-xs text-muted-foreground">
                           SKU {item.sku || '—'} · {item.category || 'sem categoria'}
-                          {item.is_accessory ? ' · acessório' : ''}
                         </div>
                       </div>
                       <Button

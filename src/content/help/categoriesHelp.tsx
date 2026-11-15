@@ -169,11 +169,19 @@ export const CATEGORIES_HELP_TOPICS: HelpTopic[] = [
       {
         type: 'steps',
         items: [
-          'Busque o acessório pelo nome ou SKU (ele precisa ser um produto marcado como acessório) e clique em "Selecionar".',
+          'Busque o acessório pelo nome ou SKU e clique em "Selecionar". A busca do acessório lista SOMENTE produtos marcados como acessório (is_accessory = true) — produtos principais não aparecem aqui.',
           'A lista "Produtos compatíveis vinculados" mostra o que já está gravado para esse acessório.',
-          'Busque o produto compatível pelo nome ou SKU e clique em "Vincular". O vínculo é gravado como manual e aprovado na hora.',
+          'Busque o produto compatível pelo nome ou SKU e clique em "Vincular". A busca do passo 3 lista SOMENTE produtos principais (is_accessory = false) — nenhum acessório aparece na lista de candidatos, então não há risco de vincular acessório com acessório. O vínculo é gravado como manual e aprovado na hora.',
           'Para desfazer, clique na lixeira ao lado do vínculo. A remoção é imediata.',
         ],
+      },
+      {
+        type: 'warning',
+        text: 'O vínculo é sempre acessório ↔ produto principal. O serviço recusa a gravação quando os dois lados são acessórios (ou quando nenhum deles é), com mensagem explicativa — além dos filtros das buscas, essa validação roda no ato de salvar.',
+      },
+      {
+        type: 'info',
+        text: 'Se um produto que deveria aparecer na busca do acessório não aparece, é porque ele ainda não está marcado como acessório (is_accessory = true). Marque-o na triagem de categorias e busque de novo.',
       },
       {
         type: 'warning',

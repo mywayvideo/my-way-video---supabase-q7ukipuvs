@@ -55,7 +55,7 @@ export const compatibilityService = {
     return this.searchProducts(term, { accessoriesOnly: true })
   },
 
-  /** Busca produtos candidatos a compatíveis por nome ou SKU (exclui o próprio acessório). */
+  /** Busca produtos PRINCIPAIS (is_accessory = false) candidatos a compatíveis por nome ou SKU. */
   async searchCompatibleCandidates(
     term: string,
     excludeProductId: string,
@@ -78,6 +78,7 @@ export const compatibilityService = {
       .limit(SEARCH_LIMIT)
 
     if (opts.accessoriesOnly) query = query.eq('is_accessory', true)
+    else query = query.eq('is_accessory', false)
     if (opts.excludeId) query = query.neq('id', opts.excludeId)
 
     const { data, error } = await query
@@ -115,6 +116,35 @@ export const compatibilityService = {
 
   /** Cria vínculo manual já aprovado (origem manual, status aprovado). */
   async addManualLink(accessoryId: string, productId: string): Promise<void> {
+    if (accessoryId === productId) {
+      throw new Error('Não é possível vincular um produto a ele mesmo.')
+    }
+
+    // Regra: vínculo é sempre acessório ↔ produto principal. Busca o flag dos dois lados.
+    const { data, error: fetchError } = await supabase
+      .from('products')
+      .select('id, is_accessory')
+      .in('id', [accessoryId, productId])
+
+    if (fetchError) throw fetchError
+    const rows = (data || []) as { id: string; is_accessory: boolean | null }[]
+    const accessorySide = rows.find((r) => r.id === accessoryId)
+    const productSide = rows.find((r) => r.id === productId)
+
+    if (!accessorySide || !productSide) {
+      throw new Error('Produto não encontrado no catálogo. Recarregue a busca e tente novamente.')
+    }
+    if (accessorySide.is_accessory && productSide.is_accessory) {
+      throw new Error(
+        'Vínculo recusado: os dois produtos estão marcados como acessório. Um vínculo de compatibilidade deve ligar um acessório a um produto principal.',
+      )
+    }
+    if (!accessorySide.is_accessory && !productSide.is_accessory) {
+      throw new Error(
+        'Vínculo recusado: nenhum dos produtos está marcado como acessório. Um vínculo de compatibilidade deve partir de um acessório (marque o produto como acessório antes de vinculá-lo).',
+      )
+    }
+
     const { error } = await (supabase as any).from(COMPATIBILITY_TABLE).upsert(
       {
         accessory_id: accessoryId,

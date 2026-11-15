@@ -56,17 +56,27 @@ export const categoryService = {
       created_at: c.created_at,
     }))
 
-    // 2. Buscar contagem geral e agregação por category_id e por rótulo legado
-    const { data: productsData, error: prodError } = await (supabase
-      .from('products')
-      .select('id, category_id, category, ncm, is_accessory') as any)
+    // 2. Buscar contagem geral e agregação por category_id e por rótulo legado.
+    // A busca é paginada: sem isso o PostgREST corta em 1000 linhas e os
+    // contadores por categoria saem menores que a realidade.
+    const PAGE = 1000
+    const products: any[] = []
+    let from = 0
+    for (;;) {
+      const { data: chunk, error: prodError } = await (supabase
+        .from('products')
+        .select('id, category_id, category, ncm, is_accessory')
+        .range(from, from + PAGE - 1) as any)
 
-    if (prodError) {
-      console.error('Erro ao buscar produtos para métricas de categorias:', prodError)
-      throw prodError
+      if (prodError) {
+        console.error('Erro ao buscar produtos para métricas de categorias:', prodError)
+        throw prodError
+      }
+
+      if (chunk && chunk.length > 0) products.push(...chunk)
+      if (!chunk || chunk.length < PAGE) break
+      from += PAGE
     }
-
-    const products = productsData || []
     let withCategoryId = 0
     let withLegacyOnly = 0
     let noCategory = 0
@@ -89,12 +99,13 @@ export const categoryService = {
 
       if (hasCatId) {
         withCategoryId++
-        catCountMap.set(p.category_id, (catCountMap.get(p.category_id) || 0) + 1)
-        // Acessórios contam separados: products.is_accessory = true naquela categoria.
+        // Acessórios contam APENAS no contador de acessórios — nunca em Produtos.
         // Se a coluna is_accessory ainda não existir no banco (migration manual
         // pendente), o valor chega undefined e cai no contador de produtos comum.
         if (p.is_accessory === true) {
           accCountMap.set(p.category_id, (accCountMap.get(p.category_id) || 0) + 1)
+        } else {
+          catCountMap.set(p.category_id, (catCountMap.get(p.category_id) || 0) + 1)
         }
 
         // Verificar se NCM está fora do padrão

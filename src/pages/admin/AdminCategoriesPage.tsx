@@ -202,8 +202,7 @@ export function AdminCategoriesPage() {
     () => categoriesList.find((c) => c.name === ACCESSORY_CATEGORY_NAME) || null,
     [categoriesList],
   )
-  const accessoriesPendingCount =
-    (accessoriesCategory?.product_count || 0) + (accessoriesCategory?.accessory_count || 0)
+  const accessoriesPendingCount = accessoriesCategory?.accessory_count || 0
   const accessoriesInactive = accessoriesCategory ? accessoriesCategory.is_active === false : false
 
   // Carregar visão geral
@@ -1205,65 +1204,62 @@ export function AdminCategoriesPage() {
                     )}
                   </div>
 
-                  {/* Badges de contagem e NCMs */}
-                  <div className="mt-2 flex items-center justify-between text-[11px]">
-                    <div className="flex items-center gap-1">
-                      <Badge
-                        variant={cat.product_count > 0 ? 'secondary' : 'outline'}
-                        className="px-1.5 py-0 h-5 font-mono text-[10px]"
-                        title="Produtos (não acessórios) nesta categoria"
-                      >
-                        Produtos ({cat.product_count})
-                      </Badge>
-                      {cat.name === ACCESSORY_CATEGORY_NAME && !cat.is_active && (
-                        <Badge
-                          variant="outline"
-                          className="px-1.5 py-0 h-5 text-[9px] text-muted-foreground"
-                          title="Categoria desativada — não recebe novos produtos"
-                        >
-                          Inativa
-                        </Badge>
+                  {/* Badges de contagem e NCMs — fluxo lado a lado, sem sobreposição */}
+                  <div className="mt-2.5 flex flex-wrap items-center gap-1.5 text-[11px]">
+                    <Badge
+                      variant={cat.product_count > 0 ? 'secondary' : 'outline'}
+                      className="px-1.5 py-0 h-5 font-mono text-[10px] shrink-0"
+                      title="Produtos (não acessórios) vinculados por category_id nesta categoria"
+                    >
+                      Produtos ({cat.product_count})
+                    </Badge>
+                    <Badge
+                      variant={cat.accessory_count > 0 ? 'default' : 'outline'}
+                      className={cn(
+                        'px-1.5 py-0 h-5 font-mono text-[10px] shrink-0',
+                        cat.accessory_count === 0 && 'text-muted-foreground',
                       )}
+                      title="Acessórios (products.is_accessory = true) nesta categoria"
+                    >
+                      Acessórios ({cat.accessory_count})
+                    </Badge>
+                    {cat.name === ACCESSORY_CATEGORY_NAME && !cat.is_active && (
                       <Badge
-                        variant={cat.accessory_count > 0 ? 'default' : 'outline'}
-                        className={cn(
-                          'px-1.5 py-0 h-5 font-mono text-[10px]',
-                          cat.accessory_count === 0 && 'text-muted-foreground',
-                        )}
-                        title="Acessórios (products.is_accessory = true) nesta categoria"
+                        variant="outline"
+                        className="px-1.5 py-0 h-5 text-[9px] text-muted-foreground shrink-0"
+                        title="Categoria desativada — não recebe novos produtos"
                       >
-                        Acessórios ({cat.accessory_count})
+                        Inativa
                       </Badge>
-                      {cat.legacy_pending_count > 0 && (
-                        <TooltipProvider>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Badge
-                                variant="outline"
-                                className="px-1.5 py-0 h-5 font-mono text-[10px] bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-800"
-                              >
-                                +{cat.legacy_pending_count} leg
-                              </Badge>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              {cat.legacy_pending_count} produto(s) possuem rótulo legado exato
-                              &quot;{cat.name}&quot; aguardando confirmação.
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      )}
-                    </div>
-
+                    )}
+                    {cat.legacy_pending_count > 0 && (
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Badge
+                              variant="outline"
+                              className="px-1.5 py-0 h-5 font-mono text-[10px] shrink-0 bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-800 cursor-help"
+                            >
+                              +{cat.legacy_pending_count} leg
+                            </Badge>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            {cat.legacy_pending_count} produto(s) possuem rótulo legado exato &quot;
+                            {cat.name}&quot; aguardando confirmação.
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    )}
                     {cat.out_of_standard_count > 0 && (
                       <TooltipProvider>
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <Badge
                               variant="destructive"
-                              className="px-1 py-0 h-4 text-[9px] flex items-center gap-0.5"
+                              className="px-1.5 py-0 h-5 text-[9px] flex items-center gap-0.5 shrink-0 cursor-help font-mono"
                             >
                               <AlertTriangle className="w-2.5 h-2.5" />
-                              {cat.out_of_standard_count}
+                              {cat.out_of_standard_count} NCM
                             </Badge>
                           </TooltipTrigger>
                           <TooltipContent>
@@ -1276,7 +1272,7 @@ export function AdminCategoriesPage() {
                   </div>
 
                   {/* NCMs aceitáveis preview */}
-                  <div className="mt-1.5 pt-1.5 border-t border-border/40 text-[10px] text-muted-foreground truncate font-mono">
+                  <div className="mt-2.5 pt-2 border-t border-border/40 text-[10px] text-muted-foreground truncate font-mono">
                     {cat.acceptable_ncms && cat.acceptable_ncms.length > 0 ? (
                       `NCMs: ${cat.acceptable_ncms.join(', ')}`
                     ) : (
@@ -1286,6 +1282,37 @@ export function AdminCategoriesPage() {
                 </div>
               )
             })}
+          </div>
+
+          {/* Legenda dos badges de contagem e alertas */}
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-muted-foreground px-1">
+            <span className="inline-flex items-center gap-1">
+              <Badge variant="secondary" className="px-1.5 py-0 h-4 font-mono text-[9px]">
+                P
+              </Badge>
+              Produtos = vinculados que NÃO são acessórios
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <Badge variant="outline" className="px-1.5 py-0 h-4 font-mono text-[9px]">
+                A
+              </Badge>
+              Acessórios = flag &quot;É acessório?&quot; marcado
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <Badge
+                variant="outline"
+                className="px-1.5 py-0 h-4 font-mono text-[9px] bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-800"
+              >
+                +N leg
+              </Badge>
+              na fila de triagem com rótulo legado
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <Badge variant="destructive" className="px-1.5 py-0 h-4 font-mono text-[9px] gap-0.5">
+                <AlertTriangle className="w-2 h-2" />N NCM
+              </Badge>
+              NCM fora do padrão da categoria
+            </span>
           </div>
         </div>
 

@@ -398,9 +398,7 @@ export function AdminCategoriesPage() {
     if (!finalCatId) {
       // Fallback para a sugestão automática se nenhum id foi fornecido nem selecionado
       const isAccessoryPending = isAccessoryPendingRow(product, accessoriesCategory?.id)
-      const suggestion = isAccessoryPending
-        ? accessoryAiSuggestions[product.id]
-        : null
+      const suggestion = isAccessoryPending ? accessoryAiSuggestions[product.id] : null
       if (isAccessoryPending) {
         // Acessório pendente: a sugestão vem da IA (edge function), não do dicionário legado
         if (suggestion?.categoryId) {
@@ -1689,7 +1687,9 @@ export function AdminCategoriesPage() {
 
                       // Categoria selecionada no dropdown da linha (triageDecisions ou fallback da sugestão)
                       const chosenCategoryId =
-                        triageDecisions[product.id] || (isTriageRow ? suggestion?.categoryId : '') || ''
+                        triageDecisions[product.id] ||
+                        (isTriageRow ? suggestion?.categoryId : '') ||
+                        ''
 
                       // Avaliar padrão do NCM (REQUISITO 5)
                       // Se tem category_id atribuído, verifica com acceptable_ncms dela.
@@ -1964,7 +1964,7 @@ export function AdminCategoriesPage() {
                                   </div>
                                 </div>
                               </div>
-                            )}
+                            ) : null}
                           </TableCell>
 
                           {/* Ações: Link para /product/:id e Seletor com Botão "Confirmar categoria" (Ajustes 1 e 2) */}
@@ -1988,7 +1988,7 @@ export function AdminCategoriesPage() {
                                 </Link>
                               </Button>
 
-                              {(product.category_id && !isAccessoryPending) && (
+                              {product.category_id && !isAccessoryPending && (
                                 <div className="space-y-1 w-[140px] text-left">
                                   <Select
                                     value={actionChosenCatId}

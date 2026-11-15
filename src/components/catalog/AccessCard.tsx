@@ -1,3 +1,4 @@
+import type { ReactElement } from 'react'
 import { Link } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 
@@ -7,7 +8,7 @@ import { cn } from '@/lib/utils'
  */
 export type AccessKind = 'ia' | 'bd' | 'cat'
 
-const GLYPHS: Record<AccessKind, JSX.Element> = {
+const GLYPHS: Record<AccessKind, ReactElement> = {
   ia: (
     <svg
       viewBox="0 0 24 24"
@@ -49,7 +50,7 @@ const GLYPHS: Record<AccessKind, JSX.Element> = {
   ),
 }
 
-const ART: Record<AccessKind, JSX.Element> = {
+const ART: Record<AccessKind, ReactElement> = {
   ia: (
     <svg viewBox="0 0 120 120" fill="none">
       <circle cx="60" cy="60" r="16" stroke="currentColor" strokeWidth="1.4" />

@@ -190,7 +190,7 @@ export const categoryService = {
     let query = supabase
       .from('products')
       .select(
-        'id, name, sku, ncm, category, category_id, manufacturer_id, image_url, price_usd, price_brl, stock, created_at, updated_at, last_reviewed_at, manufacturer:manufacturers(id, name)',
+        'id, name, sku, ncm, category, category_id, manufacturer_id, image_url, price_usd, price_brl, stock, created_at, updated_at, last_reviewed_at, is_accessory, manufacturer:manufacturers(id, name)',
         { count: 'exact' },
       )
 

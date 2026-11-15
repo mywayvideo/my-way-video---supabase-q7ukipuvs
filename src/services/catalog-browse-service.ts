@@ -153,9 +153,20 @@ export async function getProductsByCategory(opts: {
   // ordenação por preço em USD; nulos por último
   query = query.order('price_usd', { ascending: order === 'asc', nullsFirst: false })
 
-  const { data, error } = await query.limit(1000)
-  if (error) throw error
-  return (data || []) as CatalogProduct[]
+  // Paginação completa (.range) — mesma técnica de fetchAllProductRefs.
+  // O .limit(1000) cortava categorias grandes: a aba Acessórios do Recorders
+  // dizia "(2)" no contador e listava 0 produtos.
+  const PAGE = 1000
+  const out: CatalogProduct[] = []
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await query.range(from, from + PAGE - 1)
+    if (error) throw error
+    const rows = (data || []) as CatalogProduct[]
+    if (rows.length === 0) break
+    out.push(...rows)
+    if (rows.length < PAGE) break
+  }
+  return out
 }
 
 /** Só os campos mínimos, para contar categoria sem trazer o produto inteiro. */

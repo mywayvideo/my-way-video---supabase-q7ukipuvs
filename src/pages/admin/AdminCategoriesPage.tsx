@@ -17,6 +17,7 @@ import {
 import { CategoryEditDialog } from '@/components/admin/CategoryEditDialog'
 import { AccessoryReclassDialog } from '@/components/admin/AccessoryReclassDialog'
 import { accessoryService, ACCESSORY_CATEGORY_NAME } from '@/services/accessoryService'
+import { useAccessoryAiSuggestions } from '@/hooks/use-accessory-ai-suggestions'
 import { CategoriesHelpModal } from '@/content/help/categoriesHelp'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -90,6 +91,19 @@ import { cn } from '@/lib/utils'
 const PAGE_SIZE = 50
 
 type ViewFilterTab = 'all' | 'triage_queue' | 'no_category' | 'assigned'
+
+/**
+ * Acessório pendente na Fila de Triagem: flag is_accessory gravado e a
+ * categoria ainda é a aposentada "Accessories" (aguardando recategorização
+ * para a categoria-mãe). Retorna false quando o id ainda não foi resolvido.
+ */
+function isAccessoryPendingRow(
+  product: CategoryProductItem,
+  accessoriesCategoryId?: string | null,
+): boolean {
+  if (!accessoriesCategoryId) return false
+  return product.is_accessory === true && product.category_id === accessoriesCategoryId
+}
 
 export function AdminCategoriesPage() {
   // Perfil do usuário: o CRUD de categorias é exclusivo do admin.
@@ -204,6 +218,25 @@ export function AdminCategoriesPage() {
   )
   const accessoriesPendingCount = accessoriesCategory?.accessory_count || 0
   const accessoriesInactive = accessoriesCategory ? accessoriesCategory.is_active === false : false
+
+  // Entrada do hook de sugestões da IA da fila (produtos da página atual + categorias)
+  const triageAiProducts = useMemo(
+    () =>
+      products.map((p) => ({
+        id: p.id,
+        name: p.name,
+        sku: p.sku,
+        description: p.description ?? null,
+      })),
+    [products],
+  )
+  const triageAiCategories = useMemo(
+    () => categoriesList.map((c) => ({ id: c.id, name: c.name })),
+    [categoriesList],
+  )
+  const aiTriageEnabled = activeTab === 'triage_queue' && !selectedCategoryId
+  const { suggestions: accessoryAiSuggestions, loading: aiSuggestionsLoading } =
+    useAccessoryAiSuggestions(triageAiProducts, triageAiCategories, aiTriageEnabled)
 
   // Carregar visão geral
   const loadOverview = useCallback(async (silent = false) => {
@@ -364,10 +397,22 @@ export function AdminCategoriesPage() {
 
     if (!finalCatId) {
       // Fallback para a sugestão automática se nenhum id foi fornecido nem selecionado
-      const suggestion = getProductCategorySuggestion(product, categoriesByName)
-      if (suggestion?.categoryId) {
-        finalCatId = suggestion.categoryId
-        finalCatName = suggestion.categoryName
+      const isAccessoryPending = isAccessoryPendingRow(product, accessoriesCategory?.id)
+      const suggestion = isAccessoryPending
+        ? accessoryAiSuggestions[product.id]
+        : null
+      if (isAccessoryPending) {
+        // Acessório pendente: a sugestão vem da IA (edge function), não do dicionário legado
+        if (suggestion?.categoryId) {
+          finalCatId = suggestion.categoryId
+          finalCatName = categoriesById.get(suggestion.categoryId)?.name
+        }
+      } else {
+        const legacySuggestion = getProductCategorySuggestion(product, categoriesByName)
+        if (legacySuggestion?.categoryId) {
+          finalCatId = legacySuggestion.categoryId
+          finalCatName = legacySuggestion.categoryName
+        }
       }
     }
 
@@ -382,7 +427,12 @@ export function AdminCategoriesPage() {
 
     setSavingProductId(product.id)
     try {
-      await categoryService.confirmProductCategory(product.id, finalCatId, finalCatName)
+      if (isAccessoryPendingRow(product, accessoriesCategory?.id)) {
+        // Acessório pendente: mantém is_accessory = true e grava a categoria-mãe
+        await accessoryService.approveAccessoryReclass(product.id, finalCatId, finalCatName)
+      } else {
+        await categoryService.confirmProductCategory(product.id, finalCatId, finalCatName)
+      }
       toast({
         title: 'Categoria confirmada',
         description: `"${product.name.slice(0, 35)}..." vinculada a "${finalCatName}".`,
@@ -1054,14 +1104,12 @@ export function AdminCategoriesPage() {
             >
               <CardContent className="p-4 flex items-center justify-between">
                 <div>
-                  <p className="text-xs font-medium text-muted-foreground">
-                    Fila de Triagem (Legado)
-                  </p>
+                  <p className="text-xs font-medium text-muted-foreground">Fila de Triagem</p>
                   <p className="text-2xl font-bold text-amber-600 dark:text-amber-400 mt-1">
-                    {metrics?.withLegacyOnly ?? '...'}
+                    {(metrics?.withLegacyOnly ?? 0) + (metrics?.withAccessoriesPending ?? 0)}
                   </p>
                   <p className="text-[11px] text-muted-foreground mt-0.5">
-                    Rótulos legados para confirmar
+                    Rótulos legados + acessórios pendentes para confirmar
                   </p>
                 </div>
                 <div className="w-10 h-10 rounded-full bg-amber-500/10 flex items-center justify-center text-amber-600 dark:text-amber-400">
@@ -1341,7 +1389,8 @@ export function AdminCategoriesPage() {
                 onClick={() => handleSelectTab('triage_queue')}
               >
                 <Sparkles className="w-3.5 h-3.5" />
-                Fila de Triagem ({metrics?.withLegacyOnly || 0})
+                Fila de Triagem (
+                {(metrics?.withLegacyOnly || 0) + (metrics?.withAccessoriesPending || 0)})
               </Button>
               <Button
                 variant={activeTab === 'no_category' && !selectedCategoryId ? 'default' : 'ghost'}
@@ -1611,17 +1660,36 @@ export function AdminCategoriesPage() {
                         ? categoriesById.get(product.category_id)
                         : null
 
-                      // Sugestão automática em 2 camadas (REQUISITO 2)
-                      const suggestion: SuggestionConfidence | null = !product.category_id
-                        ? getProductCategorySuggestion(product, categoriesByName)
-                        : null
+                      // Pendência real desta linha: legado (sem category_id) OU
+                      // acessório ainda estacionado na categoria aposentada Accessories
+                      const isAccessoryPending = isAccessoryPendingRow(
+                        product,
+                        accessoriesCategory?.id,
+                      )
+                      const isTriageRow = !product.category_id || isAccessoryPending
+
+                      // Sugestão para a linha de triagem:
+                      //  - legado: dicionário local em 2 camadas
+                      //  - acessório pendente: IA (edge function suggest-accessory-category)
+                      const suggestion: SuggestionConfidence | null = isAccessoryPending
+                        ? (() => {
+                            const s = accessoryAiSuggestions[product.id]
+                            if (!s?.categoryId) return null
+                            const cat = categoriesById.get(s.categoryId)
+                            return {
+                              level: s.categoryId ? ('medium' as const) : ('medium' as const),
+                              categoryName: cat?.name || 'Categoria sugerida pela IA',
+                              categoryId: s.categoryId,
+                              reason: s.justification || 'Sugestão da IA de reclassificação',
+                            }
+                          })()
+                        : !product.category_id
+                          ? getProductCategorySuggestion(product, categoriesByName)
+                          : null
 
                       // Categoria selecionada no dropdown da linha (triageDecisions ou fallback da sugestão)
                       const chosenCategoryId =
-                        triageDecisions[product.id] ||
-                        suggestion?.categoryId ||
-                        product.category_id ||
-                        ''
+                        triageDecisions[product.id] || (isTriageRow ? suggestion?.categoryId : '') || ''
 
                       // Avaliar padrão do NCM (REQUISITO 5)
                       // Se tem category_id atribuído, verifica com acceptable_ncms dela.
@@ -1788,16 +1856,10 @@ export function AdminCategoriesPage() {
 
                           {/* FILA DE TRIAGEM / CATEGORIA OFICIAL (REQUISITO 1 & 2) */}
                           <TableCell>
-                            {product.category_id ? (
-                              // Produto já vinculado a uma categoria oficial
-                              <div className="flex items-center gap-2">
-                                <Badge className="text-xs font-medium bg-emerald-600 hover:bg-emerald-700 text-white gap-1 px-2 py-0.5">
-                                  <Check className="w-3 h-3" />
-                                  {assignedCategory?.name || 'Categoria Gravada'}
-                                </Badge>
-                              </div>
-                            ) : (
-                              // Produto em fila de triagem (sugestão em 2 camadas + dropdown + botão Confirmar Categoria)
+                            {isTriageRow ? (
+                              // Produto em fila de triagem (sugestão em 2 camadas + dropdown + botão Confirmar Categoria).
+                              // Inclui o acessório pendente: tem category_id gravado (Accessories),
+                              // mas ainda precisa receber a categoria-mãe.
                               <div className="space-y-2">
                                 {/* Selo de confiança da sugestão automática */}
                                 {suggestion ? (
@@ -1926,7 +1988,7 @@ export function AdminCategoriesPage() {
                                 </Link>
                               </Button>
 
-                              {product.category_id && (
+                              {(product.category_id && !isAccessoryPending) && (
                                 <div className="space-y-1 w-[140px] text-left">
                                   <Select
                                     value={actionChosenCatId}

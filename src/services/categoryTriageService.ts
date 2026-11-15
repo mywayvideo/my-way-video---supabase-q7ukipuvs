@@ -26,6 +26,10 @@ export interface CategoryProductItem {
   created_at: string
   updated_at: string
   last_reviewed_at: string
+  /** true = acessório (atributo do produto, Fase 1). Pendente quando a categoria é a aposentada "Accessories". */
+  is_accessory?: boolean | null
+  /** Usado pela sugestão de IA da fila de triagem (edge function suggest-accessory-category). */
+  description?: string | null
   manufacturer?: {
     id: string
     name: string

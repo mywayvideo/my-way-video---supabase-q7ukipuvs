@@ -74,7 +74,7 @@ export const CATEGORIES_HELP_TOPICS: HelpTopic[] = [
       {
         type: 'steps',
         items: [
-          'No topo ficam os 4 cards de métricas: Fila de Triagem (Legado), Sem Categoria, Oficiais Vinculados e Total de Categorias.',
+          'No topo ficam os 4 cards de métricas: Fila de Triagem, Sem Categoria, Oficiais Vinculados e Total de Categorias.',
           'Logo abaixo, a grade mostra TODAS as categorias cadastradas, cada card com contagem de produtos, pendências legadas, itens fora do padrão de NCM e um preview dos NCMs aceitáveis.',
           'Clique em um card de categoria para filtrar a tabela de produtos por ela. Clique novamente (ou em "Limpar filtro de categoria") para voltar.',
           'Os botões de editar (lápis) e excluir (lixeira) aparecem no topo de cada card de categoria ao passar o mouse.',
@@ -99,7 +99,7 @@ export const CATEGORIES_HELP_TOPICS: HelpTopic[] = [
       {
         type: 'bullets',
         items: [
-          'Fila de Triagem — produtos que só têm rótulo legado (coluna "category" antiga, ex.: "lentes zoom standard") e ainda não têm categoria oficial (category_id). É o ponto de partida recomendado.',
+          'Fila de Triagem — soma de duas pendências: produtos que só têm rótulo legado (coluna "category" antiga, ex.: "lentes zoom standard") sem categoria oficial (category_id) E acessórios (flag "É acessório?") ainda estacionados na categoria aposentada Accessories. É o ponto de partida recomendado.',
           'Sem Categoria — produtos sem NENHUM vínculo: nem category_id, nem rótulo legado útil. São os mais urgentes, porque a triagem automática tem menos informação para trabalhar.',
           'Vinculados — produtos com category_id gravado (categoria oficial confirmada). Nesta aba a coluna mostra a categoria gravada e o seletor "Trocar..." na coluna Ações.',
           'Todos — o catálogo inteiro, em qualquer estado.',

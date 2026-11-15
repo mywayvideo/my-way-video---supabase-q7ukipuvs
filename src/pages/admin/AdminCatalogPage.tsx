@@ -66,6 +66,7 @@ import { productService } from '@/services/productService'
 import { categoryImportStagingService } from '@/services/categoryImportStagingService'
 import { AdminImportReviewView } from '@/pages/admin/AdminImportReviewPage'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { CompatibilityManager } from '@/components/admin/CompatibilityManager'
 import { ImageWithFallback } from '@/components/ImageWithFallback'
 import { fetchProductImageMetrics } from '@/services/imageMetricsService'
 import { ProductImageMetricsBanner } from '@/components/admin/ProductImageMetricsBanner'
@@ -121,7 +122,9 @@ export default function AdminCatalogPage() {
   const [filterNoImage, setFilterNoImage] = useState(false)
   const [filterUnreviewedMonths, setFilterUnreviewedMonths] = useState<string>('all')
   const [filterActiveRebate, setFilterActiveRebate] = useState(false)
-  const [catalogTab, setCatalogTab] = useState<'catalog' | 'import-review'>('catalog')
+  const [catalogTab, setCatalogTab] = useState<'catalog' | 'import-review' | 'compatibility'>(
+    'catalog',
+  )
   const [pendingStagingCount, setPendingStagingCount] = useState<number>(0)
 
   const [isProcessingCSV, setIsProcessingCSV] = useState(false)
@@ -1097,16 +1100,28 @@ export default function AdminCatalogPage() {
                     )}
                   </span>
                 </TabsTrigger>
+                <TabsTrigger
+                  value="compatibility"
+                  className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground text-xs sm:text-sm px-4"
+                >
+                  Compatibilidade
+                </TabsTrigger>
               </TabsList>
 
               <div className="hidden sm:flex items-center text-xs text-muted-foreground">
-                {catalogTab === 'catalog' ? (
-                  <span>Gestão completa do inventário do catálogo</span>
-                ) : (
+                {catalogTab === 'catalog' && <span>Gestão completa do inventário do catálogo</span>}
+                {catalogTab === 'import-review' && (
                   <span>Itens aguardando confirmação manual de categoria</span>
+                )}
+                {catalogTab === 'compatibility' && (
+                  <span>Vínculo manual: acessório ↔ produtos compatíveis</span>
                 )}
               </div>
             </div>
+
+            <TabsContent value="compatibility" className="m-0 space-y-4">
+              <CompatibilityManager />
+            </TabsContent>
 
             <TabsContent value="import-review" className="m-0 space-y-4">
               <AdminImportReviewView

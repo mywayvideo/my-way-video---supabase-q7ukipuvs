@@ -158,6 +158,30 @@ export const CATEGORIES_HELP_TOPICS: HelpTopic[] = [
     ],
   },
   {
+    id: 'compatibility',
+    icon: '🔗',
+    title: 'Compatibilidade de acessórios (manual)',
+    blocks: [
+      {
+        type: 'paragraph',
+        text: 'Na aba "Compatibilidade" do catálogo você registra, à mão, com quais produtos cada acessório funciona. Esse vínculo é uma afirmação técnica (acessório ↔ produto compatível) e NÃO se confunde com "produtos relacionados", que é uma sugestão comercial.',
+      },
+      {
+        type: 'steps',
+        items: [
+          'Busque o acessório pelo nome ou SKU (ele precisa ser um produto marcado como acessório) e clique em "Selecionar".',
+          'A lista "Produtos compatíveis vinculados" mostra o que já está gravado para esse acessório.',
+          'Busque o produto compatível pelo nome ou SKU e clique em "Vincular". O vínculo é gravado como manual e aprovado na hora.',
+          'Para desfazer, clique na lixeira ao lado do vínculo. A remoção é imediata.',
+        ],
+      },
+      {
+        type: 'warning',
+        text: 'Nenhuma sugestão automática é criada nesta etapa: a tela só grava o que você vincula. Se a tabela de compatibilidade ainda não existir no banco, a tela mostra um aviso em vez de erro.',
+      },
+    ],
+  },
+  {
     id: 'how-to-classify',
     icon: '🎯',
     title: 'Como classificar corretamente uma categoria',

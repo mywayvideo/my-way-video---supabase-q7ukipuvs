@@ -930,7 +930,7 @@ export default function Product() {
         </div>
 
         {/* Acessórios compatíveis (product_compatibilities, status aprovado) */}
-        {product.id && <CompatibleAccessoriesSection productId={product.id} />}
+        {product.id && <CompatibleAccessoriesSection productId={String(product.id)} />}
 
         {/* Produtos Relacionados Section */}
         {(isLoadingRelated || relatedProducts.length > 0) && (

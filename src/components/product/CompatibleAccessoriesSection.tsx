@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { ImageWithFallback } from '@/components/ImageWithFallback'
 import { compatibilityService } from '@/services/compatibilityService'
 import { formatPrice, formatPriceBRL } from '@/utils/priceFormatter'
+import { supabaseProjectUrl } from '@/lib/supabase/projectInfo'
 
 /**
  * Seção pública "Acessórios compatíveis" da página do produto: acessórios
@@ -13,7 +14,6 @@ import { formatPrice, formatPriceBRL } from '@/utils/priceFormatter'
 type Acessorio = {
   id: string
   name: string
-  slug: string | null
   image_url: string | null
   price_usd: number | null
   price_brl: number | null
@@ -29,7 +29,16 @@ export function CompatibleAccessoriesSection({ productId }: { productId: string 
       .then((lista) => {
         if (!cancelado) setAcessorios(lista)
       })
-      .catch(() => {
+      .catch((erro) => {
+        // Diagnóstico: loga URL da requisição e o erro, sem mudar o comportamento visual.
+        const urlDaRequisicao = supabaseProjectUrl
+          ? `${supabaseProjectUrl}/rest/v1/${'product_compatibilities'}?product_id=eq.${productId}`
+          : `(URL do projeto indisponível)`
+        console.error(
+          `[Acessórios compatíveis] Falha ao carregar acessórios do produto ${productId}. ` +
+            `Requisição: ${urlDaRequisicao}. Erro:`,
+          erro,
+        )
         if (!cancelado) setAcessorios([])
       })
     return () => {

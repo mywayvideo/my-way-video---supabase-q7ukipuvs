@@ -288,15 +288,15 @@ export const compatibilityService = {
   /**
    * Busca PÚBLICA (página do produto): acessórios designados a este produto
    * como principal, somente status "aprovado". Retorna os campos que o card
-   * público precisa (id, nome, slug, imagens, preço).
+   * público precisa (id, nome, imagem, preço).
+   * ATENÇÃO: products NÃO tem colunas slug/images (não inventadas aqui) —
+   * pedir essas colunas faz o PostgREST devolver 42703/PGRST e a seção sumir.
    */
   async fetchApprovedAccessories(productId: string): Promise<
     {
       id: string
       name: string
-      slug: string | null
       image_url: string | null
-      images: string[] | null
       price_usd: number | null
       price_brl: number | null
     }[]
@@ -304,7 +304,7 @@ export const compatibilityService = {
     const { data, error } = await (supabase as any)
       .from(COMPATIBILITY_TABLE)
       .select(
-        `accessory:products!product_compatibilities_accessory_id_fkey!inner(id, name, slug, image_url, images, price_usd, price_brl, is_discontinued)`,
+        `accessory:products!product_compatibilities_accessory_id_fkey!inner(id, name, image_url, price_usd, price_brl, is_discontinued)`,
       )
       .eq('product_id', productId)
       .eq('status', 'aprovado')
@@ -319,7 +319,6 @@ export const compatibilityService = {
       .map((row) => row.accessory)
       .filter((a) => !!a && !a.is_discontinued)
   },
-
   /**
    * Busca em LOTE (renderização em lista — evita N+1): recebe os ids dos
    * produtos exibidos e devolve o subconjunto que tem PELO MENOS UM vínculo

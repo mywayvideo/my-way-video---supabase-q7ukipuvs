@@ -59,6 +59,7 @@ import { Label } from '@/components/ui/label'
 import { supabase } from '@/lib/supabase/client'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { ProductFormHelpModal } from '@/content/help/productFormHelp'
+import { CompatibilitySection } from '@/components/admin/CompatibilitySection'
 
 export default function NewProductPage() {
   const navigate = useNavigate()
@@ -1400,6 +1401,9 @@ export default function NewProductPage() {
                       )
                     }}
                   />
+
+                  {/* Compatibilidade / Acessórios (gravação imediata, fora do submit do form) */}
+                  {isEditMode && id && <CompatibilitySection productId={id} />}
 
                   <div className="flex flex-col sm:flex-row gap-8">
                     <FormField

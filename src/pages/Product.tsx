@@ -42,6 +42,7 @@ import { useAuthState } from '@/hooks/useAuthState'
 import { type AIConsultantResult } from '@/hooks/use-ai-consultant'
 import { ProductCard } from '@/components/ProductCard'
 import { NcmTaxTooltip } from '@/components/NcmTaxTooltip'
+import { CompatibleAccessoriesSection } from '@/components/product/CompatibleAccessoriesSection'
 // COMENTARIO PARA FORÇAR DEPLOY - 0001
 
 const formatNCM = (ncm?: string | number | null) => {
@@ -927,6 +928,9 @@ export default function Product() {
             </div>
           </div>
         </div>
+
+        {/* Acessórios compatíveis (product_compatibilities, status aprovado) */}
+        {product.id && <CompatibleAccessoriesSection productId={product.id} />}
 
         {/* Produtos Relacionados Section */}
         {(isLoadingRelated || relatedProducts.length > 0) && (

@@ -8,7 +8,7 @@ import {
   type CatalogProduct,
   type ManufacturerWithCount,
 } from '@/services/catalog-browse-service'
-import { acessorioReferenciaProduto } from '@/utils/accessory-match'
+import { compatibilityService } from '@/services/compatibilityService'
 import '@/styles/catalog-browse.css'
 
 type Ordem = 'asc' | 'desc'
@@ -88,18 +88,28 @@ export default function CategoryPage() {
 
   const totalFabricantes = useMemo(() => fabricantes.length, [fabricantes])
 
-  // Fase 3 (provisório): compatibilidade por referência de nome — a tabela de
-  // compatibilidade só existe na Fase 2.
-  const acessoriosPorProduto = useMemo(() => {
-    const mapa = new Map<string, CatalogProduct[]>()
-    for (const p of produtos) {
-      const compativeis = acessorios.filter((a) =>
-        acessorioReferenciaProduto(a.name || '', p.name || ''),
-      )
-      if (compativeis.length > 0) mapa.set(p.id, compativeis)
+  // Fase 3 (real): selo "tem acessórios" vem da tabela product_compatibilities
+  // (vínculos aprovados), consultada em LOTE — um SELECT para a lista inteira,
+  // sem N+1. Substitui a heurística provisória por referência de nome.
+  const [idsComAcessorios, setIdsComAcessorios] = useState<Set<string>>(new Set())
+  useEffect(() => {
+    if (produtos.length === 0) {
+      setIdsComAcessorios(new Set())
+      return
     }
-    return mapa
-  }, [produtos, acessorios])
+    let cancelado = false
+    compatibilityService
+      .fetchProductIdsWithApprovedLinks(produtos.map((p) => p.id))
+      .then((ids) => {
+        if (!cancelado) setIdsComAcessorios(ids)
+      })
+      .catch(() => {
+        if (!cancelado) setIdsComAcessorios(new Set())
+      })
+    return () => {
+      cancelado = true
+    }
+  }, [produtos])
 
   const alternarFabricante = (mid: string) => {
     setSelecionados((atual) =>
@@ -230,9 +240,7 @@ export default function CategoryPage() {
             <ProductCard
               key={p.id}
               product={p}
-              acessoriosCompativeis={
-                aba === 'produtos' ? acessoriosPorProduto.get(p.id) : undefined
-              }
+              temAcessorios={aba === 'produtos' ? idsComAcessorios.has(p.id) : false}
             />
           ))}
         </div>

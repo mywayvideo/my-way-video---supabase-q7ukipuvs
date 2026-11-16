@@ -284,4 +284,70 @@ export const compatibilityService = {
     const { error } = await (supabase as any).from(COMPATIBILITY_TABLE).delete().eq('id', linkId)
     if (error) throw error
   },
+
+  /**
+   * Busca PÚBLICA (página do produto): acessórios designados a este produto
+   * como principal, somente status "aprovado". Retorna os campos que o card
+   * público precisa (id, nome, slug, imagens, preço).
+   */
+  async fetchApprovedAccessories(productId: string): Promise<
+    {
+      id: string
+      name: string
+      slug: string | null
+      image_url: string | null
+      images: string[] | null
+      price_usd: number | null
+      price_brl: number | null
+    }[]
+  > {
+    const { data, error } = await (supabase as any)
+      .from(COMPATIBILITY_TABLE)
+      .select(
+        `accessory:products!product_compatibilities_accessory_id_fkey!inner(id, name, slug, image_url, images, price_usd, price_brl, is_discontinued)`,
+      )
+      .eq('product_id', productId)
+      .eq('status', 'aprovado')
+      .order('created_at', { ascending: true })
+
+    if (error) {
+      if (isMissingTable(error)) return []
+      throw error
+    }
+
+    return ((data || []) as any[])
+      .map((row) => row.accessory)
+      .filter((a) => !!a && !a.is_discontinued)
+  },
+
+  /**
+   * Busca em LOTE (renderização em lista — evita N+1): recebe os ids dos
+   * produtos exibidos e devolve o subconjunto que tem PELO MENOS UM vínculo
+   * com status "aprovado" (em qualquer sentido — na prática, o vínculo gravado
+   * fica sempre com o produto principal no lado product_id). Um único SELECT
+   * com in() na tabela product_compatibilities.
+   */
+  async fetchProductIdsWithApprovedLinks(productIds: string[]): Promise<Set<string>> {
+    const result = new Set<string>()
+    if (productIds.length === 0) return result
+
+    const CHUNK = 200
+    for (let i = 0; i < productIds.length; i += CHUNK) {
+      const chunk = productIds.slice(i, i + CHUNK)
+      const { data, error } = await (supabase as any)
+        .from(COMPATIBILITY_TABLE)
+        .select('product_id, accessory_id')
+        .eq('status', 'aprovado')
+        .or(`product_id.in.(${chunk.join(',')}),accessory_id.in.(${chunk.join(',')})`)
+      if (error) {
+        if (isMissingTable(error)) return result
+        throw error
+      }
+      for (const row of (data || []) as any[]) {
+        if (chunk.includes(row.product_id)) result.add(row.product_id)
+        if (chunk.includes(row.accessory_id)) result.add(row.accessory_id)
+      }
+    }
+    return result
+  },
 }

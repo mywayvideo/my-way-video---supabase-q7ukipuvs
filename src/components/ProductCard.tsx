@@ -2,8 +2,7 @@ import { Link } from 'react-router-dom'
 import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { ShoppingCart, Heart, MessageCircle, Trash2, Puzzle } from 'lucide-react'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import type { CatalogProduct } from '@/services/catalog-browse-service'
+
 import { cn } from '@/lib/utils'
 import { useSearchState } from '@/hooks/useSearchState'
 import { ImageWithFallback } from '@/components/ImageWithFallback'
@@ -16,54 +15,15 @@ import { calculateFinalPrice } from '@/utils/pricing'
 
 /**
  * Selo discreto "tem acessórios" (Fase 3): só aparece na LISTAGEM por
- * categoria (aba Produtos), nunca na página do produto. Ao clicar abre um
- * popover com os acessórios compatíveis.
+ * categoria (aba Produtos), nunca na página do produto. Indica que o produto
+ * tem pelo menos um vínculo APROVADO na tabela product_compatibilities
+ * (dados reais, em lote — sem heurística de nome).
  */
-function SeloTemAcessorios({ acessorios }: { acessorios: CatalogProduct[] }) {
+function SeloTemAcessorios() {
   return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          className="cat-has-acc"
-          onClick={(e) => e.stopPropagation()}
-          aria-label="Ver acessórios compatíveis"
-        >
-          <Puzzle className="h-3 w-3" /> Tem acessórios
-        </button>
-      </PopoverTrigger>
-      <PopoverContent className="w-80 p-0" align="start" onClick={(e) => e.stopPropagation()}>
-        <div className="px-3 py-2 border-b border-border text-xs font-bold uppercase tracking-wider text-muted-foreground">
-          Acessórios compatíveis
-        </div>
-        <div className="max-h-64 overflow-y-auto">
-          {acessorios.map((a) => (
-            <Link
-              key={a.id}
-              to={`/product/${a.id}`}
-              className="flex items-center gap-3 px-3 py-2 hover:bg-muted/60 transition-colors border-b border-border/50 last:border-0"
-            >
-              <div className="w-9 h-9 shrink-0 overflow-hidden rounded bg-white/5 flex items-center justify-center">
-                <ImageWithFallback
-                  src={a.image_url}
-                  alt={a.name}
-                  productId={a.id}
-                  className="w-9 h-9 object-contain"
-                />
-              </div>
-              <div className="min-w-0">
-                <div className="text-xs font-medium truncate">{a.name}</div>
-                {a.price_usd != null && (
-                  <div className="text-[11px] text-muted-foreground font-mono">
-                    US$ {Number(a.price_usd).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                  </div>
-                )}
-              </div>
-            </Link>
-          ))}
-        </div>
-      </PopoverContent>
-    </Popover>
+    <span className="cat-has-acc" aria-label="Produto tem acessórios compatíveis">
+      <Puzzle className="h-3 w-3" /> Tem acessórios
+    </span>
   )
 }
 
@@ -72,12 +32,12 @@ export function ProductCard({
   isFavoritesPage,
   onRemove,
   discountData,
-  acessoriosCompativeis,
+  temAcessorios,
 }: {
   product: any
   isFavoritesPage?: boolean
   onRemove?: (id: string) => void
-  acessoriosCompativeis?: CatalogProduct[]
+  temAcessorios?: boolean
   discountData?: {
     originalPrice: number | null
     discountedPrice: number | null
@@ -343,9 +303,9 @@ export function ProductCard({
           <h3 className="font-medium text-sm md:text-base line-clamp-2 break-words text-foreground hover:text-primary transition-colors leading-tight">
             {productName}
           </h3>
-          {acessoriosCompativeis && acessoriosCompativeis.length > 0 && (
-            <div className="mt-1" onClick={(e) => e.stopPropagation()}>
-              <SeloTemAcessorios acessorios={acessoriosCompativeis} />
+          {temAcessorios && (
+            <div className="mt-1">
+              <SeloTemAcessorios />
             </div>
           )}
         </Link>

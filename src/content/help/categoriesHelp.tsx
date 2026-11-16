@@ -203,6 +203,31 @@ export const CATEGORIES_HELP_TOPICS: HelpTopic[] = [
     ],
   },
   {
+    id: 'compatibility-product-form',
+    icon: '🧩',
+    title: 'Compatibilidade / Acessórios na edição do produto',
+    blocks: [
+      {
+        type: 'paragraph',
+        text: 'No formulário de produto (edição), ao lado da seção "Relacionamentos e Status", há a seção "Compatibilidade / Acessórios". Ela gerencia os MESMOS vínculos da aba "Compatibilidade" do catálogo, direto na tela do produto — e grava na hora, sem depender do botão "Atualizar Produto".',
+      },
+      {
+        type: 'bullets',
+        items: [
+          'Listagem bidirecional: aparecem os acessórios designados a este produto (ele como principal) E, marcados com "· reverso", os vínculos em que este produto é o acessório de outro. No sentido reverso não há botão de remover — a remoção é feita pelo lado dono do vínculo.',
+          'Para designar um novo acessório: busque pelo nome ou SKU e clique no resultado. A busca não filtra por is_accessory — qualquer produto pode ser designado (o próprio produto já vem excluído).',
+          'Cada designação é gravada imediatamente com origem "manual" e status "aprovado", e o chip aparece na lista na hora, com badge "Manual".',
+          'Para remover um vínculo próprio, clique no × do chip (confirmação no próprio clique; o resultado é avisado via toast).',
+          'Vale a MESMA regra da aba Compatibilidade: auto-vínculo recusado, acessório ↔ acessório recusado, principal ↔ principal só entre categorias diferentes. Recusas aparecem em toast com a explicação.',
+        ],
+      },
+      {
+        type: 'info',
+        text: 'Como os vínculos são salvos na hora, o botão "Atualizar Produto" não é necessário para a compatibilidade — mas continue usando-o para os demais campos do formulário.',
+      },
+    ],
+  },
+  {
     id: 'how-to-classify',
     icon: '🎯',
     title: 'Como classificar corretamente uma categoria',

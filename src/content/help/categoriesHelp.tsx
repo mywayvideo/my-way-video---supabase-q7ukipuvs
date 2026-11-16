@@ -32,8 +32,8 @@ import { cn } from '@/lib/utils'
  *   3. Faça tudo no mesmo commit da feature.
  */
 
-export const HELP_VERSION = 'v0.0.824'
-export const HELP_LAST_UPDATED = '15/11/2026'
+export const HELP_VERSION = 'v0.0.829'
+export const HELP_LAST_UPDATED = '16/11/2026'
 
 export type HelpBlockType =
   | 'paragraph'
@@ -507,8 +507,9 @@ export const CATEGORIES_HELP_TOPICS: HelpTopic[] = [
         items: [
           'Card de categoria na home: além de "N itens" (só não-acessórios), mostra o badge discreto "N acessórios" quando a categoria tem acessórios marcados.',
           'Página da categoria: o topo traz as abas "Produtos (N)" e "Acessórios (N)". A aba padrão é Produtos; a de Acessórios lista somente os produtos com o flag de acessório daquela categoria-mãe. Ambas usam os mesmos filtros de fabricante e ordenação de preço.',
-          'Selo "tem acessórios" (aba Produtos): quando um acessório da MESMA categoria referencia o produto pelo nome/modelo, o card ganha o selo; clicar nele abre a lista dos acessórios compatíveis. A tabela de compatibilidade oficial chega na Fase 2 — até lá a compatibilidade é por referência de nome.',
-          'A página do PRODUTO não muda: RelatedProducts/AccessCard continuam exatamente como estavam.',
+          'Selo "tem acessórios" (aba Produtos): o card ganha o selo quando o produto tem pelo menos um vínculo APROVADO na tabela oficial de compatibilidade (product_compatibilities). A consulta é feita em lote para a grade inteira, o que elimina os falsos negativos da antiga heurística de casamento de nomes. O selo é estático: o popover do card com a lista de acessórios foi removido — a lista completa mora na página do produto.',
+          'Seção "Acessórios compatíveis" na página do PRODUTO: exibida acima dos Produtos Relacionados, lista os acessórios vinculados na tabela product_compatibilities com status "aprovado" — cada card com foto, nome, preço e link para o acessório. Quando o produto não tem vínculos aprovados, a seção não aparece.',
+          'Edição dos vínculos: além do CompatibilityManager em /admin/catalog, os vínculos do produto podem ser gerenciados na própria página de edição do produto (seção "Compatibilidade / Acessórios"), que grava na mesma tabela product_compatibilities.',
         ],
       },
       {

@@ -21,7 +21,10 @@ export interface CompatibilityLink {
 }
 
 export interface CompatibilityLinksResult {
+  /** Vínculos em que o produto consultado é o ACESSÓRIO: cada item aponta para um produto compatível. */
   links: CompatibilityLink[]
+  /** Vínculos em que o produto consultado é o PRINCIPAL: cada item aponta para o acessório designado. */
+  reverseLinks: CompatibilityLink[]
   /** true quando a tabela ainda não existe no banco: a tela mostra aviso, sem quebrar. */
   unavailable: boolean
 }
@@ -49,10 +52,42 @@ function isMissingTable(error: { code?: string } | null | undefined): boolean {
   return !!error && MISSING_TABLE_CODES.includes(error.code ?? '')
 }
 
+interface ProductRuleRow {
+  id: string
+  is_accessory: boolean | null
+  category_id: string | null
+  category: string | null
+}
+
+/** Chave efetiva de categoria: category_id quando existe, senão o rótulo legado normalizado. */
+function effectiveCategoryKey(row: ProductRuleRow): string | null {
+  if (row.category_id) return row.category_id
+  const legacy = (row.category || '').trim().toLowerCase()
+  return legacy || null
+}
+
+/**
+ * Principal ↔ principal: permitido apenas entre categorias DIFERENTES (ex.: bateria de
+ * Batteries & Chargers ↔ câmera de Cameras). Mesma categoria recusa.
+ */
+function validateMainMainPair(a: ProductRuleRow, b: ProductRuleRow): string | null {
+  const keyA = effectiveCategoryKey(a)
+  const keyB = effectiveCategoryKey(b)
+  if (keyA && keyB && keyA === keyB) {
+    return 'Vínculo recusado: os dois produtos são principais da MESMA categoria. Principal ↔ principal só é permitido entre categorias diferentes (ex.: uma bateria de "Batteries & Chargers" para uma câmera de "Cameras").'
+  }
+  return null
+}
+
 export const compatibilityService = {
   /** Busca acessórios (is_accessory = true) por nome ou SKU. */
   async searchAccessories(term: string): Promise<CatalogSearchItem[]> {
     return this.searchProducts(term, { accessoriesOnly: true })
+  },
+
+  /** Busca produtos PRINCIPAIS (is_accessory = false) por nome ou SKU. */
+  async searchMainProducts(term: string): Promise<CatalogSearchItem[]> {
+    return this.searchProducts(term, { accessoriesOnly: false })
   },
 
   /** Busca produtos PRINCIPAIS (is_accessory = false) candidatos a compatíveis por nome ou SKU. */
@@ -63,9 +98,24 @@ export const compatibilityService = {
     return this.searchProducts(term, { accessoriesOnly: false, excludeId: excludeProductId })
   },
 
+  /**
+   * Modo "a partir do produto principal": busca candidatos a acessório SEM filtro de
+   * is_accessory (qualquer produto serve, inclusive baterias e memórias), excluindo o próprio.
+   */
+  async searchAccessoryCandidates(
+    term: string,
+    excludeProductId: string,
+  ): Promise<CatalogSearchItem[]> {
+    return this.searchProducts(term, {
+      accessoriesOnly: false,
+      anyKind: true,
+      excludeId: excludeProductId,
+    })
+  },
+
   async searchProducts(
     term: string,
-    opts: { accessoriesOnly: boolean; excludeId?: string },
+    opts: { accessoriesOnly: boolean; anyKind?: boolean; excludeId?: string },
   ): Promise<CatalogSearchItem[]> {
     const clean = sanitizeTerm(term)
     if (clean.length < 2) return []
@@ -78,7 +128,7 @@ export const compatibilityService = {
       .limit(SEARCH_LIMIT)
 
     if (opts.accessoriesOnly) query = query.eq('is_accessory', true)
-    else query = query.eq('is_accessory', false)
+    else if (!opts.anyKind) query = query.eq('is_accessory', false)
     if (opts.excludeId) query = query.neq('id', opts.excludeId)
 
     const { data, error } = await query
@@ -86,32 +136,56 @@ export const compatibilityService = {
     return (data || []) as CatalogSearchItem[]
   },
 
-  /** Vínculos gravados de um acessório, com os dados do produto compatível. */
-  async fetchLinks(accessoryId: string): Promise<CompatibilityLinksResult> {
-    const { data, error } = await (supabase as any)
+  /**
+   * Listagem bidirecional: retorna os vínculos nos DOIS sentidos do produto consultado.
+   * `links` = produtos com que ele funciona (ele como acessório);
+   * `reverseLinks` = acessórios designados a ele (ele como produto principal).
+   */
+  async fetchLinks(productId: string): Promise<CompatibilityLinksResult> {
+    const asAccessory = await (supabase as any)
       .from(COMPATIBILITY_TABLE)
       .select(
         'id, product_id, origem, status, product:products!product_id(id, name, sku, category, price_brl)',
       )
-      .eq('accessory_id', accessoryId)
+      .eq('accessory_id', productId)
       .order('created_at', { ascending: true })
 
-    if (error) {
-      if (isMissingTable(error)) return { links: [], unavailable: true }
-      throw error
+    if (asAccessory.error) {
+      if (isMissingTable(asAccessory.error))
+        return { links: [], reverseLinks: [], unavailable: true }
+      throw asAccessory.error
     }
 
-    const links: CompatibilityLink[] = ((data || []) as any[]).map((row) => ({
-      id: row.id,
-      productId: row.product_id,
-      name: row.product?.name ?? '(produto removido)',
-      sku: row.product?.sku ?? null,
-      category: row.product?.category ?? null,
-      priceBrl: row.product?.price_brl == null ? null : Number(row.product.price_brl),
-      origem: row.origem,
-      status: row.status,
-    }))
-    return { links, unavailable: false }
+    const asMain = await (supabase as any)
+      .from(COMPATIBILITY_TABLE)
+      .select(
+        'id, accessory_id, origem, status, product:products!accessory_id(id, name, sku, category, price_brl)',
+      )
+      .eq('product_id', productId)
+      .order('created_at', { ascending: true })
+
+    if (asMain.error) {
+      if (isMissingTable(asMain.error)) return { links: [], reverseLinks: [], unavailable: true }
+      throw asMain.error
+    }
+
+    const map = (rows: any[], otherKey: 'product_id' | 'accessory_id'): CompatibilityLink[] =>
+      ((rows || []) as any[]).map((row) => ({
+        id: row.id,
+        productId: row[otherKey],
+        name: row.product?.name ?? '(produto removido)',
+        sku: row.product?.sku ?? null,
+        category: row.product?.category ?? null,
+        priceBrl: row.product?.price_brl == null ? null : Number(row.product.price_brl),
+        origem: row.origem,
+        status: row.status,
+      }))
+
+    return {
+      links: map(asAccessory.data, 'product_id'),
+      reverseLinks: map(asMain.data, 'accessory_id'),
+      unavailable: false,
+    }
   },
 
   /** Cria vínculo manual já aprovado (origem manual, status aprovado). */
@@ -120,14 +194,14 @@ export const compatibilityService = {
       throw new Error('Não é possível vincular um produto a ele mesmo.')
     }
 
-    // Regra: vínculo é sempre acessório ↔ produto principal. Busca o flag dos dois lados.
+    // Regras: acessório ↔ principal, ou principal ↔ principal entre categorias diferentes.
     const { data, error: fetchError } = await supabase
       .from('products')
-      .select('id, is_accessory')
+      .select('id, is_accessory, category_id, category')
       .in('id', [accessoryId, productId])
 
     if (fetchError) throw fetchError
-    const rows = (data || []) as { id: string; is_accessory: boolean | null }[]
+    const rows = (data || []) as ProductRuleRow[]
     const accessorySide = rows.find((r) => r.id === accessoryId)
     const productSide = rows.find((r) => r.id === productId)
 
@@ -140,15 +214,62 @@ export const compatibilityService = {
       )
     }
     if (!accessorySide.is_accessory && !productSide.is_accessory) {
-      throw new Error(
-        'Vínculo recusado: nenhum dos produtos está marcado como acessório. Um vínculo de compatibilidade deve partir de um acessório (marque o produto como acessório antes de vinculá-lo).',
-      )
+      // Principal ↔ principal é permitido SOMENTE entre categorias diferentes.
+      const mainMainError = validateMainMainPair(accessorySide, productSide)
+      if (mainMainError) throw new Error(mainMainError)
     }
 
     const { error } = await (supabase as any).from(COMPATIBILITY_TABLE).upsert(
       {
         accessory_id: accessoryId,
         product_id: productId,
+        origem: 'manual',
+        status: 'aprovado',
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'accessory_id,product_id' },
+    )
+    if (error) throw error
+  },
+
+  /**
+   * Modo "a partir do produto principal": o admin escolhe o produto PRINCIPAL e designa
+   * acessórios para ele. `designatedId` é o produto designado como acessório (qualquer um,
+   * marcado como acessório ou não). Regras: nunca o próprio produto; acessório ↔ acessório
+   * recusado; principal ↔ principal só entre categorias diferentes. Nasce manual + aprovado.
+   */
+  async addMainProductLink(mainProductId: string, designatedId: string): Promise<void> {
+    if (mainProductId === designatedId) {
+      throw new Error('Não é possível vincular um produto a ele mesmo.')
+    }
+
+    const { data, error: fetchError } = await supabase
+      .from('products')
+      .select('id, is_accessory, category_id, category')
+      .in('id', [mainProductId, designatedId])
+
+    if (fetchError) throw fetchError
+    const rows = (data || []) as ProductRuleRow[]
+    const designated = rows.find((r) => r.id === designatedId)
+    const main = rows.find((r) => r.id === mainProductId)
+
+    if (!designated || !main) {
+      throw new Error('Produto não encontrado no catálogo. Recarregue a busca e tente novamente.')
+    }
+    if (designated.is_accessory && main.is_accessory) {
+      throw new Error(
+        'Vínculo recusado: os dois produtos estão marcados como acessório. Um vínculo de compatibilidade deve ligar um acessório a um produto principal.',
+      )
+    }
+    if (!designated.is_accessory && !main.is_accessory) {
+      const mainMainError = validateMainMainPair(designated, main)
+      if (mainMainError) throw new Error(mainMainError)
+    }
+
+    const { error } = await (supabase as any).from(COMPATIBILITY_TABLE).upsert(
+      {
+        accessory_id: designatedId,
+        product_id: mainProductId,
         origem: 'manual',
         status: 'aprovado',
         updated_at: new Date().toISOString(),

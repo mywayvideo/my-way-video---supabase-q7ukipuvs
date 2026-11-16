@@ -32,7 +32,7 @@ import { cn } from '@/lib/utils'
  *   3. Faça tudo no mesmo commit da feature.
  */
 
-export const HELP_VERSION = 'v0.0.819'
+export const HELP_VERSION = 'v0.0.824'
 export const HELP_LAST_UPDATED = '15/11/2026'
 
 export type HelpBlockType =
@@ -167,17 +167,29 @@ export const CATEGORIES_HELP_TOPICS: HelpTopic[] = [
         text: 'Na aba "Compatibilidade" do catálogo você registra, à mão, com quais produtos cada acessório funciona. Esse vínculo é uma afirmação técnica (acessório ↔ produto compatível) e NÃO se confunde com "produtos relacionados", que é uma sugestão comercial.',
       },
       {
+        type: 'paragraph',
+        text: 'Há dois modos de vínculo no alternador do topo: "A partir do acessório" (fluxo clássico, útil para vincular os acessórios legados) e "A partir do produto principal" (o principal designa seus acessórios). A listagem é bidirecional nos dois modos: abrindo o produto principal você vê os acessórios designados a ele; abrindo um acessório você vê os principais aos quais ele serve.',
+      },
+      {
         type: 'steps',
         items: [
-          'Busque o acessório pelo nome ou SKU e clique em "Selecionar". A busca do acessório lista SOMENTE produtos marcados como acessório (is_accessory = true) — produtos principais não aparecem aqui.',
+          'Modo "A partir do acessório": busque o acessório pelo nome ou SKU e clique em "Selecionar". A busca do acessório lista SOMENTE produtos marcados como acessório (is_accessory = true) — produtos principais não aparecem aqui.',
           'A lista "Produtos compatíveis vinculados" mostra o que já está gravado para esse acessório.',
           'Busque o produto compatível pelo nome ou SKU e clique em "Vincular". A busca do passo 3 lista SOMENTE produtos principais (is_accessory = false) — nenhum acessório aparece na lista de candidatos, então não há risco de vincular acessório com acessório. O vínculo é gravado como manual e aprovado na hora.',
           'Para desfazer, clique na lixeira ao lado do vínculo. A remoção é imediata.',
         ],
       },
       {
+        type: 'steps',
+        items: [
+          'Modo "A partir do produto principal": escolha o produto principal (is_accessory = false) e clique em "Selecionar".',
+          'Na segunda barra de busca, digite o nome ou SKU e clique em "Designar". Essa busca NÃO filtra por is_accessory: qualquer produto do sistema pode ser designado como acessório — baterias, memórias, cabos e itens de qualquer categoria, mesmo sem marcação de acessório. O próprio produto já vem excluído da busca.',
+          'O vínculo nasce com origem "manual" e status "aprovado". Para desfazer, clique na lixeira ao lado.',
+        ],
+      },
+      {
         type: 'warning',
-        text: 'O vínculo é sempre acessório ↔ produto principal. O serviço recusa a gravação quando os dois lados são acessórios (ou quando nenhum deles é), com mensagem explicativa — além dos filtros das buscas, essa validação roda no ato de salvar.',
+        text: 'Regras de gravação (valem nos dois modos): acessório ↔ principal é sempre aceito; principal ↔ principal só é aceito entre CATEGORIAS diferentes (ex.: uma bateria de "Batteries & Chargers" para uma câmera de "Cameras") e recusado na mesma categoria; acessório ↔ acessório é sempre recusado; um produto não pode vincular-se a ele mesmo. Todas as recusas aparecem com mensagem explicativa — a validação roda no ato de salvar, além dos filtros das buscas.',
       },
       {
         type: 'info',

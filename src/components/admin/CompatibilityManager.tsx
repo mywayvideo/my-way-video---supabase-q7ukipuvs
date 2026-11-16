@@ -149,8 +149,8 @@ export function CompatibilityManager() {
     try {
       await compatibilityService.addMainProductLink(mainProduct.id, candidate.id)
       toast({ title: 'Vínculo criado', description: candidate.name })
-      setMainDesignatedResults([])
-      setMainDesignatedTerm('')
+      // Mantém a lista de candidatos visível (como no fluxo legado): o item designado
+      // passa a aparecer marcado como "Já designado" via reverseIds após o loadLinks.
       await loadLinks(mainProduct.id)
     } catch (err: any) {
       toast({ title: 'Erro ao vincular', description: err?.message, variant: 'destructive' })
@@ -459,7 +459,9 @@ export function CompatibilityManager() {
                 {mainDesignatedResults.length > 0 && (
                   <ul className="divide-y divide-border/50 border border-border/50 rounded-md">
                     {mainDesignatedResults.map((item) => {
-                      const already = linkedIds.has(item.id)
+                      // O vínculo designado fica no lado reverso (principal como product_id),
+                      // então checar reverseIds além de linkedIds.
+                      const already = linkedIds.has(item.id) || reverseIds.has(item.id)
                       return (
                         <li
                           key={item.id}

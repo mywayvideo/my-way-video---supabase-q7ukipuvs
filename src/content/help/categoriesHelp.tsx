@@ -184,6 +184,7 @@ export const CATEGORIES_HELP_TOPICS: HelpTopic[] = [
         items: [
           'Modo "A partir do produto principal": escolha o produto principal (is_accessory = false) e clique em "Selecionar".',
           'Na segunda barra de busca, digite o nome ou SKU e clique em "Designar". Essa busca NÃO filtra por is_accessory: qualquer produto do sistema pode ser designado como acessório — baterias, memórias, cabos e itens de qualquer categoria, mesmo sem marcação de acessório. O próprio produto já vem excluído da busca.',
+          'Após clicar em "Designar", a lista de candidatos continua visível — o item designado passa a aparecer com o botão "Já designado" (desabilitado), e você pode designar vários acessórios em sequência sem redigitar a busca.',
           'O vínculo nasce com origem "manual" e status "aprovado". Para desfazer, clique na lixeira ao lado.',
         ],
       },

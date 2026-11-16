@@ -288,7 +288,8 @@ export const compatibilityService = {
   /**
    * Busca PÚBLICA (página do produto): acessórios designados a este produto
    * como principal, somente status "aprovado". Retorna os campos que o card
-   * público precisa (id, nome, imagem, preço).
+   * padrão do site (ProductCard) precisa: id, nome, imagem, preços, flag de
+   * descontinuado e a marca embutida (manufacturers).
    * ATENÇÃO: products NÃO tem colunas slug/images (não inventadas aqui) —
    * pedir essas colunas faz o PostgREST devolver 42703/PGRST e a seção sumir.
    */
@@ -299,12 +300,19 @@ export const compatibilityService = {
       image_url: string | null
       price_usd: number | null
       price_brl: number | null
+      price_nationalized_sales: number | null
+      price_nationalized_currency: string | null
+      price_usa_rebate: number | null
+      price_cost_rebate: number | null
+      date_rebate: string | null
+      weight: number | null
+      manufacturers: { name: string } | null
     }[]
   > {
     const { data, error } = await (supabase as any)
       .from(COMPATIBILITY_TABLE)
       .select(
-        `accessory:products!product_compatibilities_accessory_id_fkey!inner(id, name, image_url, price_usd, price_brl, is_discontinued)`,
+        `accessory:products!product_compatibilities_accessory_id_fkey!inner(id, name, image_url, price_usd, price_brl, is_discontinued, price_nationalized_sales, price_nationalized_currency, price_usa_rebate, price_cost_rebate, date_rebate, weight, manufacturers(name))`,
       )
       .eq('product_id', productId)
       .eq('status', 'aprovado')

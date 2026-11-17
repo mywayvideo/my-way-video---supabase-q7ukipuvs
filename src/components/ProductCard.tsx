@@ -12,6 +12,7 @@ import { QuantityModal } from '@/components/QuantityModal'
 import { usePricing } from '@/hooks/use-pricing'
 import { useProductDiscount } from '@/hooks/useProductDiscount'
 import { calculateFinalPrice } from '@/utils/pricing'
+import { useWhatsappNumber } from '@/hooks/use-whatsapp'
 
 /**
  * Selo discreto "tem acessórios" (Fase 3): só aparece na LISTAGEM por
@@ -56,6 +57,7 @@ export function ProductCard({
 
   const { secondaryPrice, isLoading: pricingLoading } = usePricing(product)
   const productDiscount = useProductDiscount(product, !!discountData)
+  const { openWhatsapp } = useWhatsappNumber()
 
   if (!product) return null
 
@@ -389,10 +391,9 @@ export function ProductCard({
             onClick={(e) => {
               e.preventDefault()
               e.stopPropagation()
-              const msg = encodeURIComponent(
+              openWhatsapp(
                 `Olá, gostaria de uma cotação personalizada para o produto: ${productName}`,
               )
-              window.open(`https://wa.me/5561981815050?text=${msg}`, '_blank')
             }}
           >
             <MessageCircle className="w-4 h-4 shrink-0" />

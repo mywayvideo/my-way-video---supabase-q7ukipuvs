@@ -14,6 +14,7 @@ import { Order } from '@/types/order'
 import { orderService } from '@/services/orderService'
 import { supabase } from '@/lib/supabase/client'
 import { Link } from 'react-router-dom'
+import { useWhatsappNumber } from '@/hooks/use-whatsapp'
 import { formatOrderDateTime } from '@/utils/formatters'
 import {
   formatCurrencyByCountry,
@@ -45,6 +46,7 @@ export function OrderDetailsModal({
   const [order, setOrder] = useState<any | null>(null)
   const [loading, setLoading] = useState(false)
   const [extraAddresses, setExtraAddresses] = useState<any>({ shipping: null, billing: null })
+  const { whatsappNumber } = useWhatsappNumber()
 
   useEffect(() => {
     if (open && orderId) {
@@ -161,7 +163,7 @@ export function OrderDetailsModal({
     const msg = encodeURIComponent(
       `Olá! Gostaria de solicitar suporte para o meu pedido.\n\n*Número do Pedido:* ${order?.order_number}\n*Cliente:* ${customerName}\n\n*Como podemos ajudar?* (Descreva sua necessidade abaixo):\n`,
     )
-    window.open(`https://api.whatsapp.com/send?text=${msg}`, '_blank')
+    window.open(`https://wa.me/${whatsappNumber}?text=${msg}`, '_blank')
   }
 
   return (

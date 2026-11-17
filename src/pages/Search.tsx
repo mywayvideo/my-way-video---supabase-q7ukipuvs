@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { performAISearch } from '@/services/ai-search'
 import { searchProducts } from '@/services/database-search'
+import { useWhatsappNumber } from '@/hooks/use-whatsapp'
 
 export default function Search() {
   const [searchParams] = useSearchParams()
@@ -22,6 +23,7 @@ export default function Search() {
   const [loading, setLoading] = useState(false)
   const [aiResponse, setAiResponse] = useState<any>(null)
   const [products, setProducts] = useState<any[]>([])
+  const { openWhatsapp } = useWhatsappNumber()
 
   useEffect(() => {
     const handleClear = () => {
@@ -170,12 +172,7 @@ export default function Search() {
                   <Button
                     size="lg"
                     className="bg-[#25D366] hover:bg-[#1DA851] text-white shadow-md hover:shadow-lg transition-all"
-                    onClick={() =>
-                      window.open(
-                        `https://wa.me/17867161170?text=${encodeURIComponent(`Dúvida técnica: "${query}"`)}`,
-                        '_blank',
-                      )
-                    }
+                    onClick={() => openWhatsapp(`Dúvida técnica: "${query}"`)}
                   >
                     <MessageCircle className="w-5 h-5 mr-2" /> Falar com Especialista
                   </Button>

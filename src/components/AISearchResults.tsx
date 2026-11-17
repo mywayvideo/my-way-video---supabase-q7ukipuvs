@@ -11,6 +11,7 @@ import { AILoader } from '@/components/AI/AILoader'
 import { processProductImages, type ProductImageInfo } from '@/utils/productImageProcessor'
 import { getProxiedImageUrl } from '@/lib/image-proxy'
 import { debugLog, debugGroup, debugGroupEnd, safeLen } from '@/utils/debug-front'
+import { useWhatsappNumber } from '@/hooks/use-whatsapp'
 
 interface Product {
   id: string
@@ -47,6 +48,7 @@ export function AISearchResults({
   isAdmin,
 }: AISearchResultsProps) {
   const { addItem } = useCart()
+  const { openWhatsapp } = useWhatsappNumber()
   const containerRef = useRef<HTMLDivElement>(null)
   const prevLoadingRef = useRef(isLoading)
 
@@ -244,10 +246,9 @@ export function AISearchResults({
             <Button
               className="w-full bg-green-600 hover:bg-green-700 text-white sm:w-auto shrink-0"
               onClick={() => {
-                const text = encodeURIComponent(
+                openWhatsapp(
                   `Olá! Gostaria de falar com um especialista sobre o seguinte resultado da IA:\n\n${result.content?.substring(0, 150)}...`,
                 )
-                window.open(`https://wa.me/5511999999999?text=${text}`, '_blank')
               }}
             >
               Falar com Especialista

@@ -10,6 +10,7 @@ import { supabase } from '@/lib/supabase/client'
 import { useAuth } from '@/hooks/use-auth'
 import { toast } from '@/hooks/use-toast'
 import { cartService } from '@/services/cartService'
+import { useWhatsappNumber } from '@/hooks/use-whatsapp'
 
 interface CartItem {
   id: string
@@ -36,6 +37,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<CartItem[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const { user } = useAuth()
+  const { openWhatsapp } = useWhatsappNumber()
 
   const loadLocalCart = useCallback(() => {
     try {
@@ -104,10 +106,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
           description:
             'Este item requer consultoria técnica. Redirecionando para um especialista...',
         })
-        const msg = encodeURIComponent(
-          `Olá, gostaria de uma cotação personalizada para o produto: ${p.name}`,
-        )
-        window.open(`https://wa.me/5561981815050?text=${msg}`, '_blank')
+        openWhatsapp(`Olá, gostaria de uma cotação personalizada para o produto: ${p.name}`)
         return
       }
 

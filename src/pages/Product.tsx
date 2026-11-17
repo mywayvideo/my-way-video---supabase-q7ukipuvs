@@ -43,6 +43,7 @@ import { type AIConsultantResult } from '@/hooks/use-ai-consultant'
 import { ProductCard } from '@/components/ProductCard'
 import { NcmTaxTooltip } from '@/components/NcmTaxTooltip'
 import { CompatibleAccessoriesSection } from '@/components/product/CompatibleAccessoriesSection'
+import { useWhatsappNumber } from '@/hooks/use-whatsapp'
 // COMENTARIO PARA FORÇAR DEPLOY - 0001
 
 const formatNCM = (ncm?: string | number | null) => {
@@ -146,6 +147,7 @@ export default function Product() {
   const { isAnimating, trigger: triggerAnimation } = useHeartAnimation() as any
   const { user: authUser, isLoading: isAuthLoading } = useAuthState()
   const [localAIResult, setLocalAIResult] = useState<AIConsultantResult | null>(null)
+  const { openWhatsapp } = useWhatsappNumber()
 
   const { originalPrice, discountedPrice, discountPercentage, ruleName, isRebateActive } =
     useProductDiscount(product)
@@ -850,10 +852,9 @@ export default function Product() {
                   size="lg"
                   disabled={product.is_discontinued}
                   onClick={() => {
-                    const msg = encodeURIComponent(
+                    openWhatsapp(
                       `Olá, gostaria de uma cotação personalizada para o produto: ${product.name}`,
                     )
-                    window.open(`https://wa.me/5561981815050?text=${msg}`, '_blank')
                   }}
                   className={cn(
                     'flex-1 h-14 text-base font-semibold shadow-lg transition-all bg-emerald-600 hover:bg-emerald-700 text-white',
